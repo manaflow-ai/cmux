@@ -30,9 +30,9 @@ DEBUG builds get a **Debug** menu in the macOS menu bar. When the user says "deb
 
 - Custom drag-and-drop UTTypes must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations`.
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
-- `WindowTerminalHostView.hitTest()` in `Sources/TerminalWindowPortal.swift` runs on every event including keyboard. Add no work outside the `isPointerEvent` guard.
+- `WindowTerminalHostView.hitTest()` in `Sources/TerminalWindowPortal.swift` runs on every event including keyboard. Add no work outside the `allowsPortalPointerHitTesting` guard in `performHitTest`.
 - `TabItemView` in `Sources/ContentView.swift` uses `Equatable` plus `.equatable()` to skip body re-evaluation during typing. Do not add environment/store/binding reads without updating `==` and keeping `.equatable()` at the call site.
-- `TerminalSurface.forceRefresh()` in `Sources/GhosttyTerminalView.swift` runs on every keystroke. No allocations, file I/O, or formatting.
+- `TerminalSurface.forceRefresh()` in `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ForceRefresh.swift` runs on every keystroke. No allocations, file I/O, or formatting.
 - `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift`, not from SwiftUI panel containers.
 - Views below a `LazyVStack` / `LazyHStack` / `List` / `ForEach` boundary receive immutable snapshots plus closures, never an observable store.
 - Functions called from SwiftUI `body` must not mutate state or schedule store writes.
