@@ -114,3 +114,11 @@ test("two nightly Macs on one account: the opted-in host admits the discovering 
   expect(names(dialer.inboundPeers.map((p: any) => p.device))).toEqual(["phone-alice"]);
   expect(dialer.rules).toContain("cmux.mac-peer-inbound.v1");
 });
+
+test("the iOS directory path never receives Mac-to-Mac inbound grants", async () => {
+  const post = client("ios-isolation");
+  expect((await post("/nightly-pair")).status).toBe(200);
+  const ios = (await post("/directory", { device: "phone-alice" })).body.directory;
+  expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-host");
+  expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-dialer");
+});
