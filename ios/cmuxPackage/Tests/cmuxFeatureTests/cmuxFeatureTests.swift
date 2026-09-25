@@ -6,6 +6,16 @@ import CmuxMobileRPC
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
 import CmuxMobileTransport
+
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
 import CmuxMobileWorkspace
 import Foundation
 import StackAuth
@@ -188,7 +198,10 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+    let result = await store.connectPairingURLResult(
+        try payload.encodedURL(pairingURLScheme: pairingScheme)
+            .absoluteString
+    )
 
     #expect(result == .needsUserApproval)
     #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)

@@ -854,7 +854,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let result = try XCTUnwrap(resultBox.load())
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stdout.contains("CMUX_DELAYED_RELAY_OK"), result.stdout + result.stderr)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("CMUX_DELAYED_RELAY_OK"),
+            result.stdout + result.stderr
+        )
         XCTAssertFalse(result.stderr.contains("credential prompt timed out"), result.stderr)
         XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
         XCTAssertFalse((result.stdout + result.stderr).contains("lease-token"))
@@ -1116,20 +1119,29 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] = "86400"
         environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] = "0.1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: cliPath,
             arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
+        // The second countdown is the real signal that the attach kept retrying
+        // instead of exiting, so the test never waits out the retry budget.
+        XCTAssertTrue(
+            child.waitForStandardError(containing: "Retrying in 0.1s (attempt 2).", timeout: 20),
+            child.standardOutput + child.standardError
+        )
+        // The mock fulfills when its connection closes. Stop the persistent
+        // client after observing progress, before waiting for that teardown.
+        child.terminate()
         wait(for: [serverHandled], timeout: 5)
-        XCTAssertTrue(result.timedOut, result.stdout + result.stderr)
-        XCTAssertTrue(result.stderr.contains("Retrying in 0.1s (attempt 1)."), result.stderr)
-        XCTAssertFalse(result.stderr.contains("attempt 1/86400"), result.stderr)
+        XCTAssertTrue(child.standardError.contains("Retrying in 0.1s (attempt 1)."), child.standardError)
+        XCTAssertFalse(child.standardError.contains("attempt 1/86400"), child.standardError)
+        XCTAssertFalse(child.standardError.contains("/86400"), child.standardError)
         XCTAssertGreaterThanOrEqual(
             state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }.count,
-            1
+            2
         )
     }
 

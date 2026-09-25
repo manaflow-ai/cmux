@@ -19,6 +19,16 @@ on:
 
 permissions: {}
 
+env:
+  # `workflows:` above can only spell a display name, which is presentation and
+  # not identity: renaming that workflow would stop this one from triggering at
+  # all, with nothing red to say so. This records the file that must carry the
+  # name, tests/test_ci_workflow_run_sources.py derives the name from the file,
+  # and the step below confirms it again at run time against the run's own
+  # `path` -- display names are not unique, and the workflow_run object that
+  # arrives here carries the stable path and workflow id next to the name.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/merge-group-policy-checks.yml
+
 jobs:
   watch:
     name: watch merge group run
@@ -30,15 +40,22 @@ jobs:
       - name: Locate and watch the merge-group CI run
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_PATH: ${{ github.event.workflow_run.path }}
           SOURCE_EVENT: ${{ github.event.workflow_run.event }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # The CI run is located by workflow file, never by display name.
           CI_RUNS: repos/${{ github.repository }}/actions/workflows/ci.yml/runs
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
+          if [ "$SOURCE_PATH" != "$SOURCE_WORKFLOW_PATHS" ]; then
+            echo "::error::Started by $SOURCE_PATH, not $SOURCE_WORKFLOW_PATHS; refusing to cancel anything."
+            exit 1
+          fi
+
           if [ "$SOURCE_EVENT" != "merge_group" ]; then
-            echo "::error::Merge-group policy checks unexpectedly ran for '$SOURCE_EVENT'."
+            echo "::error::$SOURCE_WORKFLOW_PATHS unexpectedly ran for '$SOURCE_EVENT'."
             exit 1
           fi
 

@@ -14,7 +14,9 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
-            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
+            // the default-mode contract below is the same on every build.
+            defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -39,9 +41,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             }
 
             // Files/Find/Vault are always present; Machines follows the Cloud
-            // Machines beta toggle, which is off by default on every build
-            // (cleared above) unless a managed profile forces Cloud off, and
-            // feed/dock stay off.
+            // Machines beta toggle (pinned off above), and feed/dock stay off.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
             XCTAssertFalse(machinesAvailable)
             XCTAssertEqual(contributions.count, 3)

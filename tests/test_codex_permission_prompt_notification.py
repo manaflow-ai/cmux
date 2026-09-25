@@ -28,8 +28,8 @@ from test_codex_feed_hooks import (
     FAKE_WORKSPACE_ID,
     FakeCmuxSocket,
 )
-
 from test_codex_monitor_memory import test_codex_monitor_rss_reaches_a_plateau
+
 
 EXPECTED_NOTIFY = {
     "kind": "agent.approval.requested", "source": "codex",

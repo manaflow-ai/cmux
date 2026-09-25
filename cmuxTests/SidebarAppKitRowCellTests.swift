@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -628,7 +629,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
             )
         )
@@ -666,6 +667,37 @@ struct SidebarAppKitRowCellTests {
         let expectedLink = try Self.resolvedColor(NSColor.linkColor, in: darkAppearance)
         let renderedSRGB = try Self.resolvedColor(rendered, in: darkAppearance)
         #expect(Self.distance(renderedSRGB, expectedLink) < 0.001)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+    }
+
+    @Test
+    func customWorkspaceDescriptionColorOverridesRowStateAndLinkColor() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let defaults = Self.makeDefaults()
+        let key = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
+        defaults.set("#A6E3A1", forKey: key)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.workspaceDescriptionColorHex == "#A6E3A1")
+
+        let model = Self.makeModel(
+            isActive: true,
+            settings: settings,
+            customDescription: url.absoluteString
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        let expected = try #require(NSColor(hex: "#A6E3A1"))
+        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        let expectedSRGB = try #require(expected.usingColorSpace(.sRGB))
+
+        #expect(Self.distance(renderedSRGB, expectedSRGB) < 0.001)
         #expect(
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
@@ -1012,11 +1044,10 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let attributedAccessibilityLink = try #require(
-            textView.attributedStringValue.attribute(
-                .accessibilityLink,
-                at: linkLocation,
-                effectiveRange: nil
-            ) as? SidebarRowTextAccessibilityLink
+            textView.accessibilityAttributedString(
+                for: NSRange(location: linkLocation, length: 1)
+            )?.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
         )
 
         #expect(accessibilityLink === attributedAccessibilityLink)
@@ -1341,7 +1372,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: attributed.length)
             )
         )

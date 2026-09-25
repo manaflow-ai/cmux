@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSettings
 import Foundation
 import Testing
@@ -155,11 +156,20 @@ struct CloudNightlyOverrideTests {
 
     @Test(arguments: [nil, false, true] as [Bool?])
     func stableIgnoresPersistedOverrideAndRejectsWrites(remote: Bool?) throws {
+        // A stable identity disables overrides; it does not turn a DEBUG test
+        // host into a Release build or change the flag's compiled fallback.
+        #if DEBUG
+        let unavailableDefault = true
+        #else
+        let unavailableDefault = false
+        #endif
+        let expectedValue = remote ?? unavailableDefault
+        let persistedOverride = !expectedValue
         let suite = "cmux.cloud.stable.override.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let dogfood = CmuxFeatureFlags(defaults: defaults, overrideCapability: nightly)
-        dogfood.setOverride(true, for: cloud)
+        dogfood.setOverride(persistedOverride, for: cloud)
         let stable = CmuxFeatureFlags(
             defaults: defaults,
             overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
@@ -168,18 +178,18 @@ struct CloudNightlyOverrideTests {
         stable.applyLoadedFlags()
         let row = InternalFlagRowSnapshot(definition: cloud, flags: stable)
         #expect(!row.resolution.allowsLocalOverride)
-        #expect(row.resolution.effectiveValue == (remote ?? false))
+        #expect(row.resolution.effectiveValue == expectedValue)
         #expect(row.resolution.source == (remote == nil ? .default : .remote))
         #expect(row.overrideNote == String(
             localized: "featureFlags.override.remoteControlledNote",
             defaultValue: "Controlled remotely; local override inactive."
         ))
-        stable.setOverride(false, for: cloud)
-        #expect(stable.overrideValue(for: cloud) == true)
+        stable.setOverride(!persistedOverride, for: cloud)
+        #expect(stable.overrideValue(for: cloud) == persistedOverride)
         stable.clearAllOverrides()
         stable.setOverride(true, for: cloud)
         #expect(stable.overrideValue(for: cloud) == nil)
-        #expect(stable.isCloudMachinesEnabled == (remote ?? false))
+        #expect(stable.isCloudMachinesEnabled == expectedValue)
     }
 
     @Test

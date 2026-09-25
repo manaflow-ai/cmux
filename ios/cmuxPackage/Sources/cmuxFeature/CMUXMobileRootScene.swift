@@ -36,7 +36,7 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
     private let macListAuthState: MobileMacListAuthState
-    private let auth: MobileAuthComposition
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
     private let analyticsClientID: String?
@@ -387,7 +387,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.taskComposerPreviewEnabled {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+            ComputerPickerPersistencePreviewView()
+        } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.pushTabNavigationPreviewEnabled {
             PushTabNavigationPreviewView()
@@ -532,7 +534,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },

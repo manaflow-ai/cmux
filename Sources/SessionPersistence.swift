@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
 import CmuxCore
@@ -1010,26 +1011,10 @@ enum SurfaceResumeApprovalStore {
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
-        guard binding.launchFlavor == .local else {
+        guard isMainThread, !isRunningTests else {
             return false
         }
-        guard isMainThread else {
-            return false
-        }
-        guard !isRunningTests else {
-            return false
-        }
-        guard !binding.isCLIBinding else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        return proposalNeedsApproval(binding: binding, existingRecord: existingRecord)
     }
 
     static func applyingPromptlessCLIManualApprovalIfNeeded(

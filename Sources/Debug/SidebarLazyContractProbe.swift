@@ -8,6 +8,8 @@ import SwiftUI
 ///
 /// Same pattern as `MinimalModeInvalidationProbe`; compiled out of Release.
 struct SidebarLazyContractProbe {
+    /// Armed only during a test's measured transition; never observes app state.
+    var shouldTraceBodyChanges: (() -> Bool)?
     var workspaceRowBody: (() -> Void)?
     var workspaceRowBodyEnd: (() -> Void)?
     var groupHeaderRowBody: (() -> Void)?

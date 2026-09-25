@@ -1,16 +1,24 @@
 import { sql, type SQL } from "drizzle-orm";
 
 /** A human can use shared accounts and their own private imports. A machine
- * gets only its assigned pool, never its creator's personal account access. */
+ * gets only its assigned pool, never its creator's personal account access.
+ * A chatmux machine (chatmuxVmToken.ts) has no pool: it gets exactly the
+ * accounts its team shares. */
 export type CoderouterAccountAccess =
   | { readonly kind: "user"; readonly userId: string }
-  | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null };
+  | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null }
+  | { readonly kind: "team-machine"; readonly teamId: string; readonly machineId: string };
 
 export function accountAccessForIdentity(identity: {
   readonly stackUserId: string;
   readonly vmId: string | null;
   readonly poolId?: string | null;
+  readonly teamId?: string;
+  readonly machine?: "chatmux";
 }): CoderouterAccountAccess {
+  if (identity.machine === "chatmux") {
+    return { kind: "team-machine", teamId: identity.teamId ?? "", machineId: identity.vmId ?? "" };
+  }
   return identity.vmId === null
     ? { kind: "user", userId: identity.stackUserId }
     : { kind: "vm", vmId: identity.vmId, poolId: identity.poolId ?? null };
@@ -28,6 +36,11 @@ export function accountAccessPredicate(
   if (!access) return sql`true`;
   if (access.kind === "user") {
     return sql`(${account.visibility} = 'team' or ${account.createdBy} = ${access.userId})`;
+  }
+  if (access.kind === "team-machine") {
+    // Only what the machine's own team shares; an empty team id matches nothing.
+    if (!access.teamId) return sql`false`;
+    return sql`(${account.visibility} = 'team' and ${account.teamId} = ${access.teamId})`;
   }
   if (access.poolId === null) return sql`false`;
   // Personal scopes use the user id as their team id. Their owner’s private
@@ -52,6 +65,7 @@ export function accountAccessPredicate(
 /** The caller's session key is not a security namespace. */
 export function scopedSessionKey(key: string | null, access?: CoderouterAccountAccess): string | null {
   if (!key || !access) return key;
+  if (access.kind === "team-machine") return JSON.stringify(["team-machine", access.machineId, key]);
   return JSON.stringify(access.kind === "vm"
     ? ["vm", access.vmId, access.poolId, key]
     : ["user", access.userId, key]);

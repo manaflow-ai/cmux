@@ -318,13 +318,13 @@ import Testing
         let historicalAlias = paired(
             id: "mac-before-rename",
             displayName: "Old Name",
-            instanceTag: "old-tag",
+            instanceTag: "renamed-tag",
             seenAt: .distantPast
         )
         let currentIdentity = paired(
             id: "mac-after-rename",
             displayName: "New Name",
-            instanceTag: "new-tag",
+            instanceTag: "renamed-tag",
             seenAt: Date()
         )
         let shell = MobileShellComposite(
@@ -343,7 +343,7 @@ import Testing
             Self.snapshot([
                 Self.instance(
                     deviceID: historicalAlias.macDeviceID,
-                    tag: "old-tag",
+                    tag: "renamed-tag",
                     online: true
                 ),
             ]),
@@ -394,13 +394,13 @@ import Testing
         let historicalAlias = paired(
             id: "mac-auth-before-rename",
             displayName: "Old Name",
-            instanceTag: "old-tag",
+            instanceTag: "renamed-tag",
             seenAt: .distantPast
         )
         let currentIdentity = paired(
             id: "mac-auth-after-rename",
             displayName: "New Name",
-            instanceTag: "new-tag",
+            instanceTag: "renamed-tag",
             seenAt: Date()
         )
         let pairedStore = DelayedTeamPairedMacStore(
@@ -473,7 +473,7 @@ import Testing
             isActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
-            instanceTag: "old-aggregate-tag"
+            instanceTag: "aggregate-tag"
         )
         let currentIdentity = MobilePairedMac(
             macDeviceID: "mac-aggregate-after-rename",
@@ -484,7 +484,7 @@ import Testing
             isActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
-            instanceTag: "new-aggregate-tag"
+            instanceTag: "aggregate-tag"
         )
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -1401,6 +1401,7 @@ import Testing
             )
         }
         store.foregroundMacDeviceID = focused.macDeviceID
+        store.activeMacInstanceTag = focused.instanceTag
         store.activeRoute = focusedRoute
 
         let candidates = store.secondaryAggregationCandidateMacs(
@@ -1982,6 +1983,14 @@ import Testing
 
     @Test func storedAuthorityReplacementDrainsOldControlBeforeRedial()
         async throws {
+        // A stored authority replacement is a legacy untagged pairing claimed
+        // by an authenticated build tag: the store moves that one row to the
+        // tagged key. Two different tags are sibling builds (Stable and
+        // Nightly) with their own rows, so they cannot model a replacement.
+        let legacyKey = MacPairingKey(
+            macDeviceID: "mac-authority-replacement",
+            instanceTag: nil
+        )
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -2001,7 +2010,7 @@ import Testing
             macDeviceID: "mac-authority-replacement",
             displayName: "Authority Replacement Mac",
             routes: [route],
-            instanceTag: "tag-a",
+            instanceTag: nil,
             markActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
@@ -2010,7 +2019,7 @@ import Testing
         let router = LivenessHostRouter()
         await router.setHostIdentity(
             deviceID: "mac-authority-replacement",
-            instanceTag: "tag-a",
+            instanceTag: nil,
             displayName: "Authority Replacement Mac"
         )
         let closeGate = LivenessTransportCloseGate()
@@ -2034,10 +2043,16 @@ import Testing
         )
         await shell.loadPairedMacs()
         await shell.refreshSecondaryMacWorkspaces()
+        // Let the owner's initial workspace refresh settle so the full refresh
+        // below is what retires it. A refresh still in flight when the row is
+        // claimed retires the owner itself; see
+        // revokedRefreshRetirementStillRedialsStoredAuthorityReplacement.
         #expect(try await pollUntil {
-            shell.secondaryMacSubscriptions[
-                MacPairingKey(macDeviceID: "mac-authority-replacement", instanceTag: "tag-a")
-            ] != nil
+            guard let subscription = shell.secondaryMacSubscriptions[legacyKey]
+            else { return false }
+            return subscription.refreshTask == nil
+                && subscription.deferredRefreshTask == nil
+                && shell.workspacesByMac[legacyKey] != nil
         })
         let firstHostStatusCount = await router.count(
             of: "mobile.host.status"
@@ -2066,14 +2081,10 @@ import Testing
                 == firstHostStatusCount
         )
         #expect(
-            shell.secondaryMacSubscriptions[
-                MacPairingKey(macDeviceID: "mac-authority-replacement", instanceTag: "tag-a")
-            ] == nil
+            shell.secondaryMacSubscriptions[legacyKey] == nil
         )
         #expect(
-            shell.secondaryMacDrainReservations[
-                MacPairingKey(macDeviceID: "mac-authority-replacement", instanceTag: "tag-a")
-            ] != nil
+            shell.secondaryMacDrainReservations[legacyKey] != nil
         )
         #expect(shell.secondaryAggregationRetryTask == nil)
 
@@ -2090,6 +2101,131 @@ import Testing
             shell.secondaryMacSubscriptions[
                 MacPairingKey(macDeviceID: "mac-authority-replacement", instanceTag: "tag-b")
             ] != nil
+        })
+    }
+
+    @Test func revokedRefreshRetirementStillRedialsStoredAuthorityReplacement()
+        async throws {
+        let legacyKey = MacPairingKey(
+            macDeviceID: "mac-revoked-replacement",
+            instanceTag: nil
+        )
+        let claimedKey = MacPairingKey(
+            macDeviceID: "mac-revoked-replacement",
+            instanceTag: "tag-b"
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "revoked-replacement",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_585)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-revoked-replacement",
+            displayName: "Revoked Replacement Mac",
+            routes: [route],
+            instanceTag: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "mac-revoked-replacement",
+            instanceTag: nil,
+            displayName: "Revoked Replacement Mac"
+        )
+        let closeGate = LivenessTransportCloseGate()
+        let clock = ControlPoolManualClock()
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(
+                    router: router,
+                    box: TransportBox(),
+                    closeGate: closeGate
+                ),
+                now: { Date() }
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            presence: IdlePresence(),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-1" },
+            controlPlaneSchedulingClock: clock,
+            connectionHandoffDrainTimeoutNanoseconds: 1_000_000
+        )
+        await shell.loadPairedMacs()
+        await shell.refreshSecondaryMacWorkspaces()
+        #expect(try await pollUntil {
+            guard let subscription = shell.secondaryMacSubscriptions[legacyKey]
+            else { return false }
+            return subscription.refreshTask == nil
+                && subscription.deferredRefreshTask == nil
+                && shell.workspacesByMac[legacyKey] != nil
+        })
+        let firstHostStatusCount = await router.count(
+            of: "mobile.host.status"
+        )
+
+        // Park the legacy owner's next workspace refresh, then claim its row
+        // for tag-b. The refresh resumes, reads its authority as revoked, and
+        // retires the owner without a retry of its own.
+        await router.holdNextWorkspaceListRequests()
+        let parkedRefresh = Task { @MainActor in
+            await shell.refreshSecondaryMacWorkspaces()
+        }
+        #expect(try await pollUntil { await router.heldRequestCount() == 1 })
+        try await pairedStore.upsert(
+            macDeviceID: "mac-revoked-replacement",
+            displayName: "Revoked Replacement Mac",
+            routes: [route],
+            instanceTag: "tag-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-1",
+            now: Date()
+        )
+        await router.setHostIdentity(
+            deviceID: "mac-revoked-replacement",
+            instanceTag: "tag-b",
+            displayName: "Revoked Replacement Mac"
+        )
+        await router.releaseNextHeld()
+        #expect(await closeGate.waitUntilCloseStarted())
+        await parkedRefresh.value
+        #expect(shell.secondaryMacSubscriptions[legacyKey] == nil)
+        #expect(shell.secondaryMacDrainReservations[legacyKey] != nil)
+
+        // The replacement is wanted but must wait for the old transport.
+        await shell.refreshSecondaryMacWorkspaces()
+        #expect(
+            await router.count(of: "mobile.host.status")
+                == firstHostStatusCount
+        )
+        #expect(shell.secondaryMacSubscriptions[claimedKey] == nil)
+        #expect(shell.secondaryAggregationRetryTask == nil)
+
+        await closeGate.release()
+        #expect(try await pollUntil {
+            shell.secondaryAggregationRetryTask != nil
+        })
+        clock.advance(by: .seconds(2))
+        #expect(await router.waitForCount(
+            of: "mobile.host.status",
+            atLeast: firstHostStatusCount + 1
+        ))
+        #expect(try await pollUntil {
+            shell.secondaryMacSubscriptions[claimedKey] != nil
         })
     }
 
@@ -3621,7 +3757,10 @@ import Testing
             probeTimeoutNanoseconds: 1_000_000_000
         )
         let macDeviceID = try #require(shell.foregroundMacDeviceID)
-        let connection = try #require(shell.connections[macDeviceID])
+        let connection = try #require(shell.connections[MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: shell.activeMacInstanceTag
+        )])
         let initialSubscribeCount =
             await router.count(of: "mobile.events.subscribe")
         await router.delaySubscribeRequest(

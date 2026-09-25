@@ -3,7 +3,8 @@ public import CMUXAuthCore
 public extension AuthCoordinator {
     /// Persist a team selection on Stack Auth before changing the local
     /// projection. Every UI surface uses this action so a rejected request
-    /// leaves the current cloud scope and open work untouched.
+    /// leaves the current cloud scope and open work untouched. The persistence
+    /// request is bounded by the coordinator's network timeout.
     /// - Parameter id: A team id from ``availableTeams``.
     func selectTeam(id: String?) async throws {
         if let id, !availableTeams.contains(where: { $0.id == id }) {
@@ -12,7 +13,10 @@ public extension AuthCoordinator {
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
         let sessionGeneration = self.sessionGeneration
-        try await client.setSelectedTeam(id: id)
+        let client = self.client
+        try await runPhase(.teamSelection, timeout: timeouts.network) {
+            try await client.setSelectedTeam(id: id)
+        }
         guard sessionGeneration == self.sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {

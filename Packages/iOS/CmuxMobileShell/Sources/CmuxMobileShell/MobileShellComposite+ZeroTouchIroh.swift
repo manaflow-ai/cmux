@@ -156,7 +156,7 @@ extension MobileShellComposite {
         // Some authenticated rows can persist even if their first workspace
         // snapshot fails. Reload once after the admission pass so every proven
         // peer appears immediately with its accurate availability state.
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         if !transientFailureMacIDs.isEmpty {
             // These candidates are not persisted until authentication succeeds,
             // so the normal stored-row retry cannot find them. Preserve the

@@ -95,6 +95,7 @@ printf 'cmd LC_BUILD_VERSION\\n sdk %s\\n' "$sdk"
 ''')
         self.tool('bin/xcodebuild', '''#!/bin/bash
 set -eu
+if [[ "$1" == -version ]]; then printf 'Xcode 26.3\\nBuild version fixture\\n'; exit; fi
 archs=""
 for arg in "$@"; do case "$arg" in ARCHS=*) archs="${arg#ARCHS=}" ;; esac; done
 [[ -n "$archs" ]] || exit 1
@@ -104,13 +105,19 @@ for file in Contents/MacOS/cmux Contents/Resources/bin/cmux Contents/Resources/b
   printf '%s\\n' "$archs" > "$app/$file"; chmod +x "$app/$file"
 done
 ''')
+        self.tool('bin/xcrun', '#!/bin/bash\nprintf "26C123\\n"\n')
         self.tool('bin/codesign', '#!/bin/bash\nexit 0\n')
         self.tool('scripts/verify-diff-sidecar-artifact.sh', '#!/bin/bash\nexit 0\n')
         self.tool('tests/test_install_cmux_tui_client.sh', '#!/bin/bash\nexit 0\n')
         self.tool('scripts/install-cmux-tui-client.sh', '''#!/bin/bash
 set -eu
 app="$1"; shift
-[[ $# == 2 && "$1" == --arch ]] || exit 2
+[[ $# == 6 && "$1" == --manifest-url ]] || exit 2
+[[ "$2" == https://example.test/fixture-manifest.json ]] || exit 2
+shift 2
+[[ "$1" == --expected-commit && "$2" == aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]] || exit 2
+shift 2
+[[ "$1" == --arch ]] || exit 2
 case "$2" in arm64) archs=arm64 ;; universal) archs="arm64 x86_64" ;; *) exit 2 ;; esac
 printf '%s\\n' "$archs" > "$app/Contents/Resources/bin/cmux-tui"
 chmod +x "$app/Contents/Resources/bin/cmux-tui"
@@ -149,12 +156,17 @@ chmod +x "$app/Contents/Resources/bin/cmux-tui"
         self.context['inputs']['release_archs'] = dispatch
         self.run_step(self.step('swift-package-tests', identifier='release-archs'))
         self.run_step(self.step('swift-package-tests', name=lambda n: n.startswith('Build ') and n.endswith('Ghostty CLI helper')))
+        self.run_step(self.step('swift-package-tests', identifier='ghostty-helper-identity'))
         outputs = {k: render(v, self.context) for k, v in WORKFLOW['jobs']['swift-package-tests'].get('outputs', {}).items()}
         self.context['needs']['swift-package-tests'] = {'outputs': outputs}
         # Model a distinct consumer: producer step outputs are not in scope.
         self.context['steps'] = {}
 
     def consume(self):
+        self.context['steps']['release-tui'] = {'outputs': {
+            'commit': 'a' * 40,
+            'manifest_url': 'https://example.test/fixture-manifest.json',
+        }}
         self.run_step(self.step('release-build', name=lambda n: n == 'Build app (Release)'))
         self.run_step(self.step('release-build', name=lambda n: n.startswith('Install ') and ('Ghostty' in n or 'helpers' in n)))
         self.run_step(self.step('release-build', name=lambda n: n == 'Validate Release artifact slices'))

@@ -231,11 +231,20 @@ extension MobileShellComposite {
     /// connection method. Only stored Tailscale routes carrying a device-local
     /// grant remain; Iroh is not retained as a fallback, and a method change
     /// alone grants nothing.
+    ///
+    /// `legacyTailscaleCompatibility` carries the pairing's device-local
+    /// migration grant for the automatic method. It applies only when the
+    /// pairing advertises no authenticated route at all, so a pre-Iroh
+    /// pairing keeps the exact endpoint it used before Iroh shipped instead
+    /// of losing every route the moment Automatic became strict (#10437,
+    /// documented by #11890 and already honored by the connect-time policy
+    /// gate). A pairing with an Iroh identity never sees it.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false,
-        tailscaleRequirement: TailscaleRouteRequirement? = nil
+        tailscaleRequirement: TailscaleRouteRequirement? = nil,
+        legacyTailscaleCompatibility: TailscaleRouteRequirement? = nil
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         var ordered = CmxAttachRoute.addingIrohPrivatePaths(
@@ -263,7 +272,17 @@ extension MobileShellComposite {
         // alongside Iroh as the dev-build convenience — same-machine lane,
         // not a cross-method fallback — so an Iroh endpoint that advertises
         // no relays and no direct addresses cannot starve it.
-        return ordered.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+        let authenticated = ordered.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
+        if authenticated.isEmpty, let legacyTailscaleCompatibility {
+            return ordered.filter { route in
+                legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: legacyTailscaleCompatibility.macDeviceID,
+                    persistedRoutes: legacyTailscaleCompatibility.grantRoutes
+                ) != nil
+            }
+        }
+        return authenticated
     }
 
     /// The dial order for one stored Mac, honoring the user's connection-method
@@ -283,6 +302,12 @@ extension MobileShellComposite {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: method == .tailscale
+                ? TailscaleRouteRequirement(
+                    macDeviceID: mac.macDeviceID,
+                    grantRoutes: mac.legacyTailscaleRoutes ?? []
+                )
+                : nil,
+            legacyTailscaleCompatibility: method == .automatic
                 ? TailscaleRouteRequirement(
                     macDeviceID: mac.macDeviceID,
                     grantRoutes: mac.legacyTailscaleRoutes ?? []
@@ -382,7 +407,9 @@ extension MobileShellComposite {
                     )
                     return
                 }
-                if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
+                if await self.isScopeCurrent(scope) {
+                    await self.loadPairedMacs(forceRefresh: true)
+                }
             }
         }
         registryRouteRefreshTask = task
@@ -411,7 +438,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
-        guard foregroundRefreshLifecycleState != .active else { return }
+        guard foregroundRefreshLifecycleState != .active else { return }; workspacePresenceAnnouncer?.setWorkspaceViewing(true)
         foregroundRefreshLifecycleState = .active
         foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
@@ -449,7 +476,7 @@ extension MobileShellComposite {
     /// must not call this: they do not suspend the process and canceling a
     /// useful recovery there makes wake latency depend on interruption churn.
     public func suspendForegroundRefresh() {
-        guard foregroundRefreshLifecycleState != .background else { return }
+        guard foregroundRefreshLifecycleState != .background else { return }; workspacePresenceAnnouncer?.setWorkspaceViewing(false)
         foregroundRefreshLifecycleState = .background
         foregroundRefreshIsActive = false
         if connectionRecoveryOwner.cancelProbing() {

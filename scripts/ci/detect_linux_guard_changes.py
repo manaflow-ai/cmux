@@ -7,60 +7,54 @@ import argparse
 import json
 from pathlib import Path
 
-from workflow_guard_groups import GROUPS, groups_for_path
-
-
-ROUTES = (
-    "linux_guard_tests", "linux_guard_history", "linux_guard_cli",
-    "linux_guard_source", "ghosttykit_release",
+from workflow_guard_groups import (
+    GROUPS, GUARD_WORKFLOW, PATH_OWNERS, ROUTING_POLICY_PATHS,
+    GuardWorkflowError, groups_for_path, route_direct_paths,
 )
-CLI_INPUTS = {
-    "Resources/bin/start-cmux-profiling",
-    "scripts/ci/resolve-cmux-tui-client-commit.sh",
-    "tests/test_start_cmux_profiling.sh",
-    "tests/test_ci_resolve_cmux_tui_client_commit.sh",
+
+
+GUARD_ROUTES = (
+    "linux_guard_tests", "linux_guard_history", "linux_guard_cli", "linux_guard_source",
+)
+ROUTES = GUARD_ROUTES + ("ghosttykit_release",)
+
+# Inputs a guard step exercises without naming them in its `run:`. Everything a
+# step runs directly is read out of ci-guards.yml instead of being listed here,
+# so a renamed or deleted guard step cannot leave a stale route behind.
+INDIRECT_ROUTE_INPUTS = {
+    # The two CLI contracts each exercise the script they are named after.
+    "linux_guard_cli": frozenset({
+        "Resources/bin/start-cmux-profiling",
+        "scripts/ci/resolve-cmux-tui-client-commit.sh",
+    }),
+    # workflow-guard-tests reads these through an import, a working directory,
+    # or yaml.safe_load; PATH_OWNERS is the one place they are declared.
+    "linux_guard_tests": frozenset(PATH_OWNERS),
 }
-HISTORY_INPUTS = {
-    "scripts/check-package-resolved-policy.py",
-    "tests/test_package_resolved_policy_remote_inputs.py",
-    "tests/test_check_package_resolved_policy.py",
-}
-# Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
-# New tests and skill files retain the conservative fallback until mapped.
-WORKFLOW_TEST_INPUTS = {
-    # Reusable workflow/control changes are exercised by workflow-guard-tests;
-    # they do not need the unrelated history, CLI, or source-lint jobs.
-    ".github/workflows/ci-macos.yml",
-    ".github/workflows/ci-web.yml",
-    ".github/workflows/web-complexity.yml",
-    ".github/workflows/web-complexity-trusted.yml",
-    "tests/test_web_complexity_trusted_workflow.py",
-    "scripts/ci/build_input_fingerprint.py",
-    "scripts/ci/find_admitted_build.py",
-    "scripts/ci/app_host_test_products.py",
-    "scripts/ci/compile-app-host-test-product.sh",
-    "scripts/ci/product_input_identity.py",
-    "scripts/ci/peer_product_source.py",
-    "scripts/ci/restore-app-host-test-product.sh",
-    "scripts/ci/reuse_app_host_products.py",
-    "scripts/ci/sanitize-xcode-source-packages-cache.py",
-    "scripts/ci/persistent_mac_route.py",
-    "scripts/ci/build_graph_health.py",
-    "tests/test_build_graph_health.py",
-    "scripts/ci/swift_incremental_diagnostics.py",
-    "tests/test_ci_persistent_mac_compile.py",
-    "tests/test_swift_incremental_diagnostics.py",
-    "tests/test_ci_self_hosted_guard.sh",
-    ".github/review-fabric-policy.json",
-    ".github/review-fabric.md",
-    ".github/scripts/review_fabric.py",
-    "tests/test_review_fabric.py",
-    "tests/test_cloud_vm_skill_coverage.py",
-    "skills/cmux-cloud-vm/SKILL.md",
-    "skills/cmux-cloud-vm/references/commands.md",
-    "skills/cmux-cloud-vm/references/agent-workflows.md",
-    "skills/cmux-cloud-vm/references/guest.md",
-}
+
+# ghosttykit-release-check lives in ci.yml, not ci-guards.yml, so this module
+# cannot see that it owns the pinned GhosttyKit artifact. A submodule bump keeps
+# the conservative fallback even though workflow-guard-tests also reads it.
+GHOSTTYKIT_PROVENANCE = frozenset({"ghostty"})
+
+
+def route_inputs() -> dict[str, frozenset[str]] | None:
+    """Map each guard route to the paths that route's job observes.
+
+    Returns None when ci-guards.yml cannot be read, so the caller falls open to
+    every guard rather than routing from a half-known workflow.
+    """
+    try:
+        derived = route_direct_paths(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, GuardWorkflowError):
+        return None
+    if set(derived) != set(GUARD_ROUTES):
+        return None
+    return {
+        route: frozenset(derived[route] | INDIRECT_ROUTE_INPUTS.get(route, frozenset()))
+        - ROUTING_POLICY_PATHS - GHOSTTYKIT_PROVENANCE
+        for route in GUARD_ROUTES
+    }
 
 
 def plain_documentation(path: str) -> bool:
@@ -78,6 +72,9 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     all_guards = dict.fromkeys(ROUTES, True)
     if event != "pull_request" or macos not in {"true", "false"} or not paths:
         return all_guards
+    inputs = route_inputs()
+    if inputs is None:
+        return all_guards
     routes = dict.fromkeys(ROUTES, False)
     routes["ghosttykit_release"] = macos == "true"
     for path in paths:
@@ -88,18 +85,18 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
         # The mixed suite includes source, resource, and packaging contracts.
         # Keep it for code changes until those contracts have finer ownership.
         routes["linux_guard_tests"] = True
-        if path in WORKFLOW_TEST_INPUTS:
-            pass
-        elif path in CLI_INPUTS:
-            routes["linux_guard_cli"] = True
-        elif path in HISTORY_INPUTS:
-            routes["linux_guard_history"] = True
+        observers = [route for route in GUARD_ROUTES if path in inputs[route]]
+        if observers:
+            # A guard job runs this path itself, so only those jobs observe it.
+            for route in observers:
+                routes[route] = True
         elif path.rsplit("/", 1)[-1] in {"Package.swift", "Package.resolved", "project.pbxproj",
                                               "contents.xcworkspacedata", ".gitignore"}:
             routes["linux_guard_history"] = True
             routes["linux_guard_source"] = True
         elif path.startswith(("Sources/", "CLI/", "Resources/", "Packages/",
-                              "cmuxTests/", "cmuxUITests/", "cmux.xcodeproj/",
+                              "cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                              "cmuxUITests/", "cmux.xcodeproj/",
                               "cmux.xcworkspace/", "vendor/bonsplit/", "ios/")):
             routes["linux_guard_source"] = True
         elif path.startswith(("web/", "webviews/", "cmux-tui/")):

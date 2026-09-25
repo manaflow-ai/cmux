@@ -57,6 +57,13 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
+    @State private var teamSelectionFailed = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
@@ -130,10 +137,20 @@ struct MobileSettingsView: View {
                             systemImage: "person.2"
                         )
                     } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.teamFooter",
+                                defaultValue: "Switches which cmux team's computers and devices this app shows."
+                            ))
+                            if teamSelectionFailed {
+                                Text(L10n.string(
+                                    "mobile.settings.teamSwitchFailed",
+                                    defaultValue: "Could not switch teams. Try again."
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobileSettingsTeamSwitchError")
+                            }
+                        }
                     }
                 }
 
@@ -248,6 +265,22 @@ struct MobileSettingsView: View {
                         ))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
+                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing",
+                                defaultValue: "Use Full Terminal Height"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing.description",
+                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
                     Button {
                         showingShortcuts = true
@@ -538,6 +571,8 @@ struct MobileSettingsView: View {
 
                 MobileSettingsLegalSupportSection()
 
+                MobileSettingsResetSection()
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -635,6 +670,7 @@ struct MobileSettingsView: View {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -907,10 +943,32 @@ struct MobileSettingsView: View {
     /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    Task { try? await authManager.selectTeam(id: newValue) }
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                teamSelectionTask?.cancel()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                teamSelectionFailed = false
+                teamSelectionTask = Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                        teamSelectionFailed = true
+                        return
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )

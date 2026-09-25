@@ -1,18 +1,42 @@
 #!/usr/bin/env python3
-"""Declarative ownership for the workflow-guard-tests Linux matrix.
+"""Ownership for the workflow-guard-tests Linux matrix.
+
+Step ownership is read from ci-guards.yml itself: each step's
+`if: ${{ matrix.group == '<group>' }}` names its group, and every path the
+step's `run:` executes directly belongs to that group. Only inputs a step reads
+indirectly are listed by hand in PATH_OWNERS.
+
+Nothing here is a second copy of the workflow, so two pull requests that each
+pass on their own cannot combine into a manifest that disagrees with it.
 
 Unknown paths deliberately return None so the caller can fail open to every
-group. Keep this file data-oriented: tests compare STEP_OWNERS with ci-guards.yml
-and verify directly executed paths route back to their owning group.
+group, and a workflow this module cannot read fails open to every group.
 """
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
+from pathlib import Path
+
+import workload_entrypoints
+
+
+GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-guards.yml"
+GUARD_JOB = "workflow-guard-tests"
+# A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
+DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
+GROUP_CONDITION = re.compile(r"\$\{\{ matrix\.group == '([^']+)' \}\}")
+# A guard job gates itself on the route that selects it, so the workflow also
+# names which route owns which job.
+ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
+JOB_HEADER = re.compile(r"  ([A-Za-z0-9_-]+):\s*$")
 
 GROUPS = (
     "preflight",
     "ci",
     "app-host-execution",
+    "app-host-watchdog",
     "app-host-process",
     "app-host-cache",
     "release-ios",
@@ -23,126 +47,27 @@ GROUPS = (
     "quality-determinism",
 )
 
-# Every step in workflow-guard-tests with an exact matrix.group condition.
-# A step move or rename must update this table in the same change.
-STEP_OWNERS = {
-    "Initialize Ghostty for Zig version guard": "release-tooling",
-    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
-    "Run canonical CMUX CI guard profile": "ci",
-    "Test XCStrings catalog lint": "preflight",
-    "Test macOS localization catalog tooling": "preflight",
-    "Test review fabric contracts": "preflight",
-    "Validate Blacksmith Testbox broker trust boundary": "ci",
-    "Validate build graph health tooling": "preflight",
-    "Validate CI Xcode selection fast path": "release-notary",
-    "Validate CI change area filter": "ci",
-    "Validate CMUX INTERNAL main-push path filter": "release-ios",
-    "Validate CMUX workload profile contract": "ci",
-    "Validate Claude launch environment policy behavior": "preflight",
-    "Validate Claude launch environment policy generation": "preflight",
-    "Validate Computer Use helper notarization behavior": "release-notary",
-    "Validate Ghostty Zig version synchronization": "release-tooling",
-    "Validate Ghostty helper cache failure handling": "release-tooling",
-    "Validate GhosttyKit checksum verification": "release-tooling",
-    "Validate GhosttyKit release check behavior": "release-tooling",
-    "Validate Localizable.xcstrings catalog structure": "preflight",
-    "Validate Pro TestFlight distribution workflow": "release-ios",
-    "Validate Python R2 appcast upload guard": "release-tooling",
-    "Validate Python test harness syntax": "preflight",
-    "Validate Release check architectures": "release-tooling",
-    "Validate Sparkle appcast generation without previous archives": "release-notary",
-    "Validate Sparkle delta finalization": "release-notary",
-    "Validate Sparkle monotonic guard modes": "release-notary",
-    "Validate Swift Testing suite timeout guard": "app-host-execution",
-    "Validate Swift incremental diagnostics tooling": "preflight",
-    "Validate Swift warning budget guard": "release-notary",
-    "Validate TUI npm package artifact transfer": "preflight",
-    "Validate TUI package artifact contract": "preflight",
-    "Validate TestFlight notes generator": "release-ios",
-    "Validate Xcode SourcePackages cache sanitizer": "app-host-cache",
-    "Validate Xcode build metrics receipt": "ci",
-    "Validate Xcode compilation cache pruning": "app-host-cache",
-    "Validate Zig download resume and mirror isolation": "release-tooling",
-    "Validate Zig install without sudo": "release-tooling",
-    "Validate activation benchmark scrollback sizing": "ci",
-    "Validate app bundle license compliance": "release-notary",
-    "Validate app-host failure census": "app-host-process",
-    "Validate app-host guard structure": "ci",
-    "Validate app-host identity and cleanup confirmation": "app-host-process",
-    "Validate app-host process receipts": "app-host-process",
-    "Validate app-host test failure classification": "app-host-process",
-    "Validate app-host user configuration isolation": "app-host-process",
-    "Validate app-host xcodebuild attempt budget": "app-host-execution",
-    "Validate app-host xcodebuild retry guard": "app-host-execution",
-    "Validate auxiliary window close shortcut lint": "quality-determinism",
-    "Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)": "quality-determinism",
-    "Validate bash shell integration job control": "quality-determinism",
-    "Validate bundled-resource incremental outputs": "quality-runtime",
-    "Validate checkout failure network diagnostics": "ci",
-    "Validate cmux scheme test configuration": "app-host-cache",
-    "Validate cmux-cloud-vm skill covers the vm CLI": "preflight",
-    "Validate cmux-tui client installation": "release-tooling",
-    "Validate cmuxTests sharding": "quality-sharding",
-    "Validate control-plane generated types": "preflight",
-    "Validate create-dmg version pinning": "release-notary",
-    "Validate current GhosttyKit checksum pin": "release-tooling",
-    "Validate dev-fleet warm-slot lifecycle": "preflight",
-    "Validate docs deployment authentication guard": "preflight",
-    "Validate embedded cmux.json schema generation": "preflight",
-    "Validate external TestFlight group assignment helper": "release-ios",
-    "Validate focused Dock shortcut routing guard": "quality-determinism",
-    "Validate focused test launcher": "app-host-execution",
-    "Validate iOS App Store lane identity": "release-ios",
-    "Validate isolated app-host home cleanup": "app-host-process",
-    "Validate local build cache preflight": "app-host-cache",
-    "Validate local hook trust boundary": "ci",
-    "Validate macOS runner guards": "preflight",
-    "Validate manual iOS workflow ref resolution": "release-ios",
-    "Validate markdown viewer asset compression": "release-notary",
-    "Validate nightly Xcode selection": "release-notary",
-    "Validate nightly notarization behavior": "release-notary",
-    "Validate nightly prune Python compatibility": "release-tooling",
-    "Validate nightly tag push auth": "release-notary",
-    "Validate notification semantics gates": "ci",
-    "Validate package test selection": "ci",
-    "Validate persistent Mac compile admission contract": "preflight",
-    "Validate pipe-safe CI capture": "app-host-execution",
-    "Validate previous nightly build fetch": "release-notary",
-    "Validate pull request caches are read-only": "ci",
-    "Validate quality guard structure": "ci",
-    "Validate release SDK build lane": "preflight",
-    "Validate release asset guard": "release-notary",
-    "Validate release bundle stripping": "release-notary",
-    "Validate release does not gate on iOS screenshot capture": "release-ios",
-    "Validate release guard structure": "ci",
-    "Validate release tunnel extension identifiers": "release-ios",
-    "Validate release-build timeout guard": "release-notary",
-    "Validate reload shared DerivedData default": "preflight",
-    "Validate required checks report for the merge queue": "ci",
-    "Validate resumable GitHub release publication": "release-notary",
-    "Validate reusable guard workflow structure": "ci",
-    "Validate reusable workflow permission grants": "ci",
-    "Validate selected iOS test execution guard": "app-host-cache",
-    "Validate shallow complexity comparison fetching": "ci",
-    "Validate sidebar extension point generation": "preflight",
-    "Validate stale run cleanup eligibility": "ci",
-    "Validate stalled GhosttyKit downloads resume": "release-tooling",
-    "Validate tagged iOS device entitlement fallback": "release-ios",
-    "Validate tagged reload works without the shared dev backend": "preflight",
-    "Validate test compilation cache seeding": "quality-sharding",
-    "Validate test determinism gate": "quality-determinism",
-    "Validate the R2 cache store script": "ci",
-    "Validate the trusted web complexity workflow": "ci",
-    "Validate unit-test SwiftPM retry guard": "app-host-execution",
-    "Validate universal nightly workflow": "release-notary",
-    "Validate virtual display lock": "quality-runtime",
-    "Validate xcodebuild failure diagnostics": "app-host-execution",
-    "Validate xcodebuild noninteractive crash prompt guard": "app-host-execution",
-}
-
-# Direct executables plus known indirect inputs whose guard ownership is stable.
-# Broad scanners below add their groups on top of these exact owners.
+# Inputs a guard step reads without naming them in its `run:` (a script a test
+# imports, a working-directory, a submodule). Paths a step runs directly are
+# derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+
+    # test_ci_runner_capability_resolver.py reads the capability map, the
+    # resolver it imports, the reusable workflow that publishes the map, and
+    # the one workflow wired to consume it.
+    ".github/runners.json": frozenset(("ci",)),
+    ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
+    ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+
+    ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
+    ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
+    ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
+    # Many groups load the two reusable workflows with yaml.safe_load rather
+    # than naming them in a `run:`, so every group observes an edit to them.
+    ".github/workflows/ci-macos.yml": frozenset(GROUPS),
+    ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -151,139 +76,54 @@ PATH_OWNERS = {
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
     "ghostty": frozenset(("release-tooling",)),
+    "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
-    "ios/tests/tagged-device-entitlements.test.mjs": frozenset(("release-ios",)),
-    "scripts/check-control-plane-types.sh": frozenset(("preflight",)),
-    "scripts/check-test-determinism.py": frozenset(("quality-determinism",)),
+    # validate_test_execution_registry.py reads the recipe for the tests it runs.
+    "scripts/verify-local.py": frozenset(("preflight", "ci")),
+    "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
-    "scripts/ci/cmux_unit_test_shard.py": frozenset(("quality-sharding",)),
-    "scripts/ci/cmux_workload_profile.py": frozenset(("ci",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
-    "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
+    "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+
+    "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
+    "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
+    "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
+    "scripts/ci/ci_health_report.py": frozenset(("ci",)),
+    "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
+    "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
+    "scripts/ci/ci_process_tree.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/hung_test_watchdog.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/run_with_timeout.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    # test_ci_xcodebuild_noninteractive_helper.py loads it by path.
+    "scripts/ci/xcodebuild_noninteractive.py": frozenset(("app-host-watchdog",)),
+    # lint-ios-conventions-diff.sh runs lint-ios-package-conventions.sh, which
+    # runs the namespace linter, which imports the source mask.
+    "scripts/lint_swift_namespaces.py": frozenset(("release-ios",)),
+    "scripts/swift_source_mask.py": frozenset(("release-ios",)),
+    # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
+    "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # detect_ci_change_areas.py imports this to decide the swift-package-tests
+    # route, so the ci group's router tests observe an edit to it even though
+    # no guard step names it in a `run:`.
+    "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
-    "scripts/generate-claude-launch-environment-policy.py": frozenset(("preflight",)),
-    "scripts/generate-cmux-config-schema.py": frozenset(("preflight",)),
-    "scripts/release_asset_guard.test.js": frozenset(("release-notary",)),
+    "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/agent-workflows.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/commands.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
-    "tests/test_app_bundle_license_compliance.sh": frozenset(("release-notary",)),
-    "tests/test_app_host_test_products.py": frozenset(("ci",)),
-    "tests/test_bash_integration_no_done_notifications.py": frozenset(("quality-determinism",)),
-    "tests/test_benchmark_dev_fleet_warm_slots.py": frozenset(("preflight",)),
-    "tests/test_build_graph_health.py": frozenset(("preflight",)),
-    "tests/test_build_app_bundled_resources.sh": frozenset(("quality-runtime",)),
-    "tests/test_build_metrics.py": frozenset(("ci",)),
-    "tests/test_ci_app_host_failure_census.py": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_guard_structure.py": frozenset(("ci",)),
-    "tests/test_ci_app_host_home_cleanup.sh": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_home_isolation.py": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_identity.sh": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_pipe_capture.py": frozenset(("app-host-execution",)),
-    "tests/test_ci_app_host_processes.sh": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_test_output.py": frozenset(("app-host-process",)),
-    "tests/test_ci_app_host_xcodebuild_attempts.sh": frozenset(("app-host-execution",)),
-    "tests/test_ci_app_host_xcodebuild_retry.sh": frozenset(("app-host-execution",)),
-    "tests/test_ci_auxiliary_window_close_shortcuts.sh": frozenset(("quality-determinism",)),
-    "tests/test_ci_change_areas.py": frozenset(("ci",)),
-    "tests/test_ci_checkout_network_diagnostics.py": frozenset(("ci",)),
-    "tests/test_ci_cmux_unit_test_shard.py": frozenset(("quality-sharding",)),
-    "tests/test_ci_create_dmg_pinned.sh": frozenset(("release-notary",)),
-    "tests/test_ci_fetch_complexity_base.py": frozenset(("ci",)),
-    "tests/test_ci_ghosttykit_checksum_present.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_ghosttykit_checksum_verification.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_ghosttykit_download_stall.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_ghosttykit_release_check.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_guard_workflow_structure.py": frozenset(("ci",)),
-    "tests/test_ci_linux_guard_routing.py": frozenset(("ci",)),
-    "tests/test_ci_merge_queue_required_checks.py": frozenset(("ci",)),
-    "tests/test_ci_nightly_prune_python_compat.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_nightly_tag_push_auth.sh": frozenset(("release-notary",)),
-    "tests/test_ci_nightly_xcode_selection.sh": frozenset(("release-notary",)),
-    "tests/test_ci_notification_semantics.py": frozenset(("ci",)),
-    "tests/test_ci_persistent_mac_compile.py": frozenset(("preflight",)),
-    "tests/test_ci_product_publication.py": frozenset(("ci",)),
-    "tests/test_ci_prune_xcode_compilation_cache.py": frozenset(("app-host-cache",)),
-    "tests/test_ci_pull_request_caches_are_read_only.py": frozenset(("ci",)),
-    "tests/test_ci_quality_guard_structure.py": frozenset(("ci",)),
-    "tests/test_ci_r2_cache.sh": frozenset(("ci",)),
-    "tests/test_ci_r2_upload_python.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_release_build_archs.sh": frozenset(("release-tooling",)),
-    "tests/test_ci_release_build_timeout.sh": frozenset(("release-notary",)),
-    "tests/test_ci_release_guard_structure.py": frozenset(("ci",)),
-    "tests/test_ci_release_ios_screenshots_decoupled.sh": frozenset(("release-ios",)),
-    "tests/test_ci_release_sdk_lane.sh": frozenset(("preflight",)),
-    "tests/test_ci_release_tunnel_identifiers.sh": frozenset(("release-ios",)),
-    "tests/test_ci_reusable_workflow_permissions.py": frozenset(("ci",)),
-    "tests/test_ci_run_and_capture.sh": frozenset(("app-host-execution",)),
-    "tests/test_ci_sanitize_xcode_source_packages_cache.py": frozenset(("app-host-cache",)),
-    "tests/test_ci_scheme_testaction_debug.sh": frozenset(("app-host-cache",)),
-    "tests/test_ci_select_package_tests.py": frozenset(("ci",)),
-    "tests/test_ci_self_hosted_guard.sh": frozenset(("preflight",)),
-    "tests/test_ci_swift_warning_budget.sh": frozenset(("release-notary",)),
-    "tests/test_ci_test_compilation_cache_seed.sh": frozenset(("quality-sharding",)),
-    "tests/test_ci_testbox_broker_guard.py": frozenset(("ci",)),
-    "tests/test_ci_unit_test_spm_retry.sh": frozenset(("app-host-execution",)),
-    "tests/test_ci_virtual_display_lock.sh": frozenset(("quality-runtime",)),
-    "tests/test_ci_workload_profiles.py": frozenset(("ci",)),
-    "tests/test_ci_xcode_selection_fast_path.sh": frozenset(("release-notary",)),
-    "tests/test_ci_xcodebuild_noninteractive_helper.py": frozenset(("app-host-execution",)),
-    "tests/test_ci_xcodebuild_with_diagnostics.sh": frozenset(("app-host-execution",)),
-    "tests/test_cleanup_stale_runs.py": frozenset(("ci",)),
-    "tests/test_cloud_vm_skill_coverage.py": frozenset(("preflight",)),
-    "tests/test_compress_markdown_viewer_assets.sh": frozenset(("release-notary",)),
-    "tests/test_dev_fleet_warm_slot.py": frozenset(("preflight",)),
-    "tests/test_dock_shortcut_routing_guard.py": frozenset(("quality-determinism",)),
-    "tests/test_docs_deploy_auth_guard.py": frozenset(("preflight",)),
-    "tests/test_fetch_previous_nightly_dmgs.sh": frozenset(("release-notary",)),
-    "tests/test_finalize_sparkle_deltas.sh": frozenset(("release-notary",)),
-    "tests/test_ghostty_cli_helper_cache.sh": frozenset(("release-tooling",)),
-    "tests/test_ghostty_zig_version_sync.sh": frozenset(("release-tooling",)),
-    "tests/test_github_release_publication.py": frozenset(("release-notary",)),
-    "tests/test_install_cmux_tui_client.sh": frozenset(("release-tooling",)),
-    "tests/test_install_zig_ci_download_resume.sh": frozenset(("release-tooling",)),
-    "tests/test_install_zig_ci_no_sudo.sh": frozenset(("release-tooling",)),
-    "tests/test_ios_appstore_lane_identity.py": frozenset(("release-ios",)),
-    "tests/test_ios_selected_test_execution.py": frozenset(("app-host-cache",)),
-    "tests/test_ios_testflight_external_distribution.py": frozenset(("release-ios",)),
-    "tests/test_ios_testflight_main_push_filter.py": frozenset(("release-ios",)),
-    "tests/test_ios_testflight_notes.py": frozenset(("release-ios",)),
-    "tests/test_ios_testflight_pro_distribution.py": frozenset(("release-ios",)),
-    "tests/test_ios_workflow_dispatch_ref.py": frozenset(("release-ios",)),
-    "tests/test_issue_5164_starship_prompt_composition.py": frozenset(("quality-determinism",)),
-    "tests/test_lint_xcstrings.py": frozenset(("preflight",)),
-    "tests/test_local_build_cache_policy.py": frozenset(("app-host-cache",)),
-    "tests/test_local_build_cache_preflight.py": frozenset(("app-host-cache",)),
-    "tests/test_localizable_xcstrings_structure.py": frozenset(("preflight",)),
-    "tests/test_localization_catalog.py": frozenset(("preflight",)),
-    "tests/test_localize_changes.py": frozenset(("preflight",)),
-    "tests/test_nightly_universal_build.sh": frozenset(("release-notary",)),
-    "tests/test_notarize_computer_use_helper.sh": frozenset(("release-notary",)),
-    "tests/test_notarize_nightly_dmg.sh": frozenset(("release-notary",)),
-    "tests/test_perf_activation_scrollback_sizing.py": frozenset(("ci",)),
-    "tests/test_preflight_trust.py": frozenset(("ci",)),
-    "tests/test_reload_local_backend_mode.sh": frozenset(("preflight",)),
-    "tests/test_reload_shared_derived_data.sh": frozenset(("preflight",)),
-    "tests/test_reuse_app_host_products.py": frozenset(("ci",)),
-    "tests/test_review_fabric.py": frozenset(("preflight",)),
-    "tests/test_run_e2e.py": frozenset(("app-host-execution",)),
-    "tests/test_sparkle_build_monotonic_modes.sh": frozenset(("release-notary",)),
-    "tests/test_sparkle_generate_appcast_no_deltas.sh": frozenset(("release-notary",)),
-    "tests/test_strip_release_bundle.sh": frozenset(("release-notary",)),
-    "tests/test_swift_incremental_diagnostics.py": frozenset(("preflight",)),
-    "tests/test_swift_testing_suite_timeout.py": frozenset(("app-host-execution",)),
-    "tests/test_tui_npm_package_artifact.py": frozenset(("preflight",)),
-    "tests/test_tui_package_contract.py": frozenset(("preflight",)),
-    "tests/test_web_complexity_trusted_workflow.py": frozenset(("ci",)),
-    "tests/test_write_sidebar_extension_point.py": frozenset(("preflight",)),
+    "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
 # Changes here can alter which required work runs. They always exercise every
@@ -294,12 +134,12 @@ ROUTING_POLICY_PATHS = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
+    "scripts/ci/workload_entrypoints.py",
+    "scripts/ci/cmux-workload-profiles.json",
     "tests/test_ci_change_areas.py",
+    "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
-    "tests/test_ci_app_host_guard_structure.py",
-    "tests/test_ci_quality_guard_structure.py",
-    "tests/test_ci_release_guard_structure.py",
 })
 
 DETERMINISM_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
@@ -312,10 +152,199 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/",
+    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                        "cmuxUITests/", "ios/cmuxUITests/",
                         "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
+
+
+class GuardWorkflowError(ValueError):
+    """ci-guards.yml does not have the shape the step scanner reads."""
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1]
+    return value
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _job_body(text: str, job_name: str) -> list[str]:
+    lines = text.splitlines()
+    try:
+        start = lines.index(f"  {job_name}:") + 1
+    except ValueError as error:
+        raise GuardWorkflowError(f"job {job_name} not found") from error
+    end = next(
+        (index for index in range(start, len(lines))
+         if lines[index].strip() and _indent(lines[index]) <= 2
+         and not lines[index].lstrip().startswith("#")),
+        len(lines),
+    )
+    return lines[start:end]
+
+
+def job_names(text: str) -> tuple[str, ...]:
+    """Every top-level job in the guard workflow, in file order."""
+    _, marker, body = text.partition("\njobs:\n")
+    if not marker:
+        raise GuardWorkflowError("workflow has no jobs: block")
+    names: list[str] = []
+    for line in body.splitlines():
+        match = JOB_HEADER.fullmatch(line)
+        if match is None:
+            continue
+        if match.group(1) in names:
+            raise GuardWorkflowError(f"duplicate job {match.group(1)!r}")
+        names.append(match.group(1))
+    if not names:
+        raise GuardWorkflowError("workflow declares no jobs")
+    return tuple(names)
+
+
+def job_steps(text: str, job_name: str = GUARD_JOB) -> tuple[dict[str, str], ...]:
+    """Return the scalar fields of each step in one job.
+
+    The router runs on the runner's bare python3, which has no PyYAML, so this
+    reads the job with a small line scanner. The guard tests check that it
+    agrees with yaml.safe_load on the real workflow.
+    """
+    job = _job_body(text, job_name)
+    try:
+        steps_at = next(index for index, line in enumerate(job) if line.rstrip() == "    steps:")
+    except StopIteration as error:
+        raise GuardWorkflowError(f"{job_name} has no steps") from error
+
+    steps: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    index = steps_at + 1
+    while index < len(job):
+        line = job[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        if line.startswith("      - "):
+            current = {}
+            steps.append(current)
+            line = "        " + line[len("      - "):]
+        elif _indent(line) < 8:
+            raise GuardWorkflowError(f"unexpected line in {job_name} steps: {line!r}")
+        if current is None:
+            raise GuardWorkflowError(f"{job_name} step content before the first step")
+        index += 1
+        if _indent(line) != 8:
+            continue  # nested mapping such as `with:` values
+        match = re.fullmatch(r"\s*([A-Za-z0-9_-]+):(?:\s+(.*))?", line.rstrip())
+        if match is None:
+            raise GuardWorkflowError(f"unreadable step line: {line!r}")
+        key, value = match.group(1), (match.group(2) or "").strip()
+        if value[:1] in {"|", ">"}:
+            block: list[str] = []
+            while index < len(job) and (not job[index].strip() or _indent(job[index]) > 8):
+                block.append(job[index])
+                index += 1
+            while block and not block[-1].strip():
+                block.pop()
+            depth = min((_indent(item) for item in block if item.strip()), default=0)
+            current[key] = "\n".join(item[depth:] for item in block)
+        else:
+            current[key] = _unquote(value)
+    if not steps:
+        raise GuardWorkflowError(f"{job_name} has no steps")
+    return tuple(steps)
+
+
+def guard_steps(text: str) -> tuple[dict[str, str], ...]:
+    """The workflow-guard-tests steps."""
+    return job_steps(text, GUARD_JOB)
+
+
+def step_owners(text: str) -> dict[str, str]:
+    """Map each group-conditioned step name to its group."""
+    owners: dict[str, str] = {}
+    for step in guard_steps(text):
+        match = GROUP_CONDITION.fullmatch(step.get("if", ""))
+        if match is None:
+            continue
+        name = step.get("name", "")
+        if not name or name in owners:
+            raise GuardWorkflowError(f"group-conditioned step name missing or repeated: {name!r}")
+        owners[name] = match.group(1)
+    return owners
+
+
+def run_paths(run: str) -> list[str]:
+    """Paths a `run:` executes, including through a workload profile."""
+    paths = DIRECT_PATH.findall(run)
+    try:
+        profiles = workload_entrypoints.entrypoints(run)
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise GuardWorkflowError(f"cannot resolve a workload profile: {error}") from error
+    for entrypoint, script in profiles:
+        paths.append(entrypoint)
+        paths.extend(DIRECT_PATH.findall(script))
+    return paths
+
+
+def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
+    """Map each path a group-conditioned step runs directly to its groups."""
+    owners: dict[str, set[str]] = {}
+    for step in guard_steps(text):
+        match = GROUP_CONDITION.fullmatch(step.get("if", ""))
+        if match is None:
+            continue
+        for path in run_paths(step.get("run", "")):
+            owners.setdefault(path, set()).add(match.group(1))
+    return {path: frozenset(groups) for path, groups in owners.items()}
+
+
+def job_route(text: str, job_name: str) -> str | None:
+    """The workflow input that gates a job, from its own top-level `if:`."""
+    for line in _job_body(text, job_name):
+        if _indent(line) != 4:
+            continue
+        key, separator, value = line.strip().partition(":")
+        if key == "if" and separator:
+            match = ROUTE_CONDITION.fullmatch(_unquote(value))
+            return match.group(1) if match else None
+        if not separator:
+            continue
+    return None
+
+
+def route_direct_paths(text: str) -> dict[str, frozenset[str]]:
+    """Map each guard route to the paths its job's steps run directly.
+
+    A guard job names the route that selects it (`if: inputs.<route> ==
+    'true'`) and names the tests and scripts it runs. Both halves of "which
+    diffs does this guard observe" therefore already live in ci-guards.yml,
+    and the router reads them instead of keeping a parallel copy.
+    """
+    routes: dict[str, set[str]] = {}
+    for job_name in job_names(text):
+        route = job_route(text, job_name)
+        if route is None:
+            continue
+        paths = routes.setdefault(route, set())
+        for step in job_steps(text, job_name):
+            paths.update(run_paths(step.get("run", "")))
+    if not routes:
+        raise GuardWorkflowError("no job is gated on a workflow input")
+    return {route: frozenset(paths) for route, paths in routes.items()}
+
+
+@lru_cache(maxsize=1)
+def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
+    try:
+        return direct_path_owners(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, GuardWorkflowError):
+        return None
 
 
 def groups_for_path(path: str) -> tuple[str, ...] | None:
@@ -323,7 +352,12 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
     if path in ROUTING_POLICY_PATHS:
         return GROUPS
 
+    derived = _workflow_path_owners()
+    if derived is None:
+        return GROUPS
+
     owners = set(PATH_OWNERS.get(path, ()))
+    owners.update(derived.get(path, ()))
     if _python_syntax_scan(path):
         owners.add("preflight")
     if _determinism_scan(path):
