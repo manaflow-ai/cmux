@@ -110,6 +110,28 @@ def names_compile_job(name: object, compile_name: str) -> bool:
     return last == compile_name or last.startswith(f"{compile_name} (")
 
 
+# ci-macos.yml's compile admission ends with this step, which fails the job
+# when the caller's fast Linux gate declined. It runs only after every earlier
+# step succeeded, so a job that failed there built and published its product.
+GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
+
+
+def compile_job_admitted(job: object) -> bool:
+    """Whether a completed compile job produced its product: it succeeded, or
+    failed only because the fast Linux gate declined its consumers."""
+    if not isinstance(job, dict) or job.get("status", "completed") != "completed":
+        return False
+    if job.get("conclusion") == "success":
+        return True
+    steps = job.get("steps")
+    return job.get("conclusion") == "failure" and isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") == GATE_DECLINE_STEP
+        and step.get("conclusion") == "failure"
+        for step in steps
+    )
+
+
 # Build controls the product contract hashes. Only non-secret values belong
 # here, because the contract is published in the artifact receipt.
 #
@@ -572,8 +594,9 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 jobs.extend(batch)
                 if len(batch) < 100:
                     break
-            # The compile job must finish successfully; unrelated producer tests
-            # may still be running because no test result is reused here.
+            # The compile job must finish successfully, or be declined by the
+            # fast Linux gate after publishing; unrelated producer tests may
+            # still be running because no test result is reused here.
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job
             # through ci-macos.yml. Match the final segment.
@@ -583,7 +606,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             compile_job = next((job for job in jobs
                                 if names_compile_job(job.get("name"), compile_name)
                                 and job.get("status") == "completed"
-                                and job.get("conclusion") == "success"), None)
+                                and compile_job_admitted(job)), None)
             if compile_job is None:
                 record_reason(reasons, "producer_compile_unsuccessful")
                 continue
