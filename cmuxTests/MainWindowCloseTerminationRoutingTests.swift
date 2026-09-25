@@ -81,20 +81,27 @@ private func evaluateCloseOutsideXCTest(
     defer { ApplicationTerminateSpy.uninstall() }
 
     let shouldClose = try body()
-    // The quit path hands NSApp.terminate to a later main-queue turn (#10788).
+    // The quit path hands NSApp.terminate to a later run-loop turn (#10788).
     // Drain it while the spy is still installed so the real terminate never runs.
     drainMainQueue()
     return (shouldClose, ApplicationTerminateSpy.callCount)
 }
 
+/// Set from a run-loop block and read by the draining loop on the same thread.
+private final class MainRunLoopDrainFlag: @unchecked Sendable {
+    var drained = false
+}
+
 @MainActor
 private func drainMainQueue() {
     let deadline = Date(timeIntervalSinceNow: 1.0)
-    var drained = false
-    DispatchQueue.main.async {
-        drained = true
+    let flag = MainRunLoopDrainFlag()
+    // A run-loop block, not DispatchQueue.main.async: this test body is itself a
+    // main-queue job, so a GCD sentinel would never run from this nested loop.
+    RunLoop.main.perform(inModes: [.default]) {
+        flag.drained = true
     }
-    while !drained {
+    while !flag.drained {
         if Date() >= deadline {
             Issue.record("Timed out draining main queue")
             return

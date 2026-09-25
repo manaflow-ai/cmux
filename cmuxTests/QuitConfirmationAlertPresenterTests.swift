@@ -27,9 +27,10 @@ struct QuitConfirmationAlertPresenterTests {
     /// answers `.terminateLater` and its `@MainActor` cleanup continuation can
     /// never start while the main queue is still inside that block.
     ///
-    /// The quit path must therefore hand the terminate back to the main queue
-    /// and return, which is what this asserts: nothing terminates during the
-    /// call, and the terminate still lands on a later main-queue turn.
+    /// The quit path must therefore hand the terminate to a run-loop block
+    /// (outside any main-queue callout) and return, which is what this asserts:
+    /// nothing terminates during the call, and the terminate still lands on a
+    /// later run-loop turn.
     @Test
     func quitTerminationIsDeferredOutOfTheCallersMainQueueBlock() async {
         let recorder = TerminateRequestRecorder()
@@ -43,10 +44,10 @@ struct QuitConfirmationAlertPresenterTests {
             "terminate ran inside the caller's main-queue block; the .terminateLater cleanup task could never start behind it"
         )
 
-        // The main queue is serial and FIFO, so once this later block runs the
+        // Run-loop blocks run in FIFO order, so once this later block runs the
         // scheduled terminate must already have been delivered.
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
+            RunLoop.main.perform(inModes: [.default]) {
                 continuation.resume()
             }
         }

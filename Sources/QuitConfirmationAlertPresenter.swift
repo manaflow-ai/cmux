@@ -118,21 +118,23 @@ extension AppDelegate {
     ///
     /// `applicationShouldTerminate` can answer `.terminateLater` and finish the
     /// quit from a `Task { @MainActor }` (owned runtime cleanup plus the fresh
-    /// session snapshot). That continuation is queued behind whatever the main
-    /// queue is currently running, so a caller that is itself a queued
-    /// main-queue block never lets it start: the debug socket hops to the main
-    /// queue with `DispatchQueue.main.sync`, so `simulate_shortcut cmd+q`
-    /// deadlocked the app — the socket worker waited on the hop, `terminate`
-    /// waited on the cleanup reply, and the cleanup task waited on the hop's
-    /// block to return (issue #10788). Keyboard Cmd+Q escaped it only because
-    /// AppKit delivers that key in a run-loop event callout, not a queued block.
+    /// session snapshot). `terminate` then waits for that reply in a nested
+    /// run loop, and CFRunLoop does not drain the GCD main queue from a nested
+    /// loop while the thread is already inside a main-queue callout. So a
+    /// caller that is itself a main-queue block (the debug socket's
+    /// `DispatchQueue.main.sync` hop for `simulate_shortcut cmd+q`, issue
+    /// #10788) starves the cleanup task and the quit hangs. Keyboard Cmd+Q
+    /// escaped it only because AppKit delivers that key in a run-loop event
+    /// callout.
     static func requestApplicationTermination(
         terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
     ) {
-        // Hand the terminate back to the main queue so this call returns first.
-        // The caller's block then unwinds, which is what lets the
-        // `.terminateLater` cleanup continuation start.
-        DispatchQueue.main.async {
+        // Run the terminate from a run-loop block, not DispatchQueue.main.async:
+        // a GCD main-queue block is itself a main-queue callout, so the nested
+        // `.terminateLater` loop would still never drain the cleanup task. A
+        // run-loop block runs outside any main-queue callout, and `.default`
+        // keeps it out of modal-panel and event-tracking loops.
+        RunLoop.main.perform(inModes: [.default]) {
             MainActor.assumeIsolated {
                 terminate()
             }
