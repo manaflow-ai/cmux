@@ -330,7 +330,7 @@ async fn serve_connect_connection(
         handshake_deadline,
         client.request(WorkspaceRequest::CreateRoute {
             workspace,
-            host: "127.0.0.1".into(),
+            host: host.clone(),
             port,
             policy: RoutePolicy::LoopbackOnly,
         }),
@@ -482,7 +482,7 @@ async fn serve_websocket_bridge(
         deadline,
         client.request(WorkspaceRequest::CreateRoute {
             workspace: workspace.clone(),
-            host: "127.0.0.1".into(),
+            host: host.clone(),
             port,
             policy: RoutePolicy::LoopbackOnly,
         }),

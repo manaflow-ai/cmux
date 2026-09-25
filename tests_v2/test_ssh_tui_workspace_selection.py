@@ -42,6 +42,10 @@ for line in sys.stdin:
     if request.startswith(token + ':ping='):
         print('@' + token + ':pong=' + request.split('=', 1)[1]
               + ':pid=' + str(os.getpid()), flush=True)
+    if request.startswith(token + ':mkdir='):
+        directory = request.split('=', 1)[1]
+        pathlib.Path(directory).mkdir(parents=True, exist_ok=True)
+        print('@' + token + ':mkdir=' + directory, flush=True)
 '''
 
 
@@ -168,11 +172,17 @@ def main():
                     'render_before': before_render, 'render_after': after_render})
             old_pid = pid
             replacement_token = secrets.token_hex(4)
+            replacement_directory = '/tmp/cmux-ssh-respawn-' + token
+            mutate('surface.send_text', {
+                'workspace_id': workspace, 'surface_id': surface,
+                'text': token + ':mkdir=' + replacement_directory + '\n',
+            })
+            wait_line(surface, re.escape('@' + token + ':mkdir=' + replacement_directory))
             replacement_code = WORKLOAD.replace("owners = []", "print('@' + token + ':cwd=' + os.getcwd(), flush=True)\nowners = []")
             replacement_command = shlex.join(['python3', '-u', '-c', replacement_code, replacement_token])
             response = mutate('surface.respawn', {
                 'workspace_id': workspace, 'surface_id': surface, 'command': replacement_command,
-                'working_directory': '/home/fixture', 'focus': False,
+                'working_directory': replacement_directory, 'focus': False,
             })
             token = replacement_token
             prefix = '@' + token
@@ -180,13 +190,13 @@ def main():
             assert new_pid != old_pid, 'Respawn did not replace the workload'
             assert wait_line(surface, prefix + ':tui=([01])').group(1) == '1'
             assert wait_line(surface, prefix + ':legacy=([01])').group(1) == '0'
-            wait_line(surface, prefix + ':cwd=/home/fixture')
+            wait_line(surface, prefix + ':cwd=' + re.escape(replacement_directory))
             assert response['surface_id'] == surface, response
             mutate('surface.send_text', {'workspace_id': workspace, 'surface_id': surface,
                 'text': token + ':ping=after-respawn\n'})
             wait_line(surface, prefix + ':pong=after-respawn:pid=' + new_pid)
             evidence['respawn'] = {'response': response, 'old_pid': old_pid, 'new_pid': new_pid,
-                'cmux_tui': 1, 'cmuxd_remote': 0, 'cwd': '/home/fixture',
+                'cmux_tui': 1, 'cmuxd_remote': 0, 'cwd': replacement_directory,
                 'result': 'same surface, replaced remote workload, bidirectional input verified'}
             evidence['result'] = 'selection and native provider respawn verified'
 
