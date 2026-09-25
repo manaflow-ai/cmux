@@ -898,8 +898,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let (restored, _, homeDir) = try restoreResumedRestorableAgentOnlyWorkspaceWithClobberedTrackedCwd(
                 projectDir: projectDir
             )
-            // This scenario restores an agent that was still running at the second quit.
-            let clobberedSnapshot = try snapshotOfRunningAgent(in: restored)
+            let clobberedSnapshot = restored.sessionSnapshot(includeScrollback: false)
             let clobberedTerminal = try #require(clobberedSnapshot.panels.first?.terminal)
             #expect(clobberedTerminal.workingDirectory == homeDir)
             #expect(clobberedTerminal.agent?.workingDirectory == projectDir)
