@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import os
 
-private let helperStagingLogger = Logger(
+nonisolated private let helperStagingLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "ComputerUseHelperStaging"
 )
@@ -16,19 +16,19 @@ private let helperStagingLogger = Logger(
 /// exists, and a previous bundle is retained under the same reapable name until
 /// the replacement has been published.
 struct ComputerUseHelperStaging {
-    private static let stagingPrefix = ".cmux Computer Use."
-    private static let appSuffix = ".app"
+    nonisolated private static let stagingPrefix = ".cmux Computer Use."
+    nonisolated private static let appSuffix = ".app"
 
     private let fileManager: FileManager
 
     /// Creates a staging owner backed by the supplied file manager.
-    init(fileManager: FileManager = .default) {
+    nonisolated init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
 
     /// Returns whether the installed bundle contains the same regular files as
     /// the nested bundle and has an executable helper binary.
-    func isCurrent(nested: URL, destination: URL) -> Bool {
+    nonisolated func isCurrent(nested: URL, destination: URL) -> Bool {
         guard !Task.isCancelled else { return false }
         let nestedBinary = nested
             .appendingPathComponent("Contents/MacOS/cmux-cua")
@@ -70,7 +70,7 @@ struct ComputerUseHelperStaging {
     /// cancellation. The source and staged trees are compared before the
     /// staged directory is renamed into the destination path.
     @discardableResult
-    func install(
+    nonisolated func install(
         nested: URL,
         destination: URL,
         directory: URL
@@ -107,7 +107,7 @@ struct ComputerUseHelperStaging {
     /// considered. Symbolic links and the published `cmux Computer Use.app`
     /// destination are left untouched.
     @discardableResult
-    func reapOrphanedBundles(in directory: URL) -> Int {
+    nonisolated func reapOrphanedBundles(in directory: URL) -> Int {
         guard !Task.isCancelled,
               isDirectoryWithoutFollowingSymlinks(directory)
         else {
@@ -138,7 +138,7 @@ struct ComputerUseHelperStaging {
 
     /// Removes quarantine attributes from a copied helper tree.
     @discardableResult
-    func releaseCopiedHelperFromQuarantine(
+    nonisolated func releaseCopiedHelperFromQuarantine(
         at url: URL
     ) throws -> ComputerUseHelperQuarantineRelease.Report {
         let report = try ComputerUseHelperQuarantineRelease(fileManager: fileManager)
@@ -151,7 +151,8 @@ struct ComputerUseHelperStaging {
         return report
     }
 
-    private func publish(
+    /// Publishes a staged directory and rolls back an existing generation if the rename fails.
+    private nonisolated func publish(
         temporary: URL,
         destination: URL,
         directory: URL
@@ -180,21 +181,24 @@ struct ComputerUseHelperStaging {
         }
     }
 
-    private func removeStagedBundle(at url: URL) -> Bool {
+    /// Makes a staging tree removable and deletes it, logging only a safe bundle name and error code.
+    private nonisolated func removeStagedBundle(at url: URL) -> Bool {
         guard fileManager.fileExists(atPath: url.path) else { return true }
         makeDirectoriesWritable(at: url)
         do {
             try fileManager.removeItem(at: url)
             return true
         } catch {
+            let errorCode = (error as NSError).code
             helperStagingLogger.error(
-                "Computer Use helper staging cleanup failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Computer Use helper staging cleanup failed for \(url.lastPathComponent, privacy: .public) (code \(errorCode))"
             )
             return false
         }
     }
 
-    private func makeDirectoriesWritable(at root: URL) {
+    /// Restores owner write and search permission on every directory in a staging tree.
+    private nonisolated func makeDirectoriesWritable(at root: URL) {
         var entries = [root]
         if let enumerator = fileManager.enumerator(
             at: root,
@@ -215,7 +219,8 @@ struct ComputerUseHelperStaging {
         }
     }
 
-    private func isStagingBundleName(_ name: String) -> Bool {
+    /// Returns whether a name is an exact UUID-shaped hidden staging bundle name.
+    private nonisolated func isStagingBundleName(_ name: String) -> Bool {
         guard name.hasPrefix(Self.stagingPrefix), name.hasSuffix(Self.appSuffix) else {
             return false
         }
@@ -229,13 +234,15 @@ struct ComputerUseHelperStaging {
         return UUID(uuidString: identifier) != nil
     }
 
-    private func isDirectoryWithoutFollowingSymlinks(_ url: URL) -> Bool {
+    /// Checks a path's directory type without following symbolic links.
+    private nonisolated func isDirectoryWithoutFollowingSymlinks(_ url: URL) -> Bool {
         modeBits(at: url).map {
             $0 & mode_t(S_IFMT) == mode_t(S_IFDIR)
         } ?? false
     }
 
-    private func modeBits(at url: URL) -> mode_t? {
+    /// Reads POSIX mode bits with `lstat(2)`.
+    private nonisolated func modeBits(at url: URL) -> mode_t? {
         url.withUnsafeFileSystemRepresentation { path in
             guard let path else { return nil }
             var metadata = stat()
@@ -244,7 +251,8 @@ struct ComputerUseHelperStaging {
         }
     }
 
-    private func helperBundleRelativeFilePaths(at root: URL) -> Set<String>? {
+    /// Lists regular files used to verify a copied helper bundle.
+    private nonisolated func helperBundleRelativeFilePaths(at root: URL) -> Set<String>? {
         guard
             let enumerator = fileManager.enumerator(
                 at: root,

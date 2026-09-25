@@ -40,6 +40,7 @@ public final class ComputerUseRuntimeService {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var helperStagingStartupReaperTask: Task<Void, Never>?
+    private var helperStagingObservationTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
@@ -52,7 +53,6 @@ public final class ComputerUseRuntimeService {
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var missedHelperHealthChecks = 0
-    private var healthChecksSinceStagingReap = 0
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
     /// `DisableComputerUse` (MDM), read on every enable and start.
@@ -93,6 +93,7 @@ public final class ComputerUseRuntimeService {
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         helperStagingStartupReaperTask?.cancel()
+        helperStagingObservationTask?.cancel()
         recoveryTask?.cancel()
         readinessPublicationTask?.cancel()
     }
@@ -235,7 +236,6 @@ public final class ComputerUseRuntimeService {
             helperHealthTask?.cancel()
             helperHealthTask = nil
             missedHelperHealthChecks = 0
-            healthChecksSinceStagingReap = 0
             recoveryTask?.cancel()
             recoveryTask = nil
             await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
@@ -1344,12 +1344,20 @@ public final class ComputerUseRuntimeService {
             paths.runtimeDirectoryURL.deletingLastPathComponent(),
             paths.runtimeDirectoryURL,
             paths.computerUseDirectoryURL,
+            paths.installedHelperDirectoryURL,
             paths.stateDirectoryURL.deletingLastPathComponent().deletingLastPathComponent(),
             paths.stateDirectoryURL.deletingLastPathComponent(),
             paths.stateDirectoryURL,
         ]
         guard privateDirectories.allSatisfy(Self.ensurePrivateDirectory) else { return false }
-        return Self.writeAuthenticationToken(paths.authenticationToken, to: paths.authenticationTokenFileURL)
+        guard Self.writeAuthenticationToken(
+            paths.authenticationToken,
+            to: paths.authenticationTokenFileURL
+        ) else {
+            return false
+        }
+        startObservingHelperStaging()
+        return true
     }
 
     /// Synchronously prevents relaunch and stops the out-of-process helper.
@@ -1371,8 +1379,9 @@ public final class ComputerUseRuntimeService {
         helperHealthTask = nil
         helperStagingStartupReaperTask?.cancel()
         helperStagingStartupReaperTask = nil
+        helperStagingObservationTask?.cancel()
+        helperStagingObservationTask = nil
         missedHelperHealthChecks = 0
-        healthChecksSinceStagingReap = 0
         recoveryTask?.cancel()
         recoveryTask = nil
         cancelReadinessPublication()
@@ -1619,11 +1628,6 @@ public final class ComputerUseRuntimeService {
         let listeningResults = await (nativeListening, codexListening)
         let daemonListening = listeningResults.0 && listeningResults.1
         guard !Task.isCancelled else { return }
-        healthChecksSinceStagingReap += 1
-        if healthChecksSinceStagingReap >= 30 {
-            healthChecksSinceStagingReap = 0
-            await reapOrphanedHelperStaging()
-        }
         if daemonListening {
             missedHelperHealthChecks = 0
             return
@@ -1643,6 +1647,7 @@ public final class ComputerUseRuntimeService {
         scheduleHelperRecovery()
     }
 
+    /// Serializes one orphan cleanup pass with helper install and replacement work.
     private func reapOrphanedHelperStaging() async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         _ = await serializeHelperLifecycle(cancelledResult: 0) { [weak self] in
@@ -1652,6 +1657,19 @@ public final class ComputerUseRuntimeService {
                 ComputerUseHelperStaging().reapOrphanedBundles(in: directory)
             }
             return await task.value
+        }
+    }
+
+    /// Watches helper-directory mutations so staging cleanup is event-driven rather than polled.
+    private func startObservingHelperStaging() {
+        guard helperStagingObservationTask == nil else { return }
+        let directory = paths.installedHelperDirectoryURL
+        helperStagingObservationTask = Task { @MainActor [weak self] in
+            defer { self?.helperStagingObservationTask = nil }
+            for await _ in Self.directoryEvents(at: directory) {
+                guard !Task.isCancelled else { return }
+                await self?.reapOrphanedHelperStaging()
+            }
         }
     }
 
