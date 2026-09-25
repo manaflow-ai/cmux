@@ -21,7 +21,6 @@ struct AgentHookDeliveryProcess: Sendable {
     private let processTimeout: Duration
     private let deliveryTimeout: Duration
     private let terminationGrace: Duration
-    private let codexFeedForwarder: AgentHookFeedForwarder
 
     init(
         executableURLProvider: @escaping @Sendable () -> URL? = {
@@ -35,25 +34,12 @@ struct AgentHookDeliveryProcess: Sendable {
         self.processTimeout = processTimeout
         self.deliveryTimeout = deliveryTimeout
         self.terminationGrace = terminationGrace
-        self.codexFeedForwarder = AgentHookFeedForwarder()
     }
 
     func deliver(_ event: AgentHookDeliveryEvent) async {
         guard let executableURL = executableURLProvider(),
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             agentHookDeliveryProcessLogger.error("Bundled hook-delivery CLI is unavailable")
-            return
-        }
-
-        if event.isCodexToolTelemetry {
-            _ = await codexFeedForwarder.deliver(
-                event,
-                executableURL: executableURL,
-                environment: Self.makeDeliveryEnvironment(
-                    event: event,
-                    executableURL: executableURL
-                )
-            )
             return
         }
 
@@ -113,10 +99,7 @@ struct AgentHookDeliveryProcess: Sendable {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--socket", event.socketPath] + event.deliveryArguments
-        process.environment = Self.makeDeliveryEnvironment(
-            event: event,
-            executableURL: executableURL
-        )
+        process.environment = deliveryEnvironment(event: event, executableURL: executableURL)
         if !event.relayBacked,
            let workingDirectory = event.environment["PWD"],
            FileManager.default.fileExists(atPath: workingDirectory) {
@@ -201,13 +184,6 @@ struct AgentHookDeliveryProcess: Sendable {
         event: AgentHookDeliveryEvent,
         executableURL: URL
     ) -> [String: String] {
-        Self.makeDeliveryEnvironment(event: event, executableURL: executableURL)
-    }
-
-    private static func makeDeliveryEnvironment(
-        event: AgentHookDeliveryEvent,
-        executableURL: URL
-    ) -> [String: String] {
         let ambientEnvironment = ProcessInfo.processInfo.environment
         let ambientKeys = [
             "HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "SHELL", "TMPDIR", "USER",
@@ -258,7 +234,7 @@ struct AgentHookDeliveryProcess: Sendable {
     /// that state must never merge with host-local sessions that happen to use
     /// the same agent session identifier. Scope it by app and rewritten local
     /// route so separate remote workspaces cannot collide with each other.
-    private static func relayStateDirectory(
+    private func relayStateDirectory(
         event: AgentHookDeliveryEvent,
         ambientEnvironment: [String: String]
     ) -> String {
@@ -379,114 +355,5 @@ struct AgentHookDeliveryProcess: Sendable {
             Darwin.close(descriptor)
             throw error
         }
-    }
-}
-
-/// Keeps one CLI process and socket connection alive for each Codex tool-hook
-/// delivery lane. The queue already serializes a lane, so a newline-delimited
-/// stream is sufficient framing and avoids a process/socket pair per tool call.
-private actor AgentHookFeedForwarder {
-    private struct Worker {
-        let process: Process
-        let input: FileHandle
-        let processGroupID: pid_t?
-    }
-
-    private var workers: [String: Worker] = [:]
-
-    init() {}
-
-    func deliver(
-        _ event: AgentHookDeliveryEvent,
-        executableURL: URL,
-        environment: [String: String]
-    ) -> Bool {
-        let key = event.orderingKey
-        let worker: Worker
-        if let existing = workers[key], existing.process.isRunning {
-            worker = existing
-        } else {
-            workers.removeValue(forKey: key)
-            guard let created = launchWorker(
-                event: event,
-                executableURL: executableURL,
-                environment: environment
-            ) else {
-                return false
-            }
-            workers[key] = created
-            worker = created
-        }
-
-        do {
-            try worker.input.write(contentsOf: try frame(for: event))
-            return true
-        } catch {
-            terminate(worker)
-            workers.removeValue(forKey: key)
-            return false
-        }
-    }
-
-    private func launchWorker(
-        event: AgentHookDeliveryEvent,
-        executableURL: URL,
-        environment: [String: String]
-    ) -> Worker? {
-        let input = Pipe()
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = [
-            "--socket", event.socketPath,
-            "hooks", "feed", "--stream", "--source", "codex",
-        ]
-        process.environment = environment
-        if !event.relayBacked,
-           let workingDirectory = event.environment["PWD"],
-           FileManager.default.fileExists(atPath: workingDirectory) {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-        }
-        process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        let processID = process.processIdentifier
-        _ = Darwin.setpgid(processID, processID)
-        return Worker(
-            process: process,
-            input: input.fileHandleForWriting,
-            processGroupID: Self.processGroupIdentifier(processID: processID)
-        )
-    }
-
-    private func frame(for event: AgentHookDeliveryEvent) throws -> Data {
-        let envelope: [String: Any] = [
-            "_cmux_hook_event": event.subcommand == "pre-tool-use"
-                ? "PreToolUse"
-                : "PostToolUse",
-            "_cmux_hook_payload": event.payload,
-        ]
-        var data = try JSONSerialization.data(withJSONObject: envelope)
-        data.append(0x0A)
-        return data
-    }
-
-    private func terminate(_ worker: Worker) {
-        try? worker.input.close()
-        if worker.process.isRunning {
-            if let processGroupID = worker.processGroupID {
-                _ = Darwin.kill(-processGroupID, SIGTERM)
-            } else {
-                worker.process.terminate()
-            }
-        }
-    }
-
-    private static func processGroupIdentifier(processID: pid_t) -> pid_t? {
-        Darwin.getpgid(processID) == processID ? processID : nil
     }
 }

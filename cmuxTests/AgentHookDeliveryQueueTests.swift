@@ -787,34 +787,6 @@ struct AgentHookDeliveryQueueTests {
         #expect(try fixture.attemptCount() == 1)
     }
 
-    @Test("Codex tool telemetry reuses one downstream forwarder")
-    func codexToolTelemetryReusesOneDownstreamForwarder() async throws {
-        let fixture = try AgentHookStreamForwarderFixture()
-        defer { fixture.remove() }
-        let process = AgentHookDeliveryProcess(
-            executableURLProvider: { fixture.executableURL },
-            processTimeout: .seconds(2),
-            deliveryTimeout: .seconds(3),
-            terminationGrace: .milliseconds(100)
-        )
-
-        await process.deliver(try makeEvent(
-            agent: "codex",
-            subcommand: "pre-tool-use",
-            payload: #"{"hook_event_name":"PreToolUse","tool_name":"Read"}"#,
-            surfaceID: "surface-stream"
-        ))
-        await process.deliver(try makeEvent(
-            agent: "codex",
-            subcommand: "post-tool-use",
-            payload: #"{"hook_event_name":"PostToolUse","tool_name":"Read"}"#,
-            surfaceID: "surface-stream"
-        ))
-
-        try fixture.waitForRecords(count: 2)
-        #expect(try fixture.launchCount() == 1)
-    }
-
     @Test("Deadline cleanup kills descendants after the process leader exits")
     func deadlineCleanupFinishesProcessGroupEscalation() async throws {
         let fixture = try AgentHookDescendantProcessFixture()
@@ -1085,64 +1057,6 @@ private struct AgentHookDeliveryProcessFixture {
     func attemptCount() throws -> Int {
         let raw = try String(contentsOf: countURL, encoding: .utf8)
         return try #require(Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: directoryURL)
-    }
-}
-
-private struct AgentHookStreamForwarderFixture {
-    let directoryURL: URL
-    let executableURL: URL
-    let launchURL: URL
-    let recordsURL: URL
-
-    init() throws {
-        directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-hook-stream-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-        executableURL = directoryURL.appendingPathComponent("forwarder", isDirectory: false)
-        launchURL = directoryURL.appendingPathComponent("forwarder.launches", isDirectory: false)
-        recordsURL = directoryURL.appendingPathComponent("forwarder.records", isDirectory: false)
-        let script = """
-        #!/bin/sh
-        launch_file="\(launchURL.path)"
-        records_file="\(recordsURL.path)"
-        printf '1\\n' >> "$launch_file"
-        while IFS= read -r line; do
-          printf '%s\\n' "$line" >> "$records_file"
-          case "$line" in
-            *PostToolUse*) exit 0 ;;
-          esac
-        done
-        """
-        try script.write(to: executableURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: executableURL.path
-        )
-    }
-
-    func launchCount() throws -> Int {
-        try String(contentsOf: launchURL, encoding: .utf8)
-            .split(whereSeparator: \.isNewline)
-            .count
-    }
-
-    func waitForRecords(count: Int) throws {
-        let deadline = Date().addingTimeInterval(2)
-        while Date() < deadline {
-            if let contents = try? String(contentsOf: recordsURL, encoding: .utf8),
-               contents.split(whereSeparator: \.isNewline).count >= count {
-                return
-            }
-            usleep(10_000)
-        }
-        throw NSError(domain: "AgentHookStreamForwarderFixture", code: 1)
     }
 
     func remove() {

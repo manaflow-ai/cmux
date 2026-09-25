@@ -56,31 +56,6 @@ extension CMUXCLI {
         return commandParts.joined(separator: "; ")
     }
 
-    /// Builds the Codex PreToolUse/PostToolUse producer. One FIFO-backed CLI
-    /// worker owns the admission socket for a delivery lane; each hook shell
-    /// only writes its JSON line to that worker and returns immediately.
-    static func codexPersistentFeedHookShellCommand(
-        subcommand: String,
-        disableEnvironmentVariable: String,
-        identityMarker: String? = nil
-    ) -> String {
-        let pidEnvironmentVariable = agentHookPIDEnvironmentVariable(agentName: "codex")
-        let executableExpression = agentHookCLIExecutableExpression(agent: "codex")
-        let fifoSubcommand = subcommand == "pre-tool-use" ? "pre" : "post"
-        let fallbackPID = "$" + "{\(pidEnvironmentVariable):-" + "$" + "{PPID:-}}"
-        let workerCommand = "\(pidEnvironmentVariable)=\"\(fallbackPID)\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue-stream codex \(subcommand) <> \"$fifo\" >/dev/null 2>&1 &"
-        var commandParts = [
-            "cmux_cli=\"\(executableExpression)\"",
-            "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
-            "agent_pid=\"\(fallbackPID)\"",
-            "if [ \"$\(disableEnvironmentVariable)\" = \"1\" ] || [ -z \"$cmux_cli\" ] || [ -z \"$CMUX_SOCKET_PATH\" ] || [ -z \"$CMUX_SURFACE_ID\" ]; then cat >/dev/null; echo '{}'; else surface_key=\"$CMUX_SURFACE_ID\"; case \"$surface_key\" in *[!A-Za-z0-9_.-]*|'') surface_key=\"$\(pidEnvironmentVariable)\" ;; esac; spool_root=\"$CMUX_AGENT_HOOK_STATE_DIR\"; if [ -z \"$spool_root\" ]; then spool_root=\"$TMPDIR\"; [ -n \"$spool_root\" ] || spool_root=\"/tmp\"; fi; fifo=\"$spool_root/cmux-codex-feed-$surface_key-\(fifoSubcommand).fifo\"; pidfile=\"$fifo.pid\"; lockfile=\"$fifo.lock\"; if [ ! -p \"$fifo\" ]; then mkfifo \"$fifo\" 2>/dev/null || { cat >/dev/null; echo '{}'; exit 0; }; fi; worker_pid=\"\"; if [ -f \"$pidfile\" ]; then IFS= read -r worker_pid < \"$pidfile\" || true; fi; if [ -z \"$worker_pid\" ] || ! kill -0 \"$worker_pid\" 2>/dev/null; then if ( set -C; : > \"$lockfile\" ) 2>/dev/null; then worker_pid=\"\"; if [ -f \"$pidfile\" ]; then IFS= read -r worker_pid < \"$pidfile\" || true; fi; if [ -z \"$worker_pid\" ] || ! kill -0 \"$worker_pid\" 2>/dev/null; then \(workerCommand) worker_pid=\"$!\"; printf '%s\\n' \"$worker_pid\" > \"$pidfile\"; fi; rm -f \"$lockfile\"; fi; fi; while IFS= read -r cmux_line || [ -n \"$cmux_line\" ]; do printf '%s\\n' \"$cmux_line\" > \"$fifo\"; done; echo '{}'; fi",
-        ]
-        if let identityMarker {
-            commandParts.insert(": \(identityMarker)", at: 0)
-        }
-        return commandParts.joined(separator: "; ")
-    }
-
     static func agentHookCLIExecutableExpression(agent: String) -> String {
         switch agent {
         case "claude":
@@ -272,9 +247,7 @@ extension CMUXCLI {
     func enqueueAgentHook(
         commandArgs: [String],
         client: SocketClient,
-        socketPassword: String? = nil,
-        inputData: String? = nil,
-        emitResponse: Bool = true
+        socketPassword: String? = nil
     ) throws {
         guard commandArgs.count == 2 else {
             throw CLIError(message: String(
@@ -303,7 +276,7 @@ extension CMUXCLI {
             socketPassword: socketPassword,
             processEnvironment: processEnvironment
         )
-        let rawPayload = inputData ?? Self.readBoundedAgentHookInput() ?? "{}"
+        let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,
@@ -338,29 +311,7 @@ extension CMUXCLI {
             params: params,
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
-        if emitResponse {
-            print("{}")
-        }
-    }
-
-    /// Keeps one admitted Codex tool-hook producer alive while it drains the
-    /// FIFO opened by the generated persistent feed command.
-    func enqueueAgentHookStream(
-        commandArgs: [String],
-        client: SocketClient,
-        socketPassword: String? = nil
-    ) throws {
-        guard commandArgs.count == 2 else { return }
-        while let line = readLine(strippingNewline: true) {
-            guard !line.isEmpty else { continue }
-            try enqueueAgentHook(
-                commandArgs: commandArgs,
-                client: client,
-                socketPassword: socketPassword,
-                inputData: line,
-                emitResponse: false
-            )
-        }
+        print("{}")
     }
 
     /// Converts remote filesystem/process evidence into bounded, portable

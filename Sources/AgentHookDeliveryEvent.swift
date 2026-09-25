@@ -90,13 +90,6 @@ struct AgentHookDeliveryEvent: Sendable {
         return toolName != "AskUserQuestion" && toolName != "ExitPlanMode"
     }
 
-    /// Codex tool hooks are telemetry-only and can share one long-lived feed
-    /// forwarder for each surface/process lane.
-    var isCodexToolTelemetry: Bool {
-        agent == "codex"
-            && (subcommand == "pre-tool-use" || subcommand == "post-tool-use")
-    }
-
     /// Terminal transitions use capacity that notifications, finalizers, and
     /// ordinary lifecycle snapshots cannot consume.
     var requiresReservedTerminalAdmission: Bool {
