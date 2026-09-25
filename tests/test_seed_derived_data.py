@@ -872,8 +872,8 @@ class Wiring(unittest.TestCase):
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
         for attempt, retry, owned_jobs, runner in (
-            ("1", "blacksmith-12vcpu-macos-26", " admission cli-pipe ", "glaeda-std-xcode-26.6"),
-            ("1", "blacksmith-12vcpu-macos-26", " cli-pipe ", "blacksmith-12vcpu-macos-26"),
+            ("1", "blacksmith-12vcpu-macos-26", " admission cli-product ", "glaeda-std-xcode-26.6"),
+            ("1", "blacksmith-12vcpu-macos-26", " cli-product ", "blacksmith-12vcpu-macos-26"),
             ("1", "blacksmith-12vcpu-macos-26", "", "blacksmith-12vcpu-macos-26"),
             ("2", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
             ("2", "", "", "glaeda-std-xcode-26.6"),
@@ -921,6 +921,38 @@ class Wiring(unittest.TestCase):
             context["needs"] = {"macos-compile-admission": {"outputs": {"runner": "blacksmith-12vcpu-macos-26"}}}
             with self.subTest(retry=retry, shard=shard):
                 self.assertEqual(evaluate(shards["runs-on"], context), runner)
+
+    def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
+        # glaeda refuses a canonical-root job on a mini whose root is taken, so
+        # a placed root job takes the root label, on attempt 1 and on the
+        # rescue's attempt 2. Without pr_root_runner nothing changes.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        for attempt, actor, owned_jobs, root_runner, runner in (
+            ("1", "someone", " admission shard-1 lag cli-product ", root, root),
+            ("1", "someone", " admission shard-1 lag cli-product ", "", mini),
+            ("1", "someone", " cli-pipe ", root, retry),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root_runner, pr_owned_jobs=owned_jobs)
+            with self.subTest(attempt=attempt, actor=actor, owned_jobs=owned_jobs, root_runner=root_runner):
+                admission = evaluate(macos["macos-compile-admission"]["runs-on"], context)
+                self.assertEqual(admission, runner)
+                self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
+                                 runner)
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
+                # The shards and cli-product-tests follow admission on attempt 1.
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
+                # The evaluator has no format(): matrix shard 1 stands in.
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}

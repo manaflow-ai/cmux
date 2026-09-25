@@ -22,7 +22,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -54,7 +54,7 @@ The pull-request lane also has a toolchain variable, set together with
 
 | Variable | Used by | Intended steady state | Falls back to |
 | --- | --- | --- | --- |
-| `CMUX_CI_XCODE_APP_PR` | the Xcode pin of the pull-request jobs that *select a pinned Xcode*: `macos-compile-admission`, `app-host-unit-tests`, `tests-build-and-lag`, `cli-pipe-regressions`, the `nightly.yml` cache seed, and `ci.yml`'s pull-request build-input fingerprint | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
+| `CMUX_CI_XCODE_APP_PR` | the Xcode pin of the pull-request jobs that *select a pinned Xcode*: `macos-compile-admission`, `app-host-unit-tests`, `tests-build-and-lag`, the `nightly.yml` cache seed, and `ci.yml`'s pull-request build-input fingerprint | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
 
 Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
 Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
@@ -128,7 +128,7 @@ When `MACOS_RUNNER_PR` is `blacksmith-6vcpu-macos-26`, `ci.yml`'s `changes`
 job picks one pool for the whole pull request run with
 `scripts/ci/pr_runner_pool.py`, and every pull-request macOS job in the run
 reads it: compile admission and its product consumers, `tests-build-and-lag`,
-`claude-wrapper`, `cli-pipe-regressions.yml` and `remote-daemon.yml`. A run is
+`claude-wrapper` and `remote-daemon.yml`. A run is
 never split across pools, so the app-host product always meets the Xcode that
 linked it. The run takes the first pool in `CI_PR_POOL_ORDER` that has a
 machine free for it and no queued release or nightly job, so a full pool
@@ -184,15 +184,15 @@ Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 running on that label. A pull request run puts several macOS jobs on its pool
 at once, each on its own machine, so a run takes the owned pool only when its
 own peak is free at once. The picker runs after the suite choice and counts
-that peak from the run's routing: the Claude wrapper, CLI pipe and remote
-daemon lanes, beside the larger of compile admission alone or what follows it
-(a full suite's seven app-host shards, tests-build-and-lag and
-cli-product-tests, 12 jobs in all; a changed-suites run's one shard; a CLI
+that peak from the run's routing: the Claude wrapper and remote daemon lanes,
+beside the larger of compile admission alone or what follows it (a full
+suite's seven app-host shards, tests-build-and-lag and cli-product-tests, 11
+jobs in all; a changed-suites run's one shard; a CLI
 change's cli-product-tests). Taken is the larger of the jobs the janitor
 saw on the pool and `committed`, the peaks the runs holding it declared, so a
 run whose later jobs do not exist yet still counts them. A run created since
 the snapshot has an unknown peak: any that could have taken the pool is
-assumed to, and charged 4 machines, a compile-only run with every side lane,
+assumed to, and charged 3 machines, a compile-only run with every side lane,
 which is what the default pull request policy runs. A full-suite run among
 them is under-counted until the next snapshot; a job that then finds its
 mini busy is refused or queued, and the rescue below moves it to Blacksmith.
@@ -216,6 +216,19 @@ positive whole number of machines counts as none. A full label wins over its
 class. While owned pools are on, the `changes` job raises a workflow error
 annotation and a summary line for each such entry,
 so a typo shows up on every run instead of quietly leaving a pool unused.
+
+Root runners: glaeda gives compile admission, the app-host shards,
+tests-build-and-lag, cli-product-tests and E2E jobs a mini's one canonical-root
+token and refuses such a job on a mini whose token is taken. It also labels
+one runner per mini `glaeda-root-<class>-xcode-<version>`. A root count in
+`CI_OWNED_POOL_SLOTS` (`"root-std": 10`, or the full root label) sends those
+jobs to the root label, where they wait for a free root instead of being
+refused, and the picker places no more of them than the root runners free.
+The janitor counts a root job toward the root label and its pool. Without a
+root count every job keeps the pool label. The CLI pipe, remote daemon and
+Claude wrapper lanes always do. A root count above its pool's is an error.
+With 8 std minis and 2 light ones:
+`{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it

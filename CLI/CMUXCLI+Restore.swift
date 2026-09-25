@@ -79,7 +79,18 @@ extension CMUXCLI {
             switch codexValidation {
             case .allowed:
                 shouldContinue = true
-            case .missing, .unavailable, .rejectedChild, .bindingChanged:
+            case .unavailable:
+                // The standalone verifier is deliberately conservative: a
+                // transient SQLite/read failure is not proof that the
+                // conversation is missing. Same-build apps expose the shared
+                // admission boundary, which can combine the provider lock,
+                // hook identity, PID generation, and live-owner evidence and
+                // wait for that evidence to settle. Keep this restore intent
+                // alive instead of turning an unknown result into a shell
+                // error. Older apps have no admission RPC, so retain their
+                // conservative compatibility behavior.
+                shouldContinue = payload["agent_restore_admission_supported"] as? Bool == true
+            case .missing, .rejectedChild, .bindingChanged:
                 shouldContinue = false
             }
             if !shouldContinue {
