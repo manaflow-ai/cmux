@@ -18,6 +18,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var beforeCreate: (@MainActor () async throws -> Void)?
     var afterCreateWorkspace: (@MainActor (SurfaceRemoteWorkspace) async throws -> Void)?
     var usesReceipt = false
+    var adoptsReservation = true
     var includesStarter = true
     var terminalError: Error?
     var terminalCreates = 0
@@ -97,7 +98,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination,
                      focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
         try await beforeMaterialize?(resource, reservation)
-        guard let reservation else { return try await materialize(resource, at: destination, focus: focus) }
+        guard let reservation, adoptsReservation else { return try await materialize(resource, at: destination, focus: focus) }
         adoptedPanels.append(reservation.panelID)
         return SurfaceProjection(resource: resource.id, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
                                  remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
