@@ -1665,6 +1665,25 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
 fi
+if [[ "${CMUX_RELOAD_APP_EMIT_MODULE:-1}" == "0" ]]; then
+  # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
+  # which reload never builds) and no Objective-C includes its generated header.
+  # Xcode's integrated driver still emits the module in a separate job that
+  # type-checks every declaration in the app. The standalone driver with
+  # -no-emit-module-separately emits none, the same change #14364 made for
+  # cmuxTests; the app's Debug configuration already generates no Objective-C
+  # header. Settings are per target, so packages and the CLI are unchanged.
+  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
+  XCODEBUILD_ARGS+=(
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_RELOAD_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INTEGRATED_DRIVER_cmux=NO
+    'SWIFT_INSTALL_MODULE=$(CMUX_RELOAD_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
+    CMUX_RELOAD_INSTALL_MODULE_cmux=NO
+  )
+  # shellcheck disable=SC2016
+  SWIFT_OTHER_FLAGS+=' $(CMUX_RELOAD_SWIFT_FLAGS_$(TARGET_NAME))'
+  XCODEBUILD_ARGS+=(CMUX_RELOAD_SWIFT_FLAGS_cmux=-no-emit-module-separately)
+fi
 if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
   XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
 fi

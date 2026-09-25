@@ -49,24 +49,37 @@ def insert_after_line(path: Path, pattern: str, text: str) -> None:
     raise SystemExit(f"benchmark anchor not found in {path.relative_to(ROOT)}: {pattern!r}")
 
 
-# (name, what it models, edit)
+def toggle_body_literal() -> None:
+    plain = 'defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) }'
+    spaced = 'defaultValue: "New Workspace ")) { [nodeActions] in nodeActions.newWorkspace(machine) }'
+    body = HOT_VIEW.read_text(encoding="utf-8")
+    old, new = (plain, spaced) if plain in body else (spaced, plain)
+    replace_once(HOT_VIEW, old, new)
+
+
+# (name, what it models, edit taking the pass number so repeated passes never redeclare a name)
 SCENARIOS = [
-    ("noop", "rebuild with nothing changed: the fixed floor", lambda: None),
+    ("noop", "rebuild with nothing changed: the fixed floor", lambda n: None),
     ("comment", "comment edit in a hot app view (CloudTreeOutlineView)",
-     lambda: append(HOT_VIEW, "\n// edit-loop benchmark: comment edit\n")),
-    ("body", "string literal change inside a function body of the same view",
-     lambda: replace_once(HOT_VIEW, 'defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) }',
-                          'defaultValue: "New Workspace ")) { [nodeActions] in nodeActions.newWorkspace(machine) }')),
+     lambda n: append(HOT_VIEW, f"\n// edit-loop benchmark: comment edit {n}\n")),
+    ("body", "string literal change inside a function body of the same view", lambda n: toggle_body_literal()),
     ("top_level_private", "new fileprivate top-level func in the view",
-     lambda: append(HOT_VIEW, "\nfileprivate func editLoopBenchmarkPrivateProbe() {}\n")),
+     lambda n: append(HOT_VIEW, f"\nfileprivate func editLoopBenchmarkPrivateProbe{n}() {{}}\n")),
     ("top_level_internal", "new internal top-level struct in the view (what adding a small type does)",
-     lambda: append(HOT_VIEW, "\nstruct EditLoopBenchmarkInternalProbe {}\n")),
+     lambda n: append(HOT_VIEW, f"\nstruct EditLoopBenchmarkInternalProbe{n} {{}}\n")),
     ("member_hot_type", "new internal method on SurfaceCatalog (a widely used app type)",
-     lambda: insert_after_line(HOT_TYPE, r"^final class SurfaceCatalog\b.*\{\s*$",
-                               "    func editLoopBenchmarkMemberProbe() {}\n")),
+     lambda n: insert_after_line(HOT_TYPE, r"^final class SurfaceCatalog\b.*\{\s*$",
+                                 f"    func editLoopBenchmarkMemberProbe{n}() {{}}\n")),
     ("package_body", "body-level comment edit in a CmuxCloud package file the app imports",
-     lambda: append(PACKAGE_FILE, "\n// edit-loop benchmark: package comment edit\n")),
+     lambda n: append(PACKAGE_FILE, f"\n// edit-loop benchmark: package comment edit {n}\n")),
 ]
+
+# Variants rerun every scenario with different reload.sh settings. The first build of a variant
+# ("prime") absorbs the flag change and is reported separately.
+VARIANTS = {
+    "base": {},
+    "no_app_module": {"CMUX_RELOAD_APP_EMIT_MODULE": "0"},
+}
 
 TIMING_RE = re.compile(r"^(?P<phase>[A-Za-z][A-Za-z0-9 ]+?) \((?P<tasks>\d+) tasks?\) \| (?P<secs>[\d.]+) seconds")
 COMPILE_RE = re.compile(r"^SwiftCompile normal \S+ .*?(?P<file>[^/\s]+\.swift)\b")
@@ -110,8 +123,8 @@ def parse_log(log: str) -> dict:
     }
 
 
-def run_reload(tag: str, derived: str, log_path: Path) -> tuple[float, int]:
-    env = dict(os.environ, CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1")
+def run_reload(tag: str, derived: str, log_path: Path, extra_env: dict[str, str]) -> tuple[float, int]:
+    env = dict(os.environ, CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1", **extra_env)
     started = time.monotonic()
     proc = subprocess.run(["./scripts/reload.sh", "--tag", tag, "--derived-data", derived,
                            "--swift-frontend-workaround"], cwd=ROOT, env=env, text=True,
@@ -130,32 +143,43 @@ def main() -> int:
     parser.add_argument("--derived-data", required=True)
     parser.add_argument("--out", default="edit-loop-results.json")
     parser.add_argument("--only", help="comma-separated scenario names")
+    parser.add_argument("--variants", default="base,no_app_module", help=f"comma-separated, from {sorted(VARIANTS)}")
     args = parser.parse_args()
     slug = re.sub(r"[^a-z0-9]+", "-", args.tag.lower()).strip("-")
     log_path = Path(f"/tmp/cmux-reload-{slug}.log")
     wanted = set(args.only.split(",")) if args.only else None
+    variants = args.variants.split(",")
     results = []
-    for name, what, edit in SCENARIOS:
-        if wanted and name not in wanted:
-            continue
-        edit()
-        seconds, code = run_reload(args.tag, args.derived_data, log_path)
-        log = log_path.read_text(errors="replace") if log_path.exists() else ""
-        record = {"scenario": name, "models": what, "seconds": round(seconds, 1), "exit": code, **parse_log(log)}
-        (Path(args.out).parent / f"reload-{name}.log").write_text(log)
-        results.append(record)
-        print(json.dumps(record), flush=True)
-        if code != 0:
+    failed = False
+    for n, variant in enumerate(variants):
+        extra_env = VARIANTS[variant]
+        steps = [("prime", "first build with this variant's settings", lambda n: None)] if n else []
+        for name, what, edit in steps + SCENARIOS:
+            if wanted and name not in wanted and name != "prime":
+                continue
+            edit(n)
+            seconds, code = run_reload(args.tag, args.derived_data, log_path, extra_env)
+            log = log_path.read_text(errors="replace") if log_path.exists() else ""
+            record = {"variant": variant, "scenario": name, "models": what, "seconds": round(seconds, 1),
+                      "exit": code, **parse_log(log)}
+            (Path(args.out).parent / f"reload-{variant}-{name}.log").write_text(log)
+            results.append(record)
+            print(json.dumps(record), flush=True)
+            if code != 0:
+                failed = True
+                break
+        if failed:
             break
     Path(args.out).write_text(json.dumps(results, indent=2) + "\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### App edit loop (reload.sh, incremental)\n\n")
-            handle.write("| scenario | wall s | Swift files | modules emitted | top phases |\n| --- | --- | --- | --- | --- |\n")
+            handle.write("| variant | scenario | wall s | Swift files | modules emitted | top phases |\n"
+                         "| --- | --- | --- | --- | --- | --- |\n")
             for r in results:
                 top = ", ".join(f"{k} {v:.1f}s" for k, v in list(r["phases"].items())[:4])
-                handle.write(f"| {r['scenario']} | {r['seconds']} | {r['swift_files_compiled']} | "
+                handle.write(f"| {r['variant']} | {r['scenario']} | {r['seconds']} | {r['swift_files_compiled']} | "
                              f"{', '.join(r['modules_emitted']) or '-'} | {top} |\n")
     return 0 if all(r["exit"] == 0 for r in results) else 1
 
