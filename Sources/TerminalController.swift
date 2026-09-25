@@ -4898,8 +4898,45 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect"
+            "set_color", "clear_color", "mobile_connect",
+            "park", "unpark", "parked_list", "parked_search"
         ]
+
+        if action == "parked_list" || action == "parked_search" {
+            let query = action == "parked_search" ? v2String(params, "query") : nil
+            let records = ParkedWorkspaceStore.shared.search(query)
+            return .ok([
+                "action": action,
+                "workspaces": records.map { record in
+                    [
+                        "workspace_id": record.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: record.id),
+                        "title": record.snapshot.customTitle ?? record.snapshot.processTitle,
+                        "directory": record.snapshot.currentDirectory,
+                        "parked_at": record.parkedAt.timeIntervalSince1970,
+                    ]
+                }
+            ])
+        }
+
+        if action == "unpark" {
+            let parkedID = v2UUID(params, "parked_id") ?? v2UUID(params, "workspace_id")
+            guard let parkedID,
+                  let record = ParkedWorkspaceStore.shared.records.first(where: { $0.id == parkedID }) else {
+                return .err(code: "not_found", message: "Parked workspace not found", data: nil)
+            }
+            let manager = v2ResolveTabManager(params: params)
+                ?? record.windowId.flatMap { AppDelegate.shared?.tabManagerFor(windowId: $0) }
+                ?? AppDelegate.shared?.tabManager
+            guard let manager, manager.unparkWorkspace(record) else {
+                return .err(code: "unavailable", message: "Could not restore parked workspace", data: nil)
+            }
+            return .ok([
+                "action": action,
+                "workspace_id": record.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: record.id),
+            ])
+        }
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
             "action": action,
@@ -4977,6 +5014,13 @@ class TerminalController {
             }
 
             switch action {
+            case "park":
+                guard tabManager.parkWorkspaceNonInteractively(workspace) else {
+                    result = .err(code: "failed", message: "Workspace could not be parked", data: nil)
+                    return
+                }
+                finish(["parked": true])
+
             case "pin":
                 tabManager.setPinned(workspace, pinned: true)
                 finish(["pinned": true])

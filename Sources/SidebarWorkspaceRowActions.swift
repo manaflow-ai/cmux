@@ -15,6 +15,7 @@ struct SidebarWorkspaceRowActions {
     let clearCustomDescription: () -> Void
     let editDescription: () -> Void
     let closeWorkspace: () -> Void
+    let parkTargets: ([UUID]) -> Void
     let moveBy: (Int) -> Void
     let moveTargetsToTop: ([UUID]) -> Void
     /// Resolves volatile app-window topology when the deferred menu is presented.

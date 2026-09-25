@@ -7499,6 +7499,22 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.parkWorkspace",
+                title: constant(String(localized: "command.parkWorkspace.title", defaultValue: "Park Workspace")),
+                subtitle: constant(String(localized: "command.parkWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["park", "workspace", "pause", "suspend"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.unparkWorkspace",
+                title: constant(String(localized: "command.unparkWorkspace.title", defaultValue: "Restore Parked Workspace")),
+                subtitle: constant(String(localized: "command.unparkWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["restore", "unpark", "parked", "workspace", "resume"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
                 title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
@@ -8769,6 +8785,20 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.closeWorkspace") {
             tabManager.closeCurrentWorkspaceWithConfirmation()
+        }
+        registry.register(commandId: "palette.parkWorkspace") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  tabManager.parkWorkspaceNonInteractively(workspace) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.unparkWorkspace") {
+            guard let record = ParkedWorkspaceStore.shared.records.first,
+                  tabManager.unparkWorkspace(record) else {
+                NSSound.beep()
+                return
+            }
         }
         registry.register(commandId: "palette.closeWindow") {
             guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
@@ -15102,6 +15132,13 @@ struct VerticalTabsSidebar: View, Equatable {
             closeWorkspace: {
                 guard let tab = workspace() else { return }
                 tabManager.closeWorkspaceFromTabCloseButton(tab)
+            },
+            parkTargets: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                    _ = tabManager.parkWorkspaceNonInteractively(workspace)
+                }
+                syncWorkspaceRowSelectionAfterMutation()
             },
             moveBy: { delta in
                 guard let tab = workspace() else { return }
