@@ -1194,7 +1194,8 @@ jobs:
           set -euo pipefail
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           publication_seconds="$(python3 -c 'import os,sys; start=os.environ.get("CMUX_PRODUCT_PUBLICATION_STARTED"); print("" if not start else round(float(sys.argv[1])-float(start), 6))' "$finished")"
-          admission_seconds="$(python3 -c 'import os,sys; print(round(float(sys.argv[1])-float(os.environ["CMUX_MACOS_ADMISSION_STARTED"]), 6))' "$finished")"
+          # A job refused before "Start compile admission timers" never set the start: report no wall time.
+          admission_seconds="$(python3 -c 'import os,sys; start=os.environ.get("CMUX_MACOS_ADMISSION_STARTED"); print("" if not start else round(float(sys.argv[1])-float(start), 6))' "$finished")"
           metrics="$RUNNER_TEMP/macos-compile-admission-metrics.json"
 
           FINISHED="$finished" PUBLICATION_SECONDS="$publication_seconds" ADMISSION_SECONDS="$admission_seconds" METRICS="$metrics" python3 - <<'PY'

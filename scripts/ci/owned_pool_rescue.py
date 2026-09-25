@@ -37,8 +37,11 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher confirms the head has
-not moved, cancels the run if it is still going, and re-runs its failed jobs.
+(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+run finish, since GitHub re-runs no job of a run in progress and cancelling
+it would kill every healthy sibling, then confirms the head has not moved and
+re-runs its failed jobs. Only a run still going at the watch's end is
+cancelled first.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
 (compile admission, say) is kept. A run on an owned pool is split across pools
@@ -56,8 +59,9 @@ job can run on an owned Mac). GitHub delivers no `requested` event for a
 re-run (run 36059281883's attempt 2 started no rescue), so the watch that
 re-ran the failed jobs goes on to watch attempt 2 itself, for owned jobs
 only, and stops at the first look that lists no job on an owned label. A job
-refused, or queued past the budget, on attempt 2 gets the run cancelled if it
-is still going and its failed and cancelled jobs re-run once more, keeping the
+queued past the budget on attempt 2 gets the run cancelled if it is still
+going, and one refused there waits for the run to finish (as on attempt 1);
+either way its failed and cancelled jobs are re-run once more, keeping the
 jobs that passed; attempt 3 and later always take retry_runner on
 Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
 Attempt 2 of a re-run of failed jobs needs no marker: `changes` is not
@@ -665,12 +669,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         # Waiting for compile admission and late placement: nothing can be stuck yet.
         interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
-            if any(refused(job) for job in jobs):
-                look = assess(jobs, now=now(), budget_seconds=budget_seconds, first_seen=first_seen,
-                              deadline=deadline, floor_seconds=floor_seconds)
-                log(f"look {looks}: {look.reason}")
-                return look.action, look.reason
-            if run_finished(jobs) and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
+            finished = run_finished(jobs) and \
+                read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed"
+            if finished and not any(refused(job) for job in jobs):
                 return "stop", "the run finished"
             seen_at = now()
             for job in jobs:
@@ -678,6 +679,16 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds)
+            if look.action == "refused" and not finished and seen_at < deadline:
+                # GitHub re-runs no job of a run still in progress (403 "already
+                # running", for one job or the failed ones), and cancelling
+                # the run to re-run it killed every healthy sibling (run
+                # 36198335113: two refused app-host shards cost five running
+                # shards and the CLI product tests, all re-run on Blacksmith).
+                # Let the siblings finish; at the deadline, cancel as before.
+                log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
+                sleep(IDLE_POLL_SECONDS)
+                continue
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):
                 return look.action, look.reason

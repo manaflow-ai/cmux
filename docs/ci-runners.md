@@ -334,9 +334,12 @@ An owned runner can also refuse a job: glaeda's job-started hook exits 1 when
 the host is busy, and the job fails within seconds (or, for a GUI job waiting on
 the mini's one gui token, within about 4 minutes). GitHub does not retry it.
 The watcher treats a job on the persistent pool that failed within 360
-seconds of starting, with no workflow step succeeded, as refused. It confirms
-the head has not moved, cancels the run if it is still going, and re-runs its
-failed jobs, so nobody has to. That attempt 2 keeps what passed and sends the
+seconds of starting, with no workflow step succeeded, as refused. It lets the
+rest of the run finish (GitHub re-runs no job, not even one, while its run is
+in progress, and cancelling the run would kill the refused job's healthy
+siblings, as in run 36198335113), confirms the head has not moved, and re-runs
+its failed jobs, so nobody has to. Only a run still going when the watch ends
+is cancelled first. That attempt 2 keeps what passed and sends the
 rest to `retry_runner` (below). Products built on a mini are then tested on
 Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all

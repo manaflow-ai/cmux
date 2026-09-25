@@ -257,6 +257,29 @@ class Refusal(unittest.TestCase):
         self.assertEqual((code, api.calls), (0, []))
         self.assertIn("is not a number", summary)
 
+    def test_a_refused_shard_waits_for_its_running_siblings_instead_of_cancelling_them(self):
+        # Run 36198335113: shards 2/7 and 6/7 were refused while the other
+        # shards and the CLI product tests ran fine. Cancelling to re-run the
+        # refused ones killed the healthy jobs, and attempt 3 put all of them on
+        # Blacksmith. GitHub refuses any re-run while the run is going, so wait.
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40, runner="mini-2",
+                          status="completed" if seconds >= 900 else "in_progress")
+            sibling["started_at"] = stamp(41)
+            if seconds >= 900:
+                sibling.update(conclusion="success", completed_at=stamp(900))
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 900)
+        _, summary = run_main(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertGreaterEqual(api.rerun_at, 900)
+        self.assertIn("waiting for the rest of the run to finish", summary)
+        self.assertIn("re-ran the failed jobs", summary)
+
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
