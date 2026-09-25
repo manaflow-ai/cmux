@@ -18,19 +18,22 @@ function countNumber(value: unknown): number {
 
 export async function loadUserVmDbSummary(userId: string): Promise<UserVmDbSummary> {
   const db = cloudDb();
-  const [{ total: vmTotal }] = await db
-    .select({ total: count() })
-    .from(cloudVms)
-    .where(eq(cloudVms.userId, userId));
-  const vmStatusRows = await db
-    .select({ status: cloudVms.status, total: count() })
-    .from(cloudVms)
-    .where(eq(cloudVms.userId, userId))
-    .groupBy(cloudVms.status);
-  const [{ total: usageEventTotal }] = await db
-    .select({ total: count() })
-    .from(cloudVmUsageEvents)
-    .where(eq(cloudVmUsageEvents.userId, userId));
+  const [[{ total: vmTotal }], vmStatusRows, [{ total: usageEventTotal }]] =
+    await Promise.all([
+      db
+        .select({ total: count() })
+        .from(cloudVms)
+        .where(eq(cloudVms.userId, userId)),
+      db
+        .select({ status: cloudVms.status, total: count() })
+        .from(cloudVms)
+        .where(eq(cloudVms.userId, userId))
+        .groupBy(cloudVms.status),
+      db
+        .select({ total: count() })
+        .from(cloudVmUsageEvents)
+        .where(eq(cloudVmUsageEvents.userId, userId)),
+    ]);
 
   return {
     cloudVms: {

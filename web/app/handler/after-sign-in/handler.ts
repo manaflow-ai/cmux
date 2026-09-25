@@ -78,15 +78,25 @@ function findStackCookie(
   baseName: string
 ): string | undefined {
   const all = cookieStore.getAll();
+  const byName = new Map<string, string>();
+  const firstBranchValue = new Map<string, string>();
+  for (const cookie of all) {
+    if (!cookie.value) continue;
+    if (!byName.has(cookie.name)) byName.set(cookie.name, cookie.value);
+    const branchSeparator = cookie.name.indexOf("--");
+    if (branchSeparator > 0) {
+      const branchPrefix = cookie.name.slice(0, branchSeparator);
+      if (!firstBranchValue.has(branchPrefix)) {
+        firstBranchValue.set(branchPrefix, cookie.value);
+      }
+    }
+  }
   for (const prefix of ["__Host-", "__Secure-", ""]) {
-    const withBranch = all.find(
-      (c) => c.name.startsWith(`${prefix}${baseName}--`) && c.value
-    );
-    if (withBranch) return withBranch.value;
-    const exact = all.find(
-      (c) => c.name === `${prefix}${baseName}` && c.value
-    );
-    if (exact) return exact.value;
+    const stem = `${prefix}${baseName}`;
+    const withBranch = firstBranchValue.get(stem);
+    if (withBranch) return withBranch;
+    const exact = byName.get(stem);
+    if (exact) return exact;
   }
   return undefined;
 }

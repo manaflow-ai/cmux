@@ -20,6 +20,7 @@ export function reduceTypingState(
       return {
         ...state,
         phraseIndex: (state.phraseIndex + 1) % action.phraseCount,
+        charIndex: 0,
         deleting: false,
       };
     case "advance":

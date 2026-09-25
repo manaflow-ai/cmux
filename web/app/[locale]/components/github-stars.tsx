@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import posthog from "posthog-js";
 
 const STARS_CACHE_TTL_MS = 300_000;
@@ -8,6 +12,20 @@ let cachedStars: number | null = null;
 let cachedStarsFetchedAt = 0;
 let pendingStarsRequest: Promise<number | null> | null = null;
 let hasAnimatedPrimaryStarsBadge = false;
+const starListeners = new Set<() => void>();
+
+function subscribeToStars(listener: () => void) {
+  starListeners.add(listener);
+  return () => starListeners.delete(listener);
+}
+
+function getCachedStars() {
+  return cachedStars;
+}
+
+function notifyStarsChanged() {
+  for (const listener of starListeners) listener();
+}
 
 function formatStars(count: number): string {
   if (count >= 1000) {
@@ -34,11 +52,15 @@ function loadGitHubStars(): Promise<number | null> {
   }
 
   pendingStarsRequest = fetch("/api/github-stars")
-    .then((response) => response.json())
+    .then((response) => {
+      if (!response.ok) throw new Error(`GitHub stars request failed: ${response.status}`);
+      return response.json();
+    })
     .then((data) => {
       if (data.stars != null) {
         cachedStars = data.stars;
         cachedStarsFetchedAt = Date.now();
+        notifyStarsChanged();
         return data.stars;
       }
 
@@ -71,46 +93,40 @@ export function GitHubStarsBadge({
   location?: string;
   className?: string;
 } = {}) {
-  const [stars, setStars] = useState<number | null>(() => cachedStars);
+  const stars = useSyncExternalStore(
+    subscribeToStars,
+    getCachedStars,
+    () => null,
+  );
   const [shouldAnimate] = useState(
     () => location === "stars_badge" && !hasAnimatedPrimaryStarsBadge
   );
   const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors ${shouldAnimate ? "animate-fade-in" : ""} ${className ?? ""}`;
 
-  useEffect(() => {
+  const loadRef = useCallback((node: HTMLSpanElement | null) => {
+    if (!node) return;
     if (shouldAnimate) {
       hasAnimatedPrimaryStarsBadge = true;
     }
+    void loadGitHubStars();
   }, [shouldAnimate]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    loadGitHubStars().then((nextStars) => {
-      if (!cancelled && nextStars != null) {
-        setStars(nextStars);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (stars === null) return null;
-
   return (
-    <a
-      href="https://github.com/manaflow-ai/cmux"
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={() =>
-        posthog.capture("cmuxterm_github_clicked", { location })
-      }
-      className={classes}
-    >
-      {GITHUB_ICON}
-      <span className="text-xs tabular-nums">{formatStars(stars)}</span>
-    </a>
+    <span ref={loadRef}>
+      {stars !== null && (
+        <a
+          href="https://github.com/manaflow-ai/cmux"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() =>
+            posthog.capture("cmuxterm_github_clicked", { location })
+          }
+          className={classes}
+        >
+          {GITHUB_ICON}
+          <span className="text-xs tabular-nums">{formatStars(stars)}</span>
+        </a>
+      )}
+    </span>
   );
 }

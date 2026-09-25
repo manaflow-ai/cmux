@@ -54,6 +54,7 @@ const sectionOrder = [
   "fileExplorer",
   "shortcuts",
 ] as const;
+const EMPTY_SKIP: string[] = [];
 
 type ConfigurationTranslation = ReturnType<typeof useTranslations>;
 
@@ -265,7 +266,7 @@ function PropertyCard({ path, property }: { path: string; property: SchemaProper
 function PropertyGrid({
   prefix,
   properties,
-  skip = [],
+  skip = EMPTY_SKIP,
 }: {
   prefix: string;
   properties: Record<string, SchemaProperty>;

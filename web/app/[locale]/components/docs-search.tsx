@@ -110,7 +110,9 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
     setStatus("loading");
 
     try {
+      if (requestIdRef.current !== requestId) return;
       const pagefind = await loadPagefind(channel);
+      if (requestIdRef.current !== requestId) return;
       const searchResult = await pagefind.debouncedSearch(
         trimmedQuery,
         { filters: { locale } },
@@ -267,7 +269,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
               {results.map((result, index) => (
                 <DocsLink
                   id={`docs-search-result-${index}`}
-                  key={`${result.href}-${index}`}
+                  key={result.href}
                   href={result.href}
                   role="option"
                   aria-selected={index === activeIndex}

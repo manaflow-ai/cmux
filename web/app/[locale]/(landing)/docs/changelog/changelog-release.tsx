@@ -142,14 +142,17 @@ export function ChangelogRelease({
           gap: 16,
         }}
       >
-        {release.sections.map((section, index) => {
+        {stableKeys(
+          release.sections,
+          (section) => `${section.heading}:${section.items.join("\u0000")}`,
+        ).map(({ item: section, key }) => {
           const isContributors = section.heading
             .toLowerCase()
             .startsWith("thanks");
 
           if (isContributors) {
             return (
-              <div key={index}>
+              <div key={key}>
                 <SectionBadge
                   heading={section.heading}
                   labels={sectionLabels}
@@ -160,7 +163,7 @@ export function ChangelogRelease({
           }
 
           return (
-            <div key={index}>
+            <div key={key}>
               {section.heading && (
                 <SectionBadge
                   heading={section.heading}
@@ -176,9 +179,10 @@ export function ChangelogRelease({
                   listStyle: "disc",
                 }}
               >
-                {section.items.map((item, itemIndex) => (
+                {stableKeys(section.items, (item) => item).map(
+                  ({ item, key: itemKey }) => (
                   <li
-                    key={itemIndex}
+                    key={itemKey}
                     style={{
                       margin: 0,
                       padding: 0,
@@ -189,7 +193,8 @@ export function ChangelogRelease({
                   >
                     <InlineMarkdown text={item} />
                   </li>
-                ))}
+                  ),
+                )}
               </ul>
             </div>
           );
@@ -211,19 +216,19 @@ function InlineMarkdown({ text }: { text: string }) {
   const parts = text.split(/(`[^`]+`|\[[^\]]+\]\([^)]+\))/g);
   return (
     <>
-      {parts.map((part, index) => {
+      {stableKeys(parts, (part) => part).map(({ item: part, key }) => {
         if (part.startsWith("`") && part.endsWith("`")) {
-          return <code key={index}>{part.slice(1, -1)}</code>;
+          return <code key={key}>{part.slice(1, -1)}</code>;
         }
         const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
           return (
-            <a key={index} href={linkMatch[2]}>
+              <a key={key} href={linkMatch[2]}>
               {linkMatch[1]}
             </a>
           );
         }
-        return <span key={index}>{part}</span>;
+        return <span key={key}>{part}</span>;
       })}
     </>
   );
@@ -236,6 +241,19 @@ function formatDate(date: string, locale: string): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${date}T00:00:00Z`));
+}
+
+function stableKeys<T>(items: readonly T[], keyFor: (item: T) => string) {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const baseKey = keyFor(item);
+    const occurrence = seen.get(baseKey) ?? 0;
+    seen.set(baseKey, occurrence + 1);
+    return {
+      item,
+      key: occurrence === 0 ? baseKey : `${baseKey}-${occurrence}`,
+    };
+  });
 }
 
 function HeroImage({
@@ -295,8 +313,11 @@ function FeatureList({ media }: { media: VersionMedia }) {
         gap: 24,
       }}
     >
-      {media.features.map((feature, index) => (
-        <div key={index}>
+      {stableKeys(
+        media.features,
+        (feature) => `${feature.title}:${feature.description}:${feature.image ?? ""}`,
+      ).map(({ item: feature, key }) => (
+        <div key={key}>
           <p style={{ margin: 0, padding: 0 }}>
             <strong>{feature.title}.</strong>{" "}
             <span className="text-muted">{feature.description}</span>
@@ -313,14 +334,14 @@ function FeatureList({ media }: { media: VersionMedia }) {
 function ContributorList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-2" style={{ paddingTop: 8 }}>
-      {items.map((item, index) => {
+      {stableKeys(items, (item) => item).map(({ item, key }) => {
         const match = item.match(
           /\[@([^\]]+)\]\((https:\/\/github\.com\/[^)]+)\)/,
         );
         if (match) {
           return (
             <a
-              key={index}
+              key={key}
               href={match[2]}
               className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border text-[13px] text-muted hover:text-foreground transition-colors no-underline!"
             >
@@ -336,7 +357,7 @@ function ContributorList({ items }: { items: string[] }) {
           );
         }
         return (
-          <span key={index} className="text-[13px] text-muted">
+          <span key={key} className="text-[13px] text-muted">
             <InlineMarkdown text={item} />
           </span>
         );
