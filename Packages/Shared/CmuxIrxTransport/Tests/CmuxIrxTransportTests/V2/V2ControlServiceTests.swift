@@ -129,13 +129,48 @@ import Testing
         _ = try await service.refreshDirectory()
         let socket = await backend.currentSocket()
         let events = await service.events()
-        try await socket.push(V2RevokedResponse(deviceRecordID: "device-record", revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
+        try await socket.push(V2RevokedResponse(deviceRecordID: "device-record", recoverable: true, revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
         for await state in events where state.cache.authorityRevoked {
             #expect(state.cache.ticket == nil)
             #expect(state.cache.directory == nil)
             #expect(state.cache.relayCredentials.isEmpty)
+            #expect(state.cache.authorityRevocationRecoverable == true)
             break
         }
+        await service.stop()
+    }
+
+    @Test func recoverableRevocationCanEnrollFromThePersistedCache() async throws {
+        let backend = V2TestBackend(now: now)
+        var revoked = V2CachedState(identity: device().identity)
+        revoked.device = V2DeviceRecord(descriptor: device(), deviceRecordID: "device-record", revision: 2, revoked: true)
+        revoked.authorityRevoked = true
+        revoked.authorityRevocationRecoverable = true
+        let service = try service(backend: backend, store: V2TestStateStore(revoked))
+        await service.start()
+        let state = try await ready(service)
+        #expect(state.cache.authorityRevoked == false)
+        #expect(state.cache.authorityRevocationRecoverable == nil)
+        #expect(state.cache.device?.revoked == false)
+        #expect(await backend.authorizations.first == "Bearer existing-stack-session")
+        #expect(await backend.sockets.first?.sentSchemas.contains("device.register.v1") == true)
+        await service.stop()
+    }
+
+    @Test func recoveryEnrollmentDoesNotRestoreUnrelatedAuthorityEarly() async throws {
+        let backend = V2TestBackend(now: now, holdRegistration: true)
+        var revoked = V2CachedState(identity: device().identity)
+        revoked.device = V2DeviceRecord(descriptor: device(), deviceRecordID: "device-record", revision: 2, revoked: true)
+        revoked.authorityRevoked = true
+        revoked.authorityRevocationRecoverable = true
+        let service = try service(backend: backend, store: V2TestStateStore(revoked))
+        await service.start()
+        let socket = await backend.waitForSocket()
+        await socket.waitForHeldRegistration()
+        await #expect(throws: V2ControlFailure.stopped) { try await service.refreshRelayCredentials() }
+        #expect(await service.snapshot().cache.relayCredentials.isEmpty)
+        try await socket.releaseRegistration()
+        _ = try await ready(service)
         await service.stop()
     }
 

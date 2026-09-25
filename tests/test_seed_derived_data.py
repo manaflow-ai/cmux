@@ -1257,10 +1257,10 @@ class Wiring(unittest.TestCase):
         # consumers, and every retry, keep the root label.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
-        warm = json.dumps([root, "glaeda-warm-0123456789ab"])
+        warm = json.dumps([root, "glaeda-runner-cmux7-glaeda"])
         owned_jobs = " admission shard-1 lag cli-product "
         for attempt, actor, admission_runner, runner in (
-            ("1", "someone", warm, [root, "glaeda-warm-0123456789ab"]),
+            ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
             ("2", "github-actions[bot]", warm, root),
             ("2", "someone", warm, retry),
