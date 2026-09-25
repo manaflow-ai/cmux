@@ -653,8 +653,8 @@ jobs:
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. The owned-pool-watch job starts ci-owned-pool-rescue.yml,
-      # running from main, and this marker tells it to watch the run and re-run it on Blacksmith when a job waits past
-      # CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
+      # running from main, and this marker tells it to watch the run and re-run
+      # it on Blacksmith when a job waits past CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
       # Fail-safe like the picker: a missing marker only means the run is not
       # watched, which is how every run behaved before the rescue existed.
       - name: Mark a run on a persistent macOS pool
