@@ -401,6 +401,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "active-workspace", title: "Active Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: "active-mac"),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback, .tailscale],
@@ -427,6 +428,7 @@ final class TerminalOutputCollector {
     #expect(firstResult == .connected)
     #expect(store.connectionState == .connected)
     #expect(store.activeTicket?.macDeviceID == "active-mac")
+    let requestCountBeforeWarning = try await responses.sentRequests().count
 
     let warningResult = await store.connectPairingURLResult(
         "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
@@ -436,7 +438,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .connected)
     #expect(store.activeTicket?.macDeviceID == "active-mac")
     #expect(store.pairingVersionWarning != nil)
-    #expect(try await responses.sentRequests().count == 1)
+    #expect(try await responses.sentRequests().count == requestCountBeforeWarning)
 
     store.cancelPairing()
 
@@ -560,6 +562,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -630,6 +633,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -896,6 +900,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -938,6 +943,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -974,6 +980,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-workspace"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1039,6 +1046,7 @@ final class TerminalOutputCollector {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1086,6 +1094,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "ticket unavailable"),
         try rpcWorkspaceListFrame(workspaceID: "local-workspace", title: "Local Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1190,6 +1199,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1263,6 +1273,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1299,6 +1310,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(message: "Full list not supported"),
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1334,6 +1346,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1951,6 +1964,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
     ])
     let runtime = testRuntime(
@@ -2000,6 +2014,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -2056,6 +2071,7 @@ final class TerminalOutputCollector {
                 ],
             ]
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcErrorFrame(message: "Terminal surface is not ready"),
     ])
     let runtime = testRuntime(
@@ -3296,6 +3312,9 @@ private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
     private var firstWorkspaceListRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private var firstWorkspaceListReleaseContinuation: CheckedContinuation<Void, Never>?
     private var requests: [RecordedRPCRequest] = []
+    /// Mac ids whose workspace list was served, in order; each connection's
+    /// host-status probe follows its own list response.
+    private var servedMacDeviceIDs: [String] = []
 
     func record(_ request: RecordedRPCRequest) {
         requests.append(request)
@@ -3325,17 +3344,24 @@ private actor SupersededAttachURLRouter: RequestAwareTransportRouter {
             if workspaceListRequestCount == 1 {
                 markFirstWorkspaceListRequested()
                 await waitForFirstWorkspaceListRelease()
+                servedMacDeviceIDs.append("first-mac")
                 return try rpcWorkspaceListFrame(
                     workspaceID: "first-workspace",
                     title: "First Workspace",
                     terminalID: "first-terminal"
                 )
             }
+            servedMacDeviceIDs.append("second-mac")
             return try rpcWorkspaceListFrame(
                 workspaceID: "second-workspace",
                 title: "Second Workspace",
                 terminalID: "second-terminal"
             )
+        case "mobile.host.status":
+            guard !servedMacDeviceIDs.isEmpty else {
+                return try rpcErrorFrame(message: "Host status before workspace list")
+            }
+            return try rpcHostStatusFrame(renderGrid: false, macDeviceID: servedMacDeviceIDs.removeFirst())
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3375,6 +3401,8 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
             return try rpcTwoWorkspaceListFrame()
         case "terminal.create":
             return try rpcTerminalCreateScopedFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3417,6 +3445,8 @@ private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
             markTerminalCreateRequested()
             await waitForTerminalCreateRelease()
             return try rpcTerminalCreateScopedFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
@@ -3460,6 +3490,8 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
             )
         case "workspace.create":
             return try rpcWorkspaceCreateFrame()
+        case "mobile.host.status":
+            return try rpcHostStatusFrame(renderGrid: false)
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
         }
