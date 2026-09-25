@@ -90,6 +90,9 @@ public struct AgentFooterOSCParser: Sendable {
                 }
                 return nil
             }
+            if (byte == 0x20 || byte == 0x09), !code.isEmpty {
+                return nil
+            }
             guard byte >= 0x30, byte <= 0x39, code.count < Self.maximumCodeBytes else {
                 phase = .otherOSC
                 return nil

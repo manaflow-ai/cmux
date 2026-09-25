@@ -33,6 +33,7 @@ extension GhosttyApp {
 #endif
 
         if let runtimeSurface {
+            TerminalAgentFooterUpdate.post(surfaceID: runtimeSurface.id, state: nil)
             // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
             DispatchQueue.main.async {
                 runtimeSurface.markShellExited()

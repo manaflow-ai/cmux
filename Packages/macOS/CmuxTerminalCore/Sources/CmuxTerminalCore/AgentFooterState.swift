@@ -1,10 +1,8 @@
-public import Foundation
-
 /// The metadata an agent publishes for a terminal pane footer.
 public struct AgentFooterState: Equatable, Sendable {
     /// The agent's short display name, or `nil` when no name was published.
     public let agent: String?
-    /// The agent's context-window usage, clamped to the inclusive range 0...100.
+    /// The agent's context-window usage, when it is within the inclusive range 0...100.
     public let contextPercent: Int?
 
     /// Creates one pane footer snapshot.

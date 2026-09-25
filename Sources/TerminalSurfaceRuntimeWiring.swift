@@ -127,6 +127,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
+        TerminalAgentFooterUpdate.post(surfaceID: surfaceID, state: nil)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
     }
 }

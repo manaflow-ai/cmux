@@ -2,6 +2,25 @@ import CmuxTerminalCore
 import Foundation
 import os
 
+/// A pane-local agent footer update delivered from the terminal output stream.
+struct TerminalAgentFooterUpdate: Sendable {
+    let surfaceID: UUID
+    let state: AgentFooterState?
+
+    static func post(surfaceID: UUID, state: AgentFooterState?) {
+        NotificationCenter.default.post(
+            name: .terminalAgentFooterDidUpdate,
+            object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: state)
+        )
+    }
+}
+
+extension Notification.Name {
+    static let terminalAgentFooterDidUpdate = Notification.Name(
+        "cmux.terminalAgentFooterDidUpdate"
+    )
+}
+
 /// Per-surface state owned by libghostty's serialized PTY read callback.
 ///
 /// SAFETY: libghostty invokes a surface's tee callback serially on that
@@ -46,6 +65,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
+    private var footerParser = AgentFooterOSCParser()
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
@@ -70,6 +90,13 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        if let footerState = footerParser.consume(bytes) {
+            TerminalAgentFooterUpdate.post(
+                surfaceID: surfaceID,
+                state: footerState.isEmpty ? nil : footerState
+            )
+        }
+
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,

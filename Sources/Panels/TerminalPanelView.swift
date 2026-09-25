@@ -130,6 +130,10 @@ struct TerminalPanelView: View {
 #endif
             .layoutPriority(1)
 
+            if let agentFooter = panel.agentFooter {
+                TerminalAgentFooterView(state: agentFooter, appearance: appearance)
+            }
+
             if panel.isTextBoxActive {
                 TextBoxInputContainer(
                     text: $panel.textBoxContent,
@@ -252,6 +256,42 @@ struct TerminalPanelView: View {
         } else {
             context += "\n\(marker)"
         }
+    }
+}
+
+private struct TerminalAgentFooterView: View {
+    let state: AgentFooterState
+    let appearance: PanelAppearance
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let agent = state.agent {
+                Text(agent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+            Spacer(minLength: 4)
+            if let contextPercent = state.contextPercent {
+                ProgressView(value: Double(contextPercent), total: 100)
+                    .progressViewStyle(.linear)
+                    .frame(width: 72)
+                Text("\(contextPercent)%")
+                    .monospacedDigit()
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .frame(minWidth: 32, alignment: .trailing)
+            }
+        }
+        .foregroundStyle(Color(nsColor: appearance.foregroundColor).opacity(0.88))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 22)
+        .background(Color(nsColor: appearance.backgroundColor).opacity(0.94))
+        .overlay(alignment: .top) {
+            Divider().opacity(0.35)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("TerminalAgentFooter")
     }
 }
 
