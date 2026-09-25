@@ -1902,6 +1902,20 @@ _cmux_terminal_history_precmd() {
     print -r -- "$line" >> "$CMUX_HISTORY_FILE"
 }
 
+_cmux_report_pwd() {
+    local pwd="$1"
+    [[ -n "$pwd" && "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || return 0
+
+    if _cmux_socket_is_unix; then
+        [[ -n "${CMUX_TAB_ID:-}" && -n "${CMUX_PANEL_ID:-}" ]] || return 0
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        (( $? == 0 )) && _CMUX_PWD_LAST_PWD="$pwd"
+    elif _cmux_socket_uses_remote_relay; then
+        _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
+    fi
+}
+
 _cmux_precmd() {
     local last_status=$?
     _cmux_terminal_history_precmd
@@ -1946,13 +1960,8 @@ _cmux_precmd() {
         cmd_dur=$(( now - cmd_start ))
     fi
 
-    if (( ! cmux_has_unix_socket )); then
-        if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-            _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
-        fi
-    else
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    fi
+    _cmux_report_pwd "$pwd"
+    (( cmux_has_unix_socket )) && [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     _cmux_set_git_active_pwd "$pwd"
 
@@ -1967,14 +1976,6 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=0
             _CMUX_GIT_FORCE=1
         fi
-    fi
-
-    # CWD: keep the app in sync with the actual shell directory.
-    # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if (( cmux_has_unix_socket )) && [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-        _CMUX_PWD_LAST_PWD="$pwd"
-        local qpwd="${pwd//\"/\\\"}"
-        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.
@@ -2109,10 +2110,14 @@ _cmux_fix_path() {
 }
 
 _cmux_chpwd() {
+    # Report from chpwd so the sidebar and new tabs follow cd immediately,
+    # including shells whose prompt framework delays or replaces precmd.
+    _cmux_report_pwd "$PWD"
+
     # Only refresh the active-cwd marker so async git reporters (the HEAD-watch
     # loop and deferred prompt probes) are scoped to the new cwd. Do NOT tear the
     # HEAD watch down here: chpwd fires mid-line for compound commands such as
-    # `cd foo && pnpm dev`, and killing the watcher would drop live branch updates
+    # cd foo && pnpm dev, and killing the watcher would drop live branch updates
     # during the long-running step. The marker guard already suppresses any stale
     # report for the path the shell just left, and precmd stops the watch at the
     # next prompt.
