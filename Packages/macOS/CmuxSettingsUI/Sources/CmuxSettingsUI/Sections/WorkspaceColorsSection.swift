@@ -201,7 +201,10 @@ public struct WorkspaceColorsSection: View {
         let baseHex = baseHex(for: entry.name)
         let subtitle: String = {
             if let baseHex {
-                return String(localized: "settings.workspaceColors.base", defaultValue: "Base: \(baseHex)")
+                return String.localizedStringWithFormat(
+                    String(localized: "settings.workspaceColors.base", defaultValue: "Base: %@"),
+                    baseHex
+                )
             }
             return String(localized: "settings.workspaceColors.customEntry", defaultValue: "Named palette entry.")
         }()
@@ -285,6 +288,7 @@ public struct WorkspaceColorsSection: View {
         switch style {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
+        case .border: return String(localized: "sidebar.activeTabIndicator.border", defaultValue: "Border")
         }
     }
 

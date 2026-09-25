@@ -395,7 +395,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             sidebarSelectionColorHex: settings.selectionColorHex
         )
         applyBackgroundStyle(style)
-        if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
+        if (settings.activeTabIndicatorStyle == .solidFill || settings.activeTabIndicatorStyle == .border), model.isActive {
             backgroundView.layer?.borderWidth = 1.5
             backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {

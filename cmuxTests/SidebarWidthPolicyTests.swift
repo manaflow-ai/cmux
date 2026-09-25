@@ -354,6 +354,18 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         XCTAssertEqual(background.opacity, 1, accuracy: 0.001)
     }
 
+    func testBorderIndicatorDerivesActiveForegroundFromWorkspaceColor() {
+        let foreground = sidebarWorkspaceRowActiveForegroundNSColor(
+            activeTabIndicatorStyle: .border,
+            customColorHex: "#101010",
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil,
+            opacity: 1
+        )
+
+        XCTAssertEqual(foreground.hexString(), "#FFFFFF")
+    }
+
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
