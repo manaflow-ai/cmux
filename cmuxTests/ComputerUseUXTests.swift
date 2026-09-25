@@ -314,11 +314,6 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
 
         var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
-        let presentationCoordinator = ComputerUseOnboardingCoordinator(
-            presenter: { startingPoint in
-                presentations.append(startingPoint)
-            }
-        )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-cua-onboarding-ingress-\(UUID().uuidString)",
@@ -334,6 +329,12 @@ struct ComputerUseUXTests {
             hostAuthenticationToken: String(repeating: "b", count: 64)
         )
         let runtimeService = ComputerUseRuntimeService(paths: paths)
+        let presentationCoordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: runtimeService,
+            presenter: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
         let catalog = SettingCatalog()
         let defaultsSuite = "cmux-cua-onboarding-ingress-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuite))

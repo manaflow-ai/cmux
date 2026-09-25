@@ -133,6 +133,35 @@ struct ComputerUseOnboardingIntentTests {
         #expect(fixture.presentations == [.overview])
     }
 
+    @Test func presentationBoundaryChecksRuntimeAdmission() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture()
+        defer { fixture.remove() }
+        try await fixture.enable()
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let coordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: fixture.runtime,
+            presenter: { presentations.append($0) }
+        )
+
+        #expect(coordinator.requestFromToolInvocation())
+        #expect(!coordinator.requestFromToolInvocation())
+        #expect(presentations == [.overview])
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+
+        let store = fixture.runtime.onboarding
+        store.restore(for: "synthetic-admission-helper")
+        #expect(store.finishVerification(.ready, attempt: try #require(store.beginVerification())) == .ready)
+        #expect(!coordinator.requestFromToolInvocation())
+        #expect(presentations == [.overview])
+
+        #expect(coordinator.requestFromSettings(startingAt: .accessibility))
+        #expect(presentations == [.overview, .accessibility])
+        #expect(fixture.runtime.onboardingIsComplete)
+
+        fixture.runtime.stopForTermination()
+        #expect(!coordinator.requestFromToolInvocation())
+    }
+
     private func settingsActions(_ fixture: ComputerUseToolOnboardingFixture) -> HostSettingsActions {
         HostSettingsActions(
             configFileURL: fixture.persistence.root.appendingPathComponent("cmux.json"),

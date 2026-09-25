@@ -40,6 +40,7 @@ final class ComputerUseToolOnboardingFixture {
             workspaceTitle: { _ in "Synthetic workspace" },
             featureEnabled: { [weak self] in self?.featureEnabled == true },
             onboardingCoordinator: ComputerUseOnboardingCoordinator(
+                runtimeService: runtime,
                 presenter: { [weak self] in self?.presentations.append($0) }
             ),
             ownsSurface: { [weak self] surfaceID, workspaceID in
