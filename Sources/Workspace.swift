@@ -3681,6 +3681,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return false
     }
 
+    private nonisolated static func resolvedPaneBorderHex(
+        configuredHex: String?,
+        splitDividerColor: NSColor?,
+        defaultBorderHex: String
+    ) -> String {
+        let splitDividerHex = splitDividerColor.map { color in
+            color.hexString(includeAlpha: color.alphaComponent < 0.999)
+        }
+        return PaneChromeSettings.resolvedPaneBorderHex(
+            configuredHex: configuredHex,
+            fallback: splitDividerHex ?? defaultBorderHex
+        )
+    }
+
     /// Resolves Bonsplit colors while keeping terminal backdrop ownership explicit.
     nonisolated static func bonsplitChromeColors(
         backgroundColor: NSColor,
@@ -3688,6 +3702,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
         paneBorderColorHex: String? = nil,
+        splitDividerColor: NSColor? = nil,
         chromeBackgroundColor: NSColor? = nil,
         chromeHost: BonsplitChromeHost = .workspace
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
@@ -3706,9 +3721,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     )
             )
             .hexString(includeAlpha: true)
-        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+        let borderHex = resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            fallback: defaultBorderHex
+            splitDividerColor: splitDividerColor,
+            defaultBorderHex: defaultBorderHex
         )
 
         // Keep this decision on the same owner plan used by terminal surfaces.
@@ -3761,7 +3777,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
-        paneBorderColorHex: String? = nil
+        paneBorderColorHex: String? = nil,
+        splitDividerColor: NSColor? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
@@ -3769,9 +3786,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
-        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+        let borderHex = resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
-            fallback: defaultBorderHex
+            splitDividerColor: splitDividerColor,
+            defaultBorderHex: defaultBorderHex
         )
 
         if sharesWindowBackdrop {
@@ -3823,6 +3841,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil,
         tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = usesWindowRootTerminalBackdrop()
@@ -3835,6 +3854,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            splitDividerColor: splitDividerColor,
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: backgroundColor,
                 backgroundOpacity: backgroundOpacity
@@ -3863,6 +3883,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
+            splitDividerColor: config.splitDividerColor,
             chromeBackgroundColor: Self.resolvedTerminalChromeBackgroundColor(
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity
@@ -4044,11 +4065,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.surfaceTabBarDirectory = initialDirectory
 
         // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
+        let initialGhosttyConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: "workspace.init"
+        )
         let appearance = Self.bonsplitAppearance(
-            from: GhosttyApp.shared.defaultBackgroundColor,
-            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
-            tabTitleFontSize: initialSurfaceTabBarFontSize
+            from: initialGhosttyConfig.backgroundColor,
+            backgroundOpacity: initialGhosttyConfig.backgroundOpacity,
+            splitDividerColor: initialGhosttyConfig.splitDividerColor,
+            tabTitleFontSize: initialGhosttyConfig.surfaceTabBarFontSize
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
@@ -13738,14 +13762,19 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         func recordPostCloseState() {
+            let tabs = controller.tabs(inPane: pane)
+            // Only a close that takes the zoomed pane with it ends the zoom. While
+            // other tabs remain the pane outlives the close and keeps filling the
+            // window, so the layout must not snap back to the split
+            // (https://github.com/manaflow-ai/cmux/issues/8363).
             if controller.zoomedPaneId == pane,
-               controller.selectedTab(inPane: pane)?.id == tab.id {
+               controller.selectedTab(inPane: pane)?.id == tab.id,
+               tabs.count <= 1 {
                 postCloseClearSplitZoomTabIds.insert(tab.id)
             } else {
                 postCloseClearSplitZoomTabIds.remove(tab.id)
             }
 
-            let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
                 postCloseSelectTabId.removeValue(forKey: tab.id)
                 return
