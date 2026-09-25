@@ -35,7 +35,12 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     var body: some View {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
+        let leadingIcon = row.leadingIcon ?? workspace?.workspaceGroupIcon
         HStack(spacing: isSuperCompact ? 5 : 7) {
+            if let leadingIcon {
+                extensionSidebarLeadingIcon(leadingIcon, size: isSuperCompact ? 16 : 18)
+            }
+
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 Text(row.title)
                     .cmuxFont(size: primarySize, weight: .regular)
@@ -94,7 +99,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                 }
             }
         }
-        .padding(.leading, isSuperCompact ? 14 : 28)
+        .padding(.leading, leadingIcon == nil ? (isSuperCompact ? 14 : 28) : (isSuperCompact ? 7 : 8))
         .padding(.trailing, 8)
         .padding(.vertical, isSuperCompact ? 2 : (isThin ? 5 : 7))
         .frame(minHeight: isSuperCompact ? 22 : 32)
@@ -120,6 +125,42 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         case .relativeDate(let date, _):
             return CmuxExtensionRelativeTimeFormatter.string(from: date, to: relativeNow)
         }
+    }
+
+    private func extensionSidebarLeadingIcon(
+        _ icon: CmuxSidebarProviderIcon,
+        size: CGFloat
+    ) -> some View {
+        let foreground = icon.foregroundColorHex
+            .flatMap { NSColor(hex: $0) }
+            .map(Color.init(nsColor:))
+            ?? Color.primary.opacity(0.82)
+        let background = icon.backgroundColorHex
+            .flatMap { NSColor(hex: $0) }
+            .map(Color.init(nsColor:))
+        return ZStack {
+            if let background {
+                if icon.shape == .circle {
+                    Circle().fill(background)
+                } else {
+                    RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                        .fill(background)
+                }
+            }
+            if let systemImageName = icon.systemImageName {
+                CmuxSystemSymbolImage(
+                    magnified: systemImageName,
+                    pointSize: size * 0.72,
+                    weight: .semibold,
+                    tint: foreground
+                )
+            } else {
+                Text(icon.text ?? ".")
+                    .cmuxFont(size: size * 0.58, weight: .bold)
+                    .foregroundColor(foreground)
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
 

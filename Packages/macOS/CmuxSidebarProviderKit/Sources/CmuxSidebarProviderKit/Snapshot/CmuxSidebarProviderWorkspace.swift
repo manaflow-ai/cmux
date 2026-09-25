@@ -42,6 +42,18 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
     /// Git branches detected in workspace panel directories.
     public var gitBranches: [CmuxSidebarProviderGitBranch]
 
+    /// Builds the workspace group's fallback row icon when the provider does
+    /// not supply a workspace-specific icon.
+    public var workspaceGroupIcon: CmuxSidebarProviderIcon? {
+        guard workspaceGroupIconSymbol != nil || workspaceGroupColorHex != nil else {
+            return nil
+        }
+        return CmuxSidebarProviderIcon(
+            systemImageName: workspaceGroupIconSymbol,
+            foregroundColorHex: workspaceGroupColorHex
+        )
+    }
+
     /// Creates a provider workspace snapshot.
     public init(
         id: UUID,
