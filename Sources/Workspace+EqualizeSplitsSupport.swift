@@ -25,7 +25,7 @@ extension Workspace {
         applyProvisionalSplitPaneGeometry(originalPane: sourcePaneId, newPane: newPaneId)
     }
 
-    /// Rebalances the splits along a newly created split's axis when
+    /// Rebalances the panes of a newly created split's row or column when
     /// `app.equalizeSplitsOnCreate` is on (issue #731).
     ///
     /// This is the shared post-create step for user-initiated splits: the
@@ -33,44 +33,40 @@ extension Workspace {
     /// palette, Ghostty split passthrough), the browser split action, the
     /// v1/v2 socket split commands, and bonsplit's own split buttons. Session
     /// restore and layout builders skip it because they impose their own
-    /// divider positions. Only splits with the new split's orientation move,
-    /// so a vertical split never disturbs the widths of side-by-side panes.
+    /// divider positions. Only the run of same-orientation splits that holds
+    /// the new pane moves, so a vertical split never disturbs the widths of
+    /// side-by-side panes, and dividers in unrelated rows keep their sizes.
     ///
-    /// - Returns: `true` when the setting is on and at least one split was
-    ///   rebalanced.
+    /// - Returns: `true` when the setting is on and a split was rebalanced.
     @discardableResult
     func equalizeSplitsAfterCreatingSplitIfEnabled(
         newPanelId: UUID,
-        orientation: SplitOrientation,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
     ) -> Bool {
         guard let newPaneId = paneId(forPanelId: newPanelId) else { return false }
-        return equalizeSplitsAfterCreatingSplitIfEnabled(
-            newPaneId: newPaneId,
-            orientation: orientation,
-            settings: settings
-        )
+        return equalizeSplitsAfterCreatingSplitIfEnabled(newPaneId: newPaneId, settings: settings)
     }
 
     @discardableResult
     func equalizeSplitsAfterCreatingSplitIfEnabled(
         newPaneId: PaneID,
-        orientation: SplitOrientation,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
     ) -> Bool {
         guard settings.value(for: SettingCatalog().app.equalizeSplitsOnCreate),
               layoutMode != .canvas,
               !isRemoteTmuxMirror else { return false }
-        let result = PaneLayoutService().equalizeSplits(
+        let result = PaneLayoutService().equalizeSplitRun(
+            containingPaneId: newPaneId.id.uuidString,
             in: bonsplitController.treeSnapshot(),
-            controller: bonsplitController,
-            orientationFilter: orientation.rawValue
+            controller: bonsplitController
         )
         guard result.foundSplit else { return false }
         didProgrammaticallyChangeSplitGeometry()
         // The new split's divider moved after bonsplit's didSplitPane
         // projection; re-derive the provisional pane frames like
-        // `applyInitialSplitDividerPosition` does.
+        // `applyInitialSplitDividerPosition` does. When the run spans more
+        // than the new split, the other panes' terminals keep their frames
+        // until their anchors re-layout, as with the Equalize Splits command.
         if let sourcePaneId = siblingPaneId(of: newPaneId, in: bonsplitController.treeSnapshot()) {
             applyProvisionalSplitPaneGeometry(originalPane: sourcePaneId, newPane: newPaneId)
         }

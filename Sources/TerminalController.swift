@@ -12735,7 +12735,7 @@ class TerminalController {
                 allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
-                tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id, orientation: direction.orientation)
+                tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"

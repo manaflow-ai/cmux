@@ -199,7 +199,7 @@ extension TerminalController {
         }
         // An explicit divider position wins over equalize-on-create.
         if dividerPosition == nil {
-            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId, orientation: orientation)
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
         }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),

@@ -29,10 +29,7 @@ extension TabManager {
             focus: focus
         )
         if let panel = outcome.panel {
-            workspace.equalizeSplitsAfterCreatingSplitIfEnabled(
-                newPanelId: panel.id,
-                orientation: direction.orientation
-            )
+            workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
         }
         return outcome
     }

@@ -373,7 +373,7 @@ extension TerminalController: ControlPaneContext {
         }
         // An explicit divider position wins over equalize-on-create.
         if initialDividerPosition == nil {
-            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newPanelId, orientation: orientation)
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newPanelId)
         }
         let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
         let windowId = v2ResolveWindowId(tabManager: tabManager)

@@ -3271,6 +3271,29 @@ final class TabManagerEqualizeSplitsOnCreateTests: XCTestCase {
         XCTAssertEqual(bottomRow.dividerPosition, 1.0 / 3.0, accuracy: 0.000_1)
     }
 
+    func testCreateSplitLeavesUnrelatedRowsAlone() throws {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let top = try XCTUnwrap(workspace.focusedPanelId)
+        let bottom = try XCTUnwrap(manager.createSplit(tabId: workspace.id, surfaceId: top, direction: .down))
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: top, direction: .right))
+
+        let beforeRoot = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        let topRow = try XCTUnwrap(splitNode(beforeRoot.first))
+        XCTAssertEqual(topRow.orientation, "horizontal")
+        let topRowId = try XCTUnwrap(UUID(uuidString: topRow.id))
+        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.2, forSplit: topRowId, fromExternal: true))
+
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: bottom, direction: .right))
+
+        let root = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        let topRowAfter = try XCTUnwrap(splitNode(root.first))
+        XCTAssertEqual(topRowAfter.dividerPosition, 0.2, accuracy: 0.000_1, "A split in the bottom row must not reset the top row")
+        let bottomRow = try XCTUnwrap(splitNode(root.second))
+        XCTAssertEqual(bottomRow.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
     func testExplicitDividerPositionWinsOverEqualizeOnCreate() throws {
         UserDefaults.standard.set(true, forKey: defaultsKey)
         let manager = TabManager()

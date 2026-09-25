@@ -531,7 +531,7 @@
         "equalizeSplitsOnCreate": {
           "type": "boolean",
           "default": false,
-          "description": "When true, creating a split resizes the panes along that split's direction to equal sizes. When false, a new split halves the pane it was created from."
+          "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
         },
         "preferredEditor": {
           "type": "string",

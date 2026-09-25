@@ -4385,7 +4385,7 @@ class TabManager: ObservableObject {
         ) else { return nil }
         // An explicit divider position wins over equalize-on-create.
         if initialDividerPosition == nil {
-            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id, orientation: direction.orientation)
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
         }
         return panel.id
     }
@@ -4476,7 +4476,7 @@ class TabManager: ObservableObject {
         ) else { return nil }
         // An explicit divider position wins over equalize-on-create.
         if initialDividerPosition == nil {
-            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id, orientation: orientation)
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
         }
         return panel.id
     }
