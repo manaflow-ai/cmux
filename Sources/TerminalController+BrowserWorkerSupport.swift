@@ -507,6 +507,19 @@ extension TerminalController {
                 )
             )
         }
+        guard context.browserPanel.webView === context.webView else {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(
+                    code: "stale_state",
+                    message: String(
+                        localized: "browser.automation.error.superseded",
+                        defaultValue: "The browser surface was already recovered. Retry the command."
+                    ),
+                    data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+                )
+            )
+        }
         guard focus["editable"] as? Bool == true else {
             // Native key replay is intentionally limited to text-capable
             // controls. Existing JS value handling remains correct for date,
