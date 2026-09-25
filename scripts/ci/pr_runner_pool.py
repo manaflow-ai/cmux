@@ -100,7 +100,8 @@ most room (at least one job), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
 and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
 index, tests-build-and-lag), which queue longest on Blacksmith, then the light
-jobs (cli-product-tests, the remote daemon and Claude wrapper lanes).
+jobs (cli-product-tests, the remote daemon and Claude wrapper lanes, and
+swift-package-tests when it builds no Release helper; see run_plan()).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
@@ -129,8 +130,8 @@ room for, by the same expected wait; a
 pool without one keeps the pool label for every job. A root job also holds
 one of the pool's machines, so it counts against both.
 
-Side lanes (the Claude wrapper and remote daemon lanes, light jobs that never
-touch a canonical root) take the pool's side label,
+Side lanes (the Claude wrapper, remote daemon and package lanes, light jobs
+that never touch a canonical root) take the pool's side label,
 `glaeda-side-<class>-xcode-<version>` (side_label()), the other runners of
 each mini, whenever the pool has a root count and more machines than root
 runners (the `side_runner` output). On the pool label a side lane landed on a
@@ -292,8 +293,8 @@ DEFAULT_MAIN_RESERVE = 0
 MAIN_REF = "refs/heads/main"
 MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
-# own. Beside compile admission run the Claude wrapper and remote daemon
-# lanes; once admission passes, a full suite adds APP_HOST_SHARDS
+# own. Beside compile admission run the Claude wrapper, remote daemon and
+# package lanes; once admission passes, a full suite adds APP_HOST_SHARDS
 # shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
 # shard, and a CLI change cli-product-tests. A run takes an owned pool when
 # its own peak (run_jobs) fits there by the expected wait and the queue bound
@@ -303,11 +304,17 @@ MAIN_BRANCH = "main"
 # job without one means it took none. Its peak counts toward the queue bound,
 # and toward the wait only once it is older than a job (young_charge()).
 # Only a run still picking is replayed and charged REPLAYED_RUN_JOBS, the
-# peak of a compile-only run with every side lane.
+# peak of a compile-only run with the Claude wrapper and remote daemon lanes.
+# swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
+# builds no Release helper (package_lane_owned()): a package change, or a full
+# suite with release_build false, which then peaks at all three side lanes
+# beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
+# the replay charge leaves out the package lane, which a compile-only run
+# carries only on a package change.
 APP_HOST_SHARDS = 7
-SIDE_LANES = 2
+SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
-REPLAYED_RUN_JOBS = SIDE_LANES + 1
+REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
 # apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40 idle minis.
@@ -501,12 +508,13 @@ def shard_job(index: int) -> str:
 
 # A full suite with every side lane: what a run whose routing is unknown is charged.
 FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
-                   ("claude-wrapper", "remote-daemon"))
+                   ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
 def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | None,
              unit_in_admission: str | None, claude_wrapper: str | None, cli: str | None,
-             remote_daemon: str | None, unit_selectors: str | None = None) -> RunJobs:
+             remote_daemon: str | None, unit_selectors: str | None = None,
+             swift_packages: str | None = None, release_build: str | None = None) -> RunJobs:
     """This run's macOS jobs, from the changes job's routing.
 
     Counted high on purpose: compile admission is assumed to run (the reuse
@@ -515,11 +523,16 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     and cli-product-tests after it for a CLI change or a full suite. A unit
     suite with no selectors (the unit-ci label) runs all seven shards; with
     selectors, the one changed-suites worker. `unit_selectors` None (a caller
-    that does not know) counts one shard, as before.
+    that does not know) counts one shard, as before. swift-package-tests is a
+    side lane only when package_lane_owned() says it may take the pool;
+    `swift_packages` None (a caller that does not pass it) leaves it out.
     """
     full = flag(macos) and flag(full_suite)
     side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
-                                     ("remote-daemon", flag(remote_daemon))) if on)
+                                     ("remote-daemon", flag(remote_daemon)),
+                                     (SWIFT_PACKAGE_JOB, package_lane_owned(
+                                         full=full, full_suite=full_suite, swift_packages=swift_packages,
+                                         release_build=release_build))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
     unit = flag(macos) and flag(unit_suite) and not flag(unit_in_admission)
@@ -533,6 +546,28 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     return RunJobs(True, after, side)
 
 
+# swift-package-tests (ci-macos.yml): `swift test` per selected package into
+# the workspace's .build, which glaeda's hook classes as light (no canonical
+# root, no GUI). It runs for a full suite or a change the router attributed to
+# a Swift package. With a full suite that also checks the Release build it
+# first builds the Ghostty CLI helper against an SDK 15 Xcode, which only the
+# Blacksmith macOS 15 image carries (the minis have Xcode 26.6 alone), so only
+# a run without that helper build places it on an owned pool.
+SWIFT_PACKAGE_JOB = "swift-package"
+
+
+def package_lane_owned(*, full: bool, full_suite: str | None, swift_packages: str | None,
+                       release_build: str | None) -> bool:
+    """swift-package-tests runs in this run and needs no SDK 15 Xcode, so an owned Mac can take it.
+
+    `release_build` None (a caller that does not pass it) counts as a helper
+    build under a full suite: the safe side.
+    """
+    runs = full or flag(swift_packages)
+    helper = flag(full_suite) and (release_build is None or flag(release_build))
+    return runs and not helper
+
+
 def run_jobs(**routing: str | None) -> int:
     """Most macOS machines this run holds at once, from the changes job's routing (run_plan)."""
     return run_plan(**routing).peak
@@ -541,12 +576,12 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper")
+LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon")
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB)
 
 
 def gui_job(key: str) -> bool:
@@ -1664,7 +1699,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # shard 8 (ci.yml), so the plan always counts that shard.
         unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
-        unit_selectors=env.get("RUN_UNIT_SELECTORS"))
+        unit_selectors=env.get("RUN_UNIT_SELECTORS"),
+        swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
     if on_main:
         # The side lanes read the pick only on a pull request (ci.yml's
         # claude-wrapper, remote-daemon.yml); main's keep their own route.
