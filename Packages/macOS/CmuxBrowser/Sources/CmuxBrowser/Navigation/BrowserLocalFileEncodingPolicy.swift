@@ -5,8 +5,8 @@ public import WebKit
 @MainActor
 public final class BrowserLocalFileEncodingPolicy {
     private static let defaultTextEncodingSelector = NSSelectorFromString("_setDefaultTextEncodingName:")
-    private static let maximumInspectedFileSize = 16 * 1024 * 1024
-    private static let maximumMetadataSize = 64 * 1024
+    nonisolated private static let maximumInspectedFileSize = 16 * 1024 * 1024
+    nonisolated private static let maximumMetadataSize = 64 * 1024
 
     private let preferences: WKPreferences
     private let fallbackEncodingName: String?
