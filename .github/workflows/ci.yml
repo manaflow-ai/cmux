@@ -1006,7 +1006,11 @@ jobs:
     # same-repository pull request, so it is watched too.
     name: Watch owned pool jobs
     needs: changes
-    if: ${{ needs.changes.outputs.macos_pr_owned_jobs != '' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    # A same-repository pull request whose picker placed nothing owned is
+    # watched too when ci-macos.yml's late-placement may still move its jobs
+    # after compile admission (a full or unit suite, or the CLI lane): the
+    # watch waits for that job and follows the run only if it moved some.
+    if: ${{ (needs.changes.outputs.macos_pr_owned_jobs != '' || github.event_name == 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != '' && (needs.changes.outputs.macos == 'true' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.unit_suite == 'true') || needs.changes.outputs.cli == 'true')) && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
     runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
     timeout-minutes: 5
     # Job level, like reverse-test-impact, so macos-admission-gate never
@@ -1021,7 +1025,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+          # 1 when the picker placed nothing owned: wait for late placement.
+          LATE: ${{ needs.changes.outputs.macos_pr_owned_jobs == '' && '1' || '0' }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT" -f late="$LATE"
 
   static-preflight:
     name: Fast static checks
@@ -1122,7 +1128,12 @@ jobs:
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 10
+    # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
+    # processes, so a mini saturated by a compile beside it stretches it:
+    # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
+    # 2026-09-25). 15 minutes keeps that from failing a required check; the
+    # glaeda listener gate keeps new jobs off saturated minis.
+    timeout-minutes: 15
     steps:
       - name: Checkout wrapper and test inputs
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1262,6 +1273,9 @@ jobs:
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
+    # ci-macos.yml's late-placement reads idle root runners with it.
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
   tests:
     name: tests
