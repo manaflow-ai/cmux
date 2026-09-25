@@ -27,8 +27,11 @@ blaming the whole range. A tie lists pull requests labeled merged-unverified
 by main_full_suite.py report --extra-section) and comments once on each
 suspect pull request, idempotent through a hidden marker keyed on the pull
 request and its failing test set, and once per commit range. A test tied between more than
-MAX_PINGED_SUSPECTS pull requests is listed in the issue only. Nothing is
-reverted or re-run here.
+MAX_PINGED_SUSPECTS pull requests is listed in the issue only. The section
+ends with a hidden data marker (DATA_PREFIX): the failures, their suspects,
+and the commits in the range that can change an app-host test's outcome.
+main_regression_bisect.py reads it to rerun and bisect each failure. Nothing
+is reverted or re-run here.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
 from merge_receipt import LABEL as UNVERIFIED_LABEL  # noqa: E402
+from app_host_test_rerun import OUTSIDE_THE_APP, TEST_ROOT  # noqa: E402
 
 APP_HOST_JOB_RE = re.compile(r"app-host unit tests \((\d+)/\d+\)")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -81,6 +85,11 @@ INCOMPLETE_MARKERS = (
 CATALOG = Path(__file__).resolve().parent / "app-host-known-failures.json"
 MARKER_PREFIX = "<!-- main-regression-attribution"
 MARKER_RE = re.compile(r"<!-- main-regression-attribution pr=(\d+) tests=(\w+) range=(\S+) -->")
+# One line of JSON main_regression_bisect.py reads back from the issue.
+DATA_PREFIX = "<!-- main-regression-data "
+# A longer range is not bisected, and keeps the section well under GitHub's
+# comment size limit.
+MAX_BISECT_COMMITS = 256
 # Bounds on one report, so a long red streak cannot fan out into a comment storm.
 MAX_RANKED_PRS = 40
 MAX_COMMENTED_PRS = 5
@@ -293,6 +302,57 @@ def short(sha: str) -> str:
     return sha[:10]
 
 
+def outcome_commits(log_text: str) -> list[str]:
+    """Commits, oldest first, whose diff can change an app-host test's outcome.
+
+    Reads `git log --first-parent --reverse --diff-merges=first-parent
+    --name-only --format=%x00%H`. A commit that only touches paths no
+    app-host product or test reads (docs, web, CI scripts) cannot make a test
+    start failing, so a bisect skips it.
+    """
+    relevant: list[str] = []
+    for record in log_text.split("\0"):
+        lines = [line.strip() for line in record.strip().splitlines() if line.strip()]
+        if not lines:
+            continue
+        sha, paths = lines[0], lines[1:]
+        if any(path.startswith(TEST_ROOT) or not path.startswith(OUTSIDE_THE_APP) for path in paths):
+            relevant.append(sha)
+    return relevant
+
+
+def data_marker(
+    *,
+    run: Mapping[str, object],
+    previous: Mapping[str, object],
+    failures: Mapping[str, list[str]],
+    attributions: Mapping[str, tuple[list[PullRequest], str]],
+    prs: list[PullRequest],
+    commits: list[str],
+) -> str:
+    bisected = commits if len(commits) <= MAX_BISECT_COMMITS else None
+    listed = set(bisected or ())
+    data = {
+        "v": 1,
+        "run_id": run.get("id"),
+        "run_url": run.get("html_url"),
+        "head": run.get("head_sha"),
+        "prev": previous.get("head_sha"),
+        "prev_run_url": previous.get("html_url"),
+        "tests": [
+            {
+                "test": test,
+                "suspects": [pr.number for pr in attributions[test][0]],
+                "how": attributions[test][1],
+            }
+            for test in list(failures)[:MAX_LISTED_TESTS]
+        ],
+        "prs": {pr.merge_sha: pr.number for pr in prs if pr.merge_sha in listed},
+        "commits": bisected,
+    }
+    return f"{DATA_PREFIX}{json.dumps(data, separators=(',', ':'))} -->"
+
+
 def issue_section(
     *,
     repo: str,
@@ -303,6 +363,7 @@ def issue_section(
     prs: list[PullRequest],
     direct: list[str],
     no_baseline: Iterable[str] = (),
+    commits: list[str] | None = None,
 ) -> str:
     if previous is None:
         return "### New failures\n\nNo earlier full-suite run with every app-host shard finished to compare against."
@@ -337,6 +398,10 @@ def issue_section(
     lines += ["", f"Pull requests merged in the range: " + (", ".join(f"#{pr.number}" for pr in prs) or "none")]
     if direct and not prs:
         lines.append("Commits without a merged pull request: " + ", ".join(short(sha) for sha in direct[:10]))
+    if commits is not None:
+        lines += ["", data_marker(
+            run=run, previous=previous, failures=failures, attributions=attributions, prs=prs, commits=commits,
+        )]
     return "\n".join(lines)
 
 
@@ -607,16 +672,22 @@ def command_report(args: argparse.Namespace) -> int:
     prs: list[PullRequest] = []
     direct: list[str] = []
     attributions: dict[str, tuple[list[PullRequest], str]] = {}
+    commits: list[str] | None = None
     if previous and failures:
-        shas = git(args.root, "rev-list", f"{previous['head_sha']}..{run['head_sha']}").split()
+        range_ = f"{previous['head_sha']}..{run['head_sha']}"
+        shas = git(args.root, "rev-list", range_).split()
         prs, direct = merged_prs(shas, associated_prs(args.repo, shas), args.branch)
         if len(prs) > 1 or (prs and direct):
             rank_inputs(args.root, prs)
         attributions = {test: suspects_for(test, prs, direct) for test in failures}
+        commits = outcome_commits(git(
+            args.root, "log", "--first-parent", "--reverse", "--diff-merges=first-parent",
+            "--name-only", "--format=%x00%H", range_,
+        ))
 
     section = issue_section(
         repo=args.repo, run=run, previous=previous, failures=failures,
-        attributions=attributions, prs=prs, direct=direct, no_baseline=no_baseline,
+        attributions=attributions, prs=prs, direct=direct, no_baseline=no_baseline, commits=commits,
     )
     print(section)
     if args.section_output:
