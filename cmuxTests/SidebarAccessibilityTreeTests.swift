@@ -71,6 +71,22 @@ struct SidebarAccessibilityTreeTests {
         root.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
+        // Flushing the AppKit table does not finish SwiftUI's lazy project
+        // navigator. Wait for its mounted content before walking the window.
+        var projectWalk = SidebarAccessibilityTreeWalk()
+        let projectContentRendered = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            projectView.layoutSubtreeIfNeeded()
+            projectWalk = SidebarAccessibilityTreeWalk()
+            projectWalk.visit(projectView)
+            return projectWalk.cycle != nil
+                || projectWalk.textValues.contains { $0.contains("Context.swift") }
+        }
+        try #require(projectWalk.cycle == nil, "Project accessibility children must not cycle: \(projectWalk.cycle ?? [])")
+        try #require(
+            projectContentRendered,
+            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted())"
+        )
+
         let cell = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
