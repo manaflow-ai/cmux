@@ -21,6 +21,8 @@ take an owned Mac? Owned Macs are `glaeda-<class>-xcode-<version>` pools
                                      shared machine
     not an App Store upload        the upload writes the ASC key to $HOME
     not a release call             release runs stay on Blacksmith
+    no `seed_cache`                seeding runs in the ci-cache-writer
+                                     environment with the R2 write keys
     the lane is measured           ios-screenshots.yml is a reusable workflow
                                      that release.yml calls with only
                                      `contents: read`, so its runner job cannot
@@ -59,7 +61,15 @@ runs-on reads the JSON this prints.
 
 `runner: owned` forces the owned pool for the lane's Xcode pin
 (vars.CMUX_CI_XCODE_APP_PR), without reading the queue, for a proof run. It
-still refuses an `ios_version`, an upload, and a release call.
+is an explicit request, so instead of falling back it fails the runner job
+when the run could not be rescued or has nowhere to go: CI_PR_POOL_OWNED is
+not 1 (ci-owned-pool-rescue.yml then never watches it, and a job left queued
+would wait for good), or CI_OWNED_POOL_SLOTS gives SIM_LABEL no machines. It
+also refuses what auto refuses: an `ios_version`, an upload, a release call
+and `seed_cache`. CI_IOS_OWNED is not required, so a proof run can precede it.
+
+A `swift_package` run of test-ios.yml runs mobile-core-package alone: one
+machine and no simulator, so it needs no SIM_LABEL capacity.
 
 A job left queued on the owned labels, or refused by glaeda at job start, is
 re-run by ci-owned-pool-rescue.yml, which watches the run through the marker
@@ -154,14 +164,23 @@ def retry_label(default: str) -> str:
     return default if default.startswith(pr_runner_pool.EPHEMERAL_PREFIX) else SMALL_RUNNER
 
 
-def sim_jobs(lane: str, device_family: str | None) -> int:
-    """The simulator jobs this run holds at once: one per device family, or the one capture."""
+def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
+    """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
     if lane == "screenshots":
         return 1
+    if (swift_package or "").strip():
+        # mobile-core-package alone: SwiftPM tests on the host.
+        return 0
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
 
-def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | None) -> str:
+def run_jobs(lane: str, swift_package: str | None = None) -> int:
+    """The owned machines this run holds at once."""
+    return 1 if lane == "test-ios" and (swift_package or "").strip() else LANES[lane].jobs
+
+
+def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | None,
+                  seed_cache: str | None = None) -> str:
     """Why this run may not take an owned Mac, or "" when it may."""
     if (ios_version or "").strip():
         return "an ios_version is requested; the minis carry one iOS 26.x runtime"
@@ -169,6 +188,8 @@ def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | 
         return "an App Store upload writes the ASC key to $HOME"
     if (called or "").strip() == "true":
         return "a release call stays on Blacksmith"
+    if (seed_cache or "").strip() == "true":
+        return "seed_cache runs in the ci-cache-writer environment with the R2 write keys"
     return ""
 
 
@@ -198,8 +219,10 @@ def resolve(
     max_queued: str | None,
     ios_version: str | None = None,
     device_family: str | None = None,
+    swift_package: str | None = None,
     upload: str | None = None,
     called: str | None = None,
+    seed_cache: str | None = None,
     measure: Callable[[], IOSLoad],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
@@ -210,10 +233,17 @@ def resolve(
     default = (variable or "").strip() or SMALL_RUNNER
     if requested and requested not in ("auto", OWNED_CHOICE):
         return ephemeral(requested)
-    blocker = owned_blocker(ios_version=ios_version, upload=upload, called=called)
+    blocker = owned_blocker(ios_version=ios_version, upload=upload, called=called, seed_cache=seed_cache)
+    capacity = pr_runner_pool.capability_slots(owned_slots).get(SIM_LABEL, 0)
     if requested == OWNED_CHOICE:
         if blocker:
             raise ValueError(f"runner: {OWNED_CHOICE} refused: {blocker}")
+        if (owned or "").strip() != "1":
+            raise ValueError(f"runner: {OWNED_CHOICE} refused: {pr_runner_pool.OWNED_VARIABLE} is not 1, so "
+                             "ci-owned-pool-rescue.yml would not watch the run and a queued job could wait for good")
+        if capacity < 1:
+            raise ValueError(f"runner: {OWNED_CHOICE} refused: {pr_runner_pool.SLOTS_VARIABLE} gives {SIM_LABEL} "
+                             f"no machines (add \"{SIM_LABEL}\": <simulator minis>)")
         pools = pr_runner_pool.owned_pools(pr_xcode_app)
         if not pools:
             raise ValueError(f"runner: {OWNED_CHOICE} needs {pr_runner_pool.PR_XCODE_VARIABLE} to name an "
@@ -233,8 +263,8 @@ def resolve(
     if default != SMALL_RUNNER:
         # As for E2E: only the 6vcpu macOS 26 default is routed.
         return ephemeral(default)
-    capacity = pr_runner_pool.capability_slots(owned_slots).get(SIM_LABEL, 0)
-    if not capacity:
+    needed = sim_jobs(lane, device_family, swift_package)
+    if needed and not capacity:
         log(f"{pr_runner_pool.SLOTS_VARIABLE} gives {SIM_LABEL} no machines; staying on {default}")
         return ephemeral(default)
     limits = e2e_runner_pool.settings(order, max_queued, owned, pr_xcode_app)
@@ -242,11 +272,11 @@ def resolve(
         log(f"no owned pool in {pr_runner_pool.ORDER_VARIABLE} for {pr_runner_pool.PR_XCODE_VARIABLE}; "
             f"staying on {default}")
         return ephemeral(default)
-    needed = sim_jobs(lane, device_family)
     try:
         load = measure()
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
-                                        owned_slots=pool_slots(owned_slots, pr_xcode_app), jobs=config.jobs)
+                                        owned_slots=pool_slots(owned_slots, pr_xcode_app),
+                                        jobs=run_jobs(lane, swift_package))
         free = sim_free(load, capacity)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {default}")
@@ -254,7 +284,7 @@ def resolve(
     if not pr_runner_pool.persistent(choice.runner):
         log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
         return ephemeral(default)
-    if free < needed:
+    if needed and free < needed:
         log(f"{SIM_LABEL}: {free} of {capacity} free, {needed} needed; staying on {default}")
         return ephemeral(default)
     log(f"{choice.reason} -> {choice.runner} with {SIM_LABEL} ({free} of {capacity} free, {needed} needed)")
@@ -281,6 +311,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--max-queued", default="", help=f"vars.{pr_runner_pool.MAX_QUEUED_VARIABLE}")
     parser.add_argument("--ios-version", default="", help="the workflow's ios_version input")
     parser.add_argument("--device-family", default="", help="the workflow's device_family input")
+    parser.add_argument("--swift-package", default="", help="the workflow's swift_package input")
+    parser.add_argument("--seed-cache", default="", help="the workflow's seed_cache input")
     parser.add_argument("--upload", default="", help="'true' for an App Store upload")
     parser.add_argument("--called", default="", help="'true' when another workflow called this one")
     args = parser.parse_args(argv)
@@ -309,7 +341,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             ios_owned=args.ios_owned, owned=args.owned, owned_slots=args.owned_slots,
             pr_xcode_app=args.pr_xcode_app, order=args.order, max_queued=args.max_queued,
             ios_version=args.ios_version, device_family=args.device_family,
-            upload=args.upload, called=args.called,
+            swift_package=args.swift_package, upload=args.upload, called=args.called,
+            seed_cache=args.seed_cache,
             measure=measure, now=now, log=log,
         )
     except ValueError as error:
@@ -321,8 +354,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(f"package_runs_on={route.package_runs_on}")
     print(f"retry_runs_on={route.retry_runs_on}")
     print(f"persistent={'true' if route.persistent else 'false'}")
-    print(f"jobs={LANES[args.lane].jobs}")
-    print(f"sim_jobs={sim_jobs(args.lane, args.device_family)}")
+    print(f"jobs={run_jobs(args.lane, args.swift_package)}")
+    print(f"sim_jobs={sim_jobs(args.lane, args.device_family, args.swift_package)}")
     return 0
 
 

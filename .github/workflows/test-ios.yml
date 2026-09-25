@@ -141,6 +141,8 @@ jobs:
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           IOS_VERSION: ${{ inputs.ios_version }}
           DEVICE_FAMILY: ${{ inputs.device_family }}
+          SWIFT_PACKAGE: ${{ inputs.swift_package }}
+          SEED_CACHE: ${{ inputs.seed_cache }}
         run: |
           set -euo pipefail
           route="$(python3 scripts/ci/ios_runner_pool.py \
@@ -154,7 +156,9 @@ jobs:
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
             --ios-version "$IOS_VERSION" \
-            --device-family "$DEVICE_FAMILY")"
+            --device-family "$DEVICE_FAMILY" \
+            --swift-package "$SWIFT_PACKAGE" \
+            --seed-cache "$SEED_CACHE")"
           echo "$route" >> "$GITHUB_OUTPUT"
           echo "$route"
 
@@ -183,7 +187,7 @@ jobs:
       # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
       # count (queue_janitor.capability_marker), before those jobs exist.
       - name: Upload the simulator capacity marker
-        if: ${{ steps.marker.outputs.path != '' }}
+        if: ${{ steps.marker.outputs.path != '' && steps.pool.outputs.sim_jobs != '0' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -329,6 +333,12 @@ jobs:
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
     timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -509,6 +519,13 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -808,6 +825,13 @@ jobs:
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 35
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     strategy:
       fail-fast: false
       matrix:

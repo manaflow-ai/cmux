@@ -93,6 +93,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
+      label: ${{ steps.pool.outputs.label }}
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
     steps:
@@ -158,7 +159,7 @@ jobs:
       # The simulator jobs the run will hold, for the janitor's glaeda-ios-sim
       # count (queue_janitor.capability_marker), before those jobs exist.
       - name: Upload the simulator capacity marker
-        if: ${{ steps.marker.outputs.path != '' }}
+        if: ${{ steps.marker.outputs.path != '' && steps.pool.outputs.sim_jobs != '0' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -176,6 +177,13 @@ jobs:
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
     timeout-minutes: 300
+    env:
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
+      # pull-request lane's Xcode pin, so take that Xcode there, as
+      # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
+      # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
+      # keeps its pool default.
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Guard trusted upload ref
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
@@ -286,6 +294,9 @@ jobs:
           SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja' }}
           FASTLANE_SKIP_UPDATE_CHECK: "1"
           FASTLANE_HIDE_CHANGELOG: "1"
+          # snapshot's derived_data_path: under the job's temp directory, not
+          # the runner user's ~/Library, which a reused runner keeps.
+          SNAPSHOT_DERIVED_DATA_PATH: ${{ runner.temp }}/cmux-ios-snapshot-derived-data
         run: |
           set -euo pipefail
           echo "Devices: $SNAPSHOT_DEVICES"

@@ -1287,7 +1287,8 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
-              slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None):
+              slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
+              swift_package="", seed_cache=""):
     calls = []
 
     def measured():
@@ -1301,7 +1302,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        measure=measured, now=NOW)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
     return route, len(calls)
 
 
@@ -1377,21 +1378,49 @@ class IOSRouting(unittest.TestCase):
         route, calls = ios_route(sim_fleet(), variable="tart-ios")
         self.assertEqual((route.label, route.persistent, calls), ("tart-ios", False, 0))
 
-    def test_ios_version_upload_and_release_calls_stay_off_the_fleet(self):
-        for kwargs in ({"ios_version": "18.5"}, {"upload": "true"}, {"called": "true"}):
+    def test_ios_version_upload_release_and_seed_runs_stay_off_the_fleet(self):
+        # seed_cache runs in the ci-cache-writer environment with the R2 write keys.
+        for kwargs in ({"ios_version": "18.5"}, {"upload": "true"}, {"called": "true"}, {"seed_cache": "true"}):
             route, calls = ios_route(sim_fleet(), **kwargs)
             self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0), kwargs)
             with self.assertRaises(ValueError):
                 ios_route(requested="owned", **kwargs)
 
     def test_owned_forces_the_pool_without_reading_the_queue(self):
-        route, calls = ios_route(requested="owned", ios_owned="", owned="", slots={},
+        # CI_IOS_OWNED is not needed, so a proof run can precede it.
+        route, calls = ios_route(requested="owned", ios_owned="",
                                  measure=lambda: self.fail("owned must not read the queue"))
         self.assertEqual((json.loads(route.runs_on), json.loads(route.retry_runs_on), calls),
                          ([MINI, IOS_SIM], SMALL, 0))
         with self.assertRaises(ValueError):
-            ios_pool.resolve("test-ios", "owned", "", ios_owned="", owned="", owned_slots="",
-                             pr_xcode_app="", order="", max_queued="", measure=lambda: None, now=NOW)
+            ios_pool.resolve("test-ios", "owned", "", ios_owned="", owned="1",
+                             owned_slots=json.dumps({IOS_SIM: 2}), pr_xcode_app="", order="", max_queued="",
+                             measure=lambda: None, now=NOW)
+
+    def test_owned_fails_where_the_rescue_would_not_watch_or_no_simulator_mini_exists(self):
+        # Without CI_PR_POOL_OWNED=1 ci-owned-pool-rescue.yml never runs, so a
+        # forced job left queued would wait for good: fail, never fall back.
+        for owned in ("", "0"):
+            with self.assertRaisesRegex(ValueError, "CI_PR_POOL_OWNED"):
+                ios_route(requested="owned", owned=owned)
+        for slots in ({MINI: 40, ROOT_MINI: 10}, {MINI: 40, IOS_SIM: 0}, {}):
+            with self.assertRaisesRegex(ValueError, IOS_SIM):
+                ios_route(requested="owned", slots=slots)
+        with self.assertRaisesRegex(ValueError, "seed_cache"):
+            ios_route(requested="owned", seed_cache="true")
+
+    def test_a_package_only_run_needs_no_simulator(self):
+        self.assertEqual(ios_pool.sim_jobs("test-ios", "", "CmuxMobileShell"), 0)
+        self.assertEqual(ios_pool.sim_jobs("test-ios", "both", ""), 2)
+        self.assertEqual(ios_pool.run_jobs("test-ios", "CmuxMobileShell"), 1)
+        # Every simulator mini busy, or no simulator slots at all: still owned.
+        route, calls = ios_route(sim_fleet(running=2, committed=5), swift_package="CmuxMobileShell", ios_since=3)
+        self.assertEqual((route.persistent, json.loads(route.package_runs_on), calls), (True, MINI, 1))
+        route, _ = ios_route(sim_fleet(), slots={MINI: 40}, swift_package="CmuxMobileShell")
+        self.assertTrue(route.persistent)
+        # One pool machine is enough.
+        self.assertTrue(ios_route(sim_fleet(busy=39), swift_package="CmuxMobileShell")[0].persistent)
+        self.assertFalse(ios_route(sim_fleet(busy=39))[0].persistent)
 
     def test_the_screenshots_lane_never_reads_the_queue(self):
         route, calls = ios_route(sim_fleet(), lane="screenshots")
@@ -1457,7 +1486,8 @@ class IOSRouting(unittest.TestCase):
         out = io.StringIO()
         with unittest.mock.patch("sys.stdout", out):
             code = ios_pool.main(["--lane", "test-ios", "--requested", "owned", "--device-family", "iphone",
-                                  "--owned-slots", json.dumps(IOS_SLOTS), "--pr-xcode-app", PR_XCODE], env={})
+                                  "--owned", "1", "--owned-slots", json.dumps(IOS_SLOTS),
+                                  "--pr-xcode-app", PR_XCODE], env={})
         self.assertEqual(code, 0)
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual(outputs, {"label": MINI, "retry_label": SMALL,
@@ -1470,6 +1500,11 @@ class IOSRouting(unittest.TestCase):
                                   "--pr-xcode-app", PR_XCODE], env={})
         self.assertEqual(code, 1)
         self.assertIn("::error::", err.getvalue())
+        out = io.StringIO()
+        with unittest.mock.patch("sys.stdout", out):
+            ios_pool.main(["--lane", "test-ios", "--swift-package", "CmuxSyncStore"], env={})
+        outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
+        self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
 class IOSWiring(unittest.TestCase):
     """The unsigned iOS jobs read ios_runner_pool.py; everything that signs or leaks stays on Blacksmith."""
@@ -1502,6 +1537,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["IOS_OWNED"], "${{ vars.CI_IOS_OWNED }}")
         self.assertEqual(step["env"]["IOS_VERSION"], "${{ inputs.ios_version }}")
         self.assertEqual(step["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
+        self.assertEqual(step["env"]["SWIFT_PACKAGE"], "${{ inputs.swift_package }}")
+        self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
+        self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
+        pin = "${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}"
+        for name in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
+            self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned", "tart-ios"])
@@ -1519,6 +1560,12 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["CALLED"],
                          "${{ !contains(github.workflow_ref, '/.github/workflows/ios-screenshots.yml@') }}")
         self.assertNotIn("GH_TOKEN", step["env"])
+        screenshots = jobs["screenshots"]
+        self.assertEqual(screenshots["env"]["CMUX_CI_XCODE_APP"],
+                         "${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}")
+        capture = next(step for step in screenshots["steps"] if step.get("name") == "Capture screenshots")
+        self.assertEqual(capture["env"]["SNAPSHOT_DERIVED_DATA_PATH"],
+                         "${{ runner.temp }}/cmux-ios-snapshot-derived-data")
 
     def test_a_persistent_pick_publishes_the_rescue_marker(self):
         for name in ("test-ios.yml", "ios-screenshots.yml"):
@@ -1529,7 +1576,7 @@ class IOSWiring(unittest.TestCase):
             self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
                                                      "-${{ steps.pool.outputs.jobs }}-${{ steps.pool.outputs.label }}")
             sim = next(step for step in steps if step.get("name") == "Upload the simulator capacity marker")
-            self.assertEqual(sim["if"], "${{ steps.marker.outputs.path != '' }}")
+            self.assertEqual(sim["if"], "${{ steps.marker.outputs.path != '' && steps.pool.outputs.sim_jobs != '0' }}")
             self.assertEqual(sim["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
                                                   "-${{ steps.pool.outputs.sim_jobs }}-glaeda-ios-sim")
             self.assertTrue(janitor.may_hold_owned_pool(
