@@ -7,7 +7,7 @@ import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
-import { OperationError, publicError } from "./errors";
+import { errorSummary, OperationError, publicError } from "./errors";
 import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
@@ -101,6 +101,7 @@ export class TeamControl extends DurableObject<Environment> {
         const started = Date.now();
         let status = 200;
         let code = "ok";
+        let cause: string | undefined;
         try {
           if (typeof message !== "string") throw new OperationError("invalid_request", 400);
           input = parseJSON(message);
@@ -125,10 +126,11 @@ export class TeamControl extends DurableObject<Environment> {
         } catch (error) {
           const failure = errorResponse(error, inputRequestId(input));
           status = failure.failure.status; code = failure.failure.code;
+          if (!(error instanceof OperationError)) cause = errorSummary(error);
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {
-          observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started });
+          observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started, ...(cause ? { cause } : {}) });
         }
       });
     } catch { this.close(ws, size > 16 * 1024 ? "payload_too_large" : "input_capacity"); }
@@ -191,20 +193,31 @@ export class TeamControl extends DurableObject<Environment> {
     const input = { userId: session.identity.userId, teamId: session.identity.teamId, sessionId: session.sessionId, deviceKey };
     const reservation = await user.reserveSocket(input);
     if (reservation.ok || reservation.code !== "rate_limited") return unwrap(reservation);
-    const previous = unwrap(await user.listSocketReservations(input.userId));
+    await this.releaseStaleReservations(input.userId, input.teamId);
+    unwrap(await user.reserveSocket(input));
+  }
+
+  /**
+   * A Durable Object reset (deploy, rollback, runtime restart) drops sockets
+   * without running webSocketClose, so their reservations and unacknowledged
+   * output stay in the user's aggregate budget. Release every reservation no
+   * owning TeamControl still holds as a live or opening socket.
+   */
+  private async releaseStaleReservations(userId: string, currentTeamId: string): Promise<void> {
+    const user = this.user(userId);
+    const previous = unwrap(await user.listSocketReservations(userId));
     const groups = new Map<string, typeof previous>();
     for (const row of previous) {
       const records = groups.get(row.teamId) ?? [];
       records.push(row); groups.set(row.teamId, records);
     }
-    // At most 501 reservations; the user quota has already rejected more work.
+    // At most 501 reservations: the insert guard caps each user there.
     for (const [teamId, records] of groups) {
       const ids = records.map(row => row.sessionId);
       const owner = this.env.TEAM_CONTROL.getByName(objectName(this.env.ENVIRONMENT, this.env.STACK_PROJECT_ID, teamId));
-      const live = new Set(teamId === input.teamId ? this.liveSessionIds(teamId, input.userId, ids) : await owner.liveSessionIds(teamId, input.userId, ids));
-      for (const record of records) if (!live.has(record.sessionId)) unwrap(await user.releaseSocket(input.userId, record.sessionId));
+      const live = new Set(teamId === currentTeamId ? this.liveSessionIds(teamId, userId, ids) : await owner.liveSessionIds(teamId, userId, ids));
+      for (const record of records) if (!live.has(record.sessionId)) unwrap(await user.releaseSocket(userId, record.sessionId));
     }
-    unwrap(await user.reserveSocket(input));
   }
 
   private async send(ws: WebSocket, response: ControlResponse): Promise<void> {
@@ -212,7 +225,16 @@ export class TeamControl extends DurableObject<Environment> {
     if (attachment.closed) return;
     const next = prepareDelivery(attachment.delivery, response);
     const outputRevision = attachment.outputRevision + 1;
-    unwrap(await this.user(attachment.session.identity.userId).setOutput(attachment.session.identity.userId, attachment.session.sessionId, outputRevision, next.bytes, next.messages));
+    const { userId, teamId } = attachment.session.identity;
+    let reserved = await this.user(userId).setOutput(userId, attachment.session.sessionId, outputRevision, next.bytes, next.messages);
+    if (!reserved.ok && reserved.code === "slow_consumer") {
+      // prepareDelivery already enforced this connection's own limit, so the
+      // user's aggregate budget is full. Reclaim reservations leaked by an
+      // object reset once before reporting backpressure.
+      await this.releaseStaleReservations(userId, teamId);
+      reserved = await this.user(userId).setOutput(userId, attachment.session.sessionId, outputRevision, next.bytes, next.messages);
+    }
+    unwrap(reserved);
     if (this.load(ws).closed) return;
     this.save(ws, { ...attachment, delivery: next.state, outputRevision });
     // The budget RPC yields. Re-check authority before private data leaves us.
