@@ -200,11 +200,14 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         guard ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD"] == "1" else {
             return [workspace]
         }
+        let unreadCount = Int(
+            ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD_COUNT"] ?? "1"
+        ) ?? 1
         return [workspace, MobileWorkspacePreview(
             id: "workspace-unread",
             name: "Unread workspace",
             hasUnread: true,
-            unreadCount: 1,
+            unreadCount: unreadCount,
             terminals: []
         )]
     }

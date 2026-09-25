@@ -7524,13 +7524,14 @@ final class cmuxUITests: XCTestCase {
         // Keep the remaining orientation captures when one presentation fails.
         continueAfterFailure = true
         defer { XCUIDevice.shared.orientation = .portrait }
-        for scenario in ["reference", "long-title", "alternate-screen"] {
+        for scenario in ["reference", "long-title", "alternate-screen", "large-unread"] {
             XCUIDevice.shared.orientation = .portrait
             let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
-                "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": scenario == "reference" ? "0" : "1",
+                "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": ["long-title", "alternate-screen"].contains(scenario) ? "1" : "0",
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": scenario == "alternate-screen" ? "1" : "0",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD_COUNT": scenario == "large-unread" ? "123" : "1",
             ])
             let surface = app.otherElements["MobileTerminalSurface"]
             try XCTUnwrap(surface.waitForExistence(timeout: 8) ? true : nil)
@@ -7538,11 +7539,8 @@ final class cmuxUITests: XCTestCase {
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
             if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
-                if scenario == "alternate-screen" {
-                    assertNativeWorkspaceToolbarUsesBaseOverflow(in: app)
-                } else {
-                    assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
-                }
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
                 assertWorkspaceToolbarTitlePresentation(in: app)
             }
             tap(surface, in: app)
@@ -7590,11 +7588,7 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             captureWorkspaceToolbarPresentation(in: app, name: "crowded-\(orientation.rawValue)")
-            if orientation == .portrait {
-                assertNativeWorkspaceToolbarUsesBaseOverflow(in: app)
-            } else {
-                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
-            }
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
             let picker = app.buttons["MobileTerminalDropdown"]
             if picker.exists, picker.isHittable {
                 tap(picker, in: app)
@@ -8738,20 +8732,6 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         XCTAssertFalse(bar.buttons["More"].exists, "Essential controls must stay out of overflow", file: file, line: line)
-    }
-
-    @MainActor
-    private func assertNativeWorkspaceToolbarUsesBaseOverflow(
-        in app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
-        XCTAssertTrue(bar.waitForExistence(timeout: 4), file: file, line: line)
-        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 4), file: file, line: line)
-        XCTAssertTrue(bar.buttons["OverflowBarButtonItem"].waitForExistence(timeout: 4), file: file, line: line)
-        XCTAssertFalse(app.buttons["MobileChangesButton"].exists, file: file, line: line)
-        XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists, file: file, line: line)
     }
 
     @MainActor

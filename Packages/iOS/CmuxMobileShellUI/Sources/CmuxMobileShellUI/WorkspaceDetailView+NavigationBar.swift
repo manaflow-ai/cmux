@@ -44,7 +44,6 @@ extension WorkspaceDetailView {
                     foregroundColor: .primary
                 )
             )))
-            items.append(.init(id: .overflow, content: AnyView(workspaceOverflowToolbarButton)))
         }
         if workspaceChangesAreAvailable {
             items.append(.init(id: .changes, content: AnyView(
@@ -58,20 +57,6 @@ extension WorkspaceDetailView {
         }
         items.append(.init(terminals: terminalPickerMenuValue(liveTitles: true), actions: terminalPickerMenuActions))
         return items
-    }
-
-    private var workspaceOverflowToolbarButton: some View {
-        Menu {
-            if workspaceChangesAreAvailable {
-                Button("Changes", action: openWorkspaceChanges)
-                    .accessibilityIdentifier("MobileChangesButton")
-            }
-            terminalPickerToolbarButton
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .accessibilityLabel("More")
-        .accessibilityIdentifier("OverflowBarButtonItem")
     }
 }
 #endif

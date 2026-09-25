@@ -123,37 +123,26 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
             item.leadingItemGroups = desiredLeadingGroups
         }
-        if !item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
-            item.trailingItemGroups = trailingGroups
+        if !item.trailingItemGroups.isEmpty {
+            item.trailingItemGroups = []
         }
         if #available(iOS 16.0, *) { item.additionalOverflowItems = nil }
-        if item.pinnedTrailingGroup != nil {
-            item.pinnedTrailingGroup = nil
+        let desiredPinnedGroup = trailingGroups.first
+        if item.pinnedTrailingGroup !== desiredPinnedGroup {
+            item.pinnedTrailingGroup = desiredPinnedGroup
         }
     }
 
     private func makeTrailingGroups(
         for ids: [WorkspaceNavigationBar.Item.ID]
     ) -> [UIBarButtonItemGroup] {
-        let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
-        let representative = ids.first(where: { $0 == .overflow }).flatMap { controls[$0]?.button }
-        let collapsible = ids
-            .filter { $0 != .alternateScreen && $0 != .overflow }
+        let items = ids
             .compactMap { id in id == .terminals ? terminalPicker?.button : controls[id]?.button }
-        var groups: [UIBarButtonItemGroup] = []
-        if let warning {
-            groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
-        }
-        if !collapsible.isEmpty {
-            // UIKit swaps this representative item for the group when the
-            // actual navigation-bar space is insufficient. The overflow
-            // decision therefore follows the bar's layout, not orientation.
-            groups.append(UIBarButtonItemGroup(
-                barButtonItems: collapsible,
-                representativeItem: representative
-            ))
-        }
-        return groups
+        guard !items.isEmpty else { return [] }
+        // This group is pinned to the trailing edge. UIKit compresses the
+        // title view before laying out these essential workspace actions,
+        // instead of replacing them with a More item.
+        return [UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)]
     }
 
     func restoreConfiguration() {
@@ -167,12 +156,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
             item.leadingItemGroups = originalItem.leadingGroups
         }
-        if item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
+        if item.trailingItemGroups.isEmpty {
             item.trailingItemGroups = originalItem.trailingGroups
             item.additionalOverflowItems = originalItem.additionalOverflowItems
         }
-        if item.pinnedTrailingGroup == nil, let trailingGroup = originalItem.trailingGroup {
-            item.pinnedTrailingGroup = trailingGroup
+        if let pinnedGroup = trailingGroups.first, item.pinnedTrailingGroup === pinnedGroup {
+            item.pinnedTrailingGroup = originalItem.trailingGroup
         }
         self.owner = nil
         self.originalItem = nil
