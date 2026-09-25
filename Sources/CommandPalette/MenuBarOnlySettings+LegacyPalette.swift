@@ -20,4 +20,3 @@ extension MenuBarOnlySettings {
         return ((usage["lastUsedAt"] as? NSNumber)?.doubleValue ?? 0) > 0
     }
 }
-

@@ -11,4 +11,3 @@ public enum SidebarPullRequestCheckStatus: String, Sendable, Equatable {
     /// Checks could not be fully fetched; never presented as success.
     case unavailable
 }
-

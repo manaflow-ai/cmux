@@ -24,4 +24,3 @@ public struct PullRequestCheck: Sendable, Equatable, Identifiable {
         self.detailsURL = detailsURL
     }
 }
-

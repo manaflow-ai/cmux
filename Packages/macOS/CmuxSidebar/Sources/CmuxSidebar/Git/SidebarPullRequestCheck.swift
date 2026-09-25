@@ -24,4 +24,3 @@ public struct SidebarPullRequestCheck: Sendable, Equatable, Identifiable {
         self.detailsURL = detailsURL
     }
 }
-

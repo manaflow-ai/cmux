@@ -22,4 +22,3 @@ public enum PullRequestCheckStatus: String, Sendable, Equatable {
         }
     }
 }
-
