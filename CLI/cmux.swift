@@ -11172,7 +11172,9 @@ struct CMUXCLI {
             let (hexOpt, rem1) = parseOption(rest, name: "--hex")
             // --color is an alias for --hex (mirrors the `custom_color`
             // response field the RPC accepts under the `color` key).
-            let (colorOpt, rem0) = hexOpt == nil ? parseOption(rem1, name: "--color") : (nil, rem1)
+            // Always consume --color so it cannot be mistaken for the group id
+            // when both flags are passed; --hex wins.
+            let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
             // Treat --hex/--color with no value (or `""`) as a clear.
             params["hex"] = hexOpt ?? colorOpt ?? ""
@@ -11183,7 +11185,9 @@ struct CMUXCLI {
             let (symbolOpt, rem1) = parseOption(rest, name: "--symbol")
             // --icon is an alias for --symbol (mirrors the `icon_symbol`
             // response field the RPC accepts under the `icon` key).
-            let (iconOpt, rem0) = symbolOpt == nil ? parseOption(rem1, name: "--icon") : (nil, rem1)
+            // Always consume --icon so it cannot be mistaken for the group id
+            // when both flags are passed; --symbol wins.
+            let (iconOpt, rem0) = parseOption(rem1, name: "--icon")
             params["group_id"] = try resolveGroupId(in: rem0)
             params["symbol"] = symbolOpt ?? iconOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
