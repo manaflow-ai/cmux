@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -931,7 +931,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -980,7 +980,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1015,7 +1015,7 @@ jobs:
         group: [sidebar-layout, dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1059,7 +1059,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs
