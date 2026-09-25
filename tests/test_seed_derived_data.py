@@ -287,6 +287,22 @@ class SeedDerivedData(unittest.TestCase):
             published.clear()
             self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
+    def test_adopt_falls_back_to_a_j14_seed_and_a_j14_runner_prefers_it(self):
+        self.assertIn(14, seed.SEEDED_JOB_WIDTHS)
+        published = set()
+        exists = lambda key: key in published  # noqa: E731
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=exists):
+            published.update({"p-j12-c4", "p-j14-c3"})
+            os.environ["CMUX_SEED_SWIFT_JOBS"] = "14"
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j14-c3", 1))
+            published.discard("p-j14-c3")
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j12-c4", 0))
+            published.clear()
+            published.add("p-j14-c4")
+            os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j14-c4", 0))
+
     def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
         os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
         os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"] = "macOS", "ARM64"
@@ -660,6 +676,39 @@ class Wiring(unittest.TestCase):
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
+
+    def test_the_trusted_pool_seeds_j14_only_on_a_main_push_with_the_lane_xcode(self):
+        """Owned std minis compile at -j14 (cmuxterm-hq#590). Their seed comes
+        from a trusted-only owned runner whose hook admits only a push to main,
+        so the pool joins only then, and only once CI_SEED_TRUSTED_POOL names
+        it. It compiles with the lane's Xcode, as owned admission does."""
+        decide = load("seed-derived-data.yml")["jobs"]["decide"]["steps"]
+        inputs = next(step for step in decide if step.get("id") == "inputs")
+        trusted = inputs["env"]["SEED_TRUSTED_POOL"]
+        self.assertIn('"$SEED_TRUSTED_POOL"', inputs["run"])
+        label = "glaeda-trusted-std-xcode-26.6"
+
+        def context(event_name, ref="refs/heads/main", **variables):
+            ctx = github_context(event_name, ref, **variables)
+            ctx["github"]["repository"] = "manaflow-ai/cmux"
+            return ctx
+
+        self.assertEqual(evaluate(trusted, context("push")), "")
+        self.assertEqual(evaluate(trusted, context("push", CI_SEED_TRUSTED_POOL=label)), label)
+        # The hook refuses these, so the pool must not queue a job there.
+        self.assertEqual(evaluate(trusted, context("workflow_dispatch", CI_SEED_TRUSTED_POOL=label)), "")
+        self.assertEqual(evaluate(trusted, context("push", "refs/heads/other", CI_SEED_TRUSTED_POOL=label)), "")
+        fork = context("push", CI_SEED_TRUSTED_POOL=label)
+        fork["github"]["repository"] = "someone/cmux"
+        self.assertEqual(evaluate(trusted, fork), "")
+
+        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        ctx = context("push", CI_SEED_TRUSTED_POOL=label)
+        ctx["matrix"] = {"pool": label}
+        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], ctx), "/Applications/Xcode-pr.app")
+        self.assertEqual(evaluate(job["environment"], ctx), "ci-cache-writer")
+        # Never the product publisher.
+        self.assertNotIn("TRUSTED", seed_pools()[0])
 
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
