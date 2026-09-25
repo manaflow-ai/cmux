@@ -239,11 +239,10 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
-            (queue(large=2), LARGE),                       # under CI_PR_POOL_MAX_QUEUED (3)
-            (queue(large=3), SMALL),                       # 12vcpu backed up, 6vcpu has headroom
-            (queue(large=0, large_running=10), LARGE),     # full but nothing waits yet
-            (queue(large=5, small=4), SMALL),              # neither has headroom: fewest queued
-            (queue(large=4, small=9), LARGE),
+            (queue(large_running=3), LARGE),               # a machine free on 12vcpu (4)
+            (queue(large_running=4), SMALL),               # 12vcpu full: roll over
+            (queue(large=5, small=4, large_running=4), SMALL),  # both full: shorter queue in rounds
+            (queue(large=1, small=9, large_running=4), LARGE),
         ]
         for state, expected in cases:
             with self.subTest(pools=state["pools"]):
@@ -254,7 +253,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(queue(large=1, large_reserved=1))[0], SMALL)
         # A release or nightly job merely running there is not waiting on E2E.
         self.setUp()
-        self.assertEqual(self.routed(queue(large_running=6))[0], LARGE)
+        self.assertEqual(self.routed(queue(large_running=3))[0], LARGE)
         # Both macOS 26 pools reserved: stay on the default rather than guess.
         self.setUp()
         runner, stderr = self.routed(queue(large=1, large_reserved=1, small=1, small_reserved=1))
@@ -268,19 +267,19 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(state)[0], SMALL)
 
     def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
-        # 8 running leaves 2 idle slots; 3 more queued reach the threshold.
-        base = dict(large_running=8)
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 4))[0], LARGE)
+        # 1 running leaves 3 of 12vcpu's 4 machines free; a fourth run rolls over.
+        base = dict(large_running=1)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 5))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
         # E2E runs on another pool do not count against 12vcpu.
         self.setUp()
         self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
         # Pull request runs replay through their own rule, 12vcpu first.
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=5))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], SMALL)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=4))[0], LARGE)
+        self.assertEqual(self.routed(queue(**base, pr_since=2))[0], LARGE)
 
     def test_an_unreadable_or_stale_queue_keeps_e2e_on_6vcpu(self):
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_QUEUE=IDLE, LAUNCHER_QUEUE_FAIL="1")
@@ -298,7 +297,7 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_the_pull_request_order_and_threshold_are_repository_variables(self):
         variables = lambda **values: json.dumps([{"name": k, "value": v} for k, v in values.items()])
-        self.assertEqual(self.routed(queue(), LAUNCHER_VARIABLES=variables(
+        self.assertEqual(self.routed(queue(small_running=0), LAUNCHER_VARIABLES=variables(
             CI_PR_POOL_ORDER=f"{SMALL},{LARGE}"))[0], SMALL)
         self.setUp()
         self.assertEqual(self.routed(queue(large=4), LAUNCHER_VARIABLES=variables(
@@ -804,7 +803,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
         self.setUp()
         result = self.launch(
-            "cmuxTests/ExampleTests", LAUNCHER_QUEUE=IDLE,
+            "cmuxTests/ExampleTests", LAUNCHER_QUEUE=json.dumps(queue(small_running=0)),
             LAUNCHER_VARIABLES="not json",
             CMUX_MACOS_RUNNER_TESTS="", CMUX_CI_PR_POOL_ORDER=f"{SMALL},{LARGE}",
         )
@@ -1068,12 +1067,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual(set(self.pool.E2E_POOLS), {LARGE, SMALL})
         cases = [
             (queue(), LARGE),
-            (queue(large=2), LARGE),
-            (queue(large=3), SMALL),
-            (queue(large=3, small=3), LARGE),           # neither has headroom; a tie takes the earlier pool
-            (queue(large=6, small=4), SMALL),
+            (queue(large_running=3), LARGE),            # one of 12vcpu's 4 machines free
+            (queue(large_running=4), SMALL),            # full: roll over
+            (queue(large=3, small=9, large_running=4), LARGE),  # both full; a tie in rounds takes the earlier pool
+            (queue(large=6, small=4, large_running=4), SMALL),
             (queue(large=1, large_reserved=1), SMALL),
-            (queue(large_running=10), LARGE),
             (None, SMALL),                               # no snapshot
         ]
         for state, expected in cases:
@@ -1096,10 +1094,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                     self.assertIn(ours, self.pool.E2E_POOLS)
 
     def test_settings_are_the_pull_request_variables_and_invalid_values_fail_safe(self):
-        self.assertEqual(self.decide(queue(), order=f"{SMALL},{LARGE}")[0], SMALL)
+        self.assertEqual(self.decide(queue(small_running=0), order=f"{SMALL},{LARGE}")[0], SMALL)
         self.assertEqual(self.decide(queue(large=4), max_queued="5")[0], LARGE)
         self.assertEqual(self.decide(queue(large=1), max_queued="1")[0], SMALL)
-        for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "0"), ("", "x"), (OLD, "")):
+        for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "-1"), ("", "x"), (OLD, "")):
             with self.subTest(order=order, max_queued=max_queued):
                 label, calls, _ = self.decide(queue(), order=order, max_queued=max_queued)
                 self.assertEqual(label, SMALL)
@@ -1153,17 +1151,15 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # Replayed pull request runs stay on macOS 26 even beside an idle
-        # macOS 15 pool, whose missing seed costs more than a short queue
-        # (pr_runner_pool.COLD_QUEUE_PENALTY), as they would for real: they
-        # push 12vcpu to 5 queued against 6vcpu's 4, which sends E2E to 6vcpu.
-        crowded = queue(large=3, small=4, old=0, old_running=0, pr_since=2)
+        # Replayed pull request runs take 12vcpu's free machines first, as
+        # they would for real, which rolls E2E over to 6vcpu.
+        crowded = queue(large_running=2, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], SMALL)
-        self.assertEqual(self.decide(queue(large=3, small=4, old=0, old_running=0))[0], LARGE)
+        self.assertEqual(self.decide(queue(large_running=2, pr_since=1))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
-        snap = snapshot_of(queue(large_running=8))
+        snap = snapshot_of(queue(large_running=2))
         load = self.pool.PoolLoad(snap, {}, 5)
         self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, SMALL)
         for settings in ({"lane": SMALL, "overflow": "0"}, {"lane": OLD, "overflow": ""}):

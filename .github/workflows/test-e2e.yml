@@ -70,8 +70,8 @@ jobs:
     # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS.
     # On the 6vcpu macOS 26 default an E2E run takes a macOS 26 pool by pull
     # request CI's rule (pr_runner_pool.py): the first pool in CI_PR_POOL_ORDER
-    # (12vcpu, then 6vcpu) with fewer than CI_PR_POOL_MAX_QUEUED jobs queued
-    # (default 3) and no release or nightly job queued on it. Every Blacksmith
+    # (12vcpu, then 6vcpu) with a machine free and no release or nightly job
+    # queued on it, else the shorter queue in rounds. Every Blacksmith
     # pool is sponsored; only a queued release or nightly job holds 12vcpu
     # back. Any error reading the queue stays on 6vcpu, and
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the

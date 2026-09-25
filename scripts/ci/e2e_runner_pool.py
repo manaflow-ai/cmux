@@ -12,10 +12,11 @@ macOS 26 pools:
 
     order     vars.CI_PR_POOL_ORDER without its macOS 15 pool; by default
                 blacksmith-12vcpu-macos-26, then blacksmith-6vcpu-macos-26
-    headroom  fewer than vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 3)
-              and no queued release or nightly job on the pool
+    headroom  a machine free (pr_runner_pool.POOL_CAPACITIES), or at most
+              vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 0), and no
+              queued release or nightly job on the pool
 
-When neither pool has headroom the run takes the one with fewer queued jobs.
+When neither pool has headroom the run takes the shorter queue in rounds.
 Every Blacksmith pool is sponsored, so cost is not a reason to hold the
 12vcpu pool back: a release or nightly job actually queued on it is the only
 thing that keeps E2E off it (release and nightly builds must not wait behind
