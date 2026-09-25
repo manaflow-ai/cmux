@@ -16,8 +16,8 @@ import Testing
 @MainActor
 @Suite("Devices: presence lifecycle", .timeLimit(.minutes(5)))
 struct DeviceDirectoryLifecycleTests {
-    @Test("Automatic discovery never lists presence or saved pairings before authenticated opt-in", arguments: [false, true])
-    func undiscoverablePresenceStaysHidden(savedPairing: Bool) async throws {
+    @Test("My Devices never falls back to presence or pairing without authenticated opt-in", arguments: [false, true], [false, true])
+    func undiscoverablePresenceStaysHidden(savedPairing: Bool, hasDiscoveryClient: Bool) async throws {
         let suite = "DeviceDirectoryOptIn-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -29,7 +29,7 @@ struct DeviceDirectoryLifecycleTests {
         let automaticClient = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
             journal: IrxJournal(subsystem: "dev.cmux.tests", category: "discovery-opt-in"))
         let directory = makeDirectory(defaults: defaults, clock: SidebarTestManualClock(),
-            pairing: pairing, automaticClient: automaticClient, serviceURL: { nil })
+            pairing: pairing, automaticClient: hasDiscoveryClient ? automaticClient : nil, serviceURL: { nil })
         defer { directory.stop() }
         directory.apply(.snapshot(devices: [DevicePresenceDevice(deviceId: peer.deviceID, instances: [
             DevicePresenceInstance(deviceId: peer.deviceID, tag: peer.tag, platform: "mac",
