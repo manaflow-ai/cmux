@@ -11,7 +11,9 @@ is slow on every run still must, and a timeout must not wait for the child.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import os
 import stat
 import sys
@@ -56,7 +58,8 @@ class GuardHarnessTests(unittest.TestCase):
             self.addCleanup(patch.stop)
 
     def run_guard(self, cli: str) -> int:
-        with unittest.mock.patch.dict(os.environ, {"CMUX_CLI_BIN": cli}):
+        # The guard's FAIL lines are expected in some tests; keep them out of the log.
+        with unittest.mock.patch.dict(os.environ, {"CMUX_CLI_BIN": cli}), contextlib.redirect_stdout(io.StringIO()):
             return self.guard.main()
 
     def test_a_one_time_first_launch_cost_does_not_fail_the_guard(self) -> None:

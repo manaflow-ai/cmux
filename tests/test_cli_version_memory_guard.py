@@ -24,7 +24,8 @@ EXPECTED_STDOUT = "cmux 9.9.9 (999)"
 # The first launch of a new executable can pay a one-time system check before
 # main runs (about 3 s on the owned CI Macs, more on a busy host). One untimed
 # launch absorbs it, and a regression is slow on every attempt, so a single
-# stall on a loaded host is retried rather than failed.
+# stall on a loaded host is retried rather than failed. Memory does not depend
+# on host load, so a memory failure is never retried.
 WARMUP_TIMEOUT_SECONDS = 120
 ATTEMPTS = 3
 
@@ -117,7 +118,10 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
     try:
         stdout, stderr = proc.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # it exited in the moment after the timeout
         stdout, stderr = proc.communicate()
         elapsed = time.time() - started
         return {
@@ -168,7 +172,7 @@ def main() -> int:
             pass
         for _ in range(ATTEMPTS):
             result = run_with_limits(fixture_cli, "--version")
-            if not result["failure_reason"]:
+            if not str(result["failure_reason"] or "").startswith("timeout exceeded"):
                 break
 
     if result["failure_reason"]:
