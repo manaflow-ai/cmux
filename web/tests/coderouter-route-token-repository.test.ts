@@ -116,20 +116,27 @@ describe("coderouter route token VM binding", () => {
     await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
   });
 
-  test("signed VM authorization joins the legacy text binding without a uuid/text operator error", async () => {
-    const token = await vmToken("vm-1", "team-1", "user-1");
+  test("signed VM authorization joins cloud_vms on the uuid claim, never the text binding column", async () => {
+    const vmId = "00000000-0000-4000-8000-000000000001";
+    const token = await vmToken(vmId, "team-1", "user-1");
     returnedRows = [{ poolId: "pool-1" }];
     await expect(authenticateRouteToken(token)).resolves.toEqual({
       teamId: "team-1",
       stackUserId: "user-1",
-      vmId: "vm-1",
+      vmId,
       poolId: "pool-1",
     });
     const join = statements[0]?.joins[0];
     expect(join).toBeDefined();
-    const joinSql = rendered(join ?? null).sql;
-    expect(joinSql).toContain('"cloud_vms"."id" = case');
-    expect(joinSql).toContain('"coderouter_route_tokens"."vm_id"::uuid');
+    const joinSql = rendered(join ?? null);
+    expect(joinSql.sql).toBe('"cloud_vms"."id" = $1');
+    expect(joinSql.params).toEqual([vmId]);
+  });
+
+  test("a signed VM claim that is not a uuid fails closed before querying", async () => {
+    const token = await vmToken("vm-1", "team-1", "user-1");
+    await expect(authenticateRouteToken(token)).resolves.toBeNull();
+    expect(statements).toHaveLength(0);
   });
 
   test("authentication is a read-only lookup and defers a rate-limited last-used write", async () => {
