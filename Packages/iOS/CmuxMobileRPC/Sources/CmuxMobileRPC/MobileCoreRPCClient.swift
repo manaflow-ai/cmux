@@ -430,6 +430,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
+    /// Wire opt-in for one server->client stream per terminal surface (see
+    /// `IrxSurfaceEventLaneProtocol` on the host).
+    static let surfaceEventLanesParameterKey = "surface_event_lanes"
+    static let surfaceEventLanesParameterValue = "v1"
+
     /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
     /// installed. Older hosts ignore the field and continue control delivery.
     private func requestAdvertisingIndependentEvents(
@@ -455,6 +460,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return requestData
         }
         params["event_transport"] = "iroh_server_events_v1"
+        if runtime.independentEventsMergeSurfaceLanes {
+            // Older hosts ignore the field and keep render-grid output on the
+            // shared events lane; newer hosts echo it when they granted lanes.
+            params[Self.surfaceEventLanesParameterKey] = Self.surfaceEventLanesParameterValue
+        }
         request["params"] = params
         return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
     }

@@ -90,6 +90,40 @@ struct MobileCoreRPCIndependentEventTests {
         await client.disconnect()
     }
 
+    @Test(arguments: [false, true])
+    func subscribeRequestsSurfaceEventLanesOnlyWhenTheReaderMergesThem(
+        merges: Bool
+    ) async throws {
+        let route = try irohRoute(hexBytePair: merges ? "9c" : "9b")
+        let source = IndependentEventSource()
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport),
+            independentEventByteStreamProvider: { _ in await source.makeStream() },
+            independentEventsMergeSurfaceLanes: merges
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: merges ? "013" : "012")
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.render_grid"],
+            ]
+        )
+
+        _ = try await client.sendRequest(request)
+
+        // A reader that sees only one stream would never read a per-surface
+        // stream, so the opt-in rides only with a merging reader.
+        #expect(await transport.recordedEventTransport() == "iroh_server_events_v1")
+        #expect(await transport.recordedSurfaceEventLaneRequest() == (merges ? "v1" : nil))
+        await client.disconnect()
+    }
+
     @Test
     func independentlyFramedEventsReachTheExistingListenerPipeline() async throws {
         let route = try irohRoute(hexBytePair: "ab")
@@ -458,6 +492,7 @@ private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClo
     private var waiter: CheckedContinuation<Data?, Never>?
     private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var eventTransports: [String?] = []
+    private var surfaceEventLaneRequests: [String?] = []
     private var closed = false
 
     func connect() async throws {}
@@ -479,6 +514,7 @@ private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClo
         let params = request["params"] as? [String: Any]
         let eventTransport = params?["event_transport"] as? String
         eventTransports.append(eventTransport)
+        surfaceEventLaneRequests.append(params?["surface_event_lanes"] as? String)
         let response = try JSONSerialization.data(withJSONObject: [
             "id": request["id"] ?? NSNull(),
             "ok": true,
@@ -528,4 +564,8 @@ private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClo
     }
 
     func recordedEventTransports() -> [String?] { eventTransports }
+
+    func recordedSurfaceEventLaneRequest() -> String? {
+        surfaceEventLaneRequests.last ?? nil
+    }
 }

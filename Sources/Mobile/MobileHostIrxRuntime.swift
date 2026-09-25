@@ -950,7 +950,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
-                journal: journal)
+                journal: journal,
+                onInteractiveSurface: { surfaceID in
+                    // Fire-and-forget: input delivery never waits on the
+                    // output side. Keystrokes arrive at human rate.
+                    Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
+                })
         }
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
@@ -1002,7 +1007,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
-        journal: IrxJournal
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -1030,7 +1036,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         cursor: cursor,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1045,7 +1052,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     await MobileHostIrxTerminalLaneServer.serveInputOnly(
                         resourceID: resource,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }

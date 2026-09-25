@@ -13,16 +13,14 @@ extension MobileIrxRuntimeComposition {
             throw IrxConnectionError.closed(nil)
         }
         claimedEventSessions[peerHex] = session.admit.session
-        let connection = session.connection
-        let journal = journal
+        // The hub reads the shared events lane and every per-surface lane the
+        // Mac opens, each on its own task, and forwards whole frames. One
+        // terminal's burst therefore never delays another terminal's frames.
+        let merged = await eventLaneHub(peerHex: peerHex, session: session).subscribe()
         return AsyncThrowingStream { continuation in
             let pump = Task {
                 do {
-                    guard let (descriptor, reader) = try await connection.acceptUniLane(), descriptor.lane == .events else {
-                        throw IrxConnectionError.closed(nil)
-                    }
-                    journal.record("client-events", "lane-accepted")
-                    while let chunk = try await reader.readRaw() {
+                    for try await chunk in merged {
                         guard !Task.isCancelled else { throw CancellationError() }
                         continuation.yield(chunk)
                     }
@@ -41,6 +39,26 @@ extension MobileIrxRuntimeComposition {
                 }
             }
         }
+    }
+
+    /// Returns the session's lane hub, replacing one left by an older session.
+    /// The hub owns uni-lane acceptance for the connection's whole lifetime,
+    /// so a replaced reader never leaves an accept loop that steals lanes.
+    func eventLaneHub(peerHex: String, session: IrxClientSession) async -> IrxServerEventLaneHub {
+        if let existing = eventLaneHubs[peerHex] {
+            if existing.sessionID == session.admit.session, await existing.hub.isAlive {
+                return existing.hub
+            }
+            let stale = existing.hub
+            Task { await stale.stop() }
+        }
+        let connection = session.connection
+        let hub = IrxServerEventLaneHub(journal: journal) {
+            guard let (descriptor, reader) = try await connection.acceptUniLane() else { return nil }
+            return (descriptor, reader)
+        }
+        eventLaneHubs[peerHex] = (session.admit.session, hub)
+        return hub
     }
 
     func releaseEventClaim(peerHex: String, sessionID: String) {
