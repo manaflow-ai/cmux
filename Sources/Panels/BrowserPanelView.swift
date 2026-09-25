@@ -7420,9 +7420,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         // page still belongs to an automation preload or previous pane host.
         // Complete that deferred handoff on window arrival, even if SwiftUI
         // has no further state change to trigger updateNSView.
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak panel] in
             guard let host, host.window != nil,
                   let webView, let coordinator,
+                  let panel,
                   coordinator.attachGeneration == generation,
                   coordinator.webView === webView,
                   panel.webView === webView else { return }
