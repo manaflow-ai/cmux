@@ -13,6 +13,14 @@ final class AutomationSocketUITests: XCTestCase {
     private var launchTag = ""
     private var temporaryRoots: [URL] = []
 
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
