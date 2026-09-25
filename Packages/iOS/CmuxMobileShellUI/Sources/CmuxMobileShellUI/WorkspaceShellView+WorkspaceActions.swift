@@ -516,19 +516,43 @@ extension WorkspaceShellView {
         }
     }
 
-    /// New Workspace on an SSH computer (PRD D22): a cmux-tui workspace, a
-    /// tmux session, or a plain shell, then open it. Failures land on the
-    /// computer's status (shown by the list's SSH banner), not a toast.
-    func createSSHWorkspace(hostID: UUID) {
+    /// New Workspace on an SSH computer (PRD D22, D31): a cmux-tui
+    /// workspace, a tmux session, or a shell, then open it. Failures land on
+    /// the computer's status (shown by the list's SSH banner), not a toast.
+    ///
+    /// `+` always names the kind. Entry points without a kind menu (the
+    /// terminal's New Workspace button, a keyboard shortcut) repeat the
+    /// kind of the workspace on screen when it is on this computer, else
+    /// the first kind the computer can create (cmux-tui, tmux, shell).
+    func createSSHWorkspace(hostID: UUID, kind: MobileSSHWorkspaceKind? = nil) {
         let store = store
         let compact = usesCompactStack
+        let resolved = kind ?? defaultSSHWorkspaceKind(hostID: hostID)
         Task { @MainActor in
-            guard let id = await store.createSSHWorkspace(hostID: hostID) else { return }
+            guard let id = await store.createSSHWorkspace(hostID: hostID, kind: resolved) else { return }
             store.selectedWorkspaceID = id
             if compact {
                 compactNavigationPath = [id]
             }
         }
+    }
+
+    private func defaultSSHWorkspaceKind(hostID: UUID) -> MobileSSHWorkspaceKind {
+        if let selected = store.selectedWorkspaceID,
+           let row = store.workspaces.first(where: { $0.id == selected }),
+           row.macDeviceID == store.sshComputerDeviceID(hostID: hostID),
+           let kind = store.sshWorkspaceKind(workspaceID: selected) {
+            return kind
+        }
+        let available = store.sshComputers.kindAvailability(hostID: hostID)
+        return available.first { $0.isAvailable && !$0.needsInstall }?.kind ?? .shell
+    }
+
+    /// The kinds `+` offers when it creates on one SSH computer; empty for
+    /// a Mac.
+    var sshNewWorkspaceKinds: [WorkspaceCreateKindOption] {
+        guard let hostID = sshCreateHostID else { return [] }
+        return store.sshComputers.kindAvailability(hostID: hostID).map(WorkspaceCreateKindOption.init)
     }
 
     #if os(iOS)
@@ -562,7 +586,8 @@ extension WorkspaceShellView {
                 // No dev build tag suffix: an SSH host is not a cmux build.
                 name: host.name,
                 statusText: status == .connected ? nil : status.sshStatusText,
-                statusColor: status.sshStatusColor
+                statusColor: status.sshStatusColor,
+                sshKinds: store.sshComputers.kindAvailability(hostID: host.id).map(WorkspaceCreateKindOption.init)
             ))
         }
         return targets
@@ -592,10 +617,14 @@ extension WorkspaceShellView {
     /// Creates a workspace on the computer chosen from `+`'s menu. A Mac that
     /// is not the foreground connection becomes it first (the same switch the
     /// computers picker performs), then `create` runs the usual create path.
-    func createWorkspace(on target: WorkspaceCreateComputerTarget, create: @escaping () -> Void) {
+    func createWorkspace(
+        on target: WorkspaceCreateComputerTarget,
+        kind: MobileSSHWorkspaceKind?,
+        create: @escaping () -> Void
+    ) {
         switch target.kind {
         case .ssh(let hostID):
-            createSSHWorkspace(hostID: hostID)
+            createSSHWorkspace(hostID: hostID, kind: kind)
         case .mac(let macDeviceID, let instanceTag):
             if isForegroundMac(macDeviceID: macDeviceID, instanceTag: instanceTag) {
                 create()

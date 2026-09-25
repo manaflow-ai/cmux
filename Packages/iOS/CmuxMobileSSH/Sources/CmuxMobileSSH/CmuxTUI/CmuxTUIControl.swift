@@ -680,9 +680,14 @@ extension CmuxTUIControl {
     /// Returns `nil` without detaching when the server lacks targeted detach
     /// (`view-attachment-detach-v1`), because the only other cleanup fence
     /// closes the whole connection.
-    public func reattach(_ attachment: CmuxTUIAttachment, cols: Int, rows: Int) async throws -> CmuxTUIAttachment? {
+    public func reattach(
+        _ attachment: CmuxTUIAttachment,
+        cols: Int,
+        rows: Int,
+        claimGeometry: Bool = true
+    ) async throws -> CmuxTUIAttachment? {
         guard canReattach(attachment) else { return nil }
         try await detach(attachment)
-        return try await attach(surface: attachment.surface, cols: cols, rows: rows)
+        return try await attach(surface: attachment.surface, cols: cols, rows: rows, claimGeometry: claimGeometry)
     }
 }

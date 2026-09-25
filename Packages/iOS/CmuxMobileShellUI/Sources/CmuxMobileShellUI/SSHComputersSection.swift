@@ -62,17 +62,7 @@ struct SSHComputerRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    HStack(spacing: 8) {
-                        SSHStatusLabel(status: computer.status)
-                        if let persistence = computer.persistence {
-                            Text(persistence.sshDisplayName)
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .foregroundStyle(.secondary)
-                                .background(Color.secondary.opacity(0.12), in: Capsule())
-                        }
-                    }
+                    SSHStatusLabel(status: computer.status)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.forward")

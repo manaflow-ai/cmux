@@ -14,7 +14,6 @@ struct SSHComputerDraft: Equatable {
     var username = ""
     var keyID: UUID?
     var jumpHostID: UUID?
-    var persistence: SSHPersistenceMode?
     var idleClose: SSHIdleClosePolicy = .oneDay
 
     init() {}
@@ -26,7 +25,6 @@ struct SSHComputerDraft: Equatable {
         username = record.endpoint.username
         keyID = record.keyID
         jumpHostID = record.jumpHostID
-        persistence = record.persistence
         idleClose = record.idleClose
     }
 
@@ -76,13 +74,12 @@ struct SSHComputerDraft: Equatable {
         record.endpoint = SSHEndpoint(host: trimmedHost, port: portNumber, username: trimmedUsername)
         record.keyID = keyID
         record.jumpHostID = jumpHostID == id ? nil : jumpHostID
-        record.persistence = persistence
         record.idleClose = idleClose
         return record
     }
 }
 
-/// Add or edit an SSH computer (PRD D2/D3/D9/D13/D16). Presented as a root
+/// Add or edit an SSH computer (PRD D2/D3/D13/D16, D31). Presented as a root
 /// sheet (Cancel/Save) or pushed inside the Computers sheet (Save only).
 struct SSHComputerEditorView: View {
     let computers: MobileSSHComputers
@@ -145,7 +142,6 @@ struct SSHComputerEditorView: View {
             if let selectedKey {
                 installSection(key: selectedKey)
             }
-            sessionSection
             idleSection
             jumpSection
             if let saveError {
@@ -414,25 +410,6 @@ struct SSHComputerEditorView: View {
                 .foregroundStyle(.red)
         case .idle:
             EmptyView()
-        }
-    }
-
-    private var sessionSection: some View {
-        Section {
-            NavigationLink {
-                SSHPersistenceChoiceView(selection: $draft.persistence)
-            } label: {
-                LabeledContent(
-                    L10n.string("mobile.ssh.form.persistence", defaultValue: "Keep Sessions Alive"),
-                    value: draft.persistence?.sshDisplayName ?? SSHCopy.askOnFirstConnect
-                )
-            }
-            .accessibilityIdentifier("ssh.form.persistence")
-        } footer: {
-            Text(draft.persistence?.sshDescription ?? L10n.string(
-                "mobile.ssh.persistence.ask.description",
-                defaultValue: "cmux checks what the computer supports and asks the first time you connect."
-            ))
         }
     }
 

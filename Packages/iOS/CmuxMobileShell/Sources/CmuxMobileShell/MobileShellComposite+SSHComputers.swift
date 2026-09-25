@@ -118,10 +118,11 @@ extension MobileShellComposite: MobileSSHComputersSink {
         sshComputers.autoConnect(hostID: hostID)
     }
 
-    /// Creates a workspace on an SSH computer and selects it.
+    /// Creates a workspace of `kind` on an SSH computer (a cmux-tui
+    /// workspace, a tmux session, or a shell) and returns its row id.
     @discardableResult
-    public func createSSHWorkspace(hostID: UUID) async -> MobileWorkspacePreview.ID? {
-        guard let scoped = await sshComputers.createWorkspace(hostID: hostID) else { return nil }
+    public func createSSHWorkspace(hostID: UUID, kind: MobileSSHWorkspaceKind) async -> MobileWorkspacePreview.ID? {
+        guard let scoped = await sshComputers.createWorkspace(hostID: hostID, kind: kind) else { return nil }
         // Aggregation may Mac-scope row ids; match the host-local id too.
         return workspaces.first { $0.id.rawValue == scoped || $0.rpcWorkspaceID.rawValue == scoped }?.id
     }
@@ -151,12 +152,13 @@ extension MobileShellComposite {
 extension MobileShellComposite {
     /// For SSH surfaces, whether a server-side emulator answers terminal
     /// queries: cmux-tui's, or tmux's (control mode streams pane output, and
-    /// tmux answers its panes' queries itself). `nil` for surfaces a Mac or
-    /// the demo serves.
+    /// tmux answers its panes' queries itself); a shell's phone answers.
+    /// Decided per surface by its kind. `nil` for surfaces a Mac or the demo
+    /// serves.
     public func sshServerAnswersTerminalQueries(surfaceID: String) -> Bool? {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID) else { return nil }
-        let persistence = sshComputers.host(id: hostID)?.persistence
-        return persistence == .cmuxTUI || persistence == .tmux
+        guard MobileSSHIdentifiers.hostID(of: surfaceID) != nil else { return nil }
+        guard let kind = sshComputers.kind(ofScopedID: surfaceID) else { return false }
+        return kind != .shell
     }
 
     /// Whether the phone's own emulator is the terminal for this surface

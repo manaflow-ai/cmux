@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import SwiftUI
 
 struct WorkspaceListNewWorkspaceMenuValue: Equatable {
@@ -6,6 +7,9 @@ struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     /// Computers a new workspace can go to while "All Computers" is shown.
     /// With more than one, `+` asks which; otherwise it creates directly.
     var computerTargets: [WorkspaceCreateComputerTarget] = []
+    /// When `+` creates on one SSH computer: the kinds it offers (PRD D31).
+    /// Empty for a Mac, where `+` creates a workspace directly.
+    var sshKinds: [WorkspaceCreateKindOption] = []
 
     var asksForComputer: Bool { computerTargets.count > 1 }
 }
@@ -25,4 +29,22 @@ struct WorkspaceCreateComputerTarget: Equatable, Identifiable {
     /// Shown under the name when the computer is not connected.
     let statusText: String?
     let statusColor: Color
+    /// SSH computers: the kinds of workspace `+` can create there, shown as
+    /// a submenu. Empty for Macs.
+    var sshKinds: [WorkspaceCreateKindOption] = []
+}
+
+/// One "New …" item for an SSH computer: a cmux-tui workspace, a tmux
+/// session, or a shell, dimmed with the reason when the computer cannot
+/// create it.
+struct WorkspaceCreateKindOption: Equatable, Identifiable {
+    let kind: MobileSSHWorkspaceKind
+    let unavailableReason: String?
+
+    var id: MobileSSHWorkspaceKind { kind }
+
+    init(_ availability: MobileSSHKindAvailability) {
+        kind = availability.kind
+        unavailableReason = availability.unavailableReason
+    }
 }

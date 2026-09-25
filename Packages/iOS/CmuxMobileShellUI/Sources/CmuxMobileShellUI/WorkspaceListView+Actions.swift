@@ -9,12 +9,14 @@ extension WorkspaceListView {
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
                 canCreateGroup: createWorkspaceGroup != nil,
-                computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets
+                computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets,
+                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
                 createWorkspace: createWorkspace,
                 createWorkspaceGroup: createWorkspaceGroup,
-                createWorkspaceOnComputer: createWorkspaceOnComputer
+                createWorkspaceOnComputer: createWorkspaceOnComputer,
+                createSSHWorkspace: createSSHWorkspace
             )
         )
     }

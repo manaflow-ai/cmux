@@ -27,4 +27,33 @@ enum L10nSSH {
     static var browserFailed: String {
         L10n.string("mobile.ssh.browser.failed", defaultValue: "Browser unavailable")
     }
+    static func cmuxTUIUnsupported(os: String, arch: String) -> String {
+        L10n.string(
+            "mobile.ssh.error.cmuxTUIUnsupported",
+            defaultValue: "cmux-tui doesn't run on this computer (\(os) \(arch))."
+        )
+    }
+    static var cmuxTUIMissing: String {
+        L10n.string("mobile.ssh.error.cmuxTUIMissing", defaultValue: "cmux-tui is not installed on this computer.")
+    }
+    static var cmuxTUISessionGone: String {
+        L10n.string("mobile.ssh.error.cmuxTUISessionGone", defaultValue: "This cmux-tui session is no longer running.")
+    }
+
+    /// The row subtitle naming a workspace's kind (PRD D31).
+    static func kindLabel(_ kind: MobileSSHWorkspaceKind, cmuxTUISession: String? = nil) -> String {
+        switch kind {
+        case .tmux:
+            return L10n.string("mobile.ssh.kind.tmux", defaultValue: "tmux session")
+        case .shell:
+            return L10n.string("mobile.ssh.kind.shell", defaultValue: "Shell")
+        case .cmuxTUI:
+            // Workspaces from another cmux-tui session (a laptop's) name it,
+            // so same-named workspaces from two sessions stay apart.
+            if let session = cmuxTUISession, session != MobileSSHCmuxTUIProvider.sessionName {
+                return L10n.string("mobile.ssh.kind.cmuxTUI.session", defaultValue: "cmux-tui · \(session)")
+            }
+            return L10n.string("mobile.ssh.kind.cmuxTUI", defaultValue: "cmux-tui")
+        }
+    }
 }

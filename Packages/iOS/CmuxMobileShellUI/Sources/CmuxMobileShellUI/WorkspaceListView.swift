@@ -56,7 +56,11 @@ struct WorkspaceListView: View {
     /// Computers `+` offers while "All Computers" is shown; with more than
     /// one it asks which (see ``WorkspaceListNewWorkspaceMenuValue``).
     var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] = []
-    var createWorkspaceOnComputer: ((WorkspaceCreateComputerTarget) -> Void)? = nil
+    var createWorkspaceOnComputer: ((WorkspaceCreateComputerTarget, MobileSSHWorkspaceKind?) -> Void)? = nil
+    /// When `+` creates on one SSH computer: its kinds, and the create
+    /// action (PRD D31). Empty/`nil` for Macs.
+    var sshNewWorkspaceKinds: [WorkspaceCreateKindOption] = []
+    var createSSHWorkspace: ((MobileSSHWorkspaceKind) -> Void)? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.

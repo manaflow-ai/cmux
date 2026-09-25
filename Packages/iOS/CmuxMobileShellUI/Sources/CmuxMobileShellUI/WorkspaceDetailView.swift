@@ -921,13 +921,15 @@ struct WorkspaceDetailView: View {
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id,
+                sshTabLayout: store.sshTabLayout(workspaceID: workspace.id)
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
                 selectMacSurface: selectMacSurfaceFromPicker,
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
+                createSSHTab: createSSHTabFromPicker,
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 selectSimulatorStream: selectSimulatorStreamFromToolbar,
@@ -1180,6 +1182,17 @@ struct WorkspaceDetailView: View {
         stopActiveSimulatorStream()
         store.selectedMacSurfaceID = nil
         createTerminal()
+    }
+
+    /// A grouped section's action: "Split Pane" (tmux window) or "New Tab"
+    /// (cmux-tui screen). Surfaces the new terminal like New Terminal.
+    private func createSSHTabFromPicker(_ sectionID: String) {
+        dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        stopActiveSimulatorStream()
+        store.createSSHTab(in: workspace.id, section: sectionID)
     }
 
     private func openBrowserFromToolbar() {

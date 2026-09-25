@@ -126,7 +126,6 @@ struct MobileSSHBrowserNetworkLabTests {
                 for prompt in computers.prompts {
                     switch prompt {
                     case .trustNewHostKey: computers.answer(prompt, with: .trust)
-                    case .choosePersistence: computers.answer(prompt, with: .persistence(.plain))
                     case .hostKeyChanged: computers.answer(prompt, with: .cancel)
                     }
                 }

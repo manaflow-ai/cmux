@@ -7,7 +7,7 @@ import UIKit
 
 extension View {
     /// Presents the SSH runtime's questions (trust a new server, a changed
-    /// server identity, how to keep sessions alive) above every screen,
+    /// server identity) above every screen,
     /// including open sheets and the workspace terminal. Mount once at the
     /// app root.
     ///
@@ -179,8 +179,6 @@ struct SSHPromptSheet: View {
             SSHTrustHostKeyContent(host: host, key: key, answer: answer)
         case .hostKeyChanged(let host, let pinned, let presented):
             SSHHostKeyChangedContent(host: host, pinned: pinned, presented: presented, answer: answer)
-        case .choosePersistence(let host, let tmuxAvailable):
-            SSHChoosePersistenceContent(host: host, tmuxAvailable: tmuxAvailable, answer: answer)
         }
     }
 }
@@ -328,50 +326,6 @@ private struct SSHHostKeyChangedContent: View {
         }
         .navigationTitle(L10n.string("mobile.ssh.prompt.changed.navTitle", defaultValue: "Identity Changed"))
         .accessibilityIdentifier("ssh.prompt.hostKeyChanged")
-    }
-}
-
-// MARK: Persistence (PRD D9/D15)
-
-private struct SSHChoosePersistenceContent: View {
-    let host: SSHHostRecord
-    let tmuxAvailable: Bool
-    let answer: (MobileSSHPromptAnswer) -> Void
-
-    var body: some View {
-        Form {
-            Section {
-                Text(String(
-                    format: L10n.string(
-                        "mobile.ssh.prompt.persistence.explanation",
-                        defaultValue: "iOS pauses apps in the background, which ends a plain SSH session. Choose how %@ keeps your sessions running. You can change this later in the computer's settings."
-                    ),
-                    host.name
-                ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            Section {
-                ForEach(SSHPersistenceMode.sshPickerOrder, id: \.self) { mode in
-                    SSHPersistenceOptionRow(
-                        mode: mode,
-                        isSelected: false,
-                        unavailableReason: mode == .tmux && !tmuxAvailable
-                            ? L10n.string(
-                                "mobile.ssh.prompt.persistence.tmuxMissing",
-                                defaultValue: "tmux isn't installed on this computer. Install it there, or choose another option."
-                            )
-                            : nil
-                    ) {
-                        answer(.persistence(mode))
-                    }
-                    .accessibilityIdentifier("ssh.prompt.persistence.\(mode.sshAccessibilityKey)")
-                }
-            }
-        }
-        .navigationTitle(L10n.string("mobile.ssh.prompt.persistence.title", defaultValue: "Keep Sessions Alive"))
-        .accessibilityIdentifier("ssh.prompt.choosePersistence")
     }
 }
 

@@ -1,55 +1,69 @@
 internal import CmuxMobileSSH
+internal import CmuxMobileSupport
 import CryptoKit
 import Foundation
 
-/// cmux-tui sessions on the server (PRD D9-D12, D20): workspaces are
-/// cmux-tui's own, terminals persist in its terminal-host processes, and
+/// One cmux-tui session on the server (PRD D9-D12, D20, D31): workspaces
+/// are cmux-tui's own, terminals persist in its terminal-host processes, and
 /// attach uses `bytes` mode (a `vt-state` snapshot, then live PTY bytes)
-/// with the phone claiming geometry (D19).
+/// with the phone claiming geometry while the terminal is on screen (D33).
+///
+/// The phone's own session (``sessionName``) is started on demand with
+/// `server ensure`; every other session was started elsewhere (a laptop)
+/// and is reached through its existing socket, never started.
 ///
 /// Terminal ids are cmux-tui resource ids (`term_...`), which survive owner
 /// restarts; numeric surface ids do not, so attach re-lists to resolve them.
 @MainActor
 final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrowserProviding, MobileSSHCurrentDirectoryProviding {
     /// Session name owned by the phone, so a desktop `cmux` session on the
-    /// same machine is never taken over.
-    static let sessionName = "cmux-ios"
+    /// same machine is never taken over when the phone creates workspaces.
+    nonisolated static let sessionName = "cmux-ios"
 
+    /// How the provider reaches its session's owner.
+    enum Route: Equatable {
+        /// `server ensure` + `relay --session` (the phone's own session).
+        case ensure
+        /// `relay --socket` to an owner someone else started.
+        case socket(CmuxTUISessionSocket)
+    }
+
+    let session: String
     private let connection: SSHConnection
     private let remote: CmuxTUIRemote
+    private let route: Route
     private var control: CmuxTUIControl?
     /// The host's idle-close setting (PRD D13), applied to every terminal the
     /// phone creates or attaches; `nil` means never close.
     private let idleCloseSeconds: Int?
 
-    private init(connection: SSHConnection, remote: CmuxTUIRemote, idleCloseSeconds: Int?) {
+    init(connection: SSHConnection, remote: CmuxTUIRemote, session: String, route: Route, idleCloseSeconds: Int?) {
         self.connection = connection
         self.remote = remote
+        self.session = session
+        self.route = route
         self.idleCloseSeconds = idleCloseSeconds
-    }
-
-    /// Ensures cmux-tui is installed (uploading it if needed, D10) and
-    /// returns a provider bound to the phone's session.
-    static func make(
-        connection: SSHConnection,
-        host: SSHHostRecord,
-        progress: @escaping @MainActor (String) -> Void = { _ in }
-    ) async throws -> any MobileSSHWorkspaceProvider {
-        let remote = CmuxTUIRemote()
-        let probe = try await remote.probe(on: connection)
-        // Only install when missing: never replace a cmux-tui the user
-        // installed themselves (it may be newer than the pinned build).
-        if probe.installed == nil {
-            try await MobileSSHCmuxTUIInstaller.install(probe: probe, on: connection, progress: progress)
-        }
-        return MobileSSHCmuxTUIProvider(connection: connection, remote: remote, idleCloseSeconds: host.idleClose.seconds)
     }
 
     private func liveControl() async throws -> CmuxTUIControl {
         if let control { return control }
-        let control = try await remote.connect(on: connection, session: Self.sessionName)
+        let control = switch route {
+        case .ensure: try await remote.connect(on: connection, session: session)
+        case .socket(let socket): try await remote.connect(on: connection, socket: socket)
+        }
         self.control = control
         return control
+    }
+
+    /// Opens the control connection now (discovery skips sessions whose
+    /// owner does not answer).
+    func connect() async throws {
+        _ = try await liveControl()
+    }
+
+    func close() async {
+        await control?.close()
+        control = nil
     }
 
     /// Runs `body`, reconnecting the control channel once if it dropped.
@@ -65,28 +79,58 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
         try await withControl { control in
-            try await control.listWorkspaces().map { workspace in
-                MobileSSHWorkspace(
-                    id: workspace.key ?? "w\(workspace.id)",
-                    name: workspace.name,
-                    terminals: workspace.terminals.filter { !$0.dead }.map { terminal in
-                        MobileSSHTerminal(
-                            id: terminal.resourceID ?? "s\(terminal.surface)",
-                            name: terminal.name ?? (terminal.title.isEmpty ? workspace.name : terminal.title)
-                        )
-                    },
-                    browsers: workspace.browsers.filter { !$0.dead }.map { browser in
-                        MobileSSHBrowser(
-                            id: Self.browserID(browser),
-                            title: browser.title,
-                            url: browser.url,
-                            columns: browser.cols,
-                            rows: browser.rows
-                        )
-                    }
-                )
-            }
+            try await control.listWorkspaces().map(Self.workspace)
         }
+    }
+
+    /// Maps a cmux-tui workspace to its row: terminals in layout order, one
+    /// tab-switcher section per screen, tabs grouped by pane.
+    nonisolated static func workspace(_ workspace: CmuxTUIWorkspace) -> MobileSSHWorkspace {
+        var sections: [MobileSSHWorkspaceSection] = []
+        var screenPanes: [Int: [Int]] = [:]
+        for (index, screen) in workspace.screens.enumerated() {
+            let title = screen.name.flatMap { $0.isEmpty ? nil : $0 }
+                ?? L10n.string("mobile.ssh.tabs.screenName", defaultValue: "Screen \(index + 1)")
+            sections.append(MobileSSHWorkspaceSection(
+                id: String(screen.id),
+                title: title,
+                targetPane: screen.activePane ?? screen.panes.first?.id
+            ))
+            screenPanes[screen.id] = screen.panes.map(\.id)
+        }
+        let live = workspace.terminals.filter { !$0.dead }
+        return MobileSSHWorkspace(
+            id: workspace.key ?? "w\(workspace.id)",
+            name: workspace.name,
+            terminals: live.map { terminal in
+                let name = terminal.name ?? (terminal.title.isEmpty ? workspace.name : terminal.title)
+                let panes = screenPanes[terminal.screen] ?? []
+                let position = (panes.firstIndex(of: terminal.pane) ?? 0) + 1
+                return MobileSSHTerminal(
+                    id: terminal.resourceID ?? "s\(terminal.surface)",
+                    name: name,
+                    placement: MobileSSHTerminalPlacement(
+                        sectionID: String(terminal.screen),
+                        paneID: String(terminal.pane),
+                        title: name,
+                        paneLabel: panes.count > 1
+                            ? L10n.string("mobile.ssh.tabs.paneLabel", defaultValue: "Pane \(position)")
+                            : nil
+                    )
+                )
+            },
+            browsers: workspace.browsers.filter { !$0.dead }.map { browser in
+                MobileSSHBrowser(
+                    id: browserID(browser),
+                    title: browser.title,
+                    url: browser.url,
+                    columns: browser.cols,
+                    rows: browser.rows
+                )
+            },
+            kind: .cmuxTUI,
+            sections: sections
+        )
     }
 
     func createWorkspace() async throws -> MobileSSHWorkspace {
@@ -99,7 +143,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         }
         let listed = try await listWorkspaces()
         return listed.first { $0.id == created.key }
-            ?? MobileSSHWorkspace(id: created.key, name: created.key, terminals: [])
+            ?? MobileSSHWorkspace(id: created.key, name: created.key, terminals: [], kind: .cmuxTUI)
     }
 
     func closeWorkspace(id: String) async throws {
@@ -146,29 +190,52 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
 }
 
 extension MobileSSHCmuxTUIProvider: MobileSSHTerminalCreating {
-    /// "New Terminal": a terminal in the cmux-tui workspace with stable
-    /// `workspaceID` (its key), appearing as a new tab.
+    /// "New Screen": a screen (one pane, one terminal) in the workspace with
+    /// stable `workspaceID` (its key).
     func createTerminal(inWorkspace workspaceID: String) async throws -> MobileSSHTerminal {
-        let before = Set(try await listWorkspaces().first { $0.id == workspaceID }?.terminals.map(\.id) ?? [])
-        let created = try await withControl { control in
-            let created = try await control.createTerminal(inWorkspace: workspaceID, cols: 80, rows: 24)
-            if let surface = created.surface {
-                await applyIdlePolicy(surface: surface, on: control)
-            }
-            return created
+        try await createSurface(inWorkspace: workspaceID) { control, workspace in
+            try await control.newScreen(workspace: workspace.id, cols: 80, rows: 24)
         }
-        // The listing keys terminals by resource id, which `create-terminal`
-        // does not return; the new tab is the one that was not there before.
-        let terminals = try await listWorkspaces().first { $0.id == workspaceID }?.terminals ?? []
-        return terminals.first { !before.contains($0.id) }
-            ?? MobileSSHTerminal(id: created.terminalID, name: created.terminalID)
+    }
+
+    /// "New Tab" on a screen section: a terminal tab in the screen's active
+    /// pane.
+    func createTab(inWorkspace workspaceID: String, pane: Int) async throws -> MobileSSHTerminal {
+        try await createSurface(inWorkspace: workspaceID) { control, _ in
+            try await control.newTab(pane: pane, cols: 80, rows: 24)
+        }
+    }
+
+    /// Runs a creation command against the live workspace and returns the
+    /// tab it added. The listing keys terminals by resource id, which the
+    /// commands do not return; the new tab is the surface they report.
+    private func createSurface(
+        inWorkspace workspaceID: String,
+        _ create: (CmuxTUIControl, CmuxTUIWorkspace) async throws -> Int
+    ) async throws -> MobileSSHTerminal {
+        let surface = try await withControl { control in
+            guard let workspace = try await control.listWorkspaces().first(where: { $0.key == workspaceID }) else {
+                throw CmuxTUIError.commandFailed(command: "create", message: "workspace \(workspaceID) is gone", code: nil)
+            }
+            let surface = try await create(control, workspace)
+            await applyIdlePolicy(surface: surface, on: control)
+            return surface
+        }
+        let workspace = try await withControl { control in
+            try await control.listWorkspaces().first { $0.key == workspaceID }
+        }
+        if let workspace, let created = workspace.terminals.first(where: { $0.surface == surface }) {
+            let id = created.resourceID ?? "s\(surface)"
+            return Self.workspace(workspace).terminals.first { $0.id == id } ?? MobileSSHTerminal(id: id, name: id)
+        }
+        return MobileSSHTerminal(id: "s\(surface)", name: "s\(surface)")
     }
 }
 
 extension MobileSSHCmuxTUIProvider {
     /// Browser content ids (`brw_...`) survive owner restarts; numeric
     /// surface ids do not, so they are only a fallback.
-    static func browserID(_ browser: CmuxTUIBrowserTab) -> String {
+    nonisolated static func browserID(_ browser: CmuxTUIBrowserTab) -> String {
         browser.resourceID ?? "b\(browser.surface)"
     }
 
@@ -332,6 +399,9 @@ final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
     /// The phone's latest grid, reclaimed by a resync.
     private var grid: (columns: Int, rows: Int)
     private var detached = false
+    /// The terminal is off screen and gave up geometry (PRD D33): a laptop
+    /// on the same session may size it until the phone shows it again.
+    private var geometryReleased = false
     private var pump: Task<Void, Never>?
 
     private enum Resync {
@@ -397,7 +467,12 @@ final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
     private func resync(from current: CmuxTUIAttachment) async -> Resync {
         guard !detached else { return .unchanged }
         do {
-            guard let fresh = try await current.control.reattach(current, cols: grid.columns, rows: grid.rows) else {
+            guard let fresh = try await current.control.reattach(
+                current,
+                cols: grid.columns,
+                rows: grid.rows,
+                claimGeometry: !geometryReleased
+            ) else {
                 return .unchanged
             }
             if detached {
@@ -418,7 +493,21 @@ final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
 
     func resize(columns: Int, rows: Int) async {
         grid = (columns, rows)
+        if geometryReleased {
+            // Back on screen: the phone owns the grid again (D19).
+            geometryReleased = false
+            try? await attachment.control.claimGeometry(attachment, cols: columns, rows: rows)
+            return
+        }
         _ = try? await attachment.resize(cols: columns, rows: rows)
+    }
+
+    /// Off screen: keep the stream, stop owning the grid. cmux-tui then
+    /// freezes the grid at the phone's size until another view claims it
+    /// (a laptop's cmux-tui does on focus or pane selection).
+    func releaseGeometry() async {
+        guard !geometryReleased, !detached else { return }
+        geometryReleased = (try? await attachment.control.releaseGeometry(attachment)) ?? false
     }
 
     func detach() async {

@@ -6,6 +6,9 @@ struct TerminalPickerMenuActions {
     let selectMacSurface: (MobileSurfacePreview.ID) -> Void
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
+    /// A grouped section's action (``TerminalPickerMenuValue/sshTabLayout``):
+    /// "Split Pane" on a tmux window, "New Tab" on a cmux-tui screen.
+    var createSSHTab: (String) -> Void = { _ in }
     let openBrowser: () -> Void
     let selectBrowserStream: (String) -> Void
     let selectSimulatorStream: (String) -> Void

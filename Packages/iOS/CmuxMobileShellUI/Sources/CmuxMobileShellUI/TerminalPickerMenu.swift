@@ -1,4 +1,6 @@
 import CMUXMobileCore
+import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -41,19 +43,23 @@ struct TerminalPickerMenu: View, Equatable {
 
     @ViewBuilder
     private var menuContent: some View {
-        Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
-            ForEach(value.terminalRows) { terminal in
-                // Toggle rows get the native leading checkmark while the kind
-                // glyph stays on the trailing edge, matching system pickers.
-                Toggle(isOn: Binding(
-                    get: { terminal.id == value.checkedRowID },
-                    set: { _ in
-                        if let id = terminal.terminalID { actions.selectTerminal(id) }
+        if let layout = value.sshTabLayout {
+            groupedTerminalSections(layout)
+        } else {
+            Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
+                ForEach(value.terminalRows) { terminal in
+                    // Toggle rows get the native leading checkmark while the kind
+                    // glyph stays on the trailing edge, matching system pickers.
+                    Toggle(isOn: Binding(
+                        get: { terminal.id == value.checkedRowID },
+                        set: { _ in
+                            if let id = terminal.terminalID { actions.selectTerminal(id) }
+                        }
+                    )) {
+                        Label(terminal.name, systemImage: "terminal")
                     }
-                )) {
-                    Label(terminal.name, systemImage: "terminal")
+                    .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.terminalID?.rawValue ?? "")")
                 }
-                .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.terminalID?.rawValue ?? "")")
             }
         }
 
@@ -127,7 +133,11 @@ struct TerminalPickerMenu: View, Equatable {
 
             if value.canCreateTerminal {
                 Button(action: actions.createTerminal) {
-                    Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+                    Label(
+                        value.sshTabLayout?.newTerminalTitle
+                            ?? L10n.string("mobile.terminal.new", defaultValue: "New Terminal"),
+                        systemImage: "plus"
+                    )
                 }
                 .accessibilityIdentifier("MobileNewTerminalMenuItem")
             }
@@ -172,5 +182,45 @@ struct TerminalPickerMenu: View, Equatable {
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
+    }
+
+    /// SSH tmux / cmux-tui workspaces (PRD D32): one section per tmux window
+    /// or cmux-tui screen, its pane/tab terminals as rows (a divider between
+    /// panes, and each row names its pane when the section has several), and
+    /// the section's own action last (HIG Menus: group related items,
+    /// section titles name the group).
+    @ViewBuilder
+    private func groupedTerminalSections(_ layout: MobileSSHTabLayout) -> some View {
+        ForEach(layout.sections) { section in
+            Section(section.title) {
+                ForEach(section.rows) { row in
+                    if row.startsPane {
+                        Divider()
+                    }
+                    let id = MobileTerminalPreview.ID(rawValue: row.id)
+                    Toggle(isOn: Binding(
+                        get: { value.checkedRowID == .terminal(id) },
+                        set: { _ in actions.selectTerminal(id) }
+                    )) {
+                        // Title, then subtitle: UIMenu renders the second
+                        // Text as the item's subtitle.
+                        Text(row.title)
+                        if let paneLabel = row.paneLabel {
+                            Text(paneLabel)
+                        }
+                        Image(systemName: "terminal")
+                    }
+                    .accessibilityIdentifier("MobileTerminalMenuItem-\(row.id)")
+                }
+                if section.canAddTab {
+                    Button {
+                        actions.createSSHTab(section.id)
+                    } label: {
+                        Label(layout.sectionActionTitle, systemImage: layout.sectionActionSystemImage)
+                    }
+                    .accessibilityIdentifier("MobileSSHSectionAction-\(section.id)")
+                }
+            }
+        }
     }
 }

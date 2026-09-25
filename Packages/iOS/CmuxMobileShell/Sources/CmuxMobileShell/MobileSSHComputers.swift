@@ -15,15 +15,11 @@ public enum MobileSSHPrompt: Identifiable, Sendable {
     case trustNewHostKey(host: SSHHostRecord, key: SSHHostKey)
     /// The pinned identity key changed: stop and ask (PRD D17).
     case hostKeyChanged(host: SSHHostRecord, pinned: SSHHostKey, presented: SSHHostKey)
-    /// First connect: how should sessions persist? (PRD D9)
-    case choosePersistence(host: SSHHostRecord, tmuxAvailable: Bool)
 
-    /// The host an identity question (new or changed server key) is about;
-    /// `nil` for other questions.
+    /// The host an identity question (new or changed server key) is about.
     public var identityHostID: UUID? {
         switch self {
         case .trustNewHostKey(let host, _), .hostKeyChanged(let host, _, _): host.id
-        case .choosePersistence: nil
         }
     }
 
@@ -31,7 +27,6 @@ public enum MobileSSHPrompt: Identifiable, Sendable {
         switch self {
         case .trustNewHostKey(let host, _): "trust-\(host.id)"
         case .hostKeyChanged(let host, _, _): "changed-\(host.id)"
-        case .choosePersistence(let host, _): "persist-\(host.id)"
         }
     }
 }
@@ -64,8 +59,9 @@ protocol MobileSSHComputersSink: AnyObject {
 }
 
 /// Owns everything about SSH computers (PRD `docs/prd/ios-direct-ssh.md`):
-/// saved hosts and keys, live connections, the per-host persistence
-/// provider, and the terminal attachments behind each SSH surface.
+/// saved hosts and keys, live connections, the per-host registry of
+/// workspace kinds (cmux-tui, tmux, shell; PRD D31), and the terminal
+/// attachments behind each SSH surface.
 ///
 /// SSH computers render through the shell's ordinary per-computer stores,
 /// like the demonstration computer: each host publishes one
@@ -82,17 +78,24 @@ public final class MobileSSHComputers {
     public private(set) var statusByHost: [UUID: MobileSSHHostStatus] = [:]
     /// Questions waiting for the user, oldest first.
     public private(set) var prompts: [MobileSSHPrompt] = []
+    /// Which workspace kinds each connected host can create (PRD D31).
+    /// Absent until the host is probed.
+    public private(set) var kindAvailabilityByHost: [UUID: [MobileSSHKindAvailability]] = [:]
+    /// Hosts uploading cmux-tui for their first cmux-tui workspace (D10).
+    public private(set) var installingCmuxTUIHosts: Set<UUID> = []
 
     @ObservationIgnored weak var sink: (any MobileSSHComputersSink)?
     @ObservationIgnored private var connections: [UUID: SSHConnection] = [:]
     @ObservationIgnored private var connectTasks: [UUID: Task<SSHConnection, any Error>] = [:]
-    @ObservationIgnored private var providers: [UUID: any MobileSSHWorkspaceProvider] = [:]
+    @ObservationIgnored private var providers: [UUID: MobileSSHHostProviders] = [:]
     @ObservationIgnored private var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
     /// Bumped per listing started, so only the newest listing publishes.
     @ObservationIgnored private var refreshGenerations: [UUID: UInt64] = [:]
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
     @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var gridBySurface: [String: (columns: Int, rows: Int)] = [:]
+    /// The last queued resize or geometry release per surface.
+    @ObservationIgnored private var sizingTasks: [String: Task<Void, Never>] = [:]
     /// Input typed while a surface's attach is in flight.
     @ObservationIgnored private var pendingInputBySurface: [String: Data] = [:]
     /// Fixed grids of surfaces that do not own their PTY size (tmux panes).
@@ -204,8 +207,8 @@ public final class MobileSSHComputers {
 
     // MARK: Connections
 
-    /// Connects (if needed), resolves the persistence mode, and refreshes
-    /// the host's workspace rows. An explicit open re-enables automatic
+    /// Connects (if needed), probes the host's workspace kinds, and
+    /// refreshes its workspace rows. An explicit open re-enables automatic
     /// reconnects for the host.
     public func open(hostID: UUID) async {
         autoConnectSuppressed.remove(hostID)
@@ -298,9 +301,26 @@ public final class MobileSSHComputers {
         Task { await refreshWorkspaces(hostID: hostID) }
     }
 
-    /// Test seam: a provider standing in for a connected host's.
+    /// Test seam: a provider standing in for a connected host's tmux (the
+    /// host has plain shells and no cmux-tui).
     func installProviderForTesting(_ provider: any MobileSSHWorkspaceProvider, hostID: UUID) {
-        providers[hostID] = provider
+        installProvidersForTesting(tmux: provider, plain: nil, hostID: hostID)
+    }
+
+    /// Test seam: stand-ins for a connected host's tmux and shells.
+    func installProvidersForTesting(
+        tmux: any MobileSSHWorkspaceProvider,
+        plain: (any MobileSSHWorkspaceProvider)?,
+        hostID: UUID
+    ) {
+        let registry = MobileSSHHostProviders.testing(tmux: tmux, plain: plain)
+        providers[hostID] = registry
+        kindAvailabilityByHost[hostID] = registry.availability
+    }
+
+    /// The host's last published workspaces (kind-encoded local ids).
+    func workspacesByHostSnapshot(_ hostID: UUID) -> [MobileSSHWorkspace]? {
+        workspacesByHost[hostID]
     }
 
     /// Test seam: records a failure the way a failed connect or listing does.
@@ -313,12 +333,31 @@ public final class MobileSSHComputers {
         for hostID in providers.keys { refreshIfConnected(hostID: hostID) }
     }
 
-    /// Creates a workspace and returns its scoped row id.
+    /// The workspace kinds `+` offers for a host; every kind until the host
+    /// has been probed.
+    public func kindAvailability(hostID: UUID) -> [MobileSSHKindAvailability] {
+        kindAvailabilityByHost[hostID] ?? MobileSSHKindAvailability.unprobed
+    }
+
+    /// The kind of an SSH workspace or surface id, parsed from the id.
+    public nonisolated func kind(ofScopedID scopedID: String) -> MobileSSHWorkspaceKind? {
+        MobileSSHLocalID(scopedID: scopedID)?.kind
+    }
+
+    /// Creates a workspace of `kind` (a cmux-tui workspace, a tmux session,
+    /// or a shell) and returns its scoped row id.
     @discardableResult
-    public func createWorkspace(hostID: UUID) async -> String? {
+    public func createWorkspace(hostID: UUID, kind: MobileSSHWorkspaceKind) async -> String? {
         do {
             let provider = try await provider(for: hostID)
-            let workspace = try await provider.createWorkspace()
+            let workspace = try await provider.createWorkspace(kind: kind) { [weak self] installing in
+                if installing {
+                    self?.installingCmuxTUIHosts.insert(hostID)
+                } else {
+                    self?.installingCmuxTUIHosts.remove(hostID)
+                }
+            }
+            kindAvailabilityByHost[hostID] = provider.availability
             await refreshWorkspaces(hostID: hostID)
             if !(workspacesByHost[hostID] ?? []).contains(where: { $0.id == workspace.id }) {
                 workspacesByHost[hostID, default: []].append(workspace)
@@ -333,12 +372,14 @@ public final class MobileSSHComputers {
 
     public func closeWorkspace(scopedID: String) async {
         guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
-              let local = MobileSSHIdentifiers.localID(of: scopedID),
-              let provider = providers[hostID] else { return }
-        for terminal in workspacesByHost[hostID]?.first(where: { $0.id == local })?.terminals ?? [] {
+              let local = MobileSSHLocalID(scopedID: scopedID),
+              let registry = providers[hostID] else { return }
+        for terminal in workspacesByHost[hostID]?.first(where: { $0.id == local.rawValue })?.terminals ?? [] {
             await detach(surfaceID: MobileSSHIdentifiers.scopedID(host: hostID, local: terminal.id))
         }
-        try? await provider.closeWorkspace(id: local)
+        if let provider = try? await registry.provider(for: local) {
+            try? await provider.closeWorkspace(id: local.providerID)
+        }
         await refreshWorkspaces(hostID: hostID)
     }
 
@@ -431,9 +472,9 @@ public final class MobileSSHComputers {
     /// the remote home folder, where a plain shell starts.
     public func currentDirectory(surfaceID: String) async -> String? {
         guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID),
-              let terminalID = MobileSSHIdentifiers.localID(of: surfaceID),
-              let provider = providers[hostID] else { return nil }
-        return await provider.reportedCurrentDirectory(terminalID: terminalID)
+              let local = MobileSSHLocalID(scopedID: surfaceID),
+              let provider = try? await providers[hostID]?.provider(for: local) else { return nil }
+        return await provider.reportedCurrentDirectory(terminalID: local.providerID)
     }
 
     /// Runs a one-off command on the host (used by upload flows to learn `$HOME`).
@@ -452,11 +493,31 @@ public final class MobileSSHComputers {
 
     // MARK: Surfaces (called by the shell store)
 
-    /// Records the phone's grid and resizes a live attachment.
+    /// Records the phone's grid and resizes a live attachment (a cmux-tui
+    /// terminal that released its geometry claims it again).
     func viewportChanged(surfaceID: String, columns: Int, rows: Int) {
         gridBySurface[surfaceID] = (columns, rows)
         if let attachment = attachments[surfaceID] {
-            Task { await attachment.resize(columns: columns, rows: rows) }
+            enqueueSizing(surfaceID) { await attachment.resize(columns: columns, rows: rows) }
+        }
+    }
+
+    /// The surface left the screen (its view released its viewport). The
+    /// stream stays attached for a warm return; a cmux-tui terminal gives
+    /// up geometry so a laptop on the same session can resize it again
+    /// (PRD D33).
+    func viewportReleased(surfaceID: String) {
+        guard let attachment = attachments[surfaceID] else { return }
+        enqueueSizing(surfaceID) { await attachment.releaseGeometry() }
+    }
+
+    /// Runs a surface's resizes and geometry releases in call order: a
+    /// quick leave-and-return must end claimed, never released.
+    private func enqueueSizing(_ surfaceID: String, _ operation: @escaping @MainActor () async -> Void) {
+        let previous = sizingTasks[surfaceID]
+        sizingTasks[surfaceID] = Task { @MainActor in
+            await previous?.value
+            await operation()
         }
     }
 
@@ -508,18 +569,18 @@ public final class MobileSSHComputers {
 
     private func attach(surfaceID: String) {
         guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID),
-              let local = MobileSSHIdentifiers.localID(of: surfaceID),
+              let local = MobileSSHLocalID(scopedID: surfaceID),
               attachTasks[surfaceID] == nil else { return }
         let grid = gridBySurface[surfaceID] ?? (80, 24)
         attachTasks[surfaceID] = Task { [weak self] in
             guard let self else { return }
             defer { self.attachTasks[surfaceID] = nil }
             do {
-                let provider = try await self.provider(for: hostID)
+                let provider = try await self.provider(for: hostID).provider(for: local)
                 replayBySurface[surfaceID] = Data()
                 sink?.sshDeliver(Self.replacement(replaying: Data()), surfaceID: surfaceID)
                 let attachment = try await provider.attach(
-                    terminalID: local,
+                    terminalID: local.providerID,
                     columns: grid.columns,
                     rows: grid.rows
                 ) { [weak self] event in
@@ -543,6 +604,7 @@ public final class MobileSSHComputers {
 
     private func detach(surfaceID: String) async {
         attachTasks.removeValue(forKey: surfaceID)?.cancel()
+        sizingTasks[surfaceID] = nil
         if let attachment = attachments.removeValue(forKey: surfaceID) {
             await attachment.detach()
         }
@@ -577,36 +639,22 @@ public final class MobileSSHComputers {
 
     // MARK: Internals
 
-    func provider(for hostID: UUID) async throws -> any MobileSSHWorkspaceProvider {
+    /// The host's registry of workspace kinds, probing the host on first
+    /// use of a connection. No questions: every kind is served at once.
+    func provider(for hostID: UUID) async throws -> MobileSSHHostProviders {
         if let provider = providers[hostID] { return provider }
         let connection = try await connection(for: hostID)
-        guard var host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
-        let tmuxPath = await MobileSSHTmuxProvider.probe(on: connection)
-        if host.persistence == nil || host.persistence?.isAvailable == false {
-            switch await ask(.choosePersistence(host: host, tmuxAvailable: tmuxPath != nil)) {
-            case .persistence(let mode):
-                host.persistence = mode
-                try await hostStore.upsert(host)
-                hosts = await hostStore.all()
-            default:
-                throw CancellationError()
-            }
-        }
-        let provider: any MobileSSHWorkspaceProvider
-        switch host.persistence {
-        case .tmux:
-            guard let tmuxPath else { throw MobileSSHRuntimeError.tmuxMissing }
-            provider = MobileSSHTmuxProvider(connection: connection, tmuxPath: tmuxPath)
-        case .cmuxTUI:
-            provider = try await MobileSSHCmuxTUIProvider.make(connection: connection, host: host)
-        default:
-            provider = MobileSSHPlainProvider(connection: connection)
-        }
-        (provider as? any MobileSSHTopologyReporting)?.onTopologyChange = { [weak self] in
+        guard let host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
+        let registry = await MobileSSHHostProviders.make(connection: connection, host: host)
+        // A concurrent caller may have finished first on the same connection.
+        if let existing = providers[hostID] { return existing }
+        guard connections[hostID] === connection else { throw SSHConnectionError.closed }
+        registry.onTopologyChange = { [weak self] in
             Task { await self?.refreshWorkspaces(hostID: hostID) }
         }
-        providers[hostID] = provider
-        return provider
+        providers[hostID] = registry
+        kindAvailabilityByHost[hostID] = registry.availability
+        return registry
     }
 
     private func connection(for hostID: UUID) async throws -> SSHConnection {
@@ -711,6 +759,9 @@ public final class MobileSSHComputers {
         case SSHConnectionError.hostKeyRejected: L10nSSH.hostKeyRejected
         case MobileSSHRuntimeError.noKey: L10nSSH.noKey
         case MobileSSHRuntimeError.tmuxMissing: L10nSSH.tmuxMissing
+        case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH.cmuxTUIMissing
+        case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH.cmuxTUISessionGone
+        case MobileSSHCmuxTUIInstaller.InstallError.unsupportedPlatform(let os, let arch): L10nSSH.cmuxTUIUnsupported(os: os, arch: arch)
         default: String(describing: error)
         }
     }
@@ -723,6 +774,9 @@ public final class MobileSSHComputers {
                 macDeviceID: computerID,
                 macDisplayName: host.name,
                 name: workspace.name,
+                // Where a Mac row shows its latest activity, an SSH row
+                // names its kind (PRD D31).
+                previewText: L10nSSH.kindLabel(workspace.kind, cmuxTUISession: workspace.cmuxTUISession),
                 terminals: workspace.terminals.map {
                     MobileTerminalPreview(
                         id: MobileTerminalPreview.ID(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: $0.id)),
@@ -821,16 +875,17 @@ extension MobileSSHComputers {
     /// Attaches a browser tab (idempotent) and returns its descriptor.
     func startBrowser(panelID: String, viewport: MobileBrowserViewport?) async throws -> MobileBrowserPanelDescriptor {
         guard let hostID = MobileSSHIdentifiers.hostID(of: panelID),
-              let local = MobileSSHIdentifiers.localID(of: panelID) else { throw MobileSSHRuntimeError.browserUnavailable }
+              let local = MobileSSHIdentifiers.localID(of: panelID),
+              let parsed = MobileSSHLocalID(rawValue: local) else { throw MobileSSHRuntimeError.browserUnavailable }
         guard let (workspaceID, browser) = locateBrowser(hostID: hostID, local: local) else {
             throw MobileSSHRuntimeError.browserUnavailable
         }
         if browserSessions[panelID] == nil {
-            guard let provider = try await provider(for: hostID) as? any MobileSSHBrowserProviding else {
+            guard let provider = try await provider(for: hostID).provider(for: parsed) as? any MobileSSHBrowserProviding else {
                 throw MobileSSHRuntimeError.browserUnavailable
             }
             let session = try await provider.attachBrowser(
-                browserID: local,
+                browserID: parsed.providerID,
                 viewport: viewport.map { ($0.width, $0.height) }
             ) { [weak self] event in
                 self?.handleBrowser(event, panelID: panelID)
@@ -902,13 +957,16 @@ extension MobileSSHComputers {
 /// The user's answer to a ``MobileSSHPrompt``.
 public enum MobileSSHPromptAnswer: Sendable, Equatable {
     case trust
-    case persistence(SSHPersistenceMode)
     case cancel
 }
 
 enum MobileSSHRuntimeError: Error {
     case noKey
     case tmuxMissing
+    /// A cmux-tui operation on a host without an installed cmux-tui.
+    case cmuxTUIMissing
+    /// A discovered cmux-tui session's owner stopped.
+    case cmuxTUISessionGone
     /// The browser tab is gone or the host's mode cannot stream browsers.
     case browserUnavailable
 }

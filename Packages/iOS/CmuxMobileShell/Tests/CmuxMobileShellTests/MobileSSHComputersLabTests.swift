@@ -13,16 +13,21 @@ import Testing
 struct MobileSSHComputersLabTests {
     let lab = ProcessInfo.processInfo.environment["CMUX_SSH_LAB"] ?? ""
 
-    @Test(arguments: [SSHPersistenceMode.plain, .tmux, .cmuxTUI])
-    func workspaceAttachTypeAndSeeOutput(mode: SSHPersistenceMode) async throws {
+    @Test(arguments: [MobileSSHWorkspaceKind.shell, .tmux, .cmuxTUI])
+    func workspaceAttachTypeAndSeeOutput(kind: MobileSSHWorkspaceKind) async throws {
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: mode)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
 
         await computers.open(hostID: host.id)
         #expect(computers.statusByHost[host.id] == .connected)
-        let scoped = try #require(await computers.createWorkspace(hostID: host.id))
+        let scoped = try #require(await computers.createWorkspace(hostID: host.id, kind: kind))
+        #expect(computers.kind(ofScopedID: scoped) == kind)
+        let tmuxSession = kind == .tmux ? MobileSSHLocalID(scopedID: scoped)?.providerID : nil
+        defer { if let tmuxSession { Self.killSessionAndPhoneGroups(tmuxSession) } }
+        // The row names its kind where a Mac row shows activity.
+        #expect(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.previewText == L10nSSH.kindLabel(kind))
         let state = try #require(sink.states.last)
         let row = try #require(state.workspaces.first { $0.id.rawValue == scoped })
         let surface = try #require(row.terminals.first).id.rawValue
@@ -35,7 +40,7 @@ struct MobileSSHComputersLabTests {
         // sized to the phone's grid exactly.
         try await sink.waitForOutput(surface) { $0.contains("ssh-42") && $0.contains("30 90") }
 
-        if mode != .plain {
+        if kind != .shell {
             // Persistence: drop the connection, reconnect, reattach, and the
             // earlier output is still there (tmux redraw / cmux-tui vt-state).
             await computers.disconnect(hostID: host.id)
@@ -60,8 +65,6 @@ struct MobileSSHComputersLabTests {
                     case .trustNewHostKey:
                         trustPrompts += 1
                         computers.answer(prompt, with: .trust)
-                    case .choosePersistence:
-                        computers.answer(prompt, with: .persistence(.plain))
                     case .hostKeyChanged:
                         computers.answer(prompt, with: .cancel)
                     }
@@ -107,10 +110,10 @@ struct MobileSSHComputersLabTests {
     @Test(.timeLimit(.minutes(2))) func cmuxTUIReattachRestoresScrolledOffHistory() async throws {
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: .cmuxTUI)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let scoped = try #require(await computers.createWorkspace(hostID: host.id))
+        let scoped = try #require(await computers.createWorkspace(hostID: host.id, kind: .cmuxTUI))
         defer { Task { @MainActor in await computers.closeWorkspace(scopedID: scoped) } }
         let surface = try #require(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.terminals.first).id.rawValue
 
@@ -127,6 +130,9 @@ struct MobileSSHComputersLabTests {
         try await sink.waitForOutput(surface) { Self.afterLastReset($0).contains("hist-40\r\n") }
         // hist-3 scrolled off a 10-row screen long before the disconnect.
         #expect(Self.afterLastReset(sink.outputs[surface] ?? "").contains("\r\nhist-3\r\n"))
+        // Awaited here: the deferred close is only a safety net on failure,
+        // since a detached task may not run before the test process exits.
+        await computers.closeWorkspace(scopedID: scoped)
     }
 
     /// The text after the last full reset (RIS) the runtime sent.
@@ -177,14 +183,18 @@ struct MobileSSHComputersLabTests {
 
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: .tmux)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == session })
+        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == "tmux:" + session })
         #expect(row.terminals.count == 2)
         let left = try #require(row.terminals.first).id.rawValue
         let right = try #require(row.terminals.last).id.rawValue
-        #expect(MobileSSHIdentifiers.localID(of: right) == "\(session)/\(panes[1])")
+        #expect(MobileSSHIdentifiers.localID(of: right) == "tmux:\(session)/\(panes[1])")
+        // One window section holding both panes.
+        let layout = try #require(computers.tabLayout(workspaceID: row.id.rawValue))
+        #expect(layout.kind == .tmux)
+        #expect(layout.sections.map(\.rows.count) == [2])
 
         for surface in [left, right] {
             computers.viewportChanged(surfaceID: surface, columns: 90, rows: 30)
@@ -212,11 +222,11 @@ struct MobileSSHComputersLabTests {
     @Test(.timeLimit(.minutes(2))) func tmuxNewTabOpensWindowWithoutMovingLaptop() async throws {
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: .tmux)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let scoped = try #require(await computers.createWorkspace(hostID: host.id))
-        let session = try #require(MobileSSHIdentifiers.localID(of: scoped))
+        let scoped = try #require(await computers.createWorkspace(hostID: host.id, kind: .tmux))
+        let session = try #require(MobileSSHLocalID(scopedID: scoped)?.providerID)
         defer { Self.killSessionAndPhoneGroups(session) }
         #expect(computers.supportsTerminalTabs(workspaceID: scoped))
 
@@ -266,10 +276,10 @@ struct MobileSSHComputersLabTests {
         Self.tmux("new-window", "-d", "-t", "=" + session + ":")
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: .tmux)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == session })
+        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == "tmux:" + session })
         try #require(row.terminals.count == 2)
         let second = row.terminals[1].id.rawValue
         for terminal in row.terminals {
@@ -277,7 +287,7 @@ struct MobileSSHComputersLabTests {
             computers.replay(surfaceID: terminal.id.rawValue)
         }
         try await sink.waitForOutput(second) { !Self.afterLastReset($0).isEmpty }
-        let pane = try #require(MobileSSHIdentifiers.localID(of: second).flatMap(MobileSSHTmuxProvider.parseTerminalID)).pane
+        let pane = try #require(MobileSSHLocalID(scopedID: second).flatMap { MobileSSHTmuxProvider.parseTerminalID($0.providerID) }).pane
         Self.tmux("send-keys", "-t", "%\(pane)", "echo background-$((8*8))", "Enter")
         try await sink.waitForOutput(second) { $0.contains("background-64") }
 
@@ -287,19 +297,21 @@ struct MobileSSHComputersLabTests {
         }
     }
 
-    /// Plain shells have no terminal tabs; cmux-tui creates a terminal.
-    @Test(.timeLimit(.minutes(2)), arguments: [SSHPersistenceMode.plain, .cmuxTUI])
-    func newTerminalPerMode(mode: SSHPersistenceMode) async throws {
+    /// Shells have no terminal tabs; cmux-tui's New Screen adds a screen
+    /// section with one terminal, and its New Tab adds a tab to a screen.
+    @Test(.timeLimit(.minutes(2)), arguments: [MobileSSHWorkspaceKind.shell, .cmuxTUI])
+    func newTerminalPerKind(kind: MobileSSHWorkspaceKind) async throws {
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
-        let answering = autoAnswer(computers, persistence: mode)
+        let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let scoped = try #require(await computers.createWorkspace(hostID: host.id))
+        let scoped = try #require(await computers.createWorkspace(hostID: host.id, kind: kind))
         defer { Task { @MainActor in await computers.closeWorkspace(scopedID: scoped) } }
         let before = sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.terminals.count ?? 0
         let created = await computers.createTerminal(inWorkspace: scoped)
-        if mode == .plain {
+        if kind == .shell {
+            #expect(computers.tabLayout(workspaceID: scoped) == nil)
             #expect(!computers.supportsTerminalTabs(workspaceID: scoped))
             #expect(created == nil)
             return
@@ -314,6 +326,19 @@ struct MobileSSHComputersLabTests {
         try await sink.waitForOutput(surface) { !$0.isEmpty }
         computers.input(Data("echo tui-$((9*9))\r".utf8), surfaceID: surface)
         try await sink.waitForOutput(surface) { $0.contains("tui-81") }
+
+        // Two screens now; New Tab on the second adds a tab to its pane.
+        let layout = try #require(computers.tabLayout(workspaceID: scoped))
+        #expect(layout.kind == .cmuxTUI)
+        #expect(layout.sections.count == 2)
+        let screen = try #require(layout.sections.last)
+        #expect(screen.canAddTab)
+        let tab = try #require(await computers.createTab(inWorkspace: scoped, section: screen.id))
+        let after = try #require(computers.tabLayout(workspaceID: scoped))
+        #expect(after.sections.count == 2)
+        #expect(after.sections.last?.rows.map(\.id) == [surface, tab])
+        #expect(after.sections.last?.rows.allSatisfy { $0.paneLabel == nil } == true)
+        await computers.closeWorkspace(scopedID: scoped)
     }
 
     /// Kills a test session and any phone grouped session still attached to
@@ -376,13 +401,12 @@ struct MobileSSHComputersLabTests {
         return (computers, sink, host)
     }
 
-    func autoAnswer(_ computers: MobileSSHComputers, persistence: SSHPersistenceMode) -> Task<Void, Never> {
+    func autoAnswer(_ computers: MobileSSHComputers) -> Task<Void, Never> {
         Task { @MainActor in
             while !Task.isCancelled {
                 for prompt in computers.prompts {
                     switch prompt {
                     case .trustNewHostKey: computers.answer(prompt, with: .trust)
-                    case .choosePersistence: computers.answer(prompt, with: .persistence(persistence))
                     case .hostKeyChanged: computers.answer(prompt, with: .cancel)
                     }
                 }

@@ -1,6 +1,8 @@
 import Foundation
 
-/// How a host keeps shells alive across disconnects (PRD D9, D15).
+/// Legacy: the single persistence mode a host used before Round 3 (PRD D31).
+/// A host now serves cmux-tui workspaces, tmux sessions, and plain shells
+/// side by side, so nothing reads this; it stays so saved hosts decode.
 public enum SSHPersistenceMode: String, Codable, CaseIterable, Sendable {
     /// cmux-tui session on the server, uploaded by the phone (recommended).
     case cmuxTUI
@@ -45,7 +47,8 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
     public var keyID: UUID?
     /// Another saved host to tunnel through (ProxyJump).
     public var jumpHostID: UUID?
-    /// `nil` until the user answers the first-connect persistence question.
+    /// Legacy (PRD D31): the mode picked before hosts served every kind at
+    /// once. Decoded so hosts saved by older builds load; ignored otherwise.
     public var persistence: SSHPersistenceMode?
     public var idleClose: SSHIdleClosePolicy
     public var createdAt: Date
@@ -77,6 +80,26 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
         self.idleClose = idleClose
         self.createdAt = createdAt
         self.autoConnectPaused = autoConnectPaused
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, endpoint, keyID, jumpHostID, persistence, idleClose, createdAt, autoConnectPaused
+    }
+
+    /// Lenient about fields nothing reads anymore: an unreadable legacy
+    /// `persistence` (or a missing `idleClose`) must not drop the host,
+    /// since one bad record fails the whole saved list.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        endpoint = try container.decode(SSHEndpoint.self, forKey: .endpoint)
+        keyID = try container.decodeIfPresent(UUID.self, forKey: .keyID)
+        jumpHostID = try container.decodeIfPresent(UUID.self, forKey: .jumpHostID)
+        persistence = try? container.decodeIfPresent(SSHPersistenceMode.self, forKey: .persistence)
+        idleClose = (try? container.decodeIfPresent(SSHIdleClosePolicy.self, forKey: .idleClose)) ?? .oneDay
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSinceReferenceDate: 0)
+        autoConnectPaused = try container.decodeIfPresent(Bool.self, forKey: .autoConnectPaused)
     }
 }
 

@@ -2,13 +2,42 @@ internal import CmuxMobileSSH
 internal import CmuxMobileSupport
 import Foundation
 
-/// One workspace on an SSH computer, in host-local ids.
+/// One workspace on an SSH computer. Providers return their own ids; the
+/// host registry (``MobileSSHHostProviders``) re-keys every id to its
+/// kind-encoded ``MobileSSHLocalID`` form before the runtime sees it.
 struct MobileSSHWorkspace: Equatable, Sendable {
     var id: String
     var name: String
     var terminals: [MobileSSHTerminal]
     /// Streamable browser tabs (cmux-tui with a `cmux-browser` provider only).
     var browsers: [MobileSSHBrowser] = []
+    var kind: MobileSSHWorkspaceKind = .shell
+    /// The nested grouping the tab switcher shows (tmux windows, cmux-tui
+    /// screens), in order. Empty for shells.
+    var sections: [MobileSSHWorkspaceSection] = []
+    /// The cmux-tui session holding the workspace; `nil` for other kinds.
+    var cmuxTUISession: String?
+}
+
+/// One tmux window or cmux-tui screen of a workspace.
+struct MobileSSHWorkspaceSection: Equatable, Sendable {
+    /// Provider-scoped: tmux window index, cmux-tui screen id.
+    var id: String
+    var title: String
+    /// The pane a section-level New Tab goes to (cmux-tui active pane).
+    var targetPane: Int?
+}
+
+/// Where a terminal sits inside its workspace, for the grouped tab switcher.
+struct MobileSSHTerminalPlacement: Equatable, Sendable {
+    /// ``MobileSSHWorkspaceSection/id`` of its window or screen.
+    var sectionID: String
+    /// Its pane, unique within the workspace.
+    var paneID: String
+    /// Short row title inside the section.
+    var title: String
+    /// Names the pane when its section has several (`Pane 2`).
+    var paneLabel: String?
 }
 
 /// One browser tab on an SSH computer, in host-local ids.
@@ -65,6 +94,7 @@ protocol MobileSSHBrowserProviding: AnyObject {
 struct MobileSSHTerminal: Equatable, Sendable {
     var id: String
     var name: String
+    var placement: MobileSSHTerminalPlacement? = nil
 }
 
 /// A live terminal attachment. Output flows through the callback given to
@@ -75,6 +105,14 @@ protocol MobileSSHAttachedTerminal: AnyObject {
     func resize(columns: Int, rows: Int) async
     /// Leaves the remote session running (persistent modes) or ends it (plain).
     func detach() async
+    /// The terminal left the screen: give up any geometry claim while
+    /// keeping the stream warm. The next ``resize(columns:rows:)`` claims
+    /// again (cmux-tui, PRD D33).
+    func releaseGeometry() async
+}
+
+extension MobileSSHAttachedTerminal {
+    func releaseGeometry() async {}
 }
 
 /// Output from an attachment, in order.
@@ -90,7 +128,7 @@ enum MobileSSHAttachEvent: Sendable {
     case ended
 }
 
-/// How one persistence mode lists, creates, and attaches workspaces (PRD D9, D22).
+/// How one workspace kind lists, creates, and attaches workspaces (PRD D22, D31).
 @MainActor
 protocol MobileSSHWorkspaceProvider: AnyObject {
     func listWorkspaces() async throws -> [MobileSSHWorkspace]
@@ -144,14 +182,15 @@ final class MobileSSHChannelTerminal: MobileSSHAttachedTerminal {
 // MARK: - Plain
 
 /// Shells opened from this phone. Nothing persists: each workspace is one
-/// login shell that ends when its channel closes.
+/// login shell that ends when its channel closes. Ids are `1`, `2`, ...
 @MainActor
 final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
-    private let connection: SSHConnection
+    /// `nil` only in tests, where shells cannot attach.
+    private let connection: SSHConnection?
     private var workspaces: [MobileSSHWorkspace] = []
     private var counter = 0
 
-    init(connection: SSHConnection) {
+    init(connection: SSHConnection?) {
         self.connection = connection
     }
 
@@ -159,9 +198,9 @@ final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
 
     func createWorkspace() async throws -> MobileSSHWorkspace {
         counter += 1
-        let id = "shell-\(counter)"
+        let id = String(counter)
         let name = L10n.string("mobile.ssh.workspace.shellName", defaultValue: "Shell \(counter)")
-        let workspace = MobileSSHWorkspace(id: id, name: name, terminals: [MobileSSHTerminal(id: id, name: name)])
+        let workspace = MobileSSHWorkspace(id: id, name: name, terminals: [MobileSSHTerminal(id: id, name: name)], kind: .shell)
         workspaces.append(workspace)
         return workspace
     }
@@ -176,6 +215,7 @@ final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
         rows: Int,
         events: @escaping @MainActor (MobileSSHAttachEvent) -> Void
     ) async throws -> any MobileSSHAttachedTerminal {
+        guard let connection else { throw SSHConnectionError.closed }
         let channel = try await connection.openSession(
             pty: SSHPTYRequest(columns: columns, rows: rows),
             environment: ["LANG": "en_US.UTF-8"],

@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 
 /// Immutable state that determines the native terminal picker's presented menu.
@@ -16,6 +17,10 @@ struct TerminalPickerMenuValue: Equatable {
     let simulatorStreamRows: [SimulatorStreamPickerRow]
     let supportsSimulatorStream: Bool
     let activeSimulatorStreamPanelID: String?
+    /// SSH tmux and cmux-tui workspaces: terminals grouped by tmux window or
+    /// cmux-tui screen (PRD D32). `nil` keeps the flat Terminals section
+    /// (Mac workspaces, shells).
+    let sshTabLayout: MobileSSHTabLayout?
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -31,7 +36,8 @@ struct TerminalPickerMenuValue: Equatable {
         activeBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
-        activeSimulatorStreamPanelID: String? = nil
+        activeSimulatorStreamPanelID: String? = nil,
+        sshTabLayout: MobileSSHTabLayout? = nil
     ) {
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -53,6 +59,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
+        self.sshTabLayout = sshTabLayout
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local

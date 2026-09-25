@@ -9,13 +9,12 @@ import Testing
 /// per-computer entries. Neither may break or drop SSH rows.
 @MainActor
 @Suite struct MobileSSHCompositeRowTests {
-    private func makeStore(persistence: SSHPersistenceMode = .tmux) async throws -> (MobileShellComposite, SSHHostRecord) {
+    private func makeStore() async throws -> (MobileShellComposite, SSHHostRecord) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-rows-\(UUID().uuidString)")
         let computers = MobileSSHComputers(directory: dir)
         let host = SSHHostRecord(
             name: "tmux direct",
-            endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"),
-            persistence: persistence
+            endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody")
         )
         try await computers.saveHost(host)
         let store = MobileShellComposite(
@@ -28,7 +27,8 @@ import Testing
         return (store, host)
     }
 
-    /// One SSH computer's rows as its runtime publishes them.
+    /// One SSH computer's rows as its runtime publishes them (local ids are
+    /// kind-encoded: `tmux:<session>`, `shell:<n>`).
     private func sshState(host: SSHHostRecord, sessions: [String]) -> MacWorkspaceState {
         let computerID = MobileSSHIdentifiers.computerID(host: host.id)
         return MacWorkspaceState(
@@ -73,10 +73,10 @@ import Testing
         let (store, host) = try await makeStore()
         let other = SSHHostRecord(name: "other", endpoint: SSHEndpoint(host: "127.0.0.2", port: 1, username: "nobody"))
         store.setWorkspaceStatesForTesting(["mac-a": macState()], foregroundMacDeviceID: "mac-a")
-        store.sshPublishWorkspaceState(sshState(host: host, sessions: ["vt-main"]))
-        store.sshPublishWorkspaceState(sshState(host: other, sessions: ["cmux-1"]))
+        store.sshPublishWorkspaceState(sshState(host: host, sessions: ["tmux:vt-main"]))
+        store.sshPublishWorkspaceState(sshState(host: other, sessions: ["tmux:cmux-1"]))
 
-        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "vt-main")
+        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "tmux:vt-main")
         let row = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == scoped })
         // Aggregation is live: the row id is re-keyed and does not parse.
         #expect(row.id.rawValue != scoped)
@@ -91,16 +91,23 @@ import Testing
         #expect(store.sshScopedWorkspaceID(macRow.id) == nil)
     }
 
-    /// A plain-shell host still reports no terminal tabs through the same
-    /// re-keyed id (the fix must not make every SSH row tab-capable).
-    @Test func plainRowHasNoTerminalTabsWhenSeveralComputersAreLive() async throws {
-        let (store, host) = try await makeStore(persistence: .plain)
+    /// A shell row still reports no terminal tabs through the same
+    /// re-keyed id (the fix must not make every SSH row tab-capable), while
+    /// a tmux row on the same host keeps them: tabs follow the row's kind.
+    @Test func shellRowHasNoTerminalTabsWhenSeveralComputersAreLive() async throws {
+        let (store, host) = try await makeStore()
         store.setWorkspaceStatesForTesting(["mac-a": macState()], foregroundMacDeviceID: "mac-a")
-        store.sshPublishWorkspaceState(sshState(host: host, sessions: ["shell-1"]))
-        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "shell-1")
+        store.sshPublishWorkspaceState(sshState(host: host, sessions: ["shell:1", "tmux:work"]))
+        let tmuxRow = try #require(store.workspaces.first {
+            $0.rpcWorkspaceID.rawValue == MobileSSHIdentifiers.scopedID(host: host.id, local: "tmux:work")
+        })
+        #expect(store.sshSupportsTerminalTabs(workspaceID: tmuxRow.id))
+        #expect(store.sshWorkspaceKind(workspaceID: tmuxRow.id) == .tmux)
+        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "shell:1")
         let row = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == scoped })
         #expect(store.sshScopedWorkspaceID(row.id) == scoped)
         #expect(!store.sshSupportsTerminalTabs(workspaceID: row.id))
+        #expect(store.sshWorkspaceKind(workspaceID: row.id) == .shell)
     }
 
     @Test func scopedIDsParseAndAggregatedIDsDoNot() {
@@ -180,8 +187,7 @@ import Testing
         computers.sink = sink
         let host = SSHHostRecord(
             name: "tmux direct",
-            endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"),
-            persistence: .tmux
+            endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody")
         )
         try await computers.saveHost(host)
         let provider = GatedProvider()

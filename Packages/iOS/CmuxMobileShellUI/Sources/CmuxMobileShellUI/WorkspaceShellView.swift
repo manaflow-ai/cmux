@@ -1274,8 +1274,12 @@ struct WorkspaceShellView: View {
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
             newWorkspaceComputerTargets: newWorkspaceComputerTargets,
-            createWorkspaceOnComputer: { target in
-                createWorkspace(on: target, create: resolvedCreateWorkspace)
+            createWorkspaceOnComputer: { target, kind in
+                createWorkspace(on: target, kind: kind, create: resolvedCreateWorkspace)
+            },
+            sshNewWorkspaceKinds: sshNewWorkspaceKinds,
+            createSSHWorkspace: sshCreateHostID.map { hostID in
+                { kind in createSSHWorkspace(hostID: hostID, kind: kind) }
             },
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
@@ -1318,7 +1322,11 @@ struct WorkspaceShellView: View {
             searchText: searchText
         )
         #if os(iOS)
-        .sshWorkspaceListPanel(sshWorkspaceListPanel, actions: sshWorkspaceListPanelActions)
+        .sshWorkspaceListPanel(
+            sshWorkspaceListPanel,
+            installingCmuxTUI: !store.sshComputers.installingCmuxTUIHosts.isEmpty,
+            actions: sshWorkspaceListPanelActions
+        )
         #endif
     }
 
@@ -1741,12 +1749,11 @@ struct WorkspaceShellView: View {
     /// Status and empty state for the selected SSH computer.
     private var sshWorkspaceListPanel: SSHWorkspaceListPanel? {
         guard let hostID = selectedSSHHostID,
-              let host = store.sshComputers.host(id: hostID) else { return nil }
+              store.sshComputers.host(id: hostID) != nil else { return nil }
         let deviceID = store.sshComputerDeviceID(hostID: hostID)
         return SSHWorkspaceListPanel(
             hostID: hostID,
             status: store.sshComputers.statusByHost[hostID] ?? .idle,
-            persistence: host.persistence,
             hasWorkspaces: store.workspaces.contains { $0.macDeviceID == deviceID },
             willAutoConnect: store.sshComputers.canAutoConnect(hostID: hostID)
         )

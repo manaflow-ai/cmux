@@ -15,10 +15,10 @@ struct MobileSSHCmuxTUIAltScreenLabTests {
         let lab = MobileSSHComputersLabTests()
         let (computers, sink, host) = try await lab.makeRuntime()
         defer { Task { @MainActor in await lab.cleanup(computers, host: host) } }
-        let answering = lab.autoAnswer(computers, persistence: .cmuxTUI)
+        let answering = lab.autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let scoped = try #require(await computers.createWorkspace(hostID: host.id))
+        let scoped = try #require(await computers.createWorkspace(hostID: host.id, kind: .cmuxTUI))
         defer { Task { @MainActor in await computers.closeWorkspace(scopedID: scoped) } }
         let surface = try #require(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.terminals.first).id.rawValue
 
@@ -51,6 +51,7 @@ struct MobileSSHCmuxTUIAltScreenLabTests {
         // The resynced stream stays live.
         computers.input(Data("echo after-$((6*7))\r".utf8), surfaceID: surface)
         try await sink.waitForOutput(surface) { Self.afterLastReset($0).contains("after-42") }
+        await computers.closeWorkspace(scopedID: scoped)
     }
 
     /// The text after the last full reset (RIS) the runtime sent.

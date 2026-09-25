@@ -16,14 +16,12 @@ struct SSHComputerRowSnapshot: Equatable, Identifiable {
     /// `user@host:port` (port omitted when 22).
     let address: String
     let status: MobileSSHHostStatus
-    let persistence: SSHPersistenceMode?
 
     init(host: SSHHostRecord, status: MobileSSHHostStatus) {
         id = host.id
         name = host.name
         address = host.endpoint.sshDisplayAddress
         self.status = status
-        persistence = host.persistence
     }
 
     /// Builds the SSH section's rows from the live SSH runtime.
@@ -74,66 +72,6 @@ extension MobileSSHHostStatus {
     }
 }
 
-extension SSHPersistenceMode {
-    /// Display order for pickers: recommended first, "coming soon" last.
-    static let sshPickerOrder: [SSHPersistenceMode] = [.cmuxTUI, .tmux, .plain, .eternalTerminal, .mosh]
-
-    var sshDisplayName: String {
-        switch self {
-        case .cmuxTUI:
-            L10n.string("mobile.ssh.persistence.cmuxTUI.name", defaultValue: "cmux-tui")
-        case .tmux:
-            L10n.string("mobile.ssh.persistence.tmux.name", defaultValue: "tmux")
-        case .plain:
-            L10n.string("mobile.ssh.persistence.plain.name", defaultValue: "Plain Shell")
-        case .eternalTerminal:
-            L10n.string("mobile.ssh.persistence.et.name", defaultValue: "Eternal Terminal")
-        case .mosh:
-            L10n.string("mobile.ssh.persistence.mosh.name", defaultValue: "mosh")
-        }
-    }
-
-    var sshDescription: String {
-        switch self {
-        case .cmuxTUI:
-            L10n.string(
-                "mobile.ssh.persistence.cmuxTUI.description",
-                defaultValue: "Sessions keep running after you leave and reopen exactly as you left them. cmux installs its terminal helper, cmux-tui, in ~/.local/bin on first use."
-            )
-        case .tmux:
-            L10n.string(
-                "mobile.ssh.persistence.tmux.description",
-                defaultValue: "Sessions keep running in tmux on the computer. Requires tmux to be installed there."
-            )
-        case .plain:
-            L10n.string(
-                "mobile.ssh.persistence.plain.description",
-                defaultValue: "A normal login shell. Sessions end when you leave the app or lose the connection."
-            )
-        case .eternalTerminal:
-            L10n.string(
-                "mobile.ssh.persistence.et.description",
-                defaultValue: "Survives network changes. Requires etserver on the computer."
-            )
-        case .mosh:
-            L10n.string(
-                "mobile.ssh.persistence.mosh.description",
-                defaultValue: "Survives network changes and sleep, with instant typing feedback. Requires mosh-server on the computer."
-            )
-        }
-    }
-
-    var sshAccessibilityKey: String {
-        switch self {
-        case .cmuxTUI: "cmuxTUI"
-        case .tmux: "tmux"
-        case .plain: "plain"
-        case .eternalTerminal: "eternalTerminal"
-        case .mosh: "mosh"
-        }
-    }
-}
-
 extension SSHIdleClosePolicy {
     var sshDisplayName: String {
         switch self {
@@ -177,14 +115,8 @@ enum SSHCopy {
     static var copy: String {
         L10n.string("mobile.ssh.action.copy", defaultValue: "Copy")
     }
-    static var recommended: String {
-        L10n.string("mobile.ssh.persistence.recommended", defaultValue: "Recommended")
-    }
-    static var comingSoon: String {
-        L10n.string("mobile.ssh.persistence.comingSoon", defaultValue: "Coming soon")
-    }
-    static var askOnFirstConnect: String {
-        L10n.string("mobile.ssh.persistence.ask", defaultValue: "Ask on First Connect")
+    static var installingCmuxTUI: String {
+        L10n.string("mobile.ssh.cmuxtui.installing", defaultValue: "Installing cmux-tui on this computer…")
     }
     static var keysTitle: String {
         L10n.string("mobile.ssh.keys.title", defaultValue: "SSH Keys")

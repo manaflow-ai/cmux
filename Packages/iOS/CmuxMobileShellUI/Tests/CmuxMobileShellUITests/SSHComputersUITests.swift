@@ -38,7 +38,6 @@ struct SSHComputersUITests {
         #expect(record.name == "fe80::1")
         // A host can never jump through itself.
         #expect(record.jumpHostID == nil)
-        #expect(record.persistence == nil)
         #expect(record.idleClose == .oneDay)
     }
 

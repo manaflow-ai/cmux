@@ -113,10 +113,13 @@ struct CmuxTUITreeWire: Decodable {
     }
     struct Screen: Decodable {
         var id: Int
+        var name: String?
+        var active_pane: Int?
         var panes: [Pane]?
     }
     struct Pane: Decodable {
         var id: Int
+        var name: String?
         var tabs: [Tab]?
     }
     struct Size: Decodable {
@@ -185,7 +188,15 @@ struct CmuxTUITreeWire: Decodable {
                 name: workspace.name,
                 active: workspace.active,
                 terminals: terminals,
-                browsers: browsers
+                browsers: browsers,
+                screens: (workspace.screens ?? []).map { screen in
+                    CmuxTUIScreen(
+                        id: screen.id,
+                        name: screen.name,
+                        activePane: screen.active_pane,
+                        panes: (screen.panes ?? []).map { CmuxTUIPane(id: $0.id, name: $0.name) }
+                    )
+                }
             )
         }
     }

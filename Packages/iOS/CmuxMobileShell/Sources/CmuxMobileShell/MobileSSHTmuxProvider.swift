@@ -128,8 +128,9 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     }
 
     /// Groups pane rows into workspaces, hiding the phone's grouped sessions.
-    /// Tabs are ordered by window, then pane; a pane in a split window is
-    /// named `<index>:<window> · pane <n>` since the tab switcher is flat.
+    /// Tabs are ordered by window, then pane. Each window is a tab-switcher
+    /// section; a pane's full name (`<index>:<window> · pane <n>` in a split
+    /// window) stays its terminal title, the section row shows the short form.
     nonisolated static func workspaces(from rows: [PaneRow]) -> [MobileSSHWorkspace] {
         var order: [String] = []
         var bySession: [String: [PaneRow]] = [:]
@@ -139,17 +140,34 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         }
         return order.map { session in
             let panes = (bySession[session] ?? []).sorted { ($0.windowIndex, $0.paneIndex) < ($1.windowIndex, $1.paneIndex) }
+            var sections: [MobileSSHWorkspaceSection] = []
+            for row in panes where sections.last?.id != String(row.windowIndex) {
+                sections.append(MobileSSHWorkspaceSection(id: String(row.windowIndex), title: "\(row.windowIndex): \(row.windowName)"))
+            }
             return MobileSSHWorkspace(
                 id: session,
                 name: session,
                 terminals: panes.map { row in
                     let window = "\(row.windowIndex):\(row.windowName)"
                     let position = (panes.filter { $0.windowIndex == row.windowIndex }.firstIndex(of: row) ?? 0) + 1
-                    let name = row.windowPaneCount > 1
+                    let split = row.windowPaneCount > 1
+                    let name = split
                         ? L10n.string("mobile.ssh.tmux.paneName", defaultValue: "\(window) · pane \(position)")
                         : window
-                    return MobileSSHTerminal(id: terminalID(session: session, pane: row.pane), name: name)
-                }
+                    let paneLabel = L10n.string("mobile.ssh.tabs.paneLabel", defaultValue: "Pane \(position)")
+                    return MobileSSHTerminal(
+                        id: terminalID(session: session, pane: row.pane),
+                        name: name,
+                        placement: MobileSSHTerminalPlacement(
+                            sectionID: String(row.windowIndex),
+                            paneID: "%\(row.pane)",
+                            title: split ? paneLabel : row.windowName,
+                            paneLabel: nil
+                        )
+                    )
+                },
+                kind: .tmux,
+                sections: sections
             )
         }
     }
@@ -168,7 +186,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         let name = "cmux-\(index)"
         try await runStartingShell("new-session", "-s \(MobileSSHShell.quote(name))")
         return try await listWorkspaces().first { $0.id == name }
-            ?? MobileSSHWorkspace(id: name, name: name, terminals: [])
+            ?? MobileSSHWorkspace(id: name, name: name, terminals: [], kind: .tmux)
     }
 
     func closeWorkspace(id: String) async throws {
@@ -182,6 +200,20 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         let output = try await runStartingShell("new-window", "-t \(MobileSSHShell.quote("=" + workspaceID + ":")) -P -F '#{pane_id}'")
         guard let pane = MobileSSHTmuxControlParser.id(output.trimmingCharacters(in: .whitespacesAndNewlines), "%") else {
             throw SSHConnectionError.channelRequestRejected("tmux new-window: \(output)")
+        }
+        let id = Self.terminalID(session: workspaceID, pane: pane)
+        let listed = try await listWorkspaces().first { $0.id == workspaceID }?.terminals.first { $0.id == id }
+        return listed ?? MobileSSHTerminal(id: id, name: id)
+    }
+
+    /// "Split Pane" on a window section: splits the window's active pane
+    /// (detached, so no client's current pane moves) and returns the new
+    /// pane's terminal.
+    func splitWindow(inWorkspace workspaceID: String, window: String) async throws -> MobileSSHTerminal {
+        let target = MobileSSHShell.quote("=" + workspaceID + ":" + window)
+        let output = try await runStartingShell("split-window", "-t \(target) -P -F '#{pane_id}'")
+        guard let pane = MobileSSHTmuxControlParser.id(output.trimmingCharacters(in: .whitespacesAndNewlines), "%") else {
+            throw SSHConnectionError.channelRequestRejected("tmux split-window: \(output)")
         }
         let id = Self.terminalID(session: workspaceID, pane: pane)
         let listed = try await listWorkspaces().first { $0.id == workspaceID }?.terminals.first { $0.id == id }

@@ -394,6 +394,10 @@ extension MobileShellComposite {
     /// detach). Fire-and-forget; the Mac also clears on connection close.
     public func clearTerminalViewport(surfaceID: String) {
         recordAppEvent(.terminalViewportClearStarted, correlationID: surfaceID)
+        if sshOwnsSurface(surfaceID) {
+            // Off screen: a cmux-tui terminal stops owning the shared grid.
+            sshComputers.viewportReleased(surfaceID: surfaceID)
+        }
         let sequenceKey = MobileTerminalViewportSequenceKey(
             ownerKey: foregroundMacKey,
             surfaceID: surfaceID

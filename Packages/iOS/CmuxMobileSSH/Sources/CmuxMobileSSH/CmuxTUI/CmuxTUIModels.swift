@@ -72,6 +72,58 @@ public struct CmuxTUIWorkspace: Sendable, Equatable, Identifiable {
     /// Browser tabs. Present only when the server runs a `cmux-browser`
     /// provider (cmux-tui never launches Chrome itself).
     public var browsers: [CmuxTUIBrowserTab] = []
+    /// Screens in order, each with its panes in layout order. Terminals and
+    /// browsers reference them through `screen` and `pane`.
+    public var screens: [CmuxTUIScreen] = []
+
+    public init(
+        id: Int,
+        key: String?,
+        resourceID: String? = nil,
+        name: String,
+        active: Bool = false,
+        terminals: [CmuxTUITerminal],
+        browsers: [CmuxTUIBrowserTab] = [],
+        screens: [CmuxTUIScreen] = []
+    ) {
+        self.id = id
+        self.key = key
+        self.resourceID = resourceID
+        self.name = name
+        self.active = active
+        self.terminals = terminals
+        self.browsers = browsers
+        self.screens = screens
+    }
+}
+
+/// One screen (a full-window layout of panes) of a workspace.
+public struct CmuxTUIScreen: Sendable, Equatable, Identifiable {
+    /// Numeric id; valid for this daemon generation only.
+    public var id: Int
+    /// User-set name; `nil` when unnamed.
+    public var name: String?
+    /// The pane `new-tab` targets by default.
+    public var activePane: Int?
+    public var panes: [CmuxTUIPane]
+
+    public init(id: Int, name: String? = nil, activePane: Int? = nil, panes: [CmuxTUIPane]) {
+        self.id = id
+        self.name = name
+        self.activePane = activePane
+        self.panes = panes
+    }
+}
+
+/// One pane (a split region holding tabs) of a screen.
+public struct CmuxTUIPane: Sendable, Equatable, Identifiable {
+    public var id: Int
+    public var name: String?
+
+    public init(id: Int, name: String? = nil) {
+        self.id = id
+        self.name = name
+    }
 }
 
 /// One PTY tab view of a session-owned terminal.
@@ -90,6 +142,30 @@ public struct CmuxTUITerminal: Sendable, Equatable, Identifiable {
     public var cols: Int?
     public var rows: Int?
     public var dead: Bool
+
+    public init(
+        surface: Int,
+        pane: Int,
+        screen: Int,
+        resourceID: String? = nil,
+        terminalID: String? = nil,
+        name: String? = nil,
+        title: String = "",
+        cols: Int? = nil,
+        rows: Int? = nil,
+        dead: Bool = false
+    ) {
+        self.surface = surface
+        self.pane = pane
+        self.screen = screen
+        self.resourceID = resourceID
+        self.terminalID = terminalID
+        self.name = name
+        self.title = title
+        self.cols = cols
+        self.rows = rows
+        self.dead = dead
+    }
 }
 
 /// Result of creating a terminal.

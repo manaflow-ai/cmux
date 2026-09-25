@@ -6,13 +6,13 @@ import SwiftUI
 
 /// What the workspace list shows about the selected SSH computer (PRD D22).
 /// Parity with a paired Mac: rows carry their own connection status, the
-/// title picker carries the computer's, and an empty list shows only a
-/// mode-specific title plus one status line. New workspaces come from `+`;
-/// pull-to-refresh reconnects. Value-only; actions are closures.
+/// title picker carries the computer's, and an empty list shows only
+/// "No Workspaces" plus one status line (a host serves every kind, PRD D31).
+/// New workspaces come from `+`; pull-to-refresh reconnects. Value-only;
+/// actions are closures.
 struct SSHWorkspaceListPanel: Equatable {
     let hostID: UUID
     let status: MobileSSHHostStatus
-    let persistence: SSHPersistenceMode?
     let hasWorkspaces: Bool
     /// An idle host the runtime is about to connect on its own; it reads as
     /// connecting rather than flashing "Not connected".
@@ -29,14 +29,7 @@ struct SSHWorkspaceListPanel: Equatable {
     }
 
     var emptyTitle: String {
-        switch persistence {
-        case .tmux:
-            L10n.string("mobile.ssh.empty.tmux", defaultValue: "No tmux Sessions")
-        case .plain:
-            L10n.string("mobile.ssh.empty.plain", defaultValue: "No Shells")
-        case .cmuxTUI, .eternalTerminal, .mosh, nil:
-            L10n.string("mobile.ssh.empty.cmuxTUI", defaultValue: "No Workspaces")
-        }
+        L10n.string("mobile.ssh.empty.title", defaultValue: "No Workspaces")
     }
 
     /// The single secondary line under an empty list's title; `nil` when
@@ -71,13 +64,20 @@ extension View {
     /// Adds the SSH empty state over the workspace list when an SSH computer
     /// is selected, and reconnects it on its own like a Mac. A `nil` panel
     /// leaves the list as is.
-    func sshWorkspaceListPanel(_ panel: SSHWorkspaceListPanel?, actions: SSHWorkspaceListPanelActions) -> some View {
-        modifier(SSHWorkspaceListPanelModifier(panel: panel, actions: actions))
+    /// `installingCmuxTUI` shows a progress notice while a first cmux-tui
+    /// workspace uploads cmux-tui to any SSH computer (PRD D10).
+    func sshWorkspaceListPanel(
+        _ panel: SSHWorkspaceListPanel?,
+        installingCmuxTUI: Bool,
+        actions: SSHWorkspaceListPanelActions
+    ) -> some View {
+        modifier(SSHWorkspaceListPanelModifier(panel: panel, installingCmuxTUI: installingCmuxTUI, actions: actions))
     }
 }
 
 private struct SSHWorkspaceListPanelModifier: ViewModifier {
     let panel: SSHWorkspaceListPanel?
+    let installingCmuxTUI: Bool
     let actions: SSHWorkspaceListPanelActions
     @Environment(\.scenePhase) private var scenePhase
 
@@ -106,6 +106,31 @@ private struct SSHWorkspaceListPanelModifier: ViewModifier {
                     SSHWorkspaceEmptyState(panel: panel, actions: actions)
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                if installingCmuxTUI {
+                    SSHInstallingNotice()
+                }
+            }
+    }
+}
+
+/// Shown while the first cmux-tui workspace uploads cmux-tui to the
+/// computer, which can take a while on a slow network (PRD D10).
+private struct SSHInstallingNotice: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(SSHCopy.installingCmuxTUI)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("ssh.cmuxtui.installing")
     }
 }
 

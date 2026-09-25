@@ -15,20 +15,51 @@ extension MobileShellComposite {
         return sshComputers.supportsTerminalTabs(workspaceID: scoped)
     }
 
-    /// The SSH branch of ``createTerminal(in:)``: creates the tab on the
-    /// server, then selects it once the refreshed row lists it.
+    /// The SSH branch of ``createTerminal(in:)`` ("New Window" for tmux,
+    /// "New Screen" for cmux-tui): creates it on the server, then selects
+    /// its terminal once the refreshed row lists it.
     func createSSHTerminal(in workspaceID: MobileWorkspacePreview.ID) {
         guard let scoped = sshScopedWorkspaceID(workspaceID),
               sshComputers.supportsTerminalTabs(workspaceID: scoped) else { return }
         selectedWorkspaceID = workspaceID
         Task { @MainActor [weak self] in
-            guard let self, let terminal = await self.sshComputers.createTerminal(inWorkspace: scoped) else { return }
-            let id = MobileTerminalPreview.ID(rawValue: terminal)
-            // Rows are published before this returns; aggregation keeps SSH
-            // terminal ids unscoped (they already carry the host namespace).
-            guard self.workspaces.contains(where: { $0.terminals.contains { $0.id == id } }) else { return }
-            self.selectedTerminalID = id
+            guard let self else { return }
+            self.selectCreatedSSHTerminal(await self.sshComputers.createTerminal(inWorkspace: scoped))
         }
+    }
+
+    /// The grouped tab switcher of an SSH workspace row (PRD D32); `nil`
+    /// for Mac rows and shells, whose switchers stay flat.
+    public func sshTabLayout(workspaceID: MobileWorkspacePreview.ID) -> MobileSSHTabLayout? {
+        guard sshOwnsWorkspaceRow(workspaceID), let scoped = sshScopedWorkspaceID(workspaceID) else { return nil }
+        return sshComputers.tabLayout(workspaceID: scoped)
+    }
+
+    /// The kind of an SSH workspace row; `nil` for Mac rows.
+    public func sshWorkspaceKind(workspaceID: MobileWorkspacePreview.ID) -> MobileSSHWorkspaceKind? {
+        guard sshOwnsWorkspaceRow(workspaceID), let scoped = sshScopedWorkspaceID(workspaceID) else { return nil }
+        return sshComputers.kind(ofScopedID: scoped)
+    }
+
+    /// A section's action from the grouped switcher: "Split Pane" on a tmux
+    /// window, "New Tab" on a cmux-tui screen. Selects the new terminal.
+    public func createSSHTab(in workspaceID: MobileWorkspacePreview.ID, section sectionID: String) {
+        guard let scoped = sshScopedWorkspaceID(workspaceID) else { return }
+        selectedWorkspaceID = workspaceID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.selectCreatedSSHTerminal(await self.sshComputers.createTab(inWorkspace: scoped, section: sectionID))
+        }
+    }
+
+    private func selectCreatedSSHTerminal(_ terminal: String?) {
+        guard let terminal else { return }
+        let id = MobileTerminalPreview.ID(rawValue: terminal)
+        // Rows are published before this runs; aggregation keeps SSH
+        // terminal ids unscoped (they already carry the host namespace).
+        guard workspaces.contains(where: { $0.terminals.contains { $0.id == id } }) else { return }
+        selectedMacSurfaceID = nil
+        selectedTerminalID = id
     }
 
     /// The SSH-namespaced id (`cmux-ssh-<host>~<local>`) of a workspace row.
@@ -71,27 +102,128 @@ extension MobileShellComposite {
     }
 }
 
+/// The grouped tab switcher of one SSH workspace (PRD D32): tmux windows
+/// or cmux-tui screens as sections, pane/tab terminals as rows.
+public struct MobileSSHTabLayout: Equatable, Sendable {
+    public var kind: MobileSSHWorkspaceKind
+    public var sections: [MobileSSHTabSection]
+
+    public init(kind: MobileSSHWorkspaceKind, sections: [MobileSSHTabSection]) {
+        self.kind = kind
+        self.sections = sections
+    }
+}
+
+/// One tmux window or cmux-tui screen.
+public struct MobileSSHTabSection: Equatable, Sendable, Identifiable {
+    /// Section id within the workspace (tmux window index, cmux-tui screen id).
+    public var id: String
+    public var title: String
+    public var rows: [MobileSSHTabRow]
+    /// Whether the section-level action applies: "Split Pane" on a tmux
+    /// window, "New Tab" on a cmux-tui screen with a pane to put it in.
+    public var canAddTab: Bool
+
+    public init(id: String, title: String, rows: [MobileSSHTabRow], canAddTab: Bool) {
+        self.id = id
+        self.title = title
+        self.rows = rows
+        self.canAddTab = canAddTab
+    }
+}
+
+/// One terminal tab inside a section.
+public struct MobileSSHTabRow: Equatable, Sendable, Identifiable {
+    /// The terminal's surface id (the workspace row's terminal id).
+    public var id: String
+    public var title: String
+    /// Names the pane when the section has several (`Pane 2`).
+    public var paneLabel: String?
+    /// The first row of a pane after another pane's rows, where the
+    /// switcher draws a separator.
+    public var startsPane: Bool
+
+    public init(id: String, title: String, paneLabel: String?, startsPane: Bool) {
+        self.id = id
+        self.title = title
+        self.paneLabel = paneLabel
+        self.startsPane = startsPane
+    }
+}
+
 @MainActor
 extension MobileSSHComputers {
-    /// Whether a workspace can gain terminal tabs (tmux, cmux-tui).
+    /// Whether a workspace can gain terminal tabs (tmux, cmux-tui); a shell
+    /// is one terminal.
     func supportsTerminalTabs(workspaceID scopedID: String) -> Bool {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID) else { return false }
-        switch host(id: hostID)?.persistence {
-        case .tmux, .cmuxTUI: return true
-        default: return false
+        guard let kind = kind(ofScopedID: scopedID) else { return false }
+        return kind != .shell
+    }
+
+    /// The grouped tab switcher for an SSH workspace row; `nil` for shells
+    /// and unknown rows.
+    public func tabLayout(workspaceID scopedID: String) -> MobileSSHTabLayout? {
+        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
+              let local = MobileSSHIdentifiers.localID(of: scopedID),
+              let workspace = workspacesByHostSnapshot(hostID)?.first(where: { $0.id == local }),
+              workspace.kind != .shell else { return nil }
+        return Self.tabLayout(workspace, hostID: hostID)
+    }
+
+    nonisolated static func tabLayout(_ workspace: MobileSSHWorkspace, hostID: UUID) -> MobileSSHTabLayout {
+        var sections = workspace.sections.map { section in
+            MobileSSHTabSection(
+                id: section.id,
+                title: section.title,
+                rows: [],
+                canAddTab: workspace.kind == .tmux || section.targetPane != nil
+            )
+        }
+        var lastPane: [String: String] = [:]
+        for terminal in workspace.terminals {
+            guard let placement = terminal.placement,
+                  let index = sections.firstIndex(where: { $0.id == placement.sectionID }) else { continue }
+            let starts = lastPane[placement.sectionID].map { $0 != placement.paneID } ?? false
+            lastPane[placement.sectionID] = placement.paneID
+            sections[index].rows.append(MobileSSHTabRow(
+                id: MobileSSHIdentifiers.scopedID(host: hostID, local: terminal.id),
+                title: placement.title,
+                paneLabel: placement.paneLabel,
+                startsPane: starts
+            ))
+        }
+        return MobileSSHTabLayout(kind: workspace.kind, sections: sections.filter { !$0.rows.isEmpty })
+    }
+
+    /// "New Window" (tmux) / "New Screen" (cmux-tui): returns the new
+    /// terminal's scoped surface id after the host's rows are refreshed.
+    func createTerminal(inWorkspace scopedID: String) async -> String? {
+        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
+              let local = MobileSSHLocalID(scopedID: scopedID) else { return nil }
+        do {
+            guard let created = try await provider(for: hostID).createTerminal(inWorkspace: local) else { return nil }
+            await refreshWorkspaces(hostID: hostID)
+            return MobileSSHIdentifiers.scopedID(host: hostID, local: created.rawValue)
+        } catch {
+            return nil
         }
     }
 
-    /// Creates a terminal tab in an SSH workspace and returns its scoped
-    /// surface id after the host's rows are refreshed.
-    func createTerminal(inWorkspace scopedID: String) async -> String? {
+    /// The section action: "Split Pane" (tmux window) or "New Tab"
+    /// (cmux-tui screen). Returns the new terminal's scoped surface id.
+    func createTab(inWorkspace scopedID: String, section sectionID: String) async -> String? {
         guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
-              let local = MobileSSHIdentifiers.localID(of: scopedID) else { return nil }
+              let local = MobileSSHLocalID(scopedID: scopedID) else { return nil }
+        let pane = workspacesByHostSnapshot(hostID)?
+            .first { $0.id == local.rawValue }?
+            .sections.first { $0.id == sectionID }?
+            .targetPane
         do {
-            guard let creator = try await provider(for: hostID) as? any MobileSSHTerminalCreating else { return nil }
-            let terminal = try await creator.createTerminal(inWorkspace: local)
+            guard let created = try await provider(for: hostID).createTab(inWorkspace: local, section: sectionID, pane: pane) else {
+                return nil
+            }
             await refreshWorkspaces(hostID: hostID)
-            return MobileSSHIdentifiers.scopedID(host: hostID, local: terminal.id)
+            return MobileSSHIdentifiers.scopedID(host: hostID, local: created.rawValue)
         } catch {
             return nil
         }
