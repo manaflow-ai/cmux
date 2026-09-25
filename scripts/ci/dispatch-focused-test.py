@@ -41,6 +41,7 @@ VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
 ORDER_ENV = "CMUX_" + pool.ORDER_VARIABLE
 MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
+QUEUE_ROUNDS_ENV = "CMUX_" + pool.QUEUE_ROUNDS_VARIABLE
 OWNED_ENV = "CMUX_" + pool.OWNED_VARIABLE
 SLOTS_ENV = "CMUX_" + pool.SLOTS_VARIABLE
 PR_XCODE_ENV = "CMUX_" + pool.PR_XCODE_VARIABLE
@@ -389,6 +390,8 @@ def routed_runner(default: str | None, test_target: str | None = None) -> str | 
             if test_target in (None, "cmuxTests")
             or (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() == "1" else "",
             repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
+            # Unset is pull request CI's default rounds, as test-e2e.yml passes it.
+            repository_variable(pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV) or "",
         ),
         measure=lambda: pool.measure_load(GhApi(), now=now),
         now=now,
