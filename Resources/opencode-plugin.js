@@ -30,6 +30,12 @@ const createCMUXFeed = async (ctx) => {
     return null;
   };
 
+  const eventProperties = (event) => {
+    if (!event || typeof event !== "object") return {};
+    // V1 delivered payloads under `properties`; V2 uses `data`.
+    return event.properties || event.data || {};
+  };
+
   // OpenCode has emitted both session.idle and session.status events over
   // time, and the session identifier moved between top-level and nested
   // properties. Keep the feed bridge tolerant of those wire-shape changes so
@@ -224,6 +230,15 @@ const createCMUXFeed = async (ctx) => {
         body: { text: message },
       })
     ) return;
+    // OpenCode 2.0.11 exposes synthetic input as the stable plugin-domain
+    // operation when the prompt helper has a stricter PromptInput shape.
+    try {
+      if (await callClientMethod(ctx?.session, "synthetic", {
+        sessionID: sessionId,
+        text: message,
+        resume: false,
+      })) return;
+    } catch (_) {}
     // OpenCode v1 compatibility.
     const body = { agent: "plan", parts: [{ type: "text", text: message }] };
     if (
@@ -346,7 +361,7 @@ const createCMUXFeed = async (ctx) => {
   };
 
   const formInfoFromEvent = (event) => {
-    const props = event?.properties || {};
+    const props = eventProperties(event);
     const form = props.form || props.info || props;
     const formId = firstString(form.id, form.formID, form.formId, props.formID, props.formId);
     const sessionId = firstString(form.sessionID, form.sessionId, props.sessionID, props.sessionId, props.session_id);
@@ -365,7 +380,7 @@ const createCMUXFeed = async (ctx) => {
       id: field.key || field.id || field.name || `field${index}`,
       header: field.header || field.title || form.title,
       question: field.label || field.title || field.description || field.name || "",
-      multiSelect: field.multiple === true || field.multiSelect === true || field.type === "array",
+      multiSelect: field.multiple === true || field.multiSelect === true || field.type === "array" || field.type === "multiselect",
       options,
     };
   });
@@ -527,7 +542,7 @@ const createCMUXFeed = async (ctx) => {
   };
 
   const trackMessage = (event) => {
-    const props = event.properties || {};
+    const props = eventProperties(event);
     if (event.type === "message.updated") {
       const info = props.info || props.message || {};
       const messageId = info.id || props.messageID;
@@ -605,7 +620,7 @@ const createCMUXFeed = async (ctx) => {
       }
       switch (event.type) {
         case "session.created": {
-          const props = event.properties || {};
+          const props = eventProperties(event);
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
           const state = sessionState(sid);
@@ -617,7 +632,7 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "session.status": {
-          const props = event.properties || {};
+          const props = eventProperties(event);
           if (!sessionStatusIsIdle(props.status)) break;
           const sid = sessionIdFromProperties(props);
           if (!sid) break;
@@ -627,7 +642,7 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "session.idle": {
-          const sid = sessionIdFromProperties(event.properties || {});
+          const sid = sessionIdFromProperties(eventProperties(event));
           if (!sid) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
@@ -635,7 +650,7 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "session.deleted": {
-          const sid = sessionIdFromProperties(event.properties || {});
+          const sid = sessionIdFromProperties(eventProperties(event));
           if (!sid) break;
           sessions.delete(sid);
           pushTelemetry(base(sid, {
@@ -653,7 +668,7 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "permission.asked": {
-          const props = event.properties || {};
+          const props = eventProperties(event);
           const request = props.permission && isObject(props.permission) ? props.permission : props;
           const requestId = firstString(request.id, request.requestID, request.requestId, props.id);
           if (!requestId) break;
@@ -733,7 +748,7 @@ const createCMUXFeed = async (ctx) => {
           break;
         }
         case "question.asked": {
-          const props = event.properties || {};
+          const props = eventProperties(event);
           const requestId = props.id;
           const sid = props.sessionID || "unknown";
           if (!requestId) break;

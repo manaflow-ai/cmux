@@ -84,6 +84,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
         XCTAssertTrue(pluginSource.contains("id: \"cmux.session\""))
         XCTAssertTrue(pluginSource.contains("ctx.event.subscribe({ signal"))
+        XCTAssertTrue(pluginSource.contains("event.properties || event.data"))
         XCTAssertTrue(pluginSource.contains("\"hooks\", \"enqueue\", \"opencode\""))
         XCTAssertTrue(pluginSource.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: \"1\""))
 
