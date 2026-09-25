@@ -55,8 +55,9 @@ struct TerminalCustomUploadRunner {
     }
 
     /// The command matching this endpoint, or nil when the built-in transport should be
-    /// used. Matching uses the first usable `HostName` in `endpoint.sshOptions` and falls
-    /// back to `endpoint.destination`, so a broker alias still matches the host it reaches.
+    /// used. A rule matches either `endpoint.destination` or the first usable `HostName`
+    /// in `endpoint.sshOptions`, so a broker alias still matches the host it reaches and
+    /// rules written against the alias keep working.
     @MainActor
     private func matchedCommand(for endpoint: Endpoint) -> String? {
         // Swift 5 mode only warns when a closure handed to DispatchQueue, Timer or

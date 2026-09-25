@@ -10,15 +10,16 @@ import Foundation
 struct TerminalUploadCommand: Sendable, Equatable {
     let rules: [TerminalUploadCommandRule]
 
-    /// The first enabled rule whose `hostPattern` matches `destination`, or nil
-    /// when none matches (the caller then uses the built-in `scp` transport).
+    /// The first enabled rule whose `hostPattern` matches `destination` or the
+    /// `HostName` in `sshOptions`, or nil when none matches (the caller then uses
+    /// the built-in `scp` transport).
     func command(forDestination destination: String, sshOptions: [String] = []) -> String? {
-        let host = Self.hostForMatching(destination, sshOptions: sshOptions)
+        let hosts = Self.hostsForMatching(destination, sshOptions: sshOptions)
         for rule in rules where rule.enabled {
             guard let pattern = rule.hostPattern else {
                 return rule.command
             }
-            if Self.hostMatches(pattern: pattern, host: host) {
+            if hosts.contains(where: { Self.hostMatches(pattern: pattern, host: $0) }) {
                 return rule.command
             }
         }
@@ -30,16 +31,21 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// `::1`), and lowercases. A non-bracketed `host:port` is matched as-is; the
     /// detected-ssh port is carried separately, so destinations here are bare
     /// hosts in practice.
-    static func hostForMatching(_ destination: String, sshOptions: [String] = []) -> String {
-        // A connection through a ProxyCommand or jump host is dialled as
-        // `localhost` (or some other placeholder) with the host it actually
-        // reaches carried in `HostName`. Matching the destination argument alone
-        // makes every brokered host look identical, so an explicit `HostName`
-        // decides when there is one.
-        if let hostName = hostNameOption(in: sshOptions) {
-            return normalized(hostName)
-        }
-        return normalized(destination)
+    static func hostForMatching(_ destination: String) -> String {
+        normalized(destination)
+    }
+
+    /// Every host a rule may match for this connection: the destination (the ssh
+    /// alias, or `localhost` for a brokered session) and, when present, the
+    /// first usable `HostName` option. A connection through a ProxyCommand or
+    /// jump host is dialled as a placeholder with the host it actually reaches
+    /// carried in `HostName`, so matching either one lets rules written against
+    /// the real host fire without breaking rules written against the alias.
+    static func hostsForMatching(_ destination: String, sshOptions: [String] = []) -> [String] {
+        let destinationHost = normalized(destination)
+        guard let hostName = hostNameOption(in: sshOptions) else { return [destinationHost] }
+        let resolvedHost = normalized(hostName)
+        return resolvedHost == destinationHost ? [destinationHost] : [destinationHost, resolvedHost]
     }
 
     /// The value of the first `HostName` option, or nil when none carries one.
