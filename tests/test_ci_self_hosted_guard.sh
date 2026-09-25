@@ -48,7 +48,7 @@ check_macos_runner() {
     # place this shard on the owned pool, the Blacksmith pool the pull
     # request picker named for a run on an owned pool (pr_retry_runner), or
     # on attempt 2 of a refused owned shard, the owned pool once more.
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 2 && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && inputs\.pr_refused_retry_runner \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && inputs\.pr_refused_retry_runner \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -1382,7 +1382,7 @@ GUARDED = (
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
     # Attempt 2 of a refused owned job: the owned pool once more.
-    "github.event_name == 'pull_request' && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
     " ' claude-wrapper ') && needs.changes.outputs.macos_pr_refused_retry_runner",
     # A re-run of failed jobs on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.

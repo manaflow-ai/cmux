@@ -4264,7 +4264,7 @@ PRODUCT_RUNNER_KEYS = {
 
 
 def product_runner_output(key: str) -> str:
-    return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
+    return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& inputs.pr_refused_retry_runner "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}")
