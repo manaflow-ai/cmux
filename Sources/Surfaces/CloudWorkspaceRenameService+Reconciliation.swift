@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CloudWorkspaceRenameService {
@@ -48,7 +49,7 @@ extension CloudWorkspaceRenameService {
         guard catalog.cloudStates[machine] == state,
               observation.freshness == .current,
               let binding = workspace.cloudVMBinding,
-              binding.vmID == machine.cloudMachineID,
+              binding.vmID == machine.tuiMachineID,
               let id = binding.remoteWorkspaceID,
               let remote = state.lookupIndex.workspace(id: id) else { return }
         let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
@@ -72,7 +73,7 @@ extension CloudWorkspaceRenameService {
         affectedResources: Set<SurfaceResourceID>? = nil,
         workspaceNamesChanged: Bool = true
     ) {
-        guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
+        guard machine.tuiMachineID != nil, catalog.cloudStates[machine] == state else { return }
         if workspaceNamesChanged {
             let snapshot = catalog.snapshot
             let resources = snapshot.resources(on: machine)
@@ -81,7 +82,7 @@ extension CloudWorkspaceRenameService {
                 by: \.workspaceID
             )
             for workspace in environment.workspaces() {
-                guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
+                guard let binding = workspace.cloudVMBinding, binding.vmID == machine.tuiMachineID,
                       binding.remoteWorkspaceID != nil else { continue }
                 switch bindingReconciliation(
                     binding: binding,
@@ -99,7 +100,7 @@ extension CloudWorkspaceRenameService {
                     continue
                 case .rebind(let targetMachine, let targetWorkspaceID):
                     workspace.cloudVMBinding = WorkspaceCloudVMBinding(
-                        vmID: targetMachine.cloudMachineID ?? binding.vmID,
+                        vmID: targetMachine.tuiMachineID ?? binding.vmID,
                         isBase: binding.isBase,
                         remoteWorkspaceID: targetWorkspaceID
                     )

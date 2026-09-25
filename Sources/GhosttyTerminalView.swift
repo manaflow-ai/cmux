@@ -2206,6 +2206,16 @@ class GhosttyApp {
         configurationReloadCoordinator.isReloadActive
     }
 
+#if DEBUG
+    /// Where the app-scoped reload transaction is, so tests can assert that a
+    /// reload is held at the font-work barrier instead of inferring it from a
+    /// notification that has not arrived yet.
+    @MainActor
+    var debugConfigurationReloadPhase: TerminalConfigurationReloadPhase {
+        configurationReloadCoordinator.phase
+    }
+#endif
+
     @MainActor
     func terminalFontConfigurationSnapshot()
         -> WorkspaceTerminalFontConfigurationSnapshot {
@@ -3717,6 +3727,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         NSLog("[FOCUSDBG] %@", message)
         #endif
+    }
+
+    private lazy var remoteFilePreviewCoordinator = RemoteTerminalFilePreviewCoordinator(
+        defaults: .standard,
+        transport: ProcessSSHFileExplorerTransport.shared,
+        cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-remote-terminal-previews")
+    )
+
+    func openRemoteFilePreview(tokens: [String]) -> Bool {
+        guard let terminalSurface, let workspace = terminalSurface.owningWorkspace() else { return false }
+        return remoteFilePreviewCoordinator.open(workspace: workspace, sourcePanelID: terminalSurface.id, tokens: tokens)
     }
 
     weak var terminalSurface: TerminalSurface?
@@ -6754,11 +6775,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyCode: event.keyCode
             ) ?? event
         }
-        // Ghostty's translation modifiers are the source of truth for both
-        // terminal encoding and AppKit text interpretation. Showing AppKit a
-        // second, Option-bearing event here reintroduces dead-key composition
-        // for keys that `macos-option-as-alt` intentionally claims.
-        let textInputEvent = translationEvent
+        let textInputEvent = KeyboardLayout.textInputEvent(
+            for: event,
+            translatedEvent: translationEvent,
+            config: GhosttyApp.shared.config
+        )
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
@@ -8171,20 +8192,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func resolveVisibleWordPath(
-        at point: NSPoint,
-        cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
-    ) -> WordPathResolution? {
-        guard let panel = wordPathSnapshotTerminalPanel(
-            workspace: workspace,
-            terminalSurface: terminalSurface
-        ),
-              let surface else {
-            return nil
-        }
-
+    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+        guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
@@ -8207,19 +8216,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
-            cwd: cwd
-        ) else {
-            return nil
-        }
+        return (visibleLines[visibleRow], column)
+    }
 
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
-        )
+    private func resolveVisibleWordPath(
+        at point: NSPoint,
+        cwd: String,
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> WordPathResolution? {
+        guard let panel = wordPathSnapshotTerminalPanel(workspace: workspace, terminalSurface: terminalSurface),
+              let snapshot = visibleWordPathSnapshot(at: point, panel: panel),
+              let resolution = TerminalPathResolver().resolveVisibleLinePath(
+                  snapshot.line, column: snapshot.column, cwd: cwd
+              ) else { return nil }
+        return makeWordPathResolution(path: resolution.path, source: .snapshot, rawToken: resolution.rawToken)
     }
 
     @discardableResult
@@ -8265,6 +8276,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 bounds.height - resolvedPoint.y,
                 mouseModsFromFlags(modifierFlags)
             )
+        }
+
+        if runtimeOutcome != .openURL,
+           let resolvedPoint, let terminalSurface,
+           let workspace = terminalSurface.owningWorkspace(),
+           workspace.remoteConfiguration?.transport == .ssh,
+           workspace.terminalLinkIsRemoteTerminal(terminalSurface.id),
+           let panel = workspace.terminalPanel(for: terminalSurface.id),
+           let snapshot = visibleWordPathSnapshot(at: resolvedPoint, panel: panel) {
+            let tokens = RemoteTerminalPathResolver().tokens(in: snapshot.line, column: snapshot.column)
+            _ = openRemoteFilePreview(tokens: tokens)
+            return nil
         }
 
         var resolvedPath: WordPathResolution?
@@ -9226,9 +9249,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.viewDidChangeBackingProperties()
-        }
+        // Let AppKit's backing-properties callback own scale changes. A screen
+        // notification alone does not establish that backing geometry changed;
+        // replaying that callback schedules an extra settled geometry commit
+        // while display topology is still changing.
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
@@ -9886,6 +9910,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
     }
 #endif
+
+    func openRemoteFilePreview(tokens: [String]) -> Bool {
+        surfaceView.openRemoteFilePreview(tokens: tokens)
+    }
 
     func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
         guard let terminalSurface = surfaceView.terminalSurface else {
@@ -12192,6 +12220,17 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
         pendingAutomaticFirstResponderApply
     }
+
+    /// Runs the body of the queued automatic first-responder apply now, so a
+    /// test can pin the geometry it sees. On the real queue a layout pass can
+    /// land between scheduling and running and restore the surface frame.
+    func debugApplyFirstResponderNowForTesting() {
+        applyFirstResponderIfNeeded()
+    }
+
+    func debugHasPendingSuppressedFirstResponderFocusReapplyForTesting() -> Bool {
+        pendingSuppressedFirstResponderFocusReapply
+    }
 #endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {
@@ -12265,9 +12304,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
-        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
-        guard requiresUsableGeometry else { return true }
-
+        // Every reassertion needs usable geometry, not only suppressed or forced ones: an
+        // automatic apply queued while the surface was usable can run after it went hidden
+        // or tiny (macOS 26 selects the first key view when the window orders in), and it
+        // must defer like any other hidden/tiny handoff.
         // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
         let portalSize = bounds.size
         let surfaceSize = surfaceView.bounds.size

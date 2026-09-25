@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {

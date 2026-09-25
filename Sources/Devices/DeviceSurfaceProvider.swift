@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 
@@ -55,6 +56,13 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         publish()
     }
 
+    /// The control plane issued a new directory revision; a link parked on
+    /// the other Mac's refusal retries once.
+    func directoryRevisionAdvanced() {
+        link.directoryRevisionAdvanced()
+        publish()
+    }
+
     func stop() {
         for task in restoreTasks.values { task.cancel() }
         restoreTasks.removeAll()
@@ -68,7 +76,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     var info: SurfaceMachineInfo {
         let state = Self.linkState(
-            record: record, phase: link.phase, lastFailure: link.lastFailure, needsAuthorization: link.needsAuthorization
+            record: record, phase: link.phase, lastFailure: link.lastFailure?.message, needsAuthorization: link.needsAuthorization
         )
         let workspaces = link.mirror.workspaces.hasState
             ? DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
@@ -117,17 +125,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             return (.connected, nil)
         case .connecting, .waiting:
             return (.connecting, lastFailure)
-        case .blocked(let reason):
-            return (.error, reason)
+        case .blocked(let failure):
+            return (.error, failure.message)
         case .idle:
             if record.routes.isEmpty {
                 return (.unavailable, String(localized: "devices.link.noRoutes", defaultValue: "This Mac has not published a route yet."))
             }
             if record.accountTrust == .unknown {
-                return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account\u{2026}"))
+                return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account…"))
             }
             if needsAuthorization {
-                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
+                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect."))
             }
             return (.unavailable, lastFailure)
         }
@@ -205,7 +213,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     ) async throws -> SurfaceProjection {
         guard resource.kind == .terminal else {
             throw SurfaceCatalogError.unsupported(
-                String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can\u{2019}t be opened here yet.")
+                String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can’t be opened here yet.")
             )
         }
         guard link.isConnected else { throw DeviceLinkError.notConnected }

@@ -40,20 +40,17 @@ public struct TerminalLetterboxGeometry {
     public static let dockSeamPadding: CGFloat = 8
 
     /// The terminal grid container size after reserving the steady-state bottom
-    /// chrome (bottom safe area + composer band + persistent toolbar) plus the
-    /// dock seam, in points.
+    /// chrome (bottom safe area + composer band + persistent toolbar), an
+    /// optional settled keyboard overlap, and the dock seam, in points.
     ///
-    /// The keyboard is deliberately NOT an input. The grid keeps its
-    /// keyboard-down size while the keyboard is up; the render is translated so
-    /// its bottom edge rides the dock (composer bar) and the top rows clip
-    /// behind the screen top. A keyboard toggle therefore never renegotiates
-    /// the shared PTY grid, so there is no resize round-trip to mask: the old
-    /// "content pushed down, then resized to full" dismissal glitch cannot
-    /// occur, and the Mac-side terminal stops reflowing every time the phone's
-    /// keyboard toggles.
+    /// Primary-screen terminals pass zero for `keyboardHeight` and retain the
+    /// keyboard-independent behavior. Alternate-screen terminals pass the
+    /// settled keyboard overlap so Vim, Codex, and other full-screen TUIs get a
+    /// PTY grid whose top and bottom are both fully visible. The caller keeps
+    /// this value unchanged during the UIKit keyboard transaction.
     ///
-    /// - Chrome visible: the grid is the full bounds height minus the bottom
-    ///   safe area, the composer band, the toolbar, and `dockSeamPadding`.
+    /// - Chrome visible: reserve the larger of the bottom safe area and the
+    ///   settled keyboard overlap, plus composer, toolbar, and `dockSeamPadding`.
     /// - Chrome hidden (HIDE button): the grid reclaims everything; nothing is
     ///   reserved (there is no bar to keep a seam against).
     ///
@@ -69,6 +66,8 @@ public struct TerminalLetterboxGeometry {
     ///   - toolbarHeight: The reserved persistent toolbar height in points.
     ///   - bottomSafeAreaInset: The resolved bottom safe-area inset in points.
     ///   - chromeHidden: True while the HIDE button has suppressed the dock.
+    ///   - keyboardHeight: A settled keyboard overlap to reserve, or zero for
+    ///     the keyboard-independent primary-screen layout.
     ///   - topContentInset: The top safe-area band included in `bounds` that
     ///     the grid must not occupy (0 when the surface does not underlap
     ///     the top bar).
@@ -79,11 +78,13 @@ public struct TerminalLetterboxGeometry {
         toolbarHeight: CGFloat,
         bottomSafeAreaInset: CGFloat,
         chromeHidden: Bool,
+        keyboardHeight: CGFloat = 0,
         topContentInset: CGFloat = 0
     ) -> CGSize {
+        let bottomOcclusion = max(max(0, bottomSafeAreaInset), max(0, keyboardHeight))
         let reservedBottom: CGFloat = chromeHidden
-            ? 0
-            : max(0, composerBandHeight) + max(0, toolbarHeight) + max(0, bottomSafeAreaInset)
+            ? max(0, keyboardHeight)
+            : max(0, composerBandHeight) + max(0, toolbarHeight) + bottomOcclusion
                 + dockSeamPadding
         let reservedTop = max(0, topContentInset)
         let reserved = reservedBottom + reservedTop
