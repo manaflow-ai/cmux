@@ -304,4 +304,49 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
                 "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
     }
+
+    @Test func untypedWaitingNotificationAfterIdleStopRemainsIdle() throws {
+        let session = "untyped-idle-after-idle"
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "untyped-idle-idle")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-untyped-idle-idle",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-untyped-idle-idle",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        let stopResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "stop"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(stopResult)
+
+        let notificationResult = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input"}"#,
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(notificationResult)
+        let snapshot = context.state.snapshot()
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "An untyped idle reminder must not create a blocking Needs input pill; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
+                "An untyped idle reminder must journal a settled-idle observation; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
+                "An untyped idle reminder must not journal a question; saw \(snapshot)")
+    }
 }
