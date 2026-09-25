@@ -28,7 +28,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-fast-guards-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  # A PR's newer push supersedes its older run; every main commit keeps its own.
+  group: ci-fast-guards-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

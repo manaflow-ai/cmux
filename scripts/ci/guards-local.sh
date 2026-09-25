@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Run the CI guard suite (ci-guards.yml) locally in about a minute, no build.
 #
-#   scripts/ci/guards-local.sh               every guard group; stamps HEAD on a clean pass
-#   scripts/ci/guards-local.sh --group ci    one group (no stamp)
+#   scripts/ci/guards-local.sh               the fast set (ci-guards.yml's `ci` group);
+#                                            stamps HEAD on a pass in a clean tree
+#   scripts/ci/guards-local.sh --all         every guard group (also stamps)
+#   scripts/ci/guards-local.sh --group X     only group X (no stamp)
 #   scripts/ci/guards-local.sh --list        show the plan
 #
 # The "CI fast guards" check runs this same script. A clean full pass writes

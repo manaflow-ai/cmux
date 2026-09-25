@@ -74,6 +74,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertLessEqual(run_ci_guards.DEPENDENCY_STEPS, names)
         self.assertLessEqual(run_ci_guards.LINUX_ONLY_STEPS, names)
         self.assertLessEqual(set(run_ci_guards.PORTABLE_SUBSTITUTES), names)
+        self.assertLessEqual(run_ci_guards.EVENT_CONDITION_STEPS, names)
 
     def test_expressions_are_resolved(self) -> None:
         for unit in self.units:
@@ -89,6 +90,36 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertTrue(run_ci_guards.is_stateful(by_group["preflight"]))
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
+
+
+class PlanRefusesWhatItCannotRun(unittest.TestCase):
+    def workflow(self, step: dict) -> dict:
+        jobs = {name: {"steps": []} for name in run_ci_guards.GUARD_JOBS}
+        jobs["workflow-guard-tests"] = {
+            "strategy": {"matrix": {"group": "${{ fromJSON(inputs.groups) }}"}},
+            "steps": [{"name": "a", "if": "${{ matrix.group == 'ci' }}", "run": "true"}, step],
+        }
+        return {"jobs": jobs}
+
+    def test_an_unknown_condition_fails_instead_of_dropping_the_step(self) -> None:
+        step = {"name": "b", "if": "${{ matrix.group == 'ci' && !cancelled() }}", "run": "true"}
+        with self.assertRaises(run_ci_guards.PlanError):
+            run_ci_guards.plan(self.workflow(step), "base", "head")
+
+    def test_an_unknown_expression_fails_instead_of_resolving_empty(self) -> None:
+        step = {"name": "b", "if": "${{ matrix.group == 'ci' }}", "run": 'test "${{ github.event_name }}" = x'}
+        with self.assertRaises(run_ci_guards.PlanError):
+            run_ci_guards.plan(self.workflow(step), "base", "head")
+        literal = {"name": "b", "if": "${{ matrix.group == 'ci' }}", "run": "echo ${{ github.sha || 'none' }}"}
+        units = run_ci_guards.plan(self.workflow(literal), "base", "head")
+        self.assertEqual(units[0].steps[1].run, "echo head")
+
+    def test_a_submodule_checkout_makes_its_group_sequential(self) -> None:
+        unit = run_ci_guards.Unit("j", "g", [
+            run_ci_guards.Step("init", "git submodule update --init vendor/bonsplit", {}, None),
+            run_ci_guards.Step("use", "python3 lint.py", {}, None),
+        ])
+        self.assertTrue(run_ci_guards.is_stateful(unit))
 
 
 class StepsFinish(unittest.TestCase):

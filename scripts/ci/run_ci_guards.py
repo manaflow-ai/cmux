@@ -29,6 +29,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -48,6 +49,14 @@ DEPENDENCY_STEPS = {
     "Install workflow guard Python dependencies",
 }
 PYTHON_PACKAGES = ("PyYAML==6.0.3", "bashlex==0.18")
+# Steps whose `if:` tests the event, which does not apply off Actions. Any
+# other condition beyond `matrix.group == '...'` fails the plan rather than
+# silently dropping a step.
+EVENT_CONDITION_STEPS = {
+    # The history job binds the synthetic merge base; run_steps binds it
+    # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
+    "Bind package policy to synthetic merge base",
+}
 # The groups the "CI fast guards" check and a default local run cover: the
 # workflow, scripts/ci and repository-variable contracts. `--all` runs every
 # guard group, as ci.yml's routed `guards` job does for a CI change.
@@ -71,6 +80,22 @@ PORTABLE_SUBSTITUTES = {
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
+# Steps run in their own sessions, so Ctrl-C reaches only this process; it
+# stops queued steps and kills the running ones' process groups.
+STOPPING = threading.Event()
+RUNNING: set[int] = set()
+RUNNING_LOCK = threading.Lock()
+
+
+def stop_running() -> None:
+    STOPPING.set()
+    with RUNNING_LOCK:
+        pids = list(RUNNING)
+    for pid in pids:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def cache_root() -> Path:
@@ -123,15 +148,26 @@ def step_groups(condition: str) -> tuple[set[str], bool]:
     return groups, bool(rest)
 
 
+class PlanError(Exception):
+    pass
+
+
 def resolve(value: str, context: dict[str, str]) -> str:
     def replace(match: re.Match[str]) -> str:
         expression = match.group(1)
         if expression in context:
             return context[expression]
-        # `a || b` style fallbacks over event fields: take the first known one.
-        for part in (p.strip() for p in expression.split("||")):
-            if part in context and context[part]:
-                return context[part]
+        # `a || b` fallbacks over event fields: the first known non-empty one.
+        # A term this runner does not know is an error, not an empty string:
+        # an empty value could quietly turn a check off here but not in CI.
+        parts = [p.strip() for p in expression.split("||")]
+        unknown = [p for p in parts if p not in context and not re.fullmatch(r"'[^']*'", p)]
+        if unknown:
+            raise PlanError(f"ci-guards.yml uses ${{{{ {expression} }}}}, which run_ci_guards.py cannot resolve")
+        for part in parts:
+            value = context[part] if part in context else part.strip("'")
+            if value:
+                return value
         return ""
 
     return EXPRESSION.sub(replace, str(value))
@@ -163,10 +199,9 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                 condition = str(raw.get("if", ""))
                 named, other = step_groups(condition)
                 if other:
-                    # Conditions on the event (the history job's synthetic
-                    # merge-base binding) do not apply off Actions; the base
-                    # is bound below instead.
-                    continue
+                    if name in EVENT_CONDITION_STEPS:
+                        continue
+                    raise PlanError(f"step {name!r} has a condition run_ci_guards.py cannot evaluate: {condition}")
                 if named and group not in named:
                     continue
                 if "uses" in raw or name in DEPENDENCY_STEPS:
@@ -212,6 +247,7 @@ def is_stateful(unit: Unit) -> bool:
     """Steps that hand state to later steps must run in order."""
     return any(
         step.working_directory
+        or "git submodule" in step.run
         or "GITHUB_ENV" in step.run
         or "GITHUB_PATH" in step.run
         for step in unit.steps
@@ -246,9 +282,10 @@ def run_steps(
                 "GITHUB_OUTPUT": str(temp_path / "github_output"),
                 "GITHUB_STEP_SUMMARY": str(temp_path / "github_step_summary"),
                 "GITHUB_WORKSPACE": str(ROOT),
-                "PACKAGE_RESOLVED_POLICY_BASE_REF": base_sha,
             }
         )
+        if unit.job == "workflow-guard-history":
+            env["PACKAGE_RESOLVED_POLICY_BASE_REF"] = base_sha
         for step in steps:
             if skipped_here(step):
                 results.append(StepResult(unit, step, None, 0.0, ""))
@@ -279,6 +316,8 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
     by killing its process tree; this does the same per step.
     """
     with log_path.open("w+", errors="replace") as out:
+        if STOPPING.is_set():
+            return 130, "not started: interrupted"
         proc = subprocess.Popen(
             SHELL + ["-c", step.run],
             cwd=cwd,
@@ -288,11 +327,17 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-        returncode = proc.wait()
+        with RUNNING_LOCK:
+            RUNNING.add(proc.pid)
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+            returncode = proc.wait()
+        finally:
+            with RUNNING_LOCK:
+                RUNNING.discard(proc.pid)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
         out.seek(0)
         return returncode, out.read()
 
@@ -316,7 +361,9 @@ def default_base(head_sha: str) -> str:
 
 
 def tree_is_clean() -> bool:
-    return git("status", "--porcelain", "--untracked-files=no") == ""
+    # Untracked files count: a new test or module that was never `git add`ed
+    # passes here but is not in the commit the stamp vouches for.
+    return git("status", "--porcelain", "--untracked-files=normal") == ""
 
 
 def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: float) -> Path:
@@ -361,14 +408,18 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in workflow["jobs"][job]["steps"]
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     if stale:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
         return 2
 
     head_sha = git("rev-parse", "HEAD")
     base_sha = default_base(head_sha)
-    units = plan(workflow, base_sha, head_sha)
+    try:
+        units = plan(workflow, base_sha, head_sha)
+    except PlanError as error:
+        print(f"run_ci_guards.py: {error}", file=sys.stderr)
+        return 2
     wanted = set(args.group) if args.group else (None if args.all else set(FAST_GROUPS))
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
@@ -389,6 +440,10 @@ def main(argv: list[str]) -> int:
     env = dict(os.environ)
     env.setdefault("CI", "true")
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    if sys.platform != "linux":
+        # test_ci_change_areas.py forks one worker per test on Linux and runs
+        # serially elsewhere (about two minutes on a Mac) unless asked.
+        env.setdefault("CMUX_TEST_WORKERS", str(os.cpu_count() or 4))
     started = time.monotonic()
     print(
         f"cmux guards: {len(units)} groups, {sum(len(u.steps) for u in units)} steps, "
@@ -405,16 +460,23 @@ def main(argv: list[str]) -> int:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
     results: list[StepResult] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-        futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
+    try:
         for future in concurrent.futures.as_completed(futures):
             for result in future.result():
                 results.append(result)
                 if result.ok is False:
                     print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output}::endgroup::", flush=True)
+                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
                 elif args.verbose and result.ok:
                     print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+    except KeyboardInterrupt:
+        pool.shutdown(wait=False, cancel_futures=True)
+        stop_running()
+        print("cmux guards: interrupted", file=sys.stderr)
+        return 130
+    pool.shutdown()
     seconds = time.monotonic() - started
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
@@ -426,7 +488,7 @@ def main(argv: list[str]) -> int:
     if args.no_stamp or args.group:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
-        print("tree has uncommitted changes (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")
+        print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")
         return 0
     groups = sorted({u.group or u.job for u in units})
     print(f"pass stamp: {write_stamp(head_sha, groups, skipped, seconds)}")

@@ -6756,7 +6756,9 @@ def _main() -> int:
         print(f"CMUX_TEST_WORKERS must be a whole number, got {requested!r}", file=sys.stderr)
         return 2
     workers = int(requested) if requested else len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-    if workers <= 1 or sys.platform != "linux":
+    # Off Linux only an explicit CMUX_TEST_WORKERS forks (scripts/ci/run_ci_guards.py
+    # sets it on macOS, where the serial run takes about two minutes).
+    if workers <= 1 or (sys.platform != "linux" and not requested):
         for name in names:
             globals()[name]()
         return 0
