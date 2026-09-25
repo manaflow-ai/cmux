@@ -62,6 +62,11 @@ def check_review_runner_contract(cli_path: str) -> list[str]:
         (repository / ".gitattributes").write_text("value.txt filter=review\n")
         index_before = git("diff", "--cached")
         status_before = git("status", "--porcelain=v1")
+        filter_marker.unlink(missing_ok=True)
+        hook_marker = root / "hook-ran"
+        hook = repository / ".git" / "hooks" / "post-index-change"
+        hook.write_text(f"#!/bin/sh\ntouch '{hook_marker}'\n")
+        hook.chmod(0o755)
 
         driver = root / "reviewer"
         driver.write_text('''#!/usr/bin/env python3
@@ -119,6 +124,7 @@ output.write_text(json.dumps(result))
             assert git("show", f"{tree}:value.txt") == "working"
             assert git("show", f"{tree}:new.txt") == "untracked"
             assert not filter_marker.exists(), "repository clean filter executed during read-only capture"
+            assert not hook_marker.exists(), "repository index hook executed during read-only capture"
             assert receipt["summary"]["verified"] == 0, "model agreement is not verification"
             assert receipt["summary"]["suppressed"] == 1
             assert len(receipt["findings"]) == 2, "duplicate discoveries must be merged"

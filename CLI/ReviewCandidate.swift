@@ -20,12 +20,39 @@ struct ReviewCandidate {
         let baseSHA = try Self.git(repository, ["rev-parse", "--verify", "--end-of-options", "\(base)^{commit}"])
         let index = directory.appendingPathComponent("index").path
         _ = try Self.git(repository, ["read-tree", head], index: index)
-        _ = try Self.git(repository, ["add", "--all", "--", "."], index: index)
+        // Disable every configured filter, including process filters. Merely clearing
+        // inherited GIT_* variables does not neutralize repository-local configuration.
+        let filterKeys = (try? Self.git(repository, ["config", "--null", "--name-only", "--get-regexp", "^filter\\."])) ?? ""
+        let filters = Set(filterKeys.split(separator: "\0").compactMap { key -> String? in
+            guard let suffix = key.lastIndex(of: ".") else { return nil }
+            return String(key[..<suffix])
+        })
+        let filterOverrides = filters.sorted().flatMap { filter in
+            ["-c", "\(filter).clean=", "-c", "\(filter).smudge=", "-c", "\(filter).process=", "-c", "\(filter).required=false"]
+        }
+        _ = try Self.git(repository, filterOverrides + ["add", "--all", "--", "."], index: index)
         let tree = try Self.git(repository, ["write-tree"], index: index)
         let headTree = try Self.git(repository, ["rev-parse", "\(head)^{tree}"])
-        patch = try Self.git(repository, ["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSHA, tree, "--"])
-        let rulePaths = try Self.git(repository, ["ls-tree", "-r", "--name-only", baseSHA, "--", "AGENTS.md", "CLAUDE.md", ".github/review-bot-rules"])
-            .split(separator: "\n").map(String.init)
+        let patchURL = directory.appendingPathComponent("patch.diff")
+        _ = try Self.git(repository, ["diff", "--no-ext-diff", "--no-textconv", "--binary", "--output=\(patchURL.path)", baseSHA, tree, "--"])
+        let patchAttributes = try FileManager.default.attributesOfItem(atPath: patchURL.path)
+        guard let patchSize = patchAttributes[.size] as? NSNumber, patchSize.intValue <= 1_048_576 else {
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.review.error.diffTooLarge",
+                defaultValue: "The review diff is too large. Choose a narrower base revision."
+            ))
+        }
+        patch = try String(contentsOf: patchURL, encoding: .utf8)
+        let changedPaths = try Self.git(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSHA, tree, "--"], trim: false)
+            .split(separator: "\0").map(String.init)
+        let rulePaths = try Self.git(repository, ["ls-tree", "-r", "-z", "--name-only", baseSHA], trim: false)
+            .split(separator: "\0").map(String.init).filter { path in
+                if path.hasPrefix(".github/review-bot-rules/") { return true }
+                let components = path.split(separator: "/")
+                guard let name = components.last, name == "AGENTS.md" || name == "CLAUDE.md" else { return false }
+                let parent = components.dropLast().joined(separator: "/")
+                return parent.isEmpty || changedPaths.contains { $0.hasPrefix(parent + "/") }
+            }
         rules = try rulePaths.map { path in
             "\(path):\n" + (try Self.git(repository, ["show", "\(baseSHA):\(path)"]))
         }.joined(separator: "\n\n")
@@ -55,12 +82,15 @@ struct ReviewCandidate {
     }
 
     /// A temporary index captures tracked and untracked content without changing the real index.
-    static func git(_ repository: String, _ arguments: [String], index: String? = nil) throws -> String {
+    static func git(_ repository: String, _ arguments: [String], index: String? = nil, trim: Bool = true) throws -> String {
         var environmentArguments = Self.gitEnvironmentArguments()
         if let index { environmentArguments.append("GIT_INDEX_FILE=\(index)") }
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: environmentArguments + ["git", "-C", repository] + arguments,
+            arguments: environmentArguments + [
+                "git", "--no-optional-locks", "-c", "core.hooksPath=/dev/null",
+                "-c", "core.fsmonitor=false", "-C", repository
+            ] + arguments,
             timeout: 30
         )
         guard result.status == 0, !result.timedOut else {
@@ -69,6 +99,6 @@ struct ReviewCandidate {
                 defaultValue: "Unable to capture review source."
             ))
         }
-        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trim ? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : result.stdout
     }
 }
