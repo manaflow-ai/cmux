@@ -60,6 +60,24 @@ import CmuxGit
         #expect(!service.requiresFreshPullRequestChecks(for: [key]))
     }
 
+    @Test func unavailableChecksKeepTheNormalPullRequestCacheEligible() {
+        let host = RecordingSidebarGitHost()
+        host.pullRequestChecksEnabled = true
+        let (workspace, panel) = host.addWorkspace(panelDirectory: nil)
+        let service = PullRequestPollService(
+            gitMetadataService: GitMetadataService(),
+            probeService: PullRequestProbeService(commandRunner: ForbiddenCommandRunner()),
+            clock: ManualGitPollClock()
+        )
+        service.attach(host: host)
+        host.updatePanelPullRequest(workspaceId: workspace, panelId: panel, badge: SidebarPullRequestBadge(
+            number: 1, label: "PR", url: URL(string: "https://github.com/o/r/pull/1")!, status: .open,
+            checks: PullRequestChecksSummary(status: .unavailable, checks: [], mergeStatus: .unknown)
+        ))
+        #expect(!service.requiresFreshPullRequestChecks(for: [WorkspaceGitProbeKey(workspaceId: workspace, panelId: panel)]))
+        service.resetWorkspacePullRequestRefreshState()
+    }
+
     @Test func enablingChecksMakesAlreadyTrackedPullRequestsDue() {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true

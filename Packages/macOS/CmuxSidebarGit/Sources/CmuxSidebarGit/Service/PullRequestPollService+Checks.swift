@@ -7,7 +7,11 @@ extension PullRequestPollService {
         guard let host, host.pullRequestChecksEnabled else { return false }
         return keys.contains { key in
             let badge = host.panelPullRequestBadge(workspaceId: key.workspaceId, panelId: key.panelId)
-            return badge?.checks == nil || badge?.checks?.status == .unavailable || badge?.isStale == true
+            // An unavailable optional probe is a completed attempt. Keep the
+            // ordinary PR metadata cache eligible so outages do not force
+            // uncached REST requests on every poll. A cleared projection or
+            // stale badge still requires one verified refresh.
+            return badge?.checks == nil || badge?.isStale == true
         }
     }
 

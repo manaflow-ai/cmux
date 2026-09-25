@@ -49,10 +49,7 @@ struct SidebarPullRequestChecksDisplay {
     }
 
     var tooltip: String {
-        let ordered = checks.checks.sorted {
-            let lhs = priority($0.status), rhs = priority($1.status)
-            return lhs == rhs ? $0.name < $1.name : lhs < rhs
-        }
+        let ordered = topChecksForTooltip()
         var lines = [statusLabel, mergeLabel]
         // Native tooltips must fit on screen. Keep failures first and leave
         // the existing PR link as the route to the full check list.
@@ -67,10 +64,27 @@ struct SidebarPullRequestChecksDisplay {
             }
             lines.append("\(marker) \(check.name)")
         }
-        if ordered.count > 20 {
+        if checks.checks.count > 20 {
             lines.append(String(localized: "sidebar.pullRequest.checks.more", defaultValue: "Open the pull request for all checks."))
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Selects the 20 most relevant checks without sorting the full rollup.
+    private func topChecksForTooltip() -> [SidebarPullRequestCheck] {
+        checks.checks.reduce(into: []) { selected, check in
+            let insertionIndex = selected.firstIndex { current in
+                let checkPriority = priority(check.status)
+                let currentPriority = priority(current.status)
+                return checkPriority < currentPriority
+                    || (checkPriority == currentPriority && check.name < current.name)
+            } ?? selected.count
+            guard insertionIndex < 20 else { return }
+            selected.insert(check, at: insertionIndex)
+            if selected.count > 20 {
+                selected.removeLast()
+            }
+        }
     }
 
     private func priority(_ status: SidebarPullRequestCheckStatus) -> Int {
