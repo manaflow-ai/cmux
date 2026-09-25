@@ -20,17 +20,7 @@ struct ReviewCandidate {
         let baseSHA = try Self.git(repository, ["rev-parse", "--verify", "--end-of-options", "\(base)^{commit}"])
         let index = directory.appendingPathComponent("index").path
         _ = try Self.git(repository, ["read-tree", head], index: index)
-        // Disable every configured filter, including process filters. Merely clearing
-        // inherited GIT_* variables does not neutralize repository-local configuration.
-        let filterKeys = (try? Self.git(repository, ["config", "--name-only", "--get-regexp", "^filter\\."])) ?? ""
-        let filters = Set(filterKeys.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).compactMap { key -> String? in
-            guard let suffix = key.lastIndex(of: ".") else { return nil }
-            return String(key[..<suffix])
-        })
-        let filterOverrides = filters.sorted().flatMap { filter in
-            ["-c", "\(filter).clean=/usr/bin/cat", "-c", "\(filter).smudge=/usr/bin/cat", "-c", "\(filter).process=", "-c", "\(filter).required=false"]
-        }
-        _ = try Self.git(repository, filterOverrides + ["add", "--all", "--", "."], index: index)
+        _ = try Self.git(repository, ["add", "--all", "--", "."], index: index)
         let tree = try Self.git(repository, ["write-tree"], index: index)
         let headTree = try Self.git(repository, ["rev-parse", "\(head)^{tree}"])
         let patchURL = directory.appendingPathComponent("patch.diff")
@@ -76,16 +66,33 @@ struct ReviewCandidate {
             .flatMap { ["-u", $0] }
     }
 
+    private static func filterConfigurationArguments(repository: String, environmentArguments: [String]) -> [String] {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: environmentArguments + ["git", "-C", repository, "config", "--name-only", "--get-regexp", "^filter\\."],
+            timeout: 10
+        )
+        guard result.status == 0, !result.timedOut else { return [] }
+        let filters = Set(result.stdout.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).compactMap { key -> String? in
+            guard let suffix = key.lastIndex(of: ".") else { return nil }
+            return String(key[..<suffix])
+        })
+        return filters.sorted().flatMap { filter in
+            ["-c", "\(filter).clean=/usr/bin/cat", "-c", "\(filter).smudge=/usr/bin/cat", "-c", "\(filter).process=", "-c", "\(filter).required=false"]
+        }
+    }
+
     /// A temporary index captures tracked and untracked content without changing the real index.
     static func git(_ repository: String, _ arguments: [String], index: String? = nil, trim: Bool = true) throws -> String {
         var environmentArguments = Self.gitEnvironmentArguments()
         if let index { environmentArguments.append("GIT_INDEX_FILE=\(index)") }
+        let filterOverrides = Self.filterConfigurationArguments(repository: repository, environmentArguments: environmentArguments)
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: environmentArguments + [
                 "git", "--no-optional-locks", "-c", "core.hooksPath=/dev/null",
-                "-c", "core.fsmonitor=false", "-C", repository
-            ] + arguments,
+                "-c", "core.fsmonitor=false"
+            ] + filterOverrides + ["-C", repository] + arguments,
             timeout: 30
         )
         guard result.status == 0, !result.timedOut else {
