@@ -114,11 +114,17 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendTextAfterExplicitInput(_ data: Data) -> TextSendResult {
+    private func sendTextAfterExplicitInput(
+        _ data: Data,
+        recordsExplicitInput: Bool = true
+    ) -> TextSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: data.count,
             replay: { [weak self] in
-                _ = self?.sendTextAfterExplicitInput(data)
+                _ = self?.sendTextAfterExplicitInput(
+                    data,
+                    recordsExplicitInput: recordsExplicitInput
+                )
             }
         ) {
             return .queued
@@ -128,7 +134,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
+                if recordsExplicitInput { didAcceptExplicitInput() }
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -137,8 +143,39 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         writeTextData(data, to: liveSurface)
-        didAcceptExplicitInput()
+        if recordsExplicitInput { didAcceptExplicitInput() }
         return .sent
+    }
+
+    /// Delivers startup text through Ghostty's paste API, then submits one trailing line ending.
+    ///
+    /// Ghostty selects bracketed paste when the receiving program advertises mode 2004 and
+    /// keeps the fallback non-bracketed paste path inside libghostty. Splitting the final line
+    /// ending lets bracketed-paste-aware shells receive the complete command atomically while
+    /// the Return key still executes it.
+    @MainActor
+    func sendStartupInputAfterExplicitInput(_ input: String) {
+        let submitsTrailingLineEnding = input.hasSuffix("\r\n")
+            || input.hasSuffix("\n")
+            || input.hasSuffix("\r")
+        let pasteText: String
+        if submitsTrailingLineEnding {
+            pasteText = String(input.dropLast())
+        } else {
+            pasteText = input
+        }
+
+        if !pasteText.isEmpty {
+            guard sendTextAfterExplicitInput(
+                Data(pasteText.utf8),
+                recordsExplicitInput: false
+            ).accepted else { return }
+        }
+        guard submitsTrailingLineEnding,
+              let submitKey = pendingKeyEvent(for: "return") else {
+            return
+        }
+        _ = sendNamedKeyAfterExplicitInput(submitKey, recordsExplicitInput: false)
     }
 
     /// Sends raw key text as a single key event.
@@ -223,12 +260,16 @@ extension TerminalSurface {
 
     @MainActor
     private func sendNamedKeyAfterExplicitInput(
-        _ event: PendingKeyEvent
+        _ event: PendingKeyEvent,
+        recordsExplicitInput: Bool = true
     ) -> NamedKeySendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: PendingSocketInput.key(event).estimatedBytes,
             replay: { [weak self] in
-                _ = self?.sendNamedKeyAfterExplicitInput(event)
+                _ = self?.sendNamedKeyAfterExplicitInput(
+                    event,
+                    recordsExplicitInput: recordsExplicitInput
+                )
             }
         ) {
             return .queued
@@ -237,7 +278,7 @@ extension TerminalSurface {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
             requestInputDemandSurfaceStartIfNeeded()
-            didAcceptExplicitInput()
+            if recordsExplicitInput { didAcceptExplicitInput() }
             return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendNamedKey") else {
@@ -245,7 +286,7 @@ extension TerminalSurface {
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         sendKeyEvent(surface: liveSurface, keycode: event.keycode, mods: event.mods)
-        didAcceptExplicitInput()
+        if recordsExplicitInput { didAcceptExplicitInput() }
         return .sent
     }
 

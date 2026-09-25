@@ -320,6 +320,7 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(cmux_test_ghostty_input_text_call_count() == 1)
         #expect(cmux_test_ghostty_input_text_input_call_count() == 0)
         #expect(cmux_test_ghostty_input_key_call_count() == 1)
+        #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
     private func makeFixture(
