@@ -1683,6 +1683,8 @@ EXEMPT = {
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
         "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
+    ("seed-derived-data.yml", "decide", "XCODE_APP_MACOS_15"):
+        "a Linux job; seed_decide.py fingerprints the macOS 15 pool's seed under the Xcode that pool seeds with",
     ("seed-swiftpm-manifests.yml", "seed", "CMUX_CI_XCODE_APP"):
         "seeds the manifest cache for the Xcode pr_runner_pool.py hands to runs it routes to the macOS 15 pool",
 }
