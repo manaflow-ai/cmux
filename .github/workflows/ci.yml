@@ -703,6 +703,8 @@ jobs:
           # The main commit this run merges onto: compile admission may take
           # the root runner the snapshot calls warm for it (warm affinity).
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
+          # Or, failing that, the root runner warm for this pull request.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/pr_runner_pool.py
 
