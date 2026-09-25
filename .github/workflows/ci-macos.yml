@@ -533,8 +533,14 @@ jobs:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
+      # An owned Mac keeps the verified archive between jobs (one pinned
+      # sha256 per ghostty revision), so a warm root skips the ~27 s download
+      # it otherwise paid on every admission at near-idle CPU. Both roots share
+      # the one directory; the script re-verifies every cached use.
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        env:
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '/Users/Shared/cmux-build-fleet/ci/ghosttykit-archives' || '' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
