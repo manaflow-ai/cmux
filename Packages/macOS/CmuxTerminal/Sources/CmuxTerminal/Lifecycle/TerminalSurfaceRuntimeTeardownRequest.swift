@@ -24,7 +24,12 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
+    /// Suspends until all work that borrowed `surface` before teardown has
+    /// finished. Native free is scheduled only after this operation returns;
+    /// the request retains all userdata until that later free completes.
+    let beforeFree: @Sendable () async -> Void
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
+    let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
     let surfaceToken: String
     let workspaceToken: String
@@ -38,7 +43,9 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+        beforeFree: @escaping @Sendable () async -> Void,
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
+        completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -47,7 +54,9 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.callbackContext = callbackContext
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
+        self.beforeFree = beforeFree
         self.freeSurface = freeSurface
+        self.completion = completion
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))
         self.workspaceToken = String(workspaceId.uuidString.prefix(5))

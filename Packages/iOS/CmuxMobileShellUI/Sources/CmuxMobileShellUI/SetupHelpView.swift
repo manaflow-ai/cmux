@@ -73,11 +73,11 @@ struct SetupHelpView: View {
             Text(highlight == nil
                 ? L10n.string(
                     "mobile.setupHelp.introReference",
-                    defaultValue: "To see your computer's terminals here, four things have to line up."
+                    defaultValue: "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. Connection is automatic after that."
                 )
                 : L10n.string(
                     "mobile.setupHelp.intro",
-                    defaultValue: "To see your computer's terminals here, four things have to line up. The step you are on is marked below."
+                    defaultValue: "To see your computer's terminals here, sign in to the same cmux account on both devices and keep cmux running on the computer. The step you are on is marked below."
                 ))
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -124,7 +124,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
+                    defaultValue: "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -150,7 +150,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. The Iroh session keeps peer identity and application traffic authenticated on every path."
+                    defaultValue: "If both devices are on Tailscale, another VPN, or the same network, cmux can use it as a faster direct path. The connection stays encrypted and verified either way."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -162,12 +162,12 @@ struct SetupHelpView: View {
             HStack(spacing: 8) {
                 Image(systemName: "lock.laptopcomputer")
                     .foregroundStyle(.tint)
-                Text(L10n.string("mobile.setupHelp.networkTitle", defaultValue: "Connect with Iroh"))
+                Text(L10n.string("mobile.setupHelp.networkTitle", defaultValue: "How it connects"))
             }
         } footer: {
             Text(L10n.string(
                 "mobile.setupHelp.sameAccountFooter",
-                defaultValue: "The computer and this phone must be signed in to the same cmux account. Any private network changes reachability only; it never replaces Iroh's identity and authorization checks."
+                defaultValue: "Both devices must be signed in to the same cmux account. A private network never replaces that check."
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")

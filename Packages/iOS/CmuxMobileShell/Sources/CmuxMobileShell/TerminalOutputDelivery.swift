@@ -17,40 +17,95 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case theme(MobileTerminalRenderGridFrame)
     }
 
+    let receivedAtNanos: UInt64
+
     private var payload: Payload
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
+    var endSequence: UInt64?
+    /// Whether this delivery was admitted to the verified replay path. This
+    /// decision is captured before delivery advances render-grid continuity;
+    /// queued chunks must retain the admission result until they are yielded.
+    let requiresVerifiedReplay: Bool
 
     var replaceable: Bool {
         replacementScope != nil
+    }
+
+    /// Only byte and render-grid deliveries represent terminal output. Theme
+    /// and viewport-policy updates can still trigger a redraw, but they do not
+    /// represent terminal work for the latency histograms.
+    var latencyMetricsEligible: Bool {
+        guard replacementScope != .viewportPolicy else { return false }
+        switch payload {
+        case .bytes, .renderGrid:
+            return true
+        case .theme:
+            return false
+        }
+    }
+
+    /// A revisioned render-grid delta is tied to the exact frame named by its
+    /// base revision. Replacing an older pending delta with a newer one would
+    /// drop that base and make the newer patch paint against the wrong grid.
+    /// Legacy frames without revision metadata retain the old coalescing rule.
+    var canCoalesce: Bool {
+        guard replaceable else { return false }
+        guard case .renderGrid(let frame) = payload else { return true }
+        return frame.deltaBaseRenderRevision == nil
+            && frame.deltaBaseHistoryRows == nil
+            && frame.scrolledRows == 0
     }
 
     init(
         bytes: Data,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        endSequence: UInt64? = nil,
+        requiresVerifiedReplay: Bool = false,
+        receivedAtNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        self.receivedAtNanos = receivedAtNanos
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
+        self.endSequence = endSequence
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
-    init(theme frame: MobileTerminalRenderGridFrame) {
+    init(
+        theme frame: MobileTerminalRenderGridFrame,
+        requiresVerifiedReplay: Bool = false
+    ) {
+        self.receivedAtNanos = DispatchTime.now().uptimeNanoseconds
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
+        self.endSequence = nil
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
     init(
         renderGrid frame: MobileTerminalRenderGridFrame,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        requiresVerifiedReplay: Bool = false
     ) {
+        self.receivedAtNanos = DispatchTime.now().uptimeNanoseconds
         self.payload = .renderGrid(frame)
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
+        self.endSequence = frame.stateSeq
+        self.requiresVerifiedReplay = requiresVerifiedReplay
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.payload == rhs.payload && lhs.replacementScope == rhs.replacementScope
+            && lhs.viewportPolicy == rhs.viewportPolicy && lhs.endSequence == rhs.endSequence
+            && lhs.requiresVerifiedReplay == rhs.requiresVerifiedReplay
+            && lhs.terminalConfigTheme == rhs.terminalConfigTheme
     }
 
     var bytes: Data {
@@ -72,17 +127,38 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             nil
         }
     }
+
+    var sourceRenderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
+    }
+
+    /// Raw PTY bytes that can share one renderer apply with adjacent raw output.
+    var rawBytesForBatching: Data? {
+        guard case .bytes(let bytes) = payload,
+              replacementScope == nil,
+              viewportPolicy == nil,
+              !requiresVerifiedReplay else {
+            return nil
+        }
+        return bytes
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
+/// Raw byte chunks preserve ordering against other delivery kinds, while adjacent
+/// raw backlog may share one bounded renderer apply. Render-grid chunks that repaint
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    static let maxPendingDeliveries = 128
+    static let maxRawByteBatchByteCount = 64 * 1_024
     private var inFlight = false
+    private var inFlightDelivery: TerminalOutputDelivery?
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
+    private var overflowed = false
 
     var isIdle: Bool {
         !inFlight && pendingCount == 0
@@ -92,9 +168,19 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pending.count - pendingHeadIndex
     }
 
+    var inFlightLatencyMetricsEligible: Bool {
+        inFlightDelivery?.latencyMetricsEligible ?? false
+    }
+
+    mutating func takeOverflowed() -> Bool {
+        defer { overflowed = false }
+        return overflowed
+    }
+
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
         guard inFlight else {
             inFlight = true
+            inFlightDelivery = delivery
             return delivery
         }
         appendPending(delivery)
@@ -103,43 +189,106 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
         guard inFlight else {
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
         }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: true)
             pendingHeadIndex = 0
             return nil
         }
-        let next = pending[pendingHeadIndex]
-        pendingHeadIndex += 1
+        let next = takeNextPendingDelivery()
+        inFlightDelivery = next
         compactPendingStorageIfNeeded()
         return next
     }
 
     mutating func reset() {
         inFlight = false
+        inFlightDelivery = nil
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
+        overflowed = false
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
         guard let replacementScope = delivery.replacementScope else {
+            guard pendingCount < Self.maxPendingDeliveries else {
+                overflowed = true
+                pending.removeAll(keepingCapacity: false)
+                pendingHeadIndex = 0
+                return
+            }
+            pending.append(delivery)
+            return
+        }
+        guard delivery.canCoalesce else {
+            guard pendingCount < Self.maxPendingDeliveries else {
+                overflowed = true
+                pending.removeAll(keepingCapacity: false)
+                pendingHeadIndex = 0
+                return
+            }
             pending.append(delivery)
             return
         }
         var candidateIndex = pending.count
         while candidateIndex > pendingHeadIndex {
             candidateIndex -= 1
-            guard pending[candidateIndex].replaceable else { break }
+            guard pending[candidateIndex].canCoalesce else { break }
             if pending[candidateIndex].replacementScope == replacementScope {
                 pending.remove(at: candidateIndex)
                 break
             }
         }
+        guard pendingCount < Self.maxPendingDeliveries else {
+            overflowed = true
+            pending.removeAll(keepingCapacity: false)
+            pendingHeadIndex = 0
+            return
+        }
         pending.append(delivery)
+    }
+
+    /// Removes the next pending delivery, batching adjacent plain raw PTY bytes.
+    private mutating func takeNextPendingDelivery() -> TerminalOutputDelivery {
+        let first = pending[pendingHeadIndex]
+        pendingHeadIndex += 1
+        guard let firstBytes = first.rawBytesForBatching else {
+            return first
+        }
+
+        var batchEndIndex = pendingHeadIndex
+        var totalByteCount = firstBytes.count
+        while batchEndIndex < pending.count,
+              let candidateBytes = pending[batchEndIndex].rawBytesForBatching,
+              totalByteCount + candidateBytes.count <= Self.maxRawByteBatchByteCount {
+            totalByteCount += candidateBytes.count
+            batchEndIndex += 1
+        }
+        guard batchEndIndex > pendingHeadIndex else {
+            return first
+        }
+
+        var bytes = Data()
+        bytes.reserveCapacity(totalByteCount)
+        bytes.append(firstBytes)
+        var endSequence = first.endSequence
+        for index in pendingHeadIndex..<batchEndIndex {
+            bytes.append(pending[index].bytes)
+            endSequence = pending[index].endSequence
+        }
+        pendingHeadIndex = batchEndIndex
+        return TerminalOutputDelivery(
+            bytes: bytes,
+            replaceable: false,
+            endSequence: endSequence,
+            receivedAtNanos: first.receivedAtNanos
+        )
     }
 
     private mutating func compactPendingStorageIfNeeded() {

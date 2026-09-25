@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+@testable import CmuxMobileHost
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -11,6 +12,52 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test func authenticatedStatusRetriesUntilTheCurrentIdentityExists() throws {
+        MobileHostPublicStatusCache.removeAll()
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .failure(error) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Authenticated status must wait for a device identity")
+            return
+        }
+        #expect(error.code == "unavailable")
+        let data = try #require(error.data as? [String: Any])
+        #expect(data["retryable"] as? Bool == true)
+        guard case .ok = MobileHostPublicStatusCache.result() else {
+            Issue.record("Public reachability remains available during identity setup")
+            return
+        }
+        MobileHostPublicStatusCache.updateV2DeviceID("current-device")
+        guard case let .ok(payload as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Configured identity must be returned")
+            return
+        }
+        #expect(payload["mac_device_id"] as? String == "current-device")
+    }
+
+    @Test func olderPeerStatusKeepsItsDirectoryIdentityWithoutChangingV2Status() throws {
+        MobileHostPublicStatusCache.updateV2DeviceID("v2-team-installation")
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .ok(older as [String: Any]) = MobileHostPublicStatusCache.result(
+            includeIdentity: true, deviceID: "existing-physical-mac"
+        ), case let .ok(modern as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Both admitted protocols must receive a computer identity")
+            return
+        }
+        #expect(older["mac_device_id"] as? String == "existing-physical-mac")
+        #expect(modern["mac_device_id"] as? String == "v2-team-installation")
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == "v2-team-installation")
+    }
+
+    @Test func stoppingHostStatusClearsIdentityAlongsideRoutes() {
+        MobileHostPublicStatusCache.updateV2DeviceID("previous-account-device")
+        MobileHostPublicStatusCache.removeAll()
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == nil)
+        guard case .failure = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("A stopped host cannot publish its previous identity")
+            return
+        }
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
@@ -119,8 +166,12 @@ struct MobileHostAuthorizationTests {
     @Test func testLiveAuthorizationRejectsWorkspaceScopedAttachTokenForMacScopedMutations() async throws {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: 61234)
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil); service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: nil) }
+        MobileHostPublicStatusCache.update(routes: [try CmxAttachRoute(
+            id: "fixture", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 61234))])
+        defer {
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+            MobileHostPublicStatusCache.removeAll()
+        }
         let payload = try await service.createAttachTicket(workspaceID: "workspace-main", terminalID: nil, ttl: 3600)
         let ticketPayload = try #require(payload["ticket"] as? [String: Any])
         let attachToken = try #require(ticketPayload["auth_token"] as? String)
@@ -143,6 +194,40 @@ struct MobileHostAuthorizationTests {
                 return #expect(Bool(false), "workspace-scoped attach token should reject \(method)")
             }
             #expect(error.code == "forbidden")
+        }
+    }
+    @Test func testAccountAuthorizedMacScopedMutationsSurviveMissingOrExpiredAttachTicket() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        guard MobileHostService.mobileHostCapabilities.contains(
+            "workspace.mutations.account_auth.v1"
+        ) else {
+            return #expect(
+                Bool(false),
+                "the host must advertise account-authorized workspace mutations"
+            )
+        }
+        let mutations: [(String, [String: Any])] = [
+            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
+            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+            ("workspace.group.create", [:]),
+            ("workspace.create", ["group_id": "group-main"]),
+        ]
+        for (method, params) in mutations {
+            for attachToken in [nil, "expired-or-unknown-token"] {
+                let request = MobileHostRPCRequest(
+                    id: method,
+                    method: method,
+                    params: params,
+                    auth: MobileHostRPCAuth(attachToken: attachToken, stackAccessToken: "cmux-dev-token")
+                )
+                let result = await service.debugAuthorizationError(for: request)
+                #expect(
+                    result == nil,
+                    "\(method) with \(attachToken == nil ? "no" : "a stale") attach token must be authorized by the Stack account gate"
+                )
+            }
         }
     }
     #endif
@@ -388,6 +473,47 @@ struct MobileHostAuthorizationTests {
             id: "workspace-list",
             method: "workspace.list",
             params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error == nil)
+    }
+    @Test func testScopedAttachTicketAcceptsMacCaffeineControl() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let requests: [(method: String, params: [String: Any])] = [
+            ("caffeine.status", [:]),
+            ("caffeine.set", ["enabled": true]),
+        ]
+        for (method, params) in requests {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(
+                    attachToken: ticket.authToken,
+                    stackAccessToken: nil
+                )
+            )
+            let error = MobileHostService.ticketAuthorizationError(
+                ticket: ticket,
+                request: request
+            )
+            #expect(error == nil)
+        }
+    }
+    @Test func testAttachTicketAcceptsMacDirectoryListForPairedDevice() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "directory-list",
+            method: "mobile.directory.list",
+            params: [
+                "path": "~",
+                "offset": 0,
+                "limit": 50,
+            ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -783,45 +909,6 @@ struct MobileHostAuthorizationTests {
         )
         terminalController.debugResetMobileViewportReportsForTesting()
     }
-    @Test func testMobileHostIgnoresStaleListenerStateCallbacks() {
-        let service = MobileHostService.shared
-        let currentGeneration = UUID()
-        let staleGeneration = UUID()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugSetListenerStateForTesting(
-            generation: currentGeneration,
-            usesEphemeralFallback: true,
-            port: 61234
-        )
-        service.debugHandleListenerStateForTesting(
-            .failed(.posix(.ECONNRESET)),
-            generation: staleGeneration
-        )
-        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
-        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
-        #expect(service.debugListenerPortForTesting() == 61234)
-        service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
-        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
-        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
-        #expect(service.debugListenerPortForTesting() == 61234)
-    }
-    @Test func testMobileHostWaitingListenerDoesNotPublishRoutes() {
-        let service = MobileHostService.shared
-        let generation = UUID()
-        service.stop()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugSetListenerStateForTesting(
-            generation: generation,
-            usesEphemeralFallback: false,
-            port: 61234
-        )
-        service.debugHandleListenerStateForTesting(.waiting(.posix(.EADDRINUSE)), generation: generation)
-        let status = service.statusSnapshot()
-        #expect(!status.isRunning)
-        #expect(status.port == nil)
-        #expect(status.routes.isEmpty)
-        #expect(service.debugListenerPortForTesting() == nil)
-    }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
@@ -1071,11 +1158,6 @@ actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
         blockedWaiter?.resume(throwing: CancellationError())
         blockedWaiter = nil
     }
-}
-struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
-    private let instant = Date(timeIntervalSince1970: 1_700_000_000)
-    func now() -> Date { instant }
-    func sleep(until _: Date) async throws {}
 }
 actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
     private var sendWaiter: CheckedContinuation<Void, any Error>?

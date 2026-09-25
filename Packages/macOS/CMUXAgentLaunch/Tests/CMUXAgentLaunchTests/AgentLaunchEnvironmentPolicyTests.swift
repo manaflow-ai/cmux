@@ -9,6 +9,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             from: [
                 "OPENAI_API_KEY": "secret-should-not-persist",
                 "PI_CODING_AGENT_DIR": "/tmp/omp-agent",
+                "OMP_AGENT_DIR": "/tmp/omp-agent",
                 "PI_CONFIG_DIR": ".custom-omp",
             ],
             kind: "omp"
@@ -16,7 +17,28 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "PI_CODING_AGENT_DIR": "/tmp/omp-agent",
+            "OMP_AGENT_DIR": "/tmp/omp-agent",
             "PI_CONFIG_DIR": ".custom-omp",
+        ])
+    }
+
+    @Test(
+        "Restore transport keeps Pi-family PATH without crossing secrets",
+        arguments: ["pi", "omp"]
+    )
+    func restoreTransportKeepsPiFamilyPathWithoutSecrets(kind: String) {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "PATH": "/nix/store/pi/bin:/usr/bin",
+                "PI_CONFIG_DIR": ".custom-pi",
+                "OPENAI_API_KEY": "secret-should-not-cross-socket",
+            ],
+            kind: kind
+        )
+
+        #expect(selected == [
+            "PATH": "/nix/store/pi/bin:/usr/bin",
+            "PI_CONFIG_DIR": ".custom-pi",
         ])
     }
 

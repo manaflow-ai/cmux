@@ -6,9 +6,13 @@ import UIKit
 struct ChatArtifactZoomableImageView: UIViewRepresentable {
     let image: UIImage
     let onMinimumZoomChanged: (Bool) -> Void
+    let onAction: (@MainActor (ChatArtifactAction) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onMinimumZoomChanged: onMinimumZoomChanged)
+        Coordinator(
+            onMinimumZoomChanged: onMinimumZoomChanged,
+            onAction: onAction
+        )
     }
 
     func makeUIView(context: Context) -> UIScrollView {
@@ -26,7 +30,9 @@ struct ChatArtifactZoomableImageView: UIViewRepresentable {
         imageView.image = image
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
         scrollView.addSubview(imageView)
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
@@ -50,6 +56,7 @@ struct ChatArtifactZoomableImageView: UIViewRepresentable {
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
         context.coordinator.onMinimumZoomChanged = onMinimumZoomChanged
+        context.coordinator.onAction = onAction
         if context.coordinator.imageView.image !== image {
             context.coordinator.imageView.image = image
             scrollView.setZoomScale(scrollView.minimumZoomScale, animated: false)
@@ -57,15 +64,20 @@ struct ChatArtifactZoomableImageView: UIViewRepresentable {
         context.coordinator.reportMinimumZoomIfNeeded(force: false)
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, UIContextMenuInteractionDelegate {
         let imageView = UIImageView()
         let policy = ChatArtifactZoomPolicy()
         weak var scrollView: UIScrollView?
         var onMinimumZoomChanged: (Bool) -> Void
+        var onAction: (@MainActor (ChatArtifactAction) -> Void)?
         private var lastReportedMinimumState: Bool?
 
-        init(onMinimumZoomChanged: @escaping (Bool) -> Void) {
+        init(
+            onMinimumZoomChanged: @escaping (Bool) -> Void,
+            onAction: (@MainActor (ChatArtifactAction) -> Void)?
+        ) {
             self.onMinimumZoomChanged = onMinimumZoomChanged
+            self.onAction = onAction
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -74,6 +86,23 @@ struct ChatArtifactZoomableImageView: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             reportMinimumZoomIfNeeded(force: false)
+        }
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            configurationForMenuAtLocation location: CGPoint
+        ) -> UIContextMenuConfiguration? {
+            guard let onAction else { return nil }
+            return UIContextMenuConfiguration(actionProvider: { _ in
+                UIMenu(children: ChatArtifactActionVisibilityPolicy.imageActions.map { action in
+                    UIAction(
+                        title: action.localizedTitle,
+                        image: UIImage(systemName: action.systemImage)
+                    ) { _ in
+                        onAction(action)
+                    }
+                })
+            })
         }
 
         @objc

@@ -1,4 +1,6 @@
 import CmuxAgentChat
+import CmuxMobileSupport
+import CmuxMobileToast
 import SwiftUI
 
 #if os(iOS)
@@ -13,6 +15,7 @@ struct ChatArtifactViewerPager: View {
     let swipeOrder: ChatArtifactGallerySwipeOrder
     let onDone: () -> Void
 
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.chatArtifactLoader) private var loader
     @State private var model: ChatArtifactViewerPagerModel
     @State private var zoomedPath: String?
@@ -45,7 +48,16 @@ struct ChatArtifactViewerPager: View {
                 #if os(iOS)
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if model.toolbarSnapshot.hasViewerActions {
-                        viewerActionsMenu(snapshot: model.toolbarSnapshot)
+                        ChatArtifactViewerActionsMenu(
+                            value: ChatArtifactViewerActionsMenuValue(
+                                snapshot: model.toolbarSnapshot,
+                                loaderScope: loader.scope,
+                                loaderSupportsArtifacts: loader.supportsArtifacts,
+                                loaderSupportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
+                            ),
+                            actions: viewerActionsMenuActions
+                        )
+                        .equatable()
                     }
                     doneButton
                 }
@@ -58,20 +70,12 @@ struct ChatArtifactViewerPager: View {
             #if os(iOS)
             .chatArtifactFileActionPresentation(fileActionPresentationBinding)
             .alert(
-                String(
-                    localized: "chat.artifact.action_failed.title",
-                    defaultValue: "Couldn't complete action",
-                    bundle: .module
-                ),
+                fileActionFailurePresentation.title,
                 isPresented: fileActionErrorBinding
             ) {
                 Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
             } message: {
-                Text(String(
-                    localized: "chat.artifact.action_failed.message",
-                    defaultValue: "Check the connection to your Mac and try again.",
-                    bundle: .module
-                ))
+                Text(fileActionFailurePresentation.message)
             }
             #endif
             .onChange(of: initialPath) { _, newPath in
@@ -116,6 +120,9 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = path
                 }
             },
+            onImageAction: { action, snapshot in
+                performFileAction(action, snapshot: snapshot)
+            },
             onDone: onDone
         )
     }
@@ -148,8 +155,19 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = snapshot.path
                 }
             },
+            onImageAction: imageActionPerformer(for: snapshot),
             onDone: onDone
         )
+    }
+
+    private func imageActionPerformer(
+        for snapshot: ChatArtifactViewerPageSnapshot
+    ) -> (@MainActor (ChatArtifactAction) -> Void)? {
+        #if os(iOS)
+        { action in performFileAction(action, snapshot: snapshot) }
+        #else
+        nil
+        #endif
     }
 
     private var selectionBinding: Binding<String> {
@@ -166,174 +184,52 @@ struct ChatArtifactViewerPager: View {
     }
 
     #if os(iOS)
-    private func viewerActionsMenu(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
-        Menu {
-            if snapshot.hasFileActions {
-                Section {
-                    fileActionButtons(snapshot: snapshot)
-                }
-            }
-            if snapshot.shouldShowTextJumpControls {
-                Section {
-                    textViewerActionButtons(snapshot: snapshot)
-                }
-            }
-            if snapshot.state == .markdown,
-               snapshot.markdownPresentation.isRenderedAvailable {
-                Section {
-                    Picker(
-                        String(
-                            localized: "chat.artifact.markdown.view",
-                            defaultValue: "Markdown view",
-                            bundle: .module
-                        ),
-                        selection: markdownModeBinding
-                    ) {
-                        Text(String(
-                            localized: "chat.artifact.markdown.raw",
-                            defaultValue: "Raw",
-                            bundle: .module
-                        ))
-                        .tag(ChatArtifactMarkdownMode.raw)
-                        Text(String(
-                            localized: "chat.artifact.markdown.rendered",
-                            defaultValue: "Rendered",
-                            bundle: .module
-                        ))
-                        .tag(ChatArtifactMarkdownMode.rendered)
-                    }
-                }
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.viewer.actions",
-                    defaultValue: "Viewer actions",
-                    bundle: .module
-                ),
-                systemImage: "ellipsis.circle"
-            )
-        }
-        .disabled(snapshot.fileActionState.isRunning)
-    }
-
-    @ViewBuilder
-    private func fileActionButtons(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
-        Button {
-            Task { await model.prepareShare(loader: loader) }
-        } label: {
-            Label(
-                String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        Button {
-            Task { await model.prepareSave(loader: loader) }
-        } label: {
-            Label(
-                String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
-                systemImage: "folder.badge.plus"
-            )
-        }
-        if snapshot.isTextFile {
-            Button {
-                UIPasteboard.general.string = snapshot.renderedText
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            .disabled(!snapshot.canCopyContents)
-        }
-        Button {
-            UIPasteboard.general.string = snapshot.path
-        } label: {
-            Label(
-                String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
-                systemImage: "link"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func textViewerActionButtons(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
-        Button {
-            withAnimation(.snappy) {
-                model.toggleSearch()
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.search.title",
-                    defaultValue: "Search",
-                    bundle: .module
-                ),
-                systemImage: "magnifyingglass"
-            )
-        }
-        Button {
-            withAnimation(.snappy) {
-                model.toggleGoToLine()
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.line.goto",
-                    defaultValue: "Go to line",
-                    bundle: .module
-                ),
-                systemImage: "text.line.first.and.arrowtriangle.forward"
-            )
-        }
-        Button {
-            model.requestTop()
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.jump.top",
-                    defaultValue: "Top",
-                    bundle: .module
-                ),
-                systemImage: "arrow.up.to.line"
-            )
-        }
-        Button {
-            model.requestBottom()
-        } label: {
-            Label(jumpToEndTitle(snapshot: snapshot), systemImage: "arrow.down.to.line")
-        }
-        Button {
-            model.toggleLineNumbers()
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.line.numbers",
-                    defaultValue: "Line numbers",
-                    bundle: .module
-                ),
-                systemImage: snapshot.showsLineNumbers ? "checkmark" : "number"
-            )
-        }
-        Button {
-            model.toggleWordWrap()
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.wrap",
-                    defaultValue: "Word wrap",
-                    bundle: .module
-                ),
-                systemImage: snapshot.wrapsLines ? "checkmark" : "text.justify.left"
-            )
-        }
-    }
-
-    private var markdownModeBinding: Binding<ChatArtifactMarkdownMode> {
-        Binding(
-            get: { model.toolbarSnapshot.markdownPresentation.mode },
-            set: { model.selectMarkdownMode($0) }
+    private var viewerActionsMenuActions: ChatArtifactViewerActionsMenuActions {
+        ChatArtifactViewerActionsMenuActions(
+            prepareShare: { path in
+                Task { await model.prepareShare(for: path, loader: loader) }
+            },
+            prepareSave: { path in
+                Task { await model.prepareSave(for: path, loader: loader) }
+            },
+            toggleSearch: { path in model.toggleSearch(for: path, loader: loader) },
+            toggleGoToLine: model.toggleGoToLine,
+            requestTop: model.requestTop,
+            requestBottom: model.requestBottom,
+            toggleLineNumbers: model.toggleLineNumbers,
+            toggleWordWrap: model.toggleWordWrap,
+            selectMarkdownMode: model.selectMarkdownMode,
+            notifyCopied: { toasts.present(.copied()) },
+            notifyPathCopied: {
+                toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+            },
+            performFileAction: performFileAction
         )
+    }
+
+    private func performFileAction(
+        _ action: ChatArtifactAction,
+        snapshot: ChatArtifactViewerPageSnapshot
+    ) {
+        switch action {
+        case .share:
+            Task { await model.prepareShare(for: snapshot.path, loader: loader) }
+        case .save:
+            Task { await model.prepareSave(for: snapshot.path, loader: loader) }
+        case .copyImage:
+            guard case .image(let data) = snapshot.state else { return }
+            UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied())
+        case .copyContents:
+            UIPasteboard.general.string = snapshot.renderedText
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied())
+        case .copyPath:
+            UIPasteboard.general.string = snapshot.path
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+        }
     }
 
     private var fileActionPresentationBinding: Binding<ChatArtifactFileActionPresentation?> {
@@ -359,21 +255,12 @@ struct ChatArtifactViewerPager: View {
         )
     }
 
-    private func jumpToEndTitle(snapshot: ChatArtifactViewerPageSnapshot) -> String {
-        switch ChatArtifactTextEndJumpTarget(reachedEOF: snapshot.textReachedEOF) {
-        case .end:
-            return String(
-                localized: "chat.artifact.jump.end",
-                defaultValue: "End",
-                bundle: .module
-            )
-        case .latest:
-            return String(
-                localized: "chat.artifact.jump.latest",
-                defaultValue: "Latest",
-                bundle: .module
-            )
-        }
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: model.toolbarSnapshot.fileActionState.failure ?? .loadFailed,
+            scope: scope
+        )
     }
+
     #endif
 }

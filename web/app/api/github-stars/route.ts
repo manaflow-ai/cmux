@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
-export const revalidate = 300; // ISR: regenerate every 5 minutes
 
 export async function GET(request: Request) {
   return withApiRouteSpan(

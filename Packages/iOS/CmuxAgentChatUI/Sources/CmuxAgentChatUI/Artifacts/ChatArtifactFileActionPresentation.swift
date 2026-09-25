@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 
 /// A system presentation prepared by an artifact file action.
-public enum ChatArtifactFileActionPresentation: Identifiable, Equatable {
+public enum ChatArtifactFileActionPresentation: Identifiable, Equatable, Sendable {
     /// Presents the standard activity controller for a local file.
     case share(URL)
     /// Presents the Files document picker in export-as-copy mode.
@@ -73,6 +73,14 @@ private struct ChatArtifactActivityView: UIViewControllerRepresentable {
         let controller = UIActivityViewController(
             activityItems: [fileURL],
             applicationActivities: nil
+        )
+        controller.loadViewIfNeeded()
+        controller.popoverPresentationController?.sourceView = controller.view
+        controller.popoverPresentationController?.sourceRect = CGRect(
+            x: controller.view.bounds.midX,
+            y: controller.view.bounds.midY,
+            width: 1,
+            height: 1
         )
         controller.completionWithItemsHandler = { _, _, _, _ in
             onFinish()
