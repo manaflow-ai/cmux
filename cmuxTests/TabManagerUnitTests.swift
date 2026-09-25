@@ -2496,7 +2496,7 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
     }
 
-    func testClosingSelectedTabInZoomedPaneClearsSplitZoomBeforeSelectingNextTab() {
+    func testClosingSelectedTabInZoomedPaneKeepsZoomAndFocusesNextTab() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let firstPanelId = workspace.focusedPanelId,
@@ -2516,15 +2516,18 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected the surviving tab in the pane to become focused")
-        XCTAssertFalse(
+        // The zoomed pane outlives the close, so it keeps filling the window
+        // (https://github.com/manaflow-ai/cmux/issues/8363). Zoom state itself
+        // is covered by WorkspaceSplitZoomTabCloseTests.
+        XCTAssertTrue(
             workspace.bonsplitController.isSplitZoomed,
-            "Closing the selected tab that owns zoom must not transfer the maximized layout to the next tab"
+            "Closing one tab of a zoomed pane that still has tabs must keep the pane zoomed"
         )
         XCTAssertTrue(
             workspace.toggleSplitZoom(panelId: firstPanelId),
-            "The surviving tab should still be zoomable on demand"
+            "The surviving tab should still control the zoom"
         )
-        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
     }
 
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
