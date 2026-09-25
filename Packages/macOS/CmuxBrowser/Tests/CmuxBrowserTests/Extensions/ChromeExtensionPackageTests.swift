@@ -139,6 +139,18 @@ import Testing
         }
     }
 
+    @Test func refusesSymlinkedUnpackedRoot() throws {
+        let real = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-real-\(UUID().uuidString)", isDirectory: true)
+        let link = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-link-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: real); try? FileManager.default.removeItem(at: link) }
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: real.appendingPathComponent("manifest.json"))
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(throws: ChromeExtensionPackage.Failure.self) {
+            try ChromeExtensionPackage.copyUnpacked(from: link, into: real.appendingPathExtension("copy"))
+        }
+    }
+
     @Test func parsesExtensionIDsFromStoreLinks() {
         #expect(ChromeExtensionPackage.extensionID(in: "https://chromewebstore.google.com/detail/json-formatter/bcjindcccaagfpapjjmafapmmgkkhgoa?hl=en") == Self.fixtureID)
         #expect(ChromeExtensionPackage.extensionID(in: "BCJINDCCCAAGFPAPJJMAFAPMMGKKHGOA") == Self.fixtureID)

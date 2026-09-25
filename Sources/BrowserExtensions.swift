@@ -1138,6 +1138,10 @@ private final class Controller: NSObject, WKWebExtensionControllerDelegate {
     /// cmux has no separate extension windows: a new window's URLs open as
     /// tabs beside the active one.
     func webExtensionController(_ controller: WKWebExtensionController, openNewWindowUsing configuration: WKWebExtension.WindowConfiguration, for extensionContext: WKWebExtensionContext) async throws -> (any WKWebExtensionWindow)? {
+        // Extensions do not run in private browsing, so a private window
+        // cannot be honored; opening its URLs in this profile would send the
+        // profile's cookies where the extension asked for none.
+        guard !configuration.shouldBePrivate else { throw URLError(.unsupportedURL) }
         for (index, url) in configuration.tabURLs.enumerated() {
             _ = openTab(url: url, focus: index == 0 && configuration.shouldBeFocused, extensionID: extensionContext.uniqueIdentifier)
         }

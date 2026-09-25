@@ -287,6 +287,12 @@ public enum ChromeExtensionPackage {
 
     /// Refuses trees that could redirect writes or reads outside `root`.
     public static func validateUnpackedTree(at root: URL, fileManager: FileManager = .default) throws {
+        // The root itself must be a real directory, not a link to one: a
+        // linked root would be validated as its target but copied as a link.
+        let rootValues = try root.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        guard rootValues.isSymbolicLink != true, rootValues.isDirectory == true else {
+            throw Failure.unpack("the extension folder must be a real folder")
+        }
         let rootURL = root.resolvingSymlinksInPath().standardizedFileURL
         let rootPath = rootURL.path
         let manifest = rootURL.appendingPathComponent("manifest.json")

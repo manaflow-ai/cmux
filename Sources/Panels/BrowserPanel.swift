@@ -5556,6 +5556,7 @@ final class BrowserPanel: Panel, ObservableObject {
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            callerIsTrusted: trustedInternalNavigation,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5589,6 +5590,7 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        callerIsTrusted: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
@@ -5630,7 +5632,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let trustedInternalNavigation = BrowserURLAllowlistPolicy
             .trustedInternalSchemes
             .contains(originalURL.scheme?.lowercased() ?? "")
-            || ChromeExtensionsManagerPage.isManagerPageURL(originalURL)
+            // cmux://extensions is trusted only when the caller is: web
+            // content routed here (popups, mobile streaming) never is.
+            || (callerIsTrusted && ChromeExtensionsManagerPage.isManagerPageURL(originalURL))
         if trustedInternalNavigation, originalURL.isFileURL {
             beginTrustedLocalFileNavigation(originalURL)
         } else {
