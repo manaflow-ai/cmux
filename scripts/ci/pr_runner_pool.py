@@ -175,8 +175,12 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
-OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# `glaeda-side-...` are the other runners: the light side-lane workflows take it
+# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS). No picker
+# routes to it, but its jobs hold its pool's machines.
+OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
+SIDE_PREFIX = "glaeda-side-"
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -280,15 +284,16 @@ def persistent(label: str) -> bool:
 
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith(ROOT_PREFIX):
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
         return ""
     return ROOT_PREFIX + label.removeprefix("glaeda-")
 
 
 def pool_label(label: str) -> str:
-    """The owned pool a root label's runners belong to; any other label unchanged."""
-    if persistent(label) and label.startswith(ROOT_PREFIX):
-        return "glaeda-" + label.removeprefix(ROOT_PREFIX)
+    """The owned pool a root or side label's runners belong to; any other label unchanged."""
+    for prefix in (ROOT_PREFIX, SIDE_PREFIX):
+        if persistent(label) and label.startswith(prefix):
+            return "glaeda-" + label.removeprefix(prefix)
     return label
 
 
@@ -573,6 +578,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
+        elif label.startswith(("side-", SIDE_PREFIX)):
+            # No picker routes to side runners (vars.CI_SIDE_LANE_RUNNER does), so a count is a mistake.
+            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which take no picked run")
         elif label in CAPABILITY_LABELS:
             continue
         elif persistent(label):
