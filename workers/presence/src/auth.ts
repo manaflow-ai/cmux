@@ -26,6 +26,9 @@ export interface AuthedUser {
   id: string;
   selectedTeamId: string | null;
   teamIds: readonly string[];
+  /** Profile fields resolved from the verified Stack user record. */
+  displayName?: string | null;
+  profileImageURL?: string | null;
 }
 
 /** Max cache age. A revoked-but-unexpired token stays usable for at most this
@@ -155,6 +158,10 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
   if (!meResponse.ok) return null;
   const me = (await meResponse.json()) as {
     id?: unknown;
+    display_name?: unknown;
+    displayName?: unknown;
+    profile_image_url?: unknown;
+    profileImageUrl?: unknown;
     selected_team_id?: unknown;
     selected_team?: { id?: unknown } | null;
   };
@@ -182,7 +189,13 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
       ]
     : [];
 
-  return { id: userId, selectedTeamId, teamIds };
+  const displayName =
+    (typeof me.display_name === "string" ? me.display_name : null)
+    ?? (typeof me.displayName === "string" ? me.displayName : null);
+  const profileImageURL =
+    (typeof me.profile_image_url === "string" ? me.profile_image_url : null)
+    ?? (typeof me.profileImageUrl === "string" ? me.profileImageUrl : null);
+  return { id: userId, selectedTeamId, teamIds, displayName, profileImageURL };
 }
 
 /** Verify the caller. Returns the resolved user or null when unauthenticated

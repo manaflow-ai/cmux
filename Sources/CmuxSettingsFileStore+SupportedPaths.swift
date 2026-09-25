@@ -23,6 +23,7 @@ extension CmuxSettingsFileStore {
         "app.paneResizeStepPixels",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.preferredEditor",
+        "app.defaultWorkspacePath",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
