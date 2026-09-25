@@ -821,6 +821,13 @@ final class WindowTerminalPortal: NSObject {
     let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+
+#if DEBUG
+    /// Compile-checked overlays for the divider z-order regression tests.
+    /// fileprivate-in-product visibility reached only through @testable.
+    var dividerOverlayForTesting: NSView { dividerOverlayView }
+    var paneSwapOverlayForTesting: NSView { paneSwapOverlayView }
+#endif
     private let chromeComposition = AppWindowChromeComposition()
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?
@@ -1428,9 +1435,15 @@ final class WindowTerminalPortal: NSObject {
             dividerOverlayView.frame = hostView.bounds
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
             placementChanged = true
-        } else if hostView.subviews.last !== dividerOverlayView {
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-            placementChanged = true
+        } else if let topHosted = dividerOverlayReferenceInHost() {
+            // "Above the hosted views", NOT "last subview": markDividerOverlayNeedingDisplay
+            // hoists paneSwapOverlayView above this overlay, so demanding last place here
+            // made the two swap every sync and repaint forever. Panorama: the stable state
+            // is divider above the hosted views; paneSwap may keep sitting above it.
+            if !Self.isView(dividerOverlayView, above: topHosted, in: hostView) {
+                hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: topHosted)
+                placementChanged = true
+            }
         }
 
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
@@ -1441,6 +1454,40 @@ final class WindowTerminalPortal: NSObject {
         guard placementChanged else { return }
         markDividerOverlayNeedingDisplay()
     }
+
+    /// Hosted terminal views that are direct subviews of the given container,
+    /// in back-to-front order. The overlay placement compares against these,
+    /// not against the container's absolute last subview: the pane-swap
+    /// overlay legitimately lives above the divider overlay.
+    /// Back-to-front, the LAST hosted terminal view that is a direct subview
+    /// of the given container — the divider overlay's placement reference.
+    /// Walks subviews from the top down and stops at the first hosted view,
+    /// so the settled common case (divider already above it, pane-swap above
+    /// both) costs one or two index comparisons instead of a full O(entries)
+    /// filter per call; synchronizeAllHostedViews runs this per entry and
+    /// must stay clear of an entries-squared scan.
+    private func dividerOverlayReferenceInHost() -> NSView? {
+        let subviews = hostView.subviews
+        guard let dividerIndex = subviews.firstIndex(of: dividerOverlayView) else {
+            return subviews.last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+        }
+        // Any hosted view the divider does not already clear: pick the topmost.
+        // A hosted view sitting ABOVE the divider (pane churn reordered things)
+        // must trigger a re-add too, otherwise the settled check would only
+        // ever compare against hosted views left below it.
+        if let intruder = subviews[(dividerIndex + 1)...].first(where: { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }) {
+            // Re-add the divider just above the topmost hosted view below or at
+            // the intruder's level; the intruder itself becomes the reference.
+            return intruder
+        }
+        return subviews[..<dividerIndex].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+    }
+
+    private func entryForHostedView(_ view: NSView) -> Entry? {
+        entriesByHostedId[ObjectIdentifier(view)]
+    }
+
+
 
     /// Repaints the overlay when what it would paint has changed.
     ///
@@ -1610,7 +1657,8 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+    private static func isView(_ view: NSView, above reference: NSView?, in container: NSView) -> Bool {
+        guard let reference else { return true }
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
             return false
@@ -2217,6 +2265,19 @@ final class WindowTerminalPortal: NSObject {
         deferDividerOverlay: Bool = false
     ) {
         guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
+        // Every exit path compares the overlay's render inputs, not just the
+        // fallthrough: early returns here (missing anchor/window, anchor on
+        // another window) hide hosted views, and the overlay's render inputs
+        // exclude hidden ones, so skipping the comparison on those paths left
+        // divider pixels painted for a view that is no longer visible.
+        defer {
+            if !deferDividerOverlay {
+                ensureDividerOverlayOnTop()
+                if !isBatchSynchronizingHostedViews {
+                    refreshDividerOverlayIfGeometryChanged()
+                }
+            }
+        }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2596,13 +2657,6 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
-        if !deferDividerOverlay {
-            ensureDividerOverlayOnTop()
-            if !isBatchSynchronizingHostedViews {
-                refreshDividerOverlayIfGeometryChanged()
-            }
-        }
     }
 
     private func updatePresentationState(

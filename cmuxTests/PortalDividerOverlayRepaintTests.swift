@@ -100,6 +100,101 @@ extension TerminalWindowPortalLifecycleTests {
         )
     }
 
+    /// Maintainer-reported regression (teamleaderleo, 2026-09-25): the old
+    /// placement rule demanded the divider overlay be hostView's LAST
+    /// subview, while markDividerOverlayNeedingDisplay raises
+    /// paneSwapOverlayView above it. Each one then undid the other, so every
+    /// synchronizeHostedView swapped the pair and repainted. The stable end
+    /// state is divider above hosted views with paneSwap still above the
+    /// divider; repeated syncs must neither move them nor repaint.
+    @MainActor
+    func testDividerOverlayZOrderIsStableAcrossRepeatedSyncs() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+
+        let host = fixture.portal.hostView
+        let divider = fixture.portal.dividerOverlayForTesting
+        let dividerBaseIndex = try XCTUnwrap(
+            host.subviews.firstIndex(of: divider),
+            "Divider overlay must be a direct subview of the host view"
+        )
+
+        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        for _ in 0..<8 {
+            fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
+        }
+
+        let dividerIndexAfter = try XCTUnwrap(
+            host.subviews.firstIndex(of: divider),
+            "Divider overlay must stay a direct subview of the host view"
+        )
+        XCTAssertGreaterThanOrEqual(
+            dividerIndexAfter, dividerBaseIndex,
+            "Nothing may sink the divider overlay back toward the hosted views"
+        )
+        XCTAssertEqual(
+            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            0,
+            "A settled portal must not repaint the divider overlay during z-order churn"
+        )
+
+        let hostedIndex = host.subviews.firstIndex(of: fixture.hostedView)
+            ?? -1
+        if hostedIndex >= 0 {
+            XCTAssertGreaterThan(
+                dividerIndexAfter, hostedIndex,
+                "Divider overlay must sit above the hosted terminal views"
+            )
+        }
+
+        let paneSwap = fixture.portal.paneSwapOverlayForTesting
+        if host.subviews.firstIndex(of: paneSwap) != nil,
+           let paneSwapIndex = host.subviews.firstIndex(of: paneSwap) {
+            XCTAssertGreaterThan(
+                paneSwapIndex, dividerIndexAfter,
+                "Pane-swap overlay must stay above the divider overlay"
+            )
+        }
+    }
+
+    /// CodeRabbit round (c503c67c): the geometry comparison used to live only
+    /// on synchronizeHostedView's fallthrough. The early return for a missing
+    /// anchor hides the hosted view, and the overlay's render inputs exclude
+    /// hidden surfaces, so that path changed the paint inputs without ever
+    /// comparing them: stale divider pixels. Drive the sync into that early
+    /// return by unbinding the anchor and prove the overlay still repaints.
+    @MainActor
+    func testEarlyExitSyncWithNoAnchorStillRefreshesDividerOverlay() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+        XCTAssertFalse(
+            fixture.hostedView.isHidden,
+            "Fixture starts visible; the missing-anchor path must hide it for this test to mean anything"
+        )
+
+        // Put the portal into an installed-but-unanchorable state: park the
+        // anchor outside the window's hierarchy, then re-sync. The sync takes
+        // the missing-anchorOrWindow early return (hiding the hosted view)
+        // before it would have reached the old normal-path comparison.
+        fixture.anchor.removeFromSuperview()
+        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
+
+        XCTAssertTrue(
+            fixture.hostedView.isHidden,
+            "The missing-anchor exit must hide the hosted view for the premise to hold"
+        )
+        XCTAssertGreaterThan(
+            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            0,
+            "A sync that hides a hosted view through an early return must still compare and repaint the overlay"
+        )
+    }
+
     // MARK: - Fixture
 
     struct DividerOverlayFixture {
