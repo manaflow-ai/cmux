@@ -34,8 +34,8 @@
 #   4b. The Cloud tunnel system extension under
 #      Contents/Library/SystemExtensions/* with its own entitlements and its
 #      own embedded provisioning profile. The extension is signed with the
-#      hardened runtime and without the two runtime relaxations that macOS
-#      rejects when this extension is present. When the requested app entitlement is not granted by its
+#      hardened runtime and without any runtime relaxations. When the requested
+#      app entitlement is not granted by its
 #      profile, signing stops. Nightly and Stable must not ship without the
 #      browser tunnel.
 #   5. The main app bundle with the effective app-level entitlements,
@@ -261,6 +261,20 @@ for entitlement in \
   fi
 done
 
+# Release, nightly, and RC bundles use the same production signing path. None
+# of the three hardened-runtime relaxations is required by cmux or its bundled
+# helpers, so reject them from the signed artifact even if a future source
+# entitlement file accidentally requests one.
+for entitlement in \
+  com.apple.security.cs.allow-jit \
+  com.apple.security.cs.allow-unsigned-executable-memory \
+  com.apple.security.cs.disable-library-validation; do
+  if grep -q "$entitlement" "$SIGNED_ENTITLEMENTS"; then
+    echo "error: signed app carries unsupported hardened-runtime relaxation $entitlement" >&2
+    exit 1
+  fi
+done
+
 # The signed app and the bundled extension must agree about the Cloud tunnel:
 # either both carry the capability, or neither exists in the bundle.
 if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
@@ -268,11 +282,12 @@ if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
     echo "error: profile grants the Cloud tunnel but the signed app lacks packet-tunnel-provider-systemextension" >&2
     exit 1
   fi
-  # These two entitlements are valid for the ordinary app, but macOS rejects
-  # them when the app bundle carries a packet-tunnel system extension. The
-  # reconciler removes them before signing; keep this check at the artifact
-  # boundary so a future signing change cannot recreate the launch failure.
+  # Runtime-relaxation entitlements are not needed by the shipped app and are
+  # incompatible with a packet-tunnel system extension. Keep this check at the
+  # artifact boundary so a future signing change cannot recreate the launch
+  # failure.
   for entitlement in \
+    com.apple.security.cs.allow-jit \
     com.apple.security.cs.allow-unsigned-executable-memory \
     com.apple.security.cs.disable-library-validation; do
     if grep "$entitlement" "$SIGNED_ENTITLEMENTS" >/dev/null; then
@@ -293,6 +308,7 @@ if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
     fi
     sysext_entitlements="$(/usr/bin/codesign -d --entitlements :- "$sysext" 2>&1)"
     for entitlement in \
+      com.apple.security.cs.allow-jit \
       com.apple.security.cs.allow-unsigned-executable-memory \
       com.apple.security.cs.disable-library-validation; do
       if grep "$entitlement" <<<"$sysext_entitlements" >/dev/null; then
@@ -322,6 +338,16 @@ for helper_dir in bin libexec; do
       echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
       exit 1
     fi
+    helper_entitlements="$(/usr/bin/codesign -d --entitlements :- "$helper" 2>&1)"
+    for entitlement in \
+      com.apple.security.cs.allow-jit \
+      com.apple.security.cs.allow-unsigned-executable-memory \
+      com.apple.security.cs.disable-library-validation; do
+      if grep -q "$entitlement" <<<"$helper_entitlements"; then
+        echo "error: helper $(basename "$helper") carries unsupported hardened-runtime relaxation $entitlement" >&2
+        exit 1
+      fi
+    done
   done
 done
 
@@ -330,6 +356,18 @@ if [[ -d "$COMPUTER_USE_HELPER" ]] \
         | grep -q "application-identifier"; then
   echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
   exit 1
+fi
+if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  computer_use_entitlements="$(/usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1)"
+  for entitlement in \
+    com.apple.security.cs.allow-jit \
+    com.apple.security.cs.allow-unsigned-executable-memory \
+    com.apple.security.cs.disable-library-validation; do
+    if grep -q "$entitlement" <<<"$computer_use_entitlements"; then
+      echo "error: nested Computer Use helper carries unsupported hardened-runtime relaxation $entitlement" >&2
+      exit 1
+    fi
+  done
 fi
 
 echo "==> signing OK: $APP_PATH"

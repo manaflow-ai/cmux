@@ -88,7 +88,8 @@ class ReconcileEntitlementsTests(unittest.TestCase):
             "cmux.nightly.entitlements",
             "cmux.rc.entitlements",
         ):
-            entitlements = plistlib.load((ROOT / name).open("rb"))
+            with (ROOT / name).open("rb") as handle:
+                entitlements = plistlib.load(handle)
             self.assertTrue(
                 HARDENED_RUNTIME_RELAXATIONS.isdisjoint(entitlements),
                 f"{name} requests hardened-runtime relaxations",
