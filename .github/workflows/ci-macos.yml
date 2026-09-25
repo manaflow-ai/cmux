@@ -2929,6 +2929,7 @@ jobs:
             CmuxSudoBrokerUI
             CmuxTerminal
             CmuxTerminalCore
+            CmuxTerminalPrediction
             CmuxUpdater
             CmuxWorkspaces
             CMUXAgentLaunch
