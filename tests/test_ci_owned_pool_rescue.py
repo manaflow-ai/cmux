@@ -1269,8 +1269,9 @@ class Tokens(unittest.TestCase):
         mint = next(step for step in steps if step.get("id") == "read-token")
         self.assertTrue(mint["continue-on-error"])
         self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
-                         # Only what owned_pool_rescue.py reads (actions and pulls endpoints). The
-                         # installation has no contents grant, and asking for one fails the mint (422).
+                         # The installation has no contents grant, and asking for one fails the mint
+                         # (422). The one contents read (branch_head, /branches) gets a 403 and retries
+                         # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
                          {"permission-actions": "read", "permission-pull-requests": "read"})
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
         self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")

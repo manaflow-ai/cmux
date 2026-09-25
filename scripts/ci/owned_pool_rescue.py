@@ -418,7 +418,8 @@ class GitHub:
     GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
     which ci-macos.yml's attempt-2 routing checks. An installation token
     lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch.
+    `token` for the rest of the watch. A 403 is a read the App may not make
+    (branch_head needs contents, which it lacks): that one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:
