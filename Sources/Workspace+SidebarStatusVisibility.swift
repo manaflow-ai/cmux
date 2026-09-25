@@ -26,14 +26,6 @@ extension Workspace {
 
     private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
         var statusKeysByPanelId: [UUID: Set<String>] = [:]
-        var feedAttentionKeysByAgentStatusKey: [String: Set<String>] = [:]
-        for key in statusEntries.keys {
-            guard let agentStatusKey = Self.feedAttentionAgentStatusKey(for: key) else {
-                continue
-            }
-            feedAttentionKeysByAgentStatusKey[agentStatusKey, default: []].insert(key)
-        }
-
         for (key, panelId) in agentPIDPanelIdsByKey
         where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
@@ -62,11 +54,7 @@ extension Workspace {
 
         var visibleStatusKeys = Set<String>()
         for statusKeys in statusKeysByPanelId.values {
-            var candidates = statusKeys
-            for statusKey in statusKeys {
-                candidates.formUnion(feedAttentionKeysByAgentStatusKey[statusKey] ?? [])
-            }
-            let winningEntry = candidates.compactMap { statusEntries[$0] }.max {
+            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
                 isSidebarStatusEntryLessCurrent($0, than: $1)
             }
             if let winningEntry {
