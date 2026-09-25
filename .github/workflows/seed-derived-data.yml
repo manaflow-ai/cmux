@@ -158,7 +158,12 @@ jobs:
       group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    timeout-minutes: 60
+    # A chain with no seed yet builds cold. The first root 2 seed on the
+    # trusted pool (cmux11s) spent 14 minutes on checkout, packages and
+    # resolve, then 44 in Build, and 60 cancelled it before it saved, so the
+    # next push built cold again (run 36107956813). A seeded build finishes
+    # in a fraction of either limit.
+    timeout-minutes: 90
     env:
       # The macOS 15 pool compiles with its own Xcode, as a pull request run
       # pr_runner_pool.py overflows there does; every other pool, the lane's.
