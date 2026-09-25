@@ -13,7 +13,7 @@ const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
-export const CMUXFeed = async (ctx) => {
+const createCMUXFeed = async (ctx) => {
   let client = null;
   let buffered = "";
   let telemetrySequence = 0;
@@ -113,20 +113,34 @@ export const CMUXFeed = async (ctx) => {
   });
 
   const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+    // OpenCode v2 exposes permission operations on the plugin context and
+    // scopes the request by session. Keep the HTTP fallback for SDK builds
+    // that do not expose the domain helper yet.
+    try {
+      if (await callClientMethod(ctx?.permission, "reply", {
+        sessionID: sessionId,
+        requestID: requestId,
+        reply,
+      })) return;
+    } catch (_) {}
+    if (
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/permission/{requestID}/reply",
+        path: { sessionID: sessionId, requestID: requestId },
+        body: message ? { decision: reply, message } : { decision: reply },
+      })
+    ) return;
+    // OpenCode v1 compatibility.
     if (
       await tryRawClientRequest("post", {
         url: "/permission/{requestID}/reply",
         path: { requestID: requestId },
         body: message ? { reply, message } : { reply },
       })
-    ) {
-      return;
-    }
-
-    if (await callClientMethod(ctx?.client?.permission, "reply", { requestID: requestId, reply, message })) {
-      return;
-    }
-
+    ) return;
+    try {
+      if (await callClientMethod(ctx?.client?.permission, "reply", { requestID: requestId, reply, message })) return;
+    } catch (_) {}
     if (sessionId) {
       await callClientMethod(ctx?.client, "postSessionIdPermissionsPermissionId", {
         path: { id: sessionId, permissionID: requestId },
@@ -135,18 +149,27 @@ export const CMUXFeed = async (ctx) => {
     }
   };
 
-  const replyQuestion = async (requestId, answers) => {
+  const replyForm = async (sessionId, formId, answer, legacyAnswers = null) => {
+    try {
+      if (await callClientMethod(ctx?.form, "reply", { sessionID: sessionId, formID: formId, answer })) return;
+    } catch (_) {}
+    if (
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/form/{formID}/reply",
+        path: { sessionID: sessionId, formID: formId },
+        body: { answer },
+      })
+    ) return;
+    // OpenCode v1 compatibility for question.asked.
+    const answers = legacyAnswers || Object.values(answer).map((value) => Array.isArray(value) ? value.map(String) : [String(value)]);
     if (
       await tryRawClientRequest("post", {
         url: "/question/{requestID}/reply",
-        path: { requestID: requestId },
+        path: { requestID: formId },
         body: { answers },
       })
-    ) {
-      return;
-    }
-
-    await callClientMethod(ctx?.client?.question, "reply", { requestID: requestId, answers });
+    ) return;
+    await callClientMethod(ctx?.client?.question, "reply", { requestID: formId, answers });
   };
 
   const rejectQuestion = async (requestId) => {
@@ -156,45 +179,60 @@ export const CMUXFeed = async (ctx) => {
         path: { requestID: requestId },
         body: {},
       })
-    ) {
-      return;
-    }
-
+    ) return;
     await callClientMethod(ctx?.client?.question, "reject", { requestID: requestId });
   };
 
   const updateSessionPermission = async (sessionId, permission) => {
     if (!sessionId || !permission.length) return true;
+    const permissions = permission.map((rule) => ({
+      action: rule.permission,
+      resource: rule.pattern,
+      effect: rule.action === "allow" ? "allow" : rule.action === "deny" ? "deny" : "ask",
+    }));
+    try {
+      if (await callClientMethod(ctx?.permission, "rules", { sessionID: sessionId, permissions })) return true;
+    } catch (_) {}
+    if (
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/permission",
+        path: { sessionID: sessionId },
+        body: { permissions },
+      })
+    ) return true;
+    // OpenCode v1 compatibility.
     if (
       await tryRawClientRequest("patch", {
         url: "/session/{sessionID}",
         path: { sessionID: sessionId },
         body: { permission },
       })
-    ) {
-      return true;
-    }
-
+    ) return true;
     return await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
   };
 
   const sendPlanFeedback = async (sessionId, text) => {
     const message = normalizeText(text, 2000);
     if (!sessionId || !message) return;
-    const body = {
-      agent: "plan",
-      parts: [{ type: "text", text: message }],
-    };
+    try {
+      if (await callClientMethod(ctx?.session, "prompt", { sessionID: sessionId, text: message })) return;
+    } catch (_) {}
+    if (
+      await tryRawClientRequest("post", {
+        url: "/api/session/{sessionID}/prompt",
+        path: { sessionID: sessionId },
+        body: { text: message },
+      })
+    ) return;
+    // OpenCode v1 compatibility.
+    const body = { agent: "plan", parts: [{ type: "text", text: message }] };
     if (
       await tryRawClientRequest("post", {
         url: "/session/{sessionID}/prompt_async",
         path: { sessionID: sessionId },
         body,
       })
-    ) {
-      return;
-    }
-
+    ) return;
     await callClientMethod(ctx?.client?.session, "promptAsync", { path: { id: sessionId }, body });
   };
 
@@ -307,12 +345,54 @@ export const CMUXFeed = async (ctx) => {
     };
   };
 
+  const formInfoFromEvent = (event) => {
+    const props = event?.properties || {};
+    const form = props.form || props.info || props;
+    const formId = firstString(form.id, form.formID, form.formId, props.formID, props.formId);
+    const sessionId = firstString(form.sessionID, form.sessionId, props.sessionID, props.sessionId, props.session_id);
+    const fields = Array.isArray(form.fields) ? form.fields : Array.isArray(props.fields) ? props.fields : [];
+    if (!formId || !sessionId || fields.length === 0) return null;
+    return { formId, sessionId, title: firstString(form.title, form.name, form.description), fields };
+  };
+
+  const questionsForForm = (form) => form.fields.map((field, index) => {
+    const options = Array.isArray(field.options) ? field.options.map((option, optionIndex) => ({
+      id: option.id || option.value || `opt${optionIndex}`,
+      label: option.label || option.title || option.name || String(option.value ?? option),
+      description: option.description || option.detail,
+    })) : [];
+    return {
+      id: field.key || field.id || field.name || `field${index}`,
+      header: field.header || field.title || form.title,
+      question: field.label || field.title || field.description || field.name || "",
+      multiSelect: field.multiple === true || field.multiSelect === true || field.type === "array",
+      options,
+    };
+  });
+
+  const answerForForm = (form, selections) => {
+    const answer = {};
+    const values = Array.isArray(selections) ? selections : [];
+    form.fields.forEach((field, index) => {
+      const key = field.key || field.id || field.name || `field${index}`;
+      const fieldValue = values[index] ?? values[0];
+      answer[key] = field.multiple === true || field.multiSelect === true || field.type === "array"
+        ? (Array.isArray(fieldValue) ? fieldValue : fieldValue == null ? [] : [String(fieldValue)])
+        : fieldValue == null ? "" : String(fieldValue);
+    });
+    return answer;
+  };
+
+  const replyInteractive = async (sid, requestId, answer, legacyAnswers) => {
+    await replyForm(sid, requestId, answer, legacyAnswers);
+  };
+
   const handleExitPlanDecision = async (sid, requestId, decision) => {
     const mode = decision?.mode || "manual";
     const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
-      await replyQuestion(requestId, [["No"]]);
+      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
       await sendPlanFeedback(
         sid,
         `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`
@@ -321,12 +401,12 @@ export const CMUXFeed = async (ctx) => {
     }
 
     if (mode === "deny") {
-      await replyQuestion(requestId, [["No"]]);
+      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
       return;
     }
 
     if (mode === "ultraplan") {
-      await replyQuestion(requestId, [["No"]]);
+      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
       await sendPlanFeedback(
         sid,
         "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again."
@@ -342,14 +422,14 @@ export const CMUXFeed = async (ctx) => {
       permissionsApplied = false;
     }
     if (!permissionsApplied) {
-      await replyQuestion(requestId, [["No"]]);
+      await replyInteractive(sid, requestId, { answer: "No" }, [["No"]]);
       await sendPlanFeedback(
         sid,
         "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
       );
       return;
     }
-    await replyQuestion(requestId, [["Yes"]]);
+    await replyInteractive(sid, requestId, { answer: "Yes" }, [["Yes"]]);
   };
 
   const resolvePending = (requestId, value) => {
@@ -510,8 +590,7 @@ export const CMUXFeed = async (ctx) => {
     });
   };
 
-  return {
-    event: async ({ event }) => {
+  const handleEvent = async (event) => {
       const tracked = trackMessage(event);
       if (tracked) {
         pushTelemetry(tracked);
@@ -568,21 +647,26 @@ export const CMUXFeed = async (ctx) => {
         }
         case "permission.asked": {
           const props = event.properties || {};
-          const requestId = props.id;
+          const request = props.permission && isObject(props.permission) ? props.permission : props;
+          const requestId = firstString(request.id, request.requestID, request.requestId, props.id);
           if (!requestId) break;
-          const sid = props.sessionID || "unknown";
-          const permission = firstString(props.permission, props.tool?.name) || "permission";
-          const metadata = isObject(props.metadata) ? props.metadata : {};
+          const sid = firstString(request.sessionID, request.sessionId, props.sessionID, props.sessionId) || "unknown";
+          const permission = firstString(request.action, request.permission, request.tool?.name, props.permission, props.tool?.name) || "permission";
+          const resources = Array.isArray(request.resources) ? request.resources : [];
+          const metadata = isObject(request.metadata) ? request.metadata : {};
           const frame = base(sid, {
             hook_event_name: "PermissionRequest",
             _opencode_request_id: requestId,
             tool_name: permission,
             tool_input: {
               permission,
-              patterns: Array.isArray(props.patterns) ? props.patterns : [],
-              always: Array.isArray(props.always) ? props.always : [],
+              patterns: resources.length > 0 ? resources : (Array.isArray(props.patterns) ? props.patterns : []),
+              always: Array.isArray(request.always) ? request.always : (Array.isArray(props.always) ? props.always : []),
+              save: request.save,
+              source: request.source,
+              message: request.message,
               metadata,
-              tool: props.tool,
+              tool: request.tool || props.tool,
             },
             context: {
               ...(contextForSession(sid) || {}),
@@ -604,6 +688,41 @@ export const CMUXFeed = async (ctx) => {
               });
             } catch (e) { /* ignore - opencode already moved on */ }
           }
+          break;
+        }
+        case "form.created":
+        case "form.updated":
+        case "form.asked":
+        case "session.form": {
+          const form = formInfoFromEvent(event);
+          if (!form) break;
+          const requestId = form.formId;
+          const questions = questionsForForm(form);
+          const planExit = planExitInfo(form.sessionId, questions);
+          const hookEventName = planExit ? "ExitPlanMode" : "AskUserQuestion";
+          const frame = base(form.sessionId, {
+            hook_event_name: hookEventName,
+            _opencode_request_id: requestId,
+            tool_name: planExit ? "plan_exit" : "form",
+            tool_input: planExit ? {
+              plan: planExit.plan,
+              planFilePath: planExit.planFilePath,
+              question: planExit.question,
+            } : { questions },
+            context: {
+              ...(contextForSession(form.sessionId) || {}),
+              permissionMode: planExit ? "plan" : "opencode",
+            },
+          });
+          const result = await pushBlocking(frame, requestId);
+          if (result?.status !== "resolved") break;
+          try {
+            if (planExit && result.decision?.kind === "exit_plan") {
+              await handleExitPlanDecision(form.sessionId, requestId, result.decision);
+            } else if (!planExit && result.decision?.kind === "question") {
+              await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections));
+            }
+          } catch (_) {}
           break;
         }
         case "question.asked": {
@@ -656,7 +775,7 @@ export const CMUXFeed = async (ctx) => {
           const result = await pushBlocking(frame, requestId);
           if (result?.status === "resolved" && result.decision?.kind === "question") {
             try {
-              await replyQuestion(requestId, questionAnswers(result.decision.selections));
+              await replyForm(sid, requestId, {}, questionAnswers(result.decision.selections));
             } catch (_) {
               try { await rejectQuestion(requestId); } catch (_) {}
             }
@@ -667,6 +786,27 @@ export const CMUXFeed = async (ctx) => {
           // Non-Feed-worthy events pass silently to keep the plugin cheap.
           break;
       }
-    },
   };
+
+  return { event: async ({ event }) => handleEvent(event?.event || event) };
+};
+
+export const CMUXFeed = createCMUXFeed;
+
+export default {
+  id: "cmux.feed",
+  async setup(ctx) {
+    const controller = new AbortController();
+    const hooks = await createCMUXFeed(ctx);
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+          await hooks.event({ event });
+        }
+      } catch (_) {
+        // Abort is the normal plugin shutdown path.
+      }
+    })();
+    return () => controller.abort();
+  },
 };
