@@ -144,7 +144,9 @@ declares or extends, and an app-source diff runs the suites whose tests mention
 what it changed (`reverse_test_impact.py`, #14418), in one changed-suites batch
 with no label (edited suites over its budget take all seven shards). `unit-ci` runs
 every app-host suite across all seven workers; `full-ci` adds the other lanes on
-top. Neither is needed to test the suites you edited. No PR job runs
+top. Neither is needed to test the suites you edited. A change to how the suites
+are laid out over the workers (the timings file, the sharder, the batch runner, or
+the job's matrix and shard env) runs every app-host suite on its own. No PR job runs
 `cmuxUITests/`; `no-full-ci` records a deliberate skip for `suite-coverage`. The label permits eligible app-host shards,
 lag builds, and other full-suite lanes; path routing, release routing, and job
 dependencies still apply. It does not request every repository test. Inspect
@@ -166,11 +168,11 @@ its receipts. Required CI and review still apply to the final pushed head.
 
 A first pass ends when the change is implemented, [scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md) passed, and the PR is open. Native app/build-input changes require the tagged build on the pushed HEAD and focused tests; `web/` PRs also require the live Vercel preview URL. Docs and portable contributor tooling use their relevant checks without an unrelated app build. Then hand off; do not sit watching CI or running speculative review passes.
 
-Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
+**Review with a subagent before merge.** Spawn a review subagent on the exact diff, correctness first ([cmux-review](skills/cmux-review/SKILL.md)), fix what it finds, and run a quick second subagent pass when the fixes were non-trivial. Do not use a second model (`codex review`, `$autoreview`) as a review gate. Let required GitHub checks and review bots run asynchronously, then address only concrete check failures and actionable findings before merge.
 
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert. Before merging, wait for the checks that judge the change (macOS compile admission plus the app-host suites CI selected for it) and skip slow unrelated lanes. If you merge without them, say on the PR what was not verified; the merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A main-regression comment on your PR (`main_regression_attribution.py`) is a fix-forward ask.
 
-The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood; if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
+The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood or a direct merge directive that names the merge action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm`, and `ship it` are not); if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested. After a merge directive, re-dogfood (rebuild the tag and re-notify with the checklist) when a later fix changes user-visible behavior beyond what was dogfooded; skip it for internal, test-only, or tightly scoped fixes; either way, say on the PR which you did and why.
 
 Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
 
