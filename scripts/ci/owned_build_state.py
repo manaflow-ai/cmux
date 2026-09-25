@@ -380,14 +380,30 @@ def bucket_seed_rebuilds_app(key: str, workspace: Path) -> bool | None:
                               check=True, capture_output=True, text=True, timeout=30).stdout.strip()
         files = json.loads(subprocess.run(
             ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
-             "--jq", "[.files[]?.filename]"],
+             "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
             check=True, capture_output=True, text=True, timeout=60,
         ).stdout)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     if len(files) >= COMPARE_FILE_LIMIT:
         return None
-    return rebuilds_app(files)
+    # A submodule bump (vendor/bonsplit) is listed as the bare submodule
+    # path, while the local records see the .swift files under it.
+    return rebuilds_app(files) or any(
+        path in submodules(workspace) and path.startswith(PACKAGE_SOURCES) for path in files
+    )
+
+
+def submodules(workspace: Path) -> set[str]:
+    """The submodule paths .gitmodules declares, or none if it cannot be read."""
+    try:
+        listed = subprocess.run(
+            ["git", "config", "-f", str(workspace / ".gitmodules"), "--get-regexp", r"\.path$"],
+            check=True, capture_output=True, text=True, timeout=30,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {line.split(None, 1)[1].strip() for line in listed.splitlines() if len(line.split(None, 1)) == 2}
 
 
 def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
@@ -456,7 +472,7 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
                       + ("" if kept_cost is not None else "; kept DerivedData has no input record"))
     elif kept_cost is not None and kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is False:
         # A download (about 250 s on a mini) costs less than recompiling the
-        # whole app from the kept DerivedData (365 to 482 s on 2026-09-25).
+        # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
         result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
     else:
         result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")

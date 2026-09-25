@@ -463,6 +463,28 @@ class Prefer(Fixture):
         with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": ""}):
             self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
 
+    def test_a_submodule_bump_under_a_package_root_rebuilds_the_app(self):
+        """Compare lists a submodule bump as the bare path (bonsplit, 4 bumps this month)."""
+        (self.workspace / ".gitmodules").write_text(
+            '[submodule "vendor/bonsplit"]\n\tpath = vendor/bonsplit\n\turl = x\n'
+            '[submodule "ghostty"]\n\tpath = ghostty\n\turl = y\n')
+        self.assertEqual(state.submodules(self.workspace), {"vendor/bonsplit", "ghostty"})
+        real = state.subprocess.run
+
+        def fake(argv, **kwargs):
+            if argv[:2] == ["git", "-C"]:
+                return unittest.mock.Mock(stdout="abc123\n")
+            if argv[0] == "gh":
+                return unittest.mock.Mock(stdout=json.dumps(self.compared))
+            return real(argv, **kwargs)
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+             unittest.mock.patch.object(state.subprocess, "run", side_effect=fake):
+            self.compared = ["vendor/bonsplit"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), True)
+            # ghostty ships as a prebuilt xcframework, not a package root.
+            self.compared = ["ghostty", "Sources/A.swift"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), False)
+
     def test_any_error_keeps_the_warm_path(self):
         output = Path(self.tmp.name) / "output"
         with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
