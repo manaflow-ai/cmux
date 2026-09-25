@@ -48,7 +48,8 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `680a5fe93`, the prompt-teardown fix
+The submodule pinned by this branch is `01e7c93ca`, the merged Ghostty PR #230
+containing the prompt-teardown fix
 described above on top of the cmux-only replay fix `a3e9304c5d`. The replay fix
 preserves physical blank rows until cursor/state restoration completes, so a
 restored Cloud grid cannot regain stale history rows. The base SHA preserves
