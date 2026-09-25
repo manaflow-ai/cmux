@@ -510,9 +510,10 @@ jobs:
       # CI_OWNED_PREFER_SEED set, adopt the seed instead when it compiles
       # less: first whether a local package source changed (that recompiles
       # the whole app), then how many inputs changed. `local` compares only
-      # with a seed this Mac keeps (no download); a number N also takes a
-      # downloaded seed at most N commits behind, or at any distance when it
-      # alone spares the app recompile. owned_build_state.py `prefer` has the
+      # with the seeds this Mac keeps (no download); a number N also takes a
+      # downloaded seed at most N commits behind when GitHub's compare says it
+      # changes enough fewer inputs to pay for the download, or at any
+      # distance when it alone spares the app recompile. owned_build_state.py `prefer` has the
       # rules; unset, nothing changes. If the seed then misses, the kept
       # DerivedData is adopted.
       - name: Prefer a near seed over this owned Mac's DerivedData
