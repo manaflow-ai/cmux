@@ -2496,6 +2496,7 @@
 		8672F0068672F0068672F006 /* PiFeedV2CallResultBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000009 /* PlainPastePTYFixture.swift */; };
+		CD7A3246D7B5520B143D7A5C /* PointingHandCursorPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
@@ -6510,6 +6511,7 @@
 		8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedV2CallResultBox.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000009 /* PlainPastePTYFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainPastePTYFixture.swift; sourceTree = "<group>"; };
+		44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PointingHandCursorPolicyTests.swift"; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
@@ -12247,6 +12249,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16505,6 +16508,7 @@
 				8672F0068672F0068672F006 /* PiFeedV2CallResultBox.swift in Sources */,
 				B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 				C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */,
+				CD7A3246D7B5520B143D7A5C /* PointingHandCursorPolicyTests.swift in Sources */,
 				5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */,
 					B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
