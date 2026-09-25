@@ -418,6 +418,10 @@ struct WorkspaceRemoteConfigurationValueTests {
     @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")
     func startupEnvironment() {
         #expect(makeConfiguration().sshTerminalStartupEnvironment == nil)
-        #expect(makeConfiguration().sshProcessEnvironment == nil)
+        let environment = makeConfiguration().sshProcessEnvironment
+        #expect(environment?["HOME"]?.isEmpty == false)
+        #expect(environment?["PATH"]?.isEmpty == false)
+        #expect(environment?["USER"]?.isEmpty == false)
+        #expect(environment?["LOGNAME"]?.isEmpty == false)
     }
 }
