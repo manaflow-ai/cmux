@@ -248,9 +248,10 @@ request goes through one coordinator:
 
 ```text
 resolve(intent, context)
-  → validate context and capability grant
+  → validate request parameters and context
   → select highest-precedence route in the context
   → select provider, or declared built-in fallback
+  → validate that provider's effective capabilities and exact-source trust grant
   → invoke with a bounded request and cancellation
   → return the intent's cmux-owned result
 ```
@@ -260,6 +261,11 @@ session restore, and sidebar must not each resolve a provider independently.
 Provider failure falls back only when the route explicitly declares a built-in
 fallback and the intent marks fallback as safe. A failed write never silently
 replays against another store.
+
+Each fallback selection repeats the provider-specific authorization step. A
+grant for the original provider never authorizes its fallback. A missing or
+denied grant stops dispatch before invocation; it cannot trigger another
+fallback or reuse a grant from a different registry revision.
 
 ### Protocol scope
 
@@ -376,6 +382,17 @@ revalidated immediately before launch. Replacing the file, changing its
 contents, changing the selected PATH target, or changing its arguments creates
 a new fingerprint and requires a new decision. A provider cannot retain a
 previous grant by keeping the same command string.
+
+Path revalidation alone is insufficient for launch. The driver must execute a
+sealed, immutable snapshot of the approved executable through a handle-bound
+launch primitive, or through an isolated launcher whose private staging
+namespace the pack and provider cannot write or rename. Hash the staged image
+before approval and retain its immutable identity through process creation;
+launch must never reopen the pack's mutable source path. A retained file
+descriptor without protection against in-place writes is insufficient. If the
+platform cannot guarantee execution of the approved image, stdio activation
+fails closed. Interpreted scripts remain unsupported until the same guarantee
+covers both the interpreter and script bytes.
 
 The prompt names the provider, intent, capability, path/origin, executable
 identity when applicable, and action. A denied or unavailable capability is a
