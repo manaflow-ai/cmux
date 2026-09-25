@@ -72,11 +72,14 @@ class Check(Fixture):
         # The DerivedData stays in the store until adopt, after the resolve.
         self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
 
-    def test_another_xcode_or_layout_drops_the_derived_data_but_keeps_packages(self):
+    def test_another_xcode_or_layout_is_cold_but_keeps_the_derived_data(self):
+        # A rerun of an older merge commit must not wipe what current jobs
+        # use; the next successful keep replaces it.
         self.keep(fingerprint="old")
         result = run(state.check, self.store, "new", self.workspace)
         self.assertEqual((result["warm"], result["packages"]), ("false", "true"))
-        self.assertFalse((self.store / "derived-data").exists())
+        self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
+        self.assertEqual(run(state.check, self.store, "old", self.workspace)["warm"], "true")
 
     def test_an_oversized_derived_data_is_dropped(self):
         self.keep()
@@ -104,28 +107,61 @@ class AdoptAndSave(Fixture):
         self.assertEqual(result["replayed"], "false")
         self.assertTrue((self.derived / "Build" / "obj.o").is_file())
         self.assertFalse((self.derived / "fresh").exists())
-        self.assertFalse((self.store / "derived-data").exists())
+        # A clone: the store keeps it until a successful keep replaces it.
+        self.assertTrue((self.store / "derived-data" / "Build" / "obj.o").is_file())
 
     def test_adopt_without_a_kept_derived_data_is_a_miss(self):
         self.assertEqual(run(state.adopt, self.store, self.derived, self.source)["hit"], "false")
 
-    def test_a_failed_compile_keeps_packages_but_not_derived_data(self):
-        # adopt moved the kept DerivedData out; with no keep after a failed
-        # compile the store has none, and the next job starts from the seed.
+    def test_a_failed_or_cancelled_compile_leaves_the_mac_warm(self):
+        # No keep after a failed compile, and a cancelled job may not even
+        # reach save: the store still holds what the job started from.
         self.keep()
+        state.remove(self.packages)
         run(state.check, self.store, "fp", self.workspace)
         run(state.adopt, self.store, self.derived, self.source)
-        result = run(state.save, self.store, self.packages, self.workspace)
-        self.assertEqual(result["packages"], "true")
-        self.assertFalse((self.store / "derived-data").exists())
-        self.assertEqual(run(state.check, self.store, "fp", self.workspace)["warm"], "false")
+        (self.derived / "Build" / "half.o").write_text("interrupted")
+        state.remove(self.workspace / ".ci-source-packages")
+        result = run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual((result["warm"], result["packages"]), ("true", "true"))
+        self.assertFalse((self.store / "derived-data" / "Build" / "half.o").exists())
+        self.assertTrue((self.store / "source-packages" / "checkouts").is_dir())
 
     def test_packages_a_job_never_resolved_are_still_kept(self):
         self.keep()
-        run(state.check, self.store, "fp", self.workspace)  # moved into the workspace
+        state.remove(self.packages)
+        run(state.check, self.store, "fp", self.workspace)  # cloned into the workspace
+        (self.workspace / ".ci-source-packages" / "checkouts" / "new").write_text("fetched")
         result = run(state.save, self.store, self.packages, self.workspace)
         self.assertEqual(result["packages"], "true")
+        self.assertTrue((self.store / "source-packages" / "checkouts" / "new").is_file())
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+
+    def test_a_job_without_packages_leaves_the_kept_ones(self):
+        self.keep()
+        state.remove(self.packages)
+        self.assertEqual(run(state.save, self.store, self.packages, self.workspace)["packages"], "false")
         self.assertTrue((self.store / "source-packages" / "checkouts").is_dir())
+
+    def test_every_slot_shares_the_macs_packages(self):
+        self.keep()
+        shared, slot = self.store, self.store / "cmux-ci-2"
+        state.remove(self.packages)
+        result = run(state.check, slot, "fp", self.workspace, shared)
+        self.assertEqual((result["warm"], result["packages"]), ("false", "true"))
+        self.assertFalse((slot / "source-packages").exists())
+        (self.workspace / ".ci-source-packages" / "slot2").write_text("x")
+        self.assertEqual(run(state.save, slot, self.packages, self.workspace, shared)["packages"], "true")
+        self.assertTrue((shared / "source-packages" / "slot2").is_file())
+        self.assertFalse((slot / "source-packages").exists())
+
+    def test_a_package_clone_that_loses_a_race_is_a_miss(self):
+        self.keep()
+        with unittest.mock.patch.object(state, "clone", side_effect=OSError("gone")):
+            result = run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual((result["warm"], result["packages"]), ("true", "false"))
+        self.assertIn("gone", result["packages_error"])
+        self.assertFalse((self.workspace / ".ci-source-packages").exists())
 
     def test_keep_replaces_the_old_derived_data_whole(self):
         self.keep()
@@ -206,15 +242,19 @@ class Replay(Fixture):
         self.assertEqual((result["hit"], result["replayed"]), ("true", "false"))
         self.assertGreater((self.source / "Sources/a.swift").stat().st_mtime_ns, self.OLD)
 
-    def test_derived_data_kept_before_the_owned_record_is_dropped(self):
+    def test_derived_data_kept_before_the_owned_record_is_never_warm(self):
         # Stamped by the previous owned_build_state.py: bare fingerprint, and
-        # possibly the seed's record inside.
+        # possibly the seed's record inside. It stays for that script's jobs
+        # until a current job's keep replaces it.
         (self.store / "derived-data").mkdir(parents=True)
         (self.store / "derived-data" / state.seed.MANIFEST).write_text(self.seed_record_for("A"))
         (self.store / "stamp.json").write_text(json.dumps({"fingerprint": "fp"}))
         result = run(state.check, self.store, "fp", self.workspace)
         self.assertEqual(result["warm"], "false")
-        self.assertFalse((self.store / "derived-data").exists())
+        self.derived.mkdir(parents=True)
+        self.assertEqual(run(state.keep, self.store, self.derived, "fp")["kept"], "true")
+        self.assertFalse((self.store / "derived-data" / state.seed.MANIFEST).exists())
+        self.assertEqual(run(state.check, self.store, "fp", self.workspace)["warm"], "true")
 
     def test_a_failed_record_leaves_no_stale_record_behind(self):
         self.derived.mkdir(parents=True)
@@ -355,7 +395,8 @@ class Wiring(unittest.TestCase):
             self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
-        self.assertEqual(env, "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
+        self.assertEqual(env, "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
+                              "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
         self.assertNotEqual(self.slot("/private/tmp/cmux-ci-2", "blacksmith-6vcpu-macos-26")[0], 0)

@@ -386,6 +386,8 @@ jobs:
                 glaeda-*) ;;
                 *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
               esac
+              # Packages hold no build paths: every slot shares the Mac's.
+              echo "CMUX_OWNED_PACKAGE_STORE=$CMUX_OWNED_STATE_ROOT" >> "$GITHUB_ENV"
               echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
               ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
@@ -470,7 +472,7 @@ jobs:
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD"
+          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
@@ -638,6 +640,10 @@ jobs:
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
+        # A glaeda Mac compiles in 1 to 8 minutes, 19 on a contended one; one
+        # sat 63 minutes in this step until cancelled (job 107921038609). Stop
+        # it at 20. Other runners keep the job's own limit.
+        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 20 || 100 }}
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -816,6 +822,11 @@ jobs:
       - name: Upload compiled app-host test product
         id: upload-products
         if: steps.publish-products.outputs.publish == 'true'
+        env:
+          # upload-artifact sends 8 MB blocks 5 at a time by default: the
+          # 830 MB product took 110 to 138 s from an owned Mac (about 7 MB/s).
+          # The action caps this at 16 per CPU.
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "32"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
@@ -1066,7 +1077,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
-            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD"
+            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
       - name: Prepare isolated DerivedData
         id: test-derived-data

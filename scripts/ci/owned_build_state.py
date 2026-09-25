@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Keep compile admission's build state on an owned Mac between jobs.
 
-    owned_build_state.py check STORE FINGERPRINT WORKSPACE
+    owned_build_state.py check STORE FINGERPRINT WORKSPACE [PACKAGE_STORE]
     owned_build_state.py adopt STORE DERIVED_DATA SOURCE
     owned_build_state.py record SOURCE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
-    owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE
+    owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -25,15 +25,28 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
   fetches what changed instead of restoring the whole cache. It is not
   handed to the resolve as an exact hit: that would change the Resolve step,
-  which is part of the product key (product_input_identity.py).
+  which is part of the product key (product_input_identity.py). Packages hold
+  no absolute build paths, so they live in PACKAGE_STORE, one per Mac, which
+  every compile slot shares (STORE is per slot, ci-macos.yml's build-slot).
 
-`check` runs before the caches: it drops a DerivedData whose stamp does not
-match or that grew past MAX_DERIVED_BYTES, and moves the packages into the
-workspace, where the resolve step picks them up. Its
-`warm` output tells the workflow to skip the SwiftPM cache restore and the
-seed. `adopt` runs where the seed would: the resolve step has just recreated
-the DerivedData, so it swaps the kept one in and replays the input times
-recorded in it, as the seed's adopt does (seed_derived_data.py). Each job
+Neither is ever taken out of the store: `check` and `adopt` hand the job an
+APFS clone. A job that is cancelled or fails therefore leaves the last good
+state for the next one. When they were moved out instead, a cancelled or
+failed admission left its Mac cold, and the next job paid about 190 s of seed
+download, up to 240 s of SwiftPM cache restore and often a longer compile
+(jobs 107916039092 and 107916686710 on 2026-09-25). The clone costs about
+10 s, the same as `keep`'s.
+
+`check` runs before the caches: it drops a DerivedData that grew past
+MAX_DERIVED_BYTES and clones the packages into the workspace, where the
+resolve step picks them up. A DerivedData stamped for another fingerprint is
+not warm but stays: a rerun of an older merge commit (another STATE_VERSION
+or recipe) must not throw away the state every current job uses, and the
+next successful `keep` replaces it anyway. Its `warm` output tells the
+workflow to skip the SwiftPM cache restore and the seed. `adopt` runs where
+the seed would: the resolve step has just recreated the DerivedData, so it
+clones the kept one in and replays the input times recorded in it, as the
+seed's adopt does (seed_derived_data.py). Each job
 copies a fresh source tree into the canonical root, so without the replay
 every file is newer than the kept build and the whole `cmux` module
 recompiles: 2629 SwiftCompile tasks, 386 s, in job 107904138254, against
@@ -50,15 +63,17 @@ successful compile and clones the DerivedData as Xcode left it: the steps
 after it stage package frameworks into Build/Products and rewrite the
 xctestruns, which a later build must not start from (seed-derived-data.yml
 saves its seed before them for the same reason). A failed or cancelled
-compile keeps nothing. `save` runs last, always, and keeps the packages.
+compile keeps nothing, so the store still holds the state it started from.
+`save` runs last, always, and replaces the kept packages with the job's.
 
-Moves are renames and clones are APFS clones: the canonical root
-(/private/tmp/cmux-ci) and STORE sit on the same volume, so nothing is
-copied. A kept DerivedData is replaced by renaming the new one into place
-after the old one is out of the way, so an interrupted job leaves either
-the old state, the new one, or none, never one inside the other. One job at
-a time touches STORE, because glaeda's job-started hook holds the host lock
-for the whole job. Nothing here uploads anything: a pull request run on an owned Mac never
+Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
+sit on the same volume, so nothing is copied. Kept state is replaced by
+renaming the new copy into place after the old one is out of the way, so an
+interrupted job leaves either the old state, the new one, or none, never one
+inside the other. One job at a time touches a slot's STORE, because glaeda
+grants a slot's compile token to one job. Two slots can clone PACKAGE_STORE
+while one saves; a clone that loses that race is a package miss, never a
+failed step. Nothing here uploads anything: a pull request run on an owned Mac never
 writes a shared cache or seed, only this Mac's own state, and fork pull
 requests never reach an owned pool.
 """
@@ -162,7 +177,7 @@ def clone(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
-def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
+def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     stamp = read_stamp(store)
     result = {"warm": "false", "packages": "false"}
@@ -170,7 +185,7 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
     elif not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
-        clear(derived)
+        # Kept for the jobs it matches; the next successful keep replaces it.
         result["reason"] = "kept DerivedData is for another Xcode or layout"
     else:
         size = tree_bytes(derived)
@@ -181,10 +196,17 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
         else:
             result["warm"] = "true"
             result["reason"] = "kept DerivedData matches"
-    packages = store / PACKAGES
+    packages = (package_store or store) / PACKAGES
     if packages.is_dir():
-        move(packages, workspace / ".ci-source-packages")
-        result["packages"] = "true"
+        destination = workspace / ".ci-source-packages"
+        try:
+            clone(packages, destination)
+        except (OSError, RuntimeError, shutil.Error) as error:
+            # A save on another slot replaced them mid-clone: resolve from the cache.
+            remove(destination)
+            result["packages_error"] = f"{type(error).__name__}: {error}"[:200]
+        else:
+            result["packages"] = "true"
     return result
 
 
@@ -192,7 +214,9 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
     kept = store / DERIVED
     if not kept.is_dir():
         return {"hit": "false", "reason": "no kept DerivedData"}
-    move(kept, derived)
+    # A clone, not a move: a cancelled or failed compile keeps nothing, and
+    # the store must still hold this state for the next job.
+    clone(kept, derived)
     result = {"hit": "true", "replayed": "false"}
     # Only the owned record: a seed's record describes the seed's source.
     manifest = derived / RECORD
@@ -250,20 +274,29 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
     return {"kept": "true"}
 
 
-def save(store: Path, source_packages: Path, workspace: Path) -> dict[str, str]:
-    store.mkdir(parents=True, exist_ok=True)
+def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
+    package_store = package_store or store
+    package_store.mkdir(parents=True, exist_ok=True)
     # The resolve moved the packages into the canonical tree; a job that
-    # stopped before it left them where check put them.
+    # stopped before it left them where check put them. A job with neither
+    # leaves the kept packages as they are.
     for packages in (source_packages, workspace / ".ci-source-packages"):
         if packages.is_dir():
-            move(packages, store / PACKAGES)
+            incoming = package_store / f".{PACKAGES}.incoming-{os.getpid()}"
+            move(packages, incoming)
+            clear(package_store / PACKAGES)
+            incoming.rename(package_store / PACKAGES)
             return {"packages": "true"}
     return {"packages": "false"}
 
 
+def package_store(argv: list[str]) -> Path | None:
+    return Path(argv[5]) if len(argv) == 6 and argv[5] else None
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) == 5 and argv[1] == "check":
-        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4])))
+    if len(argv) in (5, 6) and argv[1] == "check":
+        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv)))
         return 0
     if len(argv) == 5 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))
@@ -274,8 +307,8 @@ def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
         return 0
-    if len(argv) == 5 and argv[1] == "save":
-        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4])))
+    if len(argv) in (5, 6) and argv[1] == "save":
+        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
         return 0
     print(__doc__, file=sys.stderr)
     return 2
