@@ -50,7 +50,7 @@ final class WorkspacePresenceController {
                 guard let self, !Task.isCancelled else { return }
                 let identity = auth.authenticatedSessionIdentity
                 let teamID = auth.resolvedTeamID
-                let current: @MainActor () -> Bool = { [weak auth] in
+                let current: @MainActor @Sendable () -> Bool = { [weak auth] in
                     guard let auth, let identity else { return false }
                     return auth.authenticatedSessionIdentity == identity && auth.resolvedTeamID == teamID
                 }
