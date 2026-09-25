@@ -126,10 +126,37 @@ output.write_text(json.dumps(result))
         if disagreement.returncode != 0:
             failures.append(f"review challenger fixture failed: {disagreement.stderr}")
         else:
-            challenged = json.loads(disagreement.stdout)
-            surviving = next(f for f in challenged["findings"] if f["title"] == "PRIMARY-CLAIM")
-            if surviving["disposition"] != "human_required" or surviving["challenge"]["disposition"] != "uncertain":
-                failures.append("model disagreement was promoted to established refutation")
+            try:
+                challenged = json.loads(disagreement.stdout)
+                surviving = next(f for f in challenged["findings"] if f["title"] == "PRIMARY-CLAIM")
+                if surviving["disposition"] != "human_required" or surviving["challenge"]["disposition"] != "uncertain":
+                    failures.append("model disagreement was promoted to established refutation")
+            except (KeyError, ValueError, StopIteration) as error:
+                failures.append(f"review challenger contract: {error}")
+
+        # Hook/parent Git context must never redirect a review or alter its snapshot.
+        contaminated = dict(environment)
+        contaminated["GIT_DIR"] = str(root / "unrelated.git")
+        contaminated["GIT_WORK_TREE"] = str(root / "unrelated-worktree")
+        ignore = root / "inherited-ignore"
+        ignore.write_text("new.txt\n")
+        configured = dict(environment)
+        configured.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.excludesFile",
+                           "GIT_CONFIG_VALUE_0": str(ignore)})
+        for inherited in (contaminated, configured):
+            isolated = subprocess.run(command, env=inherited, text=True, capture_output=True, timeout=30)
+            if isolated.returncode != 0:
+                failures.append(f"inherited Git context changed the review: {isolated.stderr.strip()}")
+            else:
+                isolated_receipt = json.loads(isolated.stdout)
+                if isolated_receipt["source"]["tree_sha"] != tree:
+                    failures.append("inherited Git configuration changed the captured tree")
+            loaded = subprocess.run(
+                [cli_path, "review", "show", "latest", "--repo", str(repository), "--json"],
+                env=inherited, text=True, capture_output=True, timeout=10,
+            )
+            if loaded.returncode != 0:
+                failures.append(f"inherited Git context redirected the ledger: {loaded.stderr.strip()}")
 
         # A failed model call must not publish a clean receipt or disturb prior runs.
         ledger = repository / ".git" / "cmux" / "reviews"

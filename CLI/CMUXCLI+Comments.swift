@@ -163,7 +163,7 @@ extension CMUXCLI {
     func reviewGitRepoRoot(startingAt directory: String) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory, "rev-parse", "--show-toplevel"],
+            arguments: ReviewCandidate.gitEnvironmentArguments() + ["git", "-C", directory, "rev-parse", "--show-toplevel"],
             timeout: 10
         )
         let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,7 +182,7 @@ extension CMUXCLI {
     func reviewDirectoryURL(repoRoot: String) throws -> URL {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", repoRoot, "rev-parse", "--git-path", "cmux/reviews"],
+            arguments: ReviewCandidate.gitEnvironmentArguments() + ["git", "-C", repoRoot, "rev-parse", "--git-path", "cmux/reviews"],
             timeout: 10
         )
         let raw = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -968,7 +968,7 @@ extension CMUXCLI {
     private func commentsGitRepoRoot(startingAt directory: String) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", directory, "rev-parse", "--show-toplevel"],
+            arguments: ReviewCandidate.gitEnvironmentArguments() + ["git", "-C", directory, "rev-parse", "--show-toplevel"],
             timeout: 10
         )
         let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

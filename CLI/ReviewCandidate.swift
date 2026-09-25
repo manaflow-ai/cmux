@@ -45,12 +45,18 @@ struct ReviewCandidate {
         _ = try Self.git(repository, ["init", "--quiet", "--template=", candidateDirectory.path])
     }
 
+    /// Git environment variables can redirect repository discovery or configure filters.
+    /// Reviews must snapshot the caller's explicit repository, never inherited hook state.
+    static func gitEnvironmentArguments() -> [String] {
+        ProcessInfo.processInfo.environment.keys
+            .filter { $0.hasPrefix("GIT_") }
+            .sorted()
+            .flatMap { ["-u", $0] }
+    }
+
     /// A temporary index captures tracked and untracked content without changing the real index.
     static func git(_ repository: String, _ arguments: [String], index: String? = nil) throws -> String {
-        var environmentArguments = [
-            "-u", "GIT_DIR", "-u", "GIT_WORK_TREE", "-u", "GIT_COMMON_DIR",
-            "-u", "GIT_INDEX_FILE", "-u", "GIT_OBJECT_DIRECTORY", "-u", "GIT_ALTERNATE_OBJECT_DIRECTORIES"
-        ]
+        var environmentArguments = Self.gitEnvironmentArguments()
         if let index { environmentArguments.append("GIT_INDEX_FILE=\(index)") }
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
