@@ -533,6 +533,7 @@ actor MobileHostIrohApplicationLaneRouter {
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
     private let simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling
+    private let terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
     private var laneQuota = MobileHostIrohApplicationLaneQuota()
     private var stopped = false
@@ -541,11 +542,13 @@ actor MobileHostIrohApplicationLaneRouter {
         session: CmxIrohAdmittedServerSession,
         artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler(),
         simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling =
-            MobileHostIrohRejectingSimulatorStreamLaneHandler()
+            MobileHostIrohRejectingSimulatorStreamLaneHandler(),
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
     ) {
         self.session = session
         self.artifactHandler = artifactHandler
         self.simulatorStreamHandler = simulatorStreamHandler
+        self.terminalInputOrderingToken = terminalInputOrderingToken
     }
 
     func run(
@@ -623,18 +626,21 @@ actor MobileHostIrohApplicationLaneRouter {
         let peer = session.peer
         let artifactHandler = artifactHandler
         let simulatorStreamHandler = simulatorStreamHandler
+        let orderingToken = terminalInputOrderingToken
         let task = Task { [weak self] in
             switch lane {
             case let .terminal(resourceID, cursor):
                 await Self.handleTerminalLane(
                     resourceID: resourceID,
                     cursor: cursor,
-                    stream: stream
+                    stream: stream,
+                    terminalInputOrderingToken: orderingToken
                 )
             case let .terminalInput(resourceID):
                 await Self.handleTerminalInputLane(
                     resourceID: resourceID,
-                    stream: stream
+                    stream: stream,
+                    terminalInputOrderingToken: orderingToken
                 )
             case let .artifact(resourceID, offset):
                 let didTakeOwnership = await artifactHandler.handleArtifactLane(
@@ -672,7 +678,8 @@ actor MobileHostIrohApplicationLaneRouter {
     private nonisolated static func handleTerminalLane(
         resourceID: CmxIrohResourceID,
         cursor: UInt64?,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
               await MainActor.run(body: {
@@ -694,7 +701,8 @@ actor MobileHostIrohApplicationLaneRouter {
             group.addTask {
                 await receiveTerminalInput(
                     surfaceID: surfaceID,
-                    stream: stream
+                    stream: stream,
+                    terminalInputOrderingToken: terminalInputOrderingToken
                 )
             }
             if await group.next() == true {
@@ -712,7 +720,8 @@ actor MobileHostIrohApplicationLaneRouter {
     /// stays open for fire-and-forget length-prefixed frames.
     private nonisolated static func handleTerminalInputLane(
         resourceID: CmxIrohResourceID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
               await MainActor.run(body: {
@@ -737,7 +746,8 @@ actor MobileHostIrohApplicationLaneRouter {
             )
             _ = await receiveTerminalInput(
                 surfaceID: surfaceID,
-                stream: stream
+                stream: stream,
+                terminalInputOrderingToken: terminalInputOrderingToken
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -752,7 +762,8 @@ actor MobileHostIrohApplicationLaneRouter {
     /// output-only terminal stream.
     private nonisolated static func receiveTerminalInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -769,7 +780,8 @@ actor MobileHostIrohApplicationLaneRouter {
                 for input in try MobileTerminalInputFrame.decode(from: &buffer) {
                     guard await sendTerminalInput(
                         input,
-                        surfaceID: surfaceID
+                        surfaceID: surfaceID,
+                        terminalInputOrderingToken: terminalInputOrderingToken
                     ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
@@ -885,32 +897,72 @@ actor MobileHostIrohApplicationLaneRouter {
 
     private nonisolated static func sendTerminalInput(
         _ input: MobileTerminalInputFrame,
-        surfaceID: UUID
+        surfaceID: UUID,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async -> Bool {
         let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
-        return await MainActor.run {
-            guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
-                return false
-            }
-            let result = MobileTerminalByteTee.shared.performMobileInput(
+        guard let terminalInputOrderingToken else {
+            return await applyTerminalInput(
+                input,
                 surfaceID: surfaceID,
-                sequence: input.sequence,
                 receivedAtMicros: receivedAtMicros
-            ) { surface.sendInputResult(input.text) }
-            switch result {
-            case .sent:
-                // PTY output is observed by MobileTerminalByteTee, which
-                // schedules the normal render tick. A refresh here would
-                // emit a duplicate full frame before the echo and make every
-                // key compete with the output lane's replay fence.
-                return true
-            case .queued:
-                return true
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
+            )
+        }
+        let ticket: MobileTerminalInputOrderingTicket? = await MainActor.run {
+            guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
+                surfaceID: surfaceID,
+                token: terminalInputOrderingToken,
+                inputSequence: input.sequence
+            ) else {
+                return nil
+            }
+            return ticket
+        }
+        guard let ticket else { return false }
+        await ticket.turn.value
+        return await MainActor.run {
+            defer {
+                MobileHostService.shared.terminalInputOrdering.finish(ticket)
+            }
+            guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
                 return false
             }
+            return applyTerminalInput(
+                input,
+                surfaceID: surfaceID,
+                receivedAtMicros: receivedAtMicros
+            )
         }
     }
+
+    @MainActor
+    private static func applyTerminalInput(
+        _ input: MobileTerminalInputFrame,
+        surfaceID: UUID,
+        receivedAtMicros: UInt64
+    ) -> Bool {
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
+            return false
+        }
+        let result = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceID,
+            sequence: input.sequence,
+            receivedAtMicros: receivedAtMicros
+        ) { surface.sendInputResult(input.text) }
+        switch result {
+        case .sent:
+            // PTY output is observed by MobileTerminalByteTee, which
+            // schedules the normal render tick. A refresh here would
+            // emit a duplicate full frame before the echo and make every
+            // key compete with the output lane's replay fence.
+            return true
+        case .queued:
+            return true
+        case .inputQueueFull, .surfaceUnavailable, .processExited:
+            return false
+        }
+    }
+
 
     private nonisolated static func terminalSurfaceID(
         _ resourceID: CmxIrohResourceID

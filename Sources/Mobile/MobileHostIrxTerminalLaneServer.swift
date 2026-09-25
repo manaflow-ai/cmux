@@ -21,7 +21,8 @@ enum MobileHostIrxTerminalLaneServer {
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -45,7 +46,11 @@ enum MobileHostIrxTerminalLaneServer {
                 return true
             }
             group.addTask {
-                await receiveInput(surfaceID: surfaceID, stream: stream)
+                await receiveInput(
+                    surfaceID: surfaceID,
+                    stream: stream,
+                    terminalInputOrderingToken: terminalInputOrderingToken
+                )
             }
             if await group.next() == true {
                 group.cancelAll()
@@ -64,7 +69,8 @@ enum MobileHostIrxTerminalLaneServer {
     static func serveInputOnly(
         resourceID: String,
         stream: CmxIrohBidirectionalStream,
-        journal: IrxJournal
+        journal: IrxJournal,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -90,7 +96,8 @@ enum MobileHostIrxTerminalLaneServer {
             )
             _ = await receiveInput(
                 surfaceID: surfaceID,
-                stream: stream
+                stream: stream,
+                terminalInputOrderingToken: terminalInputOrderingToken
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -206,7 +213,8 @@ enum MobileHostIrxTerminalLaneServer {
     /// on a clean input-side finish (output-only lanes stay open).
     private static func receiveInput(
         surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
+        stream: CmxIrohBidirectionalStream,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -225,7 +233,8 @@ enum MobileHostIrxTerminalLaneServer {
                 {
                     guard await deliverInput(
                         input,
-                        surfaceID: surfaceID
+                        surfaceID: surfaceID,
+                        terminalInputOrderingToken: terminalInputOrderingToken
                     ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
@@ -247,35 +256,75 @@ enum MobileHostIrxTerminalLaneServer {
 
     private static func deliverInput(
         _ input: MobileTerminalInputFrame,
-        surfaceID: UUID
+        surfaceID: UUID,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
     ) async -> Bool {
         // Stamped before the main-actor hop so the Mac's receive-to-accept
         // stage includes any queueing behind other main-actor work.
         let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
-        return await MainActor.run {
-            guard
-                let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
-                    id: surfaceID)
-            else { return false }
-            let result = MobileTerminalByteTee.shared.performMobileInput(
+        guard let terminalInputOrderingToken else {
+            return await applyInput(
+                input,
                 surfaceID: surfaceID,
-                sequence: input.sequence,
                 receivedAtMicros: receivedAtMicros
-            ) { surface.sendInputResult(input.text) }
-            switch result {
-            case .sent:
-                // PTY output is observed by MobileTerminalByteTee, which
-                // schedules the normal render tick. A refresh here would
-                // emit a duplicate full frame before the echo and make every
-                // key compete with the output lane's replay fence.
-                return true
-            case .queued:
-                return true
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
+            )
+        }
+        let ticket: MobileTerminalInputOrderingTicket? = await MainActor.run {
+            guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
+                surfaceID: surfaceID,
+                token: terminalInputOrderingToken,
+                inputSequence: input.sequence
+            ) else {
+                return nil
+            }
+            return ticket
+        }
+        guard let ticket else { return false }
+        await ticket.turn.value
+        return await MainActor.run {
+            defer {
+                MobileHostService.shared.terminalInputOrdering.finish(ticket)
+            }
+            guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
                 return false
             }
+            return applyInput(
+                input,
+                surfaceID: surfaceID,
+                receivedAtMicros: receivedAtMicros
+            )
         }
     }
+
+    @MainActor
+    private static func applyInput(
+        _ input: MobileTerminalInputFrame,
+        surfaceID: UUID,
+        receivedAtMicros: UInt64
+    ) -> Bool {
+        guard
+            let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
+                id: surfaceID)
+        else { return false }
+        let result = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceID,
+            sequence: input.sequence,
+            receivedAtMicros: receivedAtMicros
+        ) { surface.sendInputResult(input.text) }
+        switch result {
+        case .sent:
+            // PTY output is observed by MobileTerminalByteTee, which
+            // schedules the normal render tick. A refresh here would
+            // emit a duplicate full frame before the echo and make every
+            // key compete with the output lane's replay fence.
+            return true
+        case .queued:
+            return true
+        case .inputQueueFull, .surfaceUnavailable, .processExited:
+            return false
+        }
+    }
+
 
     private static func terminalSurfaceID(_ resourceID: String) -> UUID? {
         let rawID = resourceID.hasPrefix("terminal:")

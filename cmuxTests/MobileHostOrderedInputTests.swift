@@ -11,6 +11,48 @@ import Testing
 @Suite
 struct MobileHostOrderedInputTests {
     @Test
+    @MainActor
+    func canonicalOwnerFencesLanesAndRejectsReconnectStaleWork() async {
+        let ordering = MobileTerminalInputOrdering()
+        let oldToken = ordering.beginConnection(identity: "client:phone")
+        let surfaceID = UUID()
+        guard case let .success(oldTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: oldToken,
+            inputSequence: 7
+        ) else {
+            Issue.record("the first input reservation should be admitted")
+            return
+        }
+        await oldTicket.waitForTurn()
+
+        let newToken = ordering.beginConnection(identity: "client:phone")
+        #expect(!ordering.isCurrent(oldTicket))
+        ordering.finish(oldTicket)
+
+        guard case let .success(newTicket) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: newToken,
+            inputSequence: 1
+        ) else {
+            Issue.record("a reconnect should receive a fresh input sequence epoch")
+            return
+        }
+        await newTicket.waitForTurn()
+        #expect(ordering.isCurrent(newTicket))
+        ordering.finish(newTicket)
+
+        guard case .failure(.staleSequence) = ordering.reserve(
+            surfaceID: surfaceID,
+            token: newToken,
+            inputSequence: 1
+        ) else {
+            Issue.record("a duplicate input sequence should be rejected")
+            return
+        }
+    }
+
+    @Test
     func terminalInputRunsSeriallyWhileOtherRequestsRemainConcurrent() async throws {
         let transport = OrderedInputRecordingTransport()
         let gate = OrderedInputHandlerGate()

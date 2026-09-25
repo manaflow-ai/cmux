@@ -48,7 +48,167 @@ extension MobileHostRPCRequest {
     /// The per-surface ordering domain for an ordered terminal request.
     /// Requests without a surface selection share one conservative bucket.
     var orderedInputSurfaceKey: String {
-        (params["surface_id"] as? String)?
+        let raw = (params["surface_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // UUID spelling is not identity. Normalize it before the connection
+        // local admission queue so upper/lower-case wire variants cannot race
+        // one another while the canonical main-actor owner resolves the live
+        // surface target.
+        return UUID(uuidString: raw)?.uuidString.lowercased() ?? raw
+    }
+}
+
+/// A connection-scoped identity for terminal input that is shared by the
+/// control RPC and Iroh input lanes. The token is deliberately opaque: a
+/// reconnect receives a new value and all work admitted by the old value is
+/// rejected before it can touch the PTY.
+struct MobileTerminalInputOrderingToken: Hashable, Sendable {
+    fileprivate let rawValue: UUID
+
+    fileprivate init(rawValue: UUID = UUID()) {
+        self.rawValue = rawValue
+    }
+}
+
+/// A reservation in the canonical per-surface input order. Callers wait for
+/// `turn` before applying the mutation and always call `finish` afterwards,
+/// including when the token has become stale.
+struct MobileTerminalInputOrderingTicket: Sendable {
+    fileprivate let id: UUID
+    fileprivate let surfaceID: UUID
+    fileprivate let token: MobileTerminalInputOrderingToken
+    fileprivate let turn: Task<Void, Never>
+
+    func waitForTurn() async {
+        await turn.value
+    }
+}
+
+/// Main-actor owner for every PTY-writing mobile input path.
+///
+/// RPC control frames and Iroh input lanes arrive through independent actor
+/// trees. Keeping their reservation and execution fence here gives both paths
+/// one canonical UUID queue, one reconnect epoch, and one input-sequence
+/// watermark. The existing connection-local RPC queue remains useful for
+/// response admission and quota accounting; this owner is the PTY ordering
+/// authority.
+@MainActor
+final class MobileTerminalInputOrdering {
+    enum Rejection: Equatable, Sendable {
+        case inactiveConnection
+        case staleSequence
+    }
+
+    private struct SurfaceSequenceKey: Hashable {
+        let surfaceID: UUID
+        let token: MobileTerminalInputOrderingToken
+    }
+
+    private var activeTokens: Set<MobileTerminalInputOrderingToken> = []
+    private var tokenByIdentity: [String: MobileTerminalInputOrderingToken] = [:]
+    private var identityByToken: [MobileTerminalInputOrderingToken: String] = [:]
+    private var lastSequenceBySurfaceAndToken: [SurfaceSequenceKey: UInt64] = [:]
+    private var tailsBySurfaceID: [UUID: (ticketID: UUID, task: Task<Void, Never>)] = [:]
+    private var finishSignalsByTicketID: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    func beginConnection(identity: String? = nil) -> MobileTerminalInputOrderingToken {
+        let token = MobileTerminalInputOrderingToken()
+        activeTokens.insert(token)
+        if let identity = normalizedIdentity(identity) {
+            if let previous = tokenByIdentity[identity], previous != token {
+                invalidate(previous)
+            }
+            tokenByIdentity[identity] = token
+            identityByToken[token] = identity
+        }
+        return token
+    }
+
+    func rebind(
+        _ token: MobileTerminalInputOrderingToken,
+        identity: String
+    ) {
+        guard activeTokens.contains(token),
+              let identity = normalizedIdentity(identity) else {
+            return
+        }
+        if let previous = tokenByIdentity[identity], previous != token {
+            invalidate(previous)
+        }
+        if let previousIdentity = identityByToken[token], previousIdentity != identity {
+            tokenByIdentity[previousIdentity] = nil
+        }
+        tokenByIdentity[identity] = token
+        identityByToken[token] = identity
+    }
+
+    func invalidate(_ token: MobileTerminalInputOrderingToken) {
+        guard activeTokens.remove(token) != nil else { return }
+        if let identity = identityByToken.removeValue(forKey: token),
+           tokenByIdentity[identity] == token {
+            tokenByIdentity[identity] = nil
+        }
+    }
+
+    func reserve(
+        surfaceID: UUID,
+        token: MobileTerminalInputOrderingToken,
+        inputSequence: UInt64?
+    ) -> Result<MobileTerminalInputOrderingTicket, Rejection> {
+        guard activeTokens.contains(token) else {
+            return .failure(.inactiveConnection)
+        }
+        if let inputSequence {
+            let key = SurfaceSequenceKey(surfaceID: surfaceID, token: token)
+            if let previous = lastSequenceBySurfaceAndToken[key], inputSequence <= previous {
+                return .failure(.staleSequence)
+            }
+            // Advance at reservation time, not after execution. A later lane
+            // frame must not be admitted behind a queued older frame and then
+            // make the older frame look fresh when it finally runs.
+            lastSequenceBySurfaceAndToken[key] = inputSequence
+        }
+
+        let ticketID = UUID()
+        let predecessor = tailsBySurfaceID[surfaceID]?.task
+        let turn = Task {
+            if let predecessor {
+                await predecessor.value
+            }
+        }
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let tail = Task {
+            await turn.value
+            for await _ in stream { break }
+        }
+        tailsBySurfaceID[surfaceID] = (ticketID: ticketID, task: tail)
+        finishSignalsByTicketID[ticketID] = continuation
+        return .success(MobileTerminalInputOrderingTicket(
+            id: ticketID,
+            surfaceID: surfaceID,
+            token: token,
+            turn: turn
+        ))
+    }
+
+    func isCurrent(_ ticket: MobileTerminalInputOrderingTicket) -> Bool {
+        activeTokens.contains(ticket.token)
+    }
+
+    func finish(_ ticket: MobileTerminalInputOrderingTicket) {
+        guard let continuation = finishSignalsByTicketID.removeValue(forKey: ticket.id) else {
+            return
+        }
+        continuation.yield(())
+        continuation.finish()
+        if tailsBySurfaceID[ticket.surfaceID]?.ticketID == ticket.id {
+            tailsBySurfaceID[ticket.surfaceID] = nil
+        }
+    }
+
+    private func normalizedIdentity(_ identity: String?) -> String? {
+        guard let identity else { return nil }
+        let value = identity.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }

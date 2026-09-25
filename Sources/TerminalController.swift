@@ -294,6 +294,12 @@ class TerminalController {
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
+    nonisolated static var terminalInputOrderingStaleMessage: String {
+        String(
+            localized: "socket.terminal.inputOrderingStale",
+            defaultValue: "This terminal input belongs to an older connection; reconnect and try again."
+        )
+    }
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -14659,6 +14665,56 @@ class TerminalController {
 
     @MainActor
     func mobileHostHandleRPC(
+        _ request: MobileHostRPCRequest,
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> MobileHostRPCResult {
+        guard request.isOrderedTerminalInput,
+              let executionContext,
+              let orderingToken = executionContext.terminalInputOrderingToken,
+              let surfaceID = mobileCanonicalTerminalTarget(params: request.params)?.surfaceID
+        else {
+            return await mobileHostHandleRPCUnordered(
+                request,
+                executionContext: executionContext
+            )
+        }
+
+        let inputSequence: UInt64? = if let raw = request.params["input_sequence"] as? String {
+            UInt64(raw)
+        } else {
+            (request.params["input_sequence"] as? NSNumber).map { $0.uint64Value }
+        }
+        guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
+            surfaceID: surfaceID,
+            token: orderingToken,
+            inputSequence: inputSequence
+        ) else {
+            return .err(
+                code: "stale_input",
+                message: Self.terminalInputOrderingStaleMessage,
+                data: ["surface_id": surfaceID.uuidString]
+            )
+        }
+
+        await ticket.turn.value
+        defer {
+            MobileHostService.shared.terminalInputOrdering.finish(ticket)
+        }
+        guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
+            return .err(
+                code: "stale_input",
+                message: Self.terminalInputOrderingStaleMessage,
+                data: ["surface_id": surfaceID.uuidString]
+            )
+        }
+        return await mobileHostHandleRPCUnordered(
+            request,
+            executionContext: executionContext
+        )
+    }
+
+    @MainActor
+    private func mobileHostHandleRPCUnordered(
         _ request: MobileHostRPCRequest,
         executionContext: MobileHostRPCExecutionContext? = nil
     ) async -> MobileHostRPCResult {

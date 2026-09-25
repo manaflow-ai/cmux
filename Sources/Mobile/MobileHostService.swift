@@ -264,6 +264,8 @@ final class MobileHostService {
     nonisolated private static let maximumActiveConnectionCount = 10
     /// Process-lifetime owner for the repository-root summary TTL cache.
     let workspaceChangesService = WorkspaceChangesService()
+    /// Shared PTY ordering owner for mobile control RPCs and Iroh input lanes.
+    let terminalInputOrdering = MobileTerminalInputOrdering()
 
     nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
@@ -858,6 +860,7 @@ final class MobileHostService {
             MobileRemoteControlPolicy.isDisabled
         },
         peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -880,6 +883,17 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        let inputOrderingToken = terminalInputOrderingToken ?? await MainActor.run {
+            let identity: String? = switch authorization {
+            case .stackBearer:
+                nil
+            case let .irohAdmission(peer):
+                "iroh:\(peer.bindingID)"
+            }
+            return MobileHostService.shared.terminalInputOrdering.beginConnection(
+                identity: identity
+            )
+        }
         let defaultFirstFrameTimeout: UInt64 = switch authorization {
         case .irohAdmission:
             // Iroh owns admission and native connection liveness. A delayed
@@ -909,6 +923,12 @@ final class MobileHostService {
                     return
                 }
                 await MobileHostService.shared.recordClientID(clientID, for: id)
+                await MainActor.run {
+                    MobileHostService.shared.terminalInputOrdering.rebind(
+                        inputOrderingToken,
+                        identity: "client:\(clientID)"
+                    )
+                }
             },
             onUsableSession: {
                 guard await promoteUsableSession() else { return false }
@@ -944,7 +964,8 @@ final class MobileHostService {
                     executionContext: MobileHostRPCExecutionContext(
                         connectionID: id,
                         authorization: authorization,
-                        artifactTransfers: artifactTransfers
+                        artifactTransfers: artifactTransfers,
+                        terminalInputOrderingToken: inputOrderingToken
                     )
                 )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -954,6 +975,11 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                await MainActor.run {
+                    MobileHostService.shared.terminalInputOrdering.invalidate(
+                        inputOrderingToken
+                    )
+                }
                 await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
                 await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
                 MobileHostConnectionRegistry.shared.remove(id: id)
