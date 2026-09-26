@@ -76,17 +76,21 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
     }
 
     /// Resume argv through the recorded outer launcher, or nil when none was
-    /// recorded (callers then use the kind's normal resume command).
+    /// recorded (callers then use the kind's normal resume command). The
+    /// agent's own resume arguments, including preserved flags such as the
+    /// permission mode or model, follow the launcher in place of the agent
+    /// executable.
     public var launcherResumeArguments: [String]? {
-        guard let prefix = launchCommand?.launcherPrefix, !prefix.isEmpty else { return nil }
-        switch kind {
-        case "claude":
-            return prefix + ["--resume", sessionId]
-        case "codex":
-            return prefix + ["resume", sessionId]
-        default:
+        guard let prefix = launchCommand?.launcherPrefix, !prefix.isEmpty,
+              let agentArguments = AgentResumeArgv().builtInKind(
+                kind: kind,
+                sessionId: sessionId,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+              ) else {
             return nil
         }
+        return prefix + agentArguments.dropFirst()
     }
 }
 

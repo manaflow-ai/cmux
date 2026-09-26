@@ -48,5 +48,8 @@ struct AgentJournalSessionTailTests {
         #expect(byId["done"]?.hasEnded == true)
         #expect(byId["resumed"]?.hasEnded == false)
         #expect(byId["lost"]?.source == "claude")
+        // The read-only reader sees the same tails as the owning store.
+        let readerTails = try AgentJournalSessionTailReader(databaseURL: url).sessionTails(occurredAtOrAfterMs: 500)
+        #expect(Set(readerTails.map(\.sessionId)) == Set(byId.keys))
     }
 }

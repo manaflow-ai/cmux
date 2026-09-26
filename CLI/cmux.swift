@@ -31755,9 +31755,13 @@ struct CMUXCLI {
         let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
         // The outer launcher (e.g. `sr claude proxy --account x`) so crash
         // recovery resumes through the same account routing.
-        let launcherPrefix: [String]? = env[agentHookRelayOriginEnvironmentKey] == "1"
-            ? nil
-            : fallbackPID.flatMap { agentLauncherPrefix(agentPID: pid_t($0), kind: fallbackKind) }
+        // `processArguments` is already the agent's own argv (kind-checked,
+        // shell wrappers dropped, nil for relayed hooks), so no second read.
+        let launcherPrefix: [String]? = fallbackPID.flatMap { pid in
+            processArguments.flatMap {
+                agentLauncherPrefix(agentPID: pid_t(pid), agentArguments: $0, kind: fallbackKind)
+            }
+        }
         // HOME is intentionally not part of the replay environment: changing
         // it for every restored agent can redirect unrelated config and caches.
         // Codex verification still needs the launch account's state root when
@@ -31825,16 +31829,8 @@ struct CMUXCLI {
 
     /// The agent's parent argv minus what it forwarded to the agent, when
     /// the parent is a launcher rather than a shell (see `AgentLauncherPrefix`).
-    private func agentLauncherPrefix(agentPID: pid_t, kind: String) -> [String]? {
-        guard kind == "claude" || kind == "codex", agentPID > 1,
-              let agentArguments = processArguments(for: agentPID),
-              AgentLaunchCaptureTrust.nativeProcessDescribesKind(
-                  processName: processName(for: agentPID),
-                  arguments: agentArguments,
-                  kind: kind
-              ) else {
-            return nil
-        }
+    private func agentLauncherPrefix(agentPID: pid_t, agentArguments: [String], kind: String) -> [String]? {
+        guard kind == "claude" || kind == "codex", agentPID > 1 else { return nil }
         let launcherPID = parentPID(of: agentPID)
         guard launcherPID > 1, let parentArguments = processArguments(for: launcherPID) else { return nil }
         return AgentLauncherPrefix(kind: kind).derive(

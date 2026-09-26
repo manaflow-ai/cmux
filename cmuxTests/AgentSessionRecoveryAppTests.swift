@@ -40,14 +40,23 @@ struct AgentSessionRecoveryAppTests {
         try append(.sessionStarted, "finished")
         try append(.sessionEnded, "finished")
         try append(.sessionStarted, "already-open")
+        try append(.sessionStarted, "no-transcript")
         store.close()
 
-        func record(_ id: String, cwd: String, launch: AgentLaunchCommand) -> RestorableAgentHookSessionRecord {
-            RestorableAgentHookSessionRecord(
+        func record(
+            _ id: String,
+            cwd: String,
+            launch: AgentLaunchCommand,
+            hasTranscript: Bool = true
+        ) throws -> RestorableAgentHookSessionRecord {
+            let transcript = root.appendingPathComponent("\(id).jsonl")
+            if hasTranscript { try Data("{}\n".utf8).write(to: transcript) }
+            return RestorableAgentHookSessionRecord(
                 sessionId: id,
                 workspaceId: UUID().uuidString,
                 surfaceId: UUID().uuidString,
                 cwd: cwd,
+                transcriptPath: transcript.path,
                 pid: 999_999,
                 pidStartSeconds: 1,
                 launchCommand: launch,
@@ -63,10 +72,11 @@ struct AgentSessionRecoveryAppTests {
         let plain = AgentLaunchCommand(launcher: "claude", arguments: ["claude"])
         var file = RestorableAgentHookSessionStoreFile()
         file.sessions = [
-            "proxied": record("proxied", cwd: "/Users/me/Projects/my app", launch: proxied),
-            "plain": record("plain", cwd: "/Users/me/Projects/plain", launch: plain),
-            "finished": record("finished", cwd: "/tmp", launch: plain),
-            "already-open": record("already-open", cwd: "/tmp", launch: plain),
+            "proxied": try record("proxied", cwd: "/Users/me/Projects/my app", launch: proxied),
+            "plain": try record("plain", cwd: "/Users/me/Projects/plain", launch: plain),
+            "finished": try record("finished", cwd: "/tmp", launch: plain),
+            "already-open": try record("already-open", cwd: "/tmp", launch: plain),
+            "no-transcript": try record("no-transcript", cwd: "/tmp", launch: plain, hasTranscript: false),
         ]
         try JSONEncoder().encode(file).write(to: root.appendingPathComponent("claude-hook-sessions.json"))
 

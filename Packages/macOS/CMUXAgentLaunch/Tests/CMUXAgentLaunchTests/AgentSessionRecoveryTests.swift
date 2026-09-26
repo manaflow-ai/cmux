@@ -35,6 +35,16 @@ struct AgentLauncherPrefixTests {
         }
     }
 
+    @Test("a launcher argv carrying a credential is not recorded")
+    func secretBearingLauncherRejected() {
+        #expect(
+            AgentLauncherPrefix(kind: "claude").derive(
+                agentArguments: ["claude"],
+                parentArguments: ["sr", "claude", "proxy", "--api-key", "sk-123"]
+            ) == nil
+        )
+    }
+
     @Test("a parent that never names the agent is not trusted as its launcher")
     func unrelatedParentRejected() {
         #expect(
@@ -107,6 +117,13 @@ struct AgentSessionRecoveryPlannerTests {
         )
         #expect(candidates.count == 2)
         #expect(candidates[0].launcherResumeArguments == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1"])
+        // Preserved agent flags ride along after the launcher.
+        var flagged = candidates[0]
+        flagged.launchCommand?.arguments = ["claude", "--dangerously-skip-permissions", "--model", "opus"]
+        let flaggedArguments = try #require(flagged.launcherResumeArguments)
+        #expect(Array(flaggedArguments.prefix(7)) == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1"])
+        #expect(flaggedArguments.contains("--dangerously-skip-permissions"))
+        #expect(flaggedArguments.contains("opus"))
         #expect(candidates[1].launcherResumeArguments == nil)
     }
 

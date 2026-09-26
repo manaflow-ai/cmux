@@ -1239,6 +1239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var previousSessionLaunchWasUnclean = false
     /// Read-only view for agent session recovery (`AgentSessionRecovery.swift`).
     var previousLaunchWasUncleanForRecovery: Bool { previousSessionLaunchWasUnclean }
+    /// When the previous (possibly crashed) run launched; recovery only
+    /// considers agent sessions active since then.
+    var previousSessionLaunchStartedAt: Date?
     var didScheduleAgentSessionRecovery = false
     private var didCaptureSessionLaunchState = false
     private var didArmSessionLaunchSentinel = false
@@ -3565,6 +3568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // this also keeps isolated unit-test app delegates from affecting the
         // user's next launch.
         guard !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached else { return }
+        previousSessionLaunchStartedAt = GhosttyCrashBreadcrumb.priorSessionLaunchStartDate(environment: environment)
         previousSessionLaunchWasUnclean = GhosttyCrashBreadcrumb.captureSessionLaunchState(
             environment: environment
         )

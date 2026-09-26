@@ -11,9 +11,13 @@ import Foundation
 /// after an unclean exit, the sessions that are neither running nor already
 /// restored into a panel are reopened, one workspace each, and resumed through
 /// the launcher that originally started them (see `AgentLauncherPrefix`).
+///
+/// Only Claude is recovered: its `SessionEnd` hook marks sessions that ended
+/// normally, so a session without one was killed. Codex has no end hook, so
+/// every finished Codex session would look killed.
 struct AgentSessionRecovery: Sendable {
-    /// Kinds whose hook stores carry launch records recovery can resume.
-    static let recoverableKinds: [RestorableAgentKind] = [.claude, .codex]
+    /// Kinds whose journal records a session end.
+    static let recoverableKinds: [RestorableAgentKind] = [.claude]
 
     let journalURL: URL?
     let homeDirectory: String
@@ -31,10 +35,21 @@ struct AgentSessionRecovery: Sendable {
 
     /// Reads the journal and hook stores. Does file and SQLite I/O; call it
     /// off the main thread.
-    func candidates(openSessionIds: Set<String>, now: Date = Date()) -> [AgentRecoveryCandidate] {
+    ///
+    /// - Parameters:
+    ///   - openSessionIds: Sessions already carried by open panels.
+    ///   - activeSince: Start of the run that died; only sessions active
+    ///     since then are considered. Nil falls back to the planner's limit.
+    ///   - now: The current time.
+    func candidates(
+        openSessionIds: Set<String>,
+        activeSince: Date? = nil,
+        now: Date = Date()
+    ) -> [AgentRecoveryCandidate] {
         let planner = AgentSessionRecoveryPlanner()
+        let oldest = now.addingTimeInterval(-planner.maximumAge)
         return planner.candidates(
-            journal: journalSessions(since: now.addingTimeInterval(-planner.maximumAge)),
+            journal: journalSessions(since: max(activeSince ?? oldest, oldest)),
             records: launchRecords(),
             openSessionIds: openSessionIds,
             isProcessAlive: Self.isProcessAlive,
@@ -43,11 +58,10 @@ struct AgentSessionRecovery: Sendable {
     }
 
     private func journalSessions(since: Date) -> [AgentRecoveryJournalSession] {
-        guard let journalURL, FileManager.default.fileExists(atPath: journalURL.path),
-              let store = try? AgentJournalStore(databaseURL: journalURL) else { return [] }
-        defer { store.close() }
+        guard let journalURL, FileManager.default.fileExists(atPath: journalURL.path) else { return [] }
         let sinceMs = Int64(since.timeIntervalSince1970 * 1000)
-        let tails = (try? store.sessionTails(occurredAtOrAfterMs: sinceMs)) ?? []
+        let tails = (try? AgentJournalSessionTailReader(databaseURL: journalURL)
+            .sessionTails(occurredAtOrAfterMs: sinceMs)) ?? []
         return tails.map {
             AgentRecoveryJournalSession(
                 sessionId: $0.sessionId,
@@ -68,19 +82,40 @@ struct AgentSessionRecovery: Sendable {
             }
             return state.sessions.values.compactMap { record in
                 guard record.isRestorable != false,
-                      record.launchCommand?.source?.lowercased() != "rejected" else { return nil }
+                      record.launchCommand?.source?.lowercased() != "rejected",
+                      Self.transcriptExists(record) else { return nil }
                 return AgentRecoveryLaunchRecord(
                     kind: kind.rawValue,
                     sessionId: record.sessionId,
                     workspaceId: record.workspaceId,
                     cwd: record.cwd,
-                    launchCommand: record.launchCommand,
+                    launchCommand: Self.trustedLaunchCommand(record.launchCommand, kind: kind),
                     pid: record.pid,
                     pidStartSeconds: record.pidStartSeconds,
                     updatedAt: Date(timeIntervalSince1970: record.updatedAt)
                 )
             }
         }
+    }
+
+    /// Resume needs the transcript; a record without one on disk cannot resume.
+    private static func transcriptExists(_ record: RestorableAgentHookSessionRecord) -> Bool {
+        guard let path = record.transcriptPath, !path.isEmpty else { return false }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    /// Drops a launch capture inherited from another agent or the hook shell,
+    /// matching the session index's admission rule.
+    private static func trustedLaunchCommand(
+        _ launchCommand: AgentLaunchCommand?,
+        kind: RestorableAgentKind
+    ) -> AgentLaunchCommand? {
+        guard let launchCommand,
+              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
+              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return nil
+        }
+        return launchCommand
     }
 
     private static func isProcessAlive(pid: Int, startSeconds: Int64?) -> Bool {
@@ -122,18 +157,45 @@ struct AgentSessionRecovery: Sendable {
 extension AppDelegate {
     /// Agent session ids already carried by open panels (restored from the
     /// snapshot or bound since launch), which recovery must not duplicate.
+    ///
+    /// Covers workspace panels, workspace and window Docks, and restores that
+    /// are staged or deferred but have not launched yet.
     func openAgentSessionIdsForRecovery() -> Set<String> {
         var managers = mainWindowContexts.values.map(\.tabManager)
         if let tabManager, !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
         }
         var ids = Set<String>()
-        for manager in managers {
-            for workspace in manager.tabs {
-                ids.formUnion(workspace.restoredAgentSnapshotsByPanelId.values.map(\.sessionId))
-                ids.formUnion(workspace.surfaceResumeBindingsByPanelId.values.compactMap(\.checkpointId))
+        func collect(
+            restored: [UUID: SessionRestorableAgentSnapshot],
+            bindings: [UUID: SurfaceResumeBindingSnapshot],
+            deferred: [UUID: DeferredAgentResumeRestore]
+        ) {
+            ids.formUnion(restored.values.map(\.sessionId))
+            ids.formUnion(bindings.values.compactMap(\.checkpointId))
+            for restore in deferred.values {
+                if let sessionId = restore.restorableAgent?.sessionId { ids.insert(sessionId) }
+                if let checkpointId = restore.resumeBinding?.checkpointId { ids.insert(checkpointId) }
             }
         }
+        func collect(_ dock: DockSplitStore) {
+            collect(
+                restored: dock.restoredAgentLifecycle.snapshotsByPanelId,
+                bindings: dock.surfaceResumeBindingsByPanelId,
+                deferred: dock.deferredAgentResumeRestoresByPanelId
+            )
+        }
+        for manager in managers {
+            for workspace in manager.tabs {
+                collect(
+                    restored: workspace.restoredAgentSnapshotsByPanelId,
+                    bindings: workspace.surfaceResumeBindingsByPanelId,
+                    deferred: workspace.deferredAgentResumeRestoresByPanelId
+                )
+                if let dock = workspace._dockSplit { collect(dock) }
+            }
+        }
+        for dock in existingWindowDocks { collect(dock) }
         return ids
     }
 
@@ -145,14 +207,24 @@ extension AppDelegate {
         let alreadyOpen = openAgentSessionIdsForRecovery()
         var restored: [String] = []
         for candidate in candidates where !alreadyOpen.contains(candidate.sessionId) {
-            guard let command = AgentSessionRecovery.resumeCommand(for: candidate) else { continue }
+            guard let command = AgentSessionRecovery.resumeCommand(for: candidate),
+                  // The same claim startup restore takes, so a concurrent
+                  // restore (or a second recovery) cannot launch it twice.
+                  AgentResumeLaunchGuard.shared.claimResumeLaunch(
+                    kind: candidate.kind,
+                    sessionId: candidate.sessionId
+                  ) else { continue }
             let directory = candidate.cwd.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
-            _ = tabManager.addWorkspace(
+            guard tabManager.addWorkspaceIfActive(
                 title: AgentSessionRecovery.workspaceTitle(for: candidate),
+                titleSource: .auto,
                 workingDirectory: directory,
                 initialTerminalInput: command + "\r",
                 select: false
-            )
+            ) != nil else {
+                AgentResumeLaunchGuard.shared.releaseResumeLaunch(kind: candidate.kind, sessionId: candidate.sessionId)
+                continue
+            }
             restored.append(candidate.sessionId)
         }
         return restored
@@ -165,6 +237,7 @@ extension AppDelegate {
     func scheduleAgentSessionRecoveryAfterUncleanLaunchIfNeeded() {
         guard previousLaunchWasUncleanForRecovery,
               !didScheduleAgentSessionRecovery,
+              SessionRestorePolicy.shouldAttemptRestore(),
               !SessionRestorePolicy.isRunningUnderAutomatedTests() else { return }
         didScheduleAgentSessionRecovery = true
         // Give restored panels a moment to claim their agents first.
@@ -172,8 +245,9 @@ extension AppDelegate {
             guard let self, !self.isTerminatingApp else { return }
             let openSessionIds = self.openAgentSessionIdsForRecovery()
             let recovery = AgentSessionRecovery()
+            let activeSince = self.previousSessionLaunchStartedAt
             Task.detached(priority: .utility) {
-                let candidates = recovery.candidates(openSessionIds: openSessionIds)
+                let candidates = recovery.candidates(openSessionIds: openSessionIds, activeSince: activeSince)
                 guard !candidates.isEmpty else { return }
                 await MainActor.run { [weak self] in
                     self?.offerAgentSessionRecovery(candidates)

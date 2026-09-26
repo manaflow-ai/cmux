@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 
 /// Derives the outer launcher that started an agent from its parent's argv.
 ///
@@ -42,10 +42,19 @@ public struct AgentLauncherPrefix: Equatable, Sendable {
         }
         let prefix = Array(parentArguments.dropLast(shared))
         guard !prefix.isEmpty,
-              prefix.contains(where: { Self.executableName($0) == kind }) else {
+              prefix.contains(where: { Self.executableName($0) == kind }),
+              !prefix.contains(where: Self.looksSecret) else {
             return nil
         }
         return prefix
+    }
+
+    /// The prefix is persisted to disk, so a launcher argv that seems to
+    /// carry a credential is not recorded at all.
+    private static func looksSecret(_ token: String) -> Bool {
+        let lowered = token.lowercased()
+        return ["token", "secret", "password", "passwd", "apikey", "api-key", "api_key", "bearer"]
+            .contains { lowered.contains($0) }
     }
 
     private static func executableName(_ value: String) -> String {

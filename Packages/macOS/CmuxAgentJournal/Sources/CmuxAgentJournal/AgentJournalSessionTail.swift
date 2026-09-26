@@ -26,34 +26,53 @@ extension AgentJournalStore {
     /// - Returns: Session tails in no particular order.
     /// - Throws: A storage error.
     public func sessionTails(occurredAtOrAfterMs: Int64) throws -> [AgentJournalSessionTail] {
-        try withDatabase { database in
-            let statement = try database.prepare(
-                """
-                SELECT session_id, MAX(source), MAX(occurred_at_ms),
-                       MAX(CASE WHEN kind = 'agent.session.ended' THEN sequence END),
-                       MAX(CASE WHEN kind = 'agent.session.started' THEN sequence END)
-                FROM agent_journal
-                WHERE session_id IS NOT NULL AND COALESCE(is_subagent, 0) = 0 AND occurred_at_ms >= ?1
-                GROUP BY session_id;
-                """
-            )
-            defer { sqlite3_finalize(statement) }
-            try database.bind(statement: statement, parameters: [.int(occurredAtOrAfterMs)])
-            var tails: [AgentJournalSessionTail] = []
-            while database.step(statement) == SQLITE_ROW {
-                guard let sessionId = database.columnText(statement, 0), !sessionId.isEmpty else { continue }
-                let endedSequence = sqlite3_column_type(statement, 3) == SQLITE_NULL
-                    ? nil : database.columnInt64(statement, 3)
-                let startedSequence = sqlite3_column_type(statement, 4) == SQLITE_NULL
-                    ? Int64(0) : database.columnInt64(statement, 4)
-                tails.append(AgentJournalSessionTail(
-                    sessionId: sessionId,
-                    source: database.columnText(statement, 1) ?? "",
-                    lastOccurredAtMs: database.columnInt64(statement, 2),
-                    hasEnded: endedSequence.map { $0 >= startedSequence } ?? false
-                ))
-            }
-            return tails
+        try withDatabase { try AgentJournalSessionTailReader.query($0, occurredAtOrAfterMs: occurredAtOrAfterMs) }
+    }
+}
+
+/// Reads session tails from a journal file without opening it as the owner:
+/// read-only, with no migration or pruning.
+public struct AgentJournalSessionTailReader: Sendable {
+    public let databaseURL: URL
+
+    public init(databaseURL: URL) {
+        self.databaseURL = databaseURL
+    }
+
+    /// See ``AgentJournalStore/sessionTails(occurredAtOrAfterMs:)``.
+    public func sessionTails(occurredAtOrAfterMs: Int64) throws -> [AgentJournalSessionTail] {
+        let database = try AgentJournalDatabase(readOnlyPath: databaseURL.path)
+        defer { database.close() }
+        return try Self.query(database, occurredAtOrAfterMs: occurredAtOrAfterMs)
+    }
+
+    static func query(_ database: AgentJournalDatabase, occurredAtOrAfterMs: Int64) throws -> [AgentJournalSessionTail] {
+        let statement = try database.prepare(
+            """
+            SELECT session_id, MAX(source), MAX(occurred_at_ms),
+                   MAX(CASE WHEN kind = 'agent.session.ended' THEN sequence END),
+                   MAX(CASE WHEN kind = 'agent.session.started' THEN sequence END)
+            FROM agent_journal
+            WHERE session_id IS NOT NULL AND COALESCE(is_subagent, 0) = 0 AND occurred_at_ms >= ?1
+            GROUP BY session_id;
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        try database.bind(statement: statement, parameters: [.int(occurredAtOrAfterMs)])
+        var tails: [AgentJournalSessionTail] = []
+        while database.step(statement) == SQLITE_ROW {
+            guard let sessionId = database.columnText(statement, 0), !sessionId.isEmpty else { continue }
+            let endedSequence = sqlite3_column_type(statement, 3) == SQLITE_NULL
+                ? nil : database.columnInt64(statement, 3)
+            let startedSequence = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                ? Int64(0) : database.columnInt64(statement, 4)
+            tails.append(AgentJournalSessionTail(
+                sessionId: sessionId,
+                source: database.columnText(statement, 1) ?? "",
+                lastOccurredAtMs: database.columnInt64(statement, 2),
+                hasEnded: endedSequence.map { $0 >= startedSequence } ?? false
+            ))
         }
+        return tails
     }
 }
