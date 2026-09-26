@@ -87798,6 +87798,124 @@
         }
       }
     },
+    "mobile.ssh.error.requestRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer refused the request (%@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Computer hat die Anfrage abgelehnt (%@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet ordinateur a refusé la demande (%@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض هذا الكمبيوتر الطلب (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta computadora rechazó la solicitud (%@)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此電腦拒絕了此要求（%@）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此电脑拒绝了该请求（%@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터가 요청을 거부했습니다(%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータは要求を拒否しました（%@）。"
+          }
+        }
+      }
+    },
+    "mobile.ssh.error.terminalRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This computer refused to open a terminal. Try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Computer hat das Öffnen eines Terminals abgelehnt. Versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet ordinateur a refusé d'ouvrir un terminal. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض هذا الكمبيوتر فتح طرفية. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta computadora rechazó abrir una terminal. Vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此電腦拒絕開啟終端機。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此电脑拒绝打开终端。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터가 터미널 열기를 거부했습니다. 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータはターミナルを開くのを拒否しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.ssh.error.connectTimedOut": {
       "extractionState": "manual",
       "localizations": {

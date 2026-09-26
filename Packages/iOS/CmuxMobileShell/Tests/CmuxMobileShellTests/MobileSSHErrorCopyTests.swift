@@ -1,4 +1,5 @@
 @testable import CmuxMobileShell
+import CmuxMobileSSH
 import Foundation
 import Network
 import Testing
@@ -21,5 +22,16 @@ import Testing
             #expect(!text.contains("POSIXErrorCode"))
             #expect(!text.contains("rawValue"))
         }
+    }
+
+    /// A refused `pty-req` or `shell` (a server out of PTYs, a forced
+    /// command) reads as a sentence, not `channelRequestRejected("pty-req")`.
+    @Test func refusedChannelRequestsReadAsSentences() {
+        #expect(MobileSSHComputers.describe(SSHConnectionError.channelRequestRejected("pty-req")) == L10nSSH().terminalRefused)
+        #expect(MobileSSHComputers.describe(SSHConnectionError.channelRequestRejected("shell")) == L10nSSH().terminalRefused)
+        let other = MobileSSHComputers.describe(SSHConnectionError.channelRequestRejected("tmux new-window: no space for new pane"))
+        #expect(other == L10nSSH().requestRefused(detail: "tmux new-window: no space for new pane"))
+        #expect(other.contains("no space for new pane"))
+        #expect(!other.contains("channelRequestRejected"))
     }
 }

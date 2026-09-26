@@ -48,6 +48,14 @@ struct L10nSSH {
             defaultValue: "cmux-tui doesn't run on this computer (\(os) \(arch))."
         )
     }
+    /// The server refused a terminal's `pty-req` or `shell` request.
+    var terminalRefused: String {
+        L10n.string("mobile.ssh.error.terminalRefused", defaultValue: "This computer refused to open a terminal. Try again.")
+    }
+    /// The server refused any other channel request; `detail` is its reason.
+    func requestRefused(detail: String) -> String {
+        L10n.string("mobile.ssh.error.requestRefused", defaultValue: "This computer refused the request (\(detail)).")
+    }
     var cmuxTUIMissing: String {
         L10n.string("mobile.ssh.error.cmuxTUIMissing", defaultValue: "cmux-tui is not installed on this computer.")
     }

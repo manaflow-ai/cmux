@@ -917,6 +917,8 @@ public final class MobileSSHComputers {
         case SSHConnectionError.authenticationFailed: L10nSSH().authFailed
         case SSHConnectionError.hostKeyRejected: L10nSSH().hostKeyRejected
         case MobileSSHRuntimeError.noKey: L10nSSH().noKey
+        case SSHConnectionError.channelRequestRejected(let request):
+            ["pty-req", "shell"].contains(request) ? L10nSSH().terminalRefused : L10nSSH().requestRefused(detail: request)
         case MobileSSHRuntimeError.tmuxMissing: L10nSSH().tmuxMissing
         case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH().cmuxTUIMissing
         case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH().cmuxTUISessionGone
