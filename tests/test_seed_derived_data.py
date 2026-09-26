@@ -1223,21 +1223,24 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
-    def test_only_the_rescue_retries_a_refused_owned_job_on_the_fleet(self):
+    def test_attempt_2_retries_an_owned_job_on_the_fleet_whoever_starts_it(self):
         # owned_pool_rescue.py re-runs a refused job's failed jobs with
-        # github.token, so attempt 2 is triggered by github-actions[bot] and
-        # takes the owned label once more. A person's "Re-run failed jobs" is
-        # also attempt 2 with the same outputs, but nothing watches it, so it
-        # takes the Blacksmith retry runner.
+        # github.token, so its attempt 2 is triggered by github-actions[bot]. A
+        # person's or agent's "Re-run failed jobs" is also attempt 2 with the
+        # same outputs, and the sweeper follows it the same way (sweep_target),
+        # so both take the owned label once more. Attempt 3 always takes the
+        # Blacksmith retry runner.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for actor, runner in (("github-actions[bot]", "glaeda-std-xcode-26.6"),
-                              ("someone", "blacksmith-12vcpu-macos-26")):
+        for actor, attempt, runner in (("github-actions[bot]", "2", "glaeda-std-xcode-26.6"),
+                                       ("someone", "2", "glaeda-std-xcode-26.6"),
+                                       ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
+                                       ("someone", "3", "blacksmith-12vcpu-macos-26")):
             context = github_context("pull_request", ref="refs/pull/1/merge")
-            context["github"].update(repository="manaflow-ai/cmux", run_attempt="2", triggering_actor=actor,
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
                                      pr_refused_retry_runner="glaeda-std-xcode-26.6", pr_owned_jobs=" admission ")
-            with self.subTest(actor=actor):
+            with self.subTest(actor=actor, attempt=attempt):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
@@ -1260,8 +1263,8 @@ class Wiring(unittest.TestCase):
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
-        # a placed root job takes the root label, on attempt 1 and on the
-        # rescue's attempt 2. Without pr_root_runner nothing changes.
+        # a placed root job takes the root label, on attempt 1 and on any
+        # attempt 2. Without pr_root_runner nothing changes.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
         for attempt, actor, owned_jobs, root_runner, runner in (
@@ -1270,7 +1273,8 @@ class Wiring(unittest.TestCase):
             ("1", "someone", " cli-pipe ", root, retry),
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
-            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, root),
+            ("3", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
@@ -1302,7 +1306,8 @@ class Wiring(unittest.TestCase):
             ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
             ("2", "github-actions[bot]", warm, root),
-            ("2", "someone", warm, retry),
+            ("2", "someone", warm, root),
+            ("3", "someone", warm, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
@@ -1328,7 +1333,8 @@ class Wiring(unittest.TestCase):
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
                                        ("2", "github-actions[bot]", root),
-                                       ("2", "someone", retry)):
+                                       ("2", "someone", root),
+                                       ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      sha="head")
