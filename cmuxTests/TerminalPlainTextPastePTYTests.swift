@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 import Testing
 
@@ -32,7 +33,39 @@ extension TerminalPlainTextPasteStartupTests {
                         windowNumber: fixture.window.windowNumber, context: nil,
                         characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9
                     ))
-                    try #require(fixture.view.performKeyEquivalent(with: event))
+                    let handled = fixture.view.performKeyEquivalent(with: event)
+                    if !handled {
+                        let window = fixture.window
+                        var bindingFlags = ghostty_binding_flags_e(0)
+                        var isBinding = false
+                        if let surface = fixture.surface.surface {
+                            var key = ghostty_input_key_s()
+                            key.action = GHOSTTY_ACTION_PRESS
+                            key.keycode = 9
+                            key.mods = GHOSTTY_MODS_SUPER
+                            key.unshifted_codepoint = 0x76
+                            isBinding = "v".withCString { pointer in
+                                key.text = pointer
+                                return ghostty_surface_key_is_binding(surface, key, &bindingFlags)
+                            }
+                        }
+                        let firstResponder = window.firstResponder
+                        let diagnostic = [
+                            "firstResponderIsView=\(firstResponder === fixture.view)",
+                            "firstResponder=\(String(describing: firstResponder))",
+                            "appActive=\(NSApp.isActive)",
+                            "key=\(window.isKeyWindow) visible=\(window.isVisible)",
+                            "surface=\(fixture.surface.surface != nil)",
+                            "marked=\(fixture.view.hasMarkedText())",
+                            "inputSource=\(KeyboardLayout.id ?? "nil")",
+                            "layoutChar=\(KeyboardLayout.character(forKeyCode: 9) ?? "nil")",
+                            "isBinding=\(isBinding) flags=\(bindingFlags.rawValue)",
+                            "menuItems=\(NSApp.mainMenu?.items.map(\.title) ?? [])",
+                        ].joined(separator: " ")
+                        print("PASTE_PTY_DIAGNOSTIC \(diagnostic)")
+                        Issue.record(Comment(rawValue: "Cmd+V performKeyEquivalent returned false: \(diagnostic)"))
+                        return
+                    }
                 case 1:
                     fixture.view.paste(nil)
                 default:
