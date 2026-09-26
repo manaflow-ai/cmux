@@ -39,3 +39,14 @@ test("keeps a valid dashboard path bounded", () => {
     "/dashboard",
   );
 });
+
+test("preserves localized portal destinations through the shared authentication gate", () => {
+  expect(dashboardReturnPathForRequest("/ja/home/machines/vm-1", "?view=sessions", locales))
+    .toBe("/home/machines/vm-1?view=sessions");
+  expect(dashboardReturnPathForRequest("/home", "", locales)).toBe("/home");
+  expect(normalizeDashboardReturnPath("/home/activity")).toBe("/home/activity");
+  expect(normalizeDashboardReturnPath("/home?view=machines")).toBe("/home?view=machines");
+  expect(normalizeDashboardReturnPath("/home/../../pricing")).toBe("/dashboard");
+  expect(normalizeDashboardReturnPath("/homepage")).toBe("/dashboard");
+  expect(dashboardReturnPathForRequest("/ja/homepage", "", locales)).toBeNull();
+});
