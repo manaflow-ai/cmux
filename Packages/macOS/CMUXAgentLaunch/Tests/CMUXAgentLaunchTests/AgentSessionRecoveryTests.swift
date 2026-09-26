@@ -124,6 +124,10 @@ struct AgentSessionRecoveryPlannerTests {
         #expect(Array(flaggedArguments.prefix(7)) == ["sr", "claude", "proxy", "--account", "me@example.com", "--resume", "s1"])
         #expect(flaggedArguments.contains("--dangerously-skip-permissions"))
         #expect(flaggedArguments.contains("opus"))
+        // A launcher declared in agents.launchers wins; the normal resume path applies it.
+        var declared = candidates[0]
+        declared.launchCommand?.externalLauncher = "sr"
+        #expect(declared.launcherResumeArguments == nil)
         #expect(candidates[1].launcherResumeArguments == nil)
     }
 

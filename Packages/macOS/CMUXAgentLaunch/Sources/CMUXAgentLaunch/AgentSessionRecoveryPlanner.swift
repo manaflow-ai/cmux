@@ -79,9 +79,12 @@ public struct AgentRecoveryCandidate: Equatable, Sendable {
     /// recorded (callers then use the kind's normal resume command). The
     /// agent's own resume arguments, including preserved flags such as the
     /// permission mode or model, follow the launcher in place of the agent
-    /// executable.
+    /// executable. A launcher the user declared in `agents.launchers`
+    /// (``AgentLaunchCommand/externalLauncher``) takes precedence: the normal
+    /// resume command already re-supplies it.
     public var launcherResumeArguments: [String]? {
-        guard let prefix = launchCommand?.launcherPrefix, !prefix.isEmpty,
+        guard launchCommand?.externalLauncher == nil,
+              let prefix = launchCommand?.launcherPrefix, !prefix.isEmpty,
               let agentArguments = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: sessionId,
