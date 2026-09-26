@@ -37,6 +37,7 @@ final class CloudTuiManualMirrorSession {
     private var connection: CloudTuiManualIOConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
+    private var connectionAttemptGeneration: UInt64 = 0
     private var runtimeSampleTask: Task<Void, Never>?
     private var socketPath: String?
     private var nextRequestID: UInt64 = 1
@@ -281,11 +282,9 @@ final class CloudTuiManualMirrorSession {
         guard phase != .stopped else { return }
         fenceAttachment(error: CloudDiagnosticFailure.notFound, reason: reason)
     }
-    /// Drops the current transport and every per-connection fact. Leases,
-    /// capabilities, pending requests and acknowledged grids belong to one
-    /// connection generation and never survive it; a later replay starts from
-    /// a reset screen.
+    /// Drops the current transport and all facts owned by its connection generation.
     private func tearDownConnection() {
+        connectionAttemptGeneration &+= 1
         watchdog.cancel()
         connectTask?.cancel()
         connectTask = nil
@@ -363,11 +362,10 @@ final class CloudTuiManualMirrorSession {
         }
         self.socketPath = socketPath
         tearDownConnection()
+        let attemptGeneration = connectionAttemptGeneration
         attachAttempts += 1
         transition(to: .connecting)
-        watchdog.armHandshake { [weak self] in
-            self?.deadlineExpired(.handshakeTimedOut, while: .connecting)
-        }
+        watchdog.armHandshake { [weak self] in self?.deadlineExpired(.handshakeTimedOut, while: .connecting, attemptGeneration: attemptGeneration) }
         let path = socketPath
         connectTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -375,18 +373,16 @@ final class CloudTuiManualMirrorSession {
             do {
                 try await connection.start()
             } catch {
-                guard !Task.isCancelled,
-                      self.socketPath == path,
-                      self.phase != .stopped else {
+                guard !Task.isCancelled, self.connectionAttemptGeneration == attemptGeneration,
+                      self.socketPath == path, self.phase != .stopped else {
                     connection.close()
                     return
                 }
                 self.transitionToDisconnected(reason: .transportClosed)
                 return
             }
-            guard !Task.isCancelled,
-                  self.socketPath == path,
-                  self.phase != .stopped else {
+            guard !Task.isCancelled, self.connectionAttemptGeneration == attemptGeneration,
+                  self.socketPath == path, self.phase != .stopped else {
                 connection.close()
                 return
             }
@@ -438,6 +434,7 @@ final class CloudTuiManualMirrorSession {
         let wasAttached = phase == .attached
         transition(to: .stopped)
         endPresentationEpisode()
+        connectionAttemptGeneration &+= 1
         watchdog.cancel()
         connectTask?.cancel()
         connectTask = nil
@@ -681,8 +678,8 @@ final class CloudTuiManualMirrorSession {
     }
 
     /// A watchdog deadline elapsed while the session was still in `expected`.
-    private func deadlineExpired(_ reason: CloudTerminalAttachmentInterruption, while expected: CloudTuiManualMirrorPhase) {
-        guard phase == expected else { return }
+    private func deadlineExpired(_ reason: CloudTerminalAttachmentInterruption, while expected: CloudTuiManualMirrorPhase, attemptGeneration: UInt64) {
+        guard connectionAttemptGeneration == attemptGeneration, phase == expected else { return }
         transitionToDisconnected(reason: reason)
     }
 
@@ -791,9 +788,10 @@ final class CloudTuiManualMirrorSession {
             if diagnosticReplayReceived { finishDiagnostics() }
             remoteLease = lease
             transition(to: .attached)
+            let attemptGeneration = connectionAttemptGeneration
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
-                onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
+                onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached, attemptGeneration: attemptGeneration) }
             )
             if let connection {
                 inputRouter.setConnection(connection)
