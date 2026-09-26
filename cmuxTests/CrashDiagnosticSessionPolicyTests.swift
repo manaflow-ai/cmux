@@ -140,6 +140,51 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotDropsPhantomWindowsButKeepsDockOnlyWindows() {
+        let projectDirectory = "/tmp/cmux-project"
+        func window(workspaces: [SessionWorkspaceSnapshot], dock: SessionSplitContainerSnapshot? = nil) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
+                dock: dock
+            )
+        }
+        let dock = SessionSplitContainerSnapshot(
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: []
+        )
+        let mixed = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window(workspaces: []),
+                window(workspaces: [emptyWorkspaceSnapshot(currentDirectory: projectDirectory)]),
+                window(workspaces: [], dock: dock),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: mixed)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 2)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
+        #expect(pruned.snapshot?.windows.last?.dock != nil)
+
+        // An all-phantom session (#6646: three 0-tab windows) is not restorable.
+        let allPhantom = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [window(workspaces: []), window(workspaces: []), window(workspaces: [])]
+        )
+        let prunedAllPhantom = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: allPhantom)
+        #expect(prunedAllPhantom.removedAny)
+        #expect(prunedAllPhantom.snapshot == nil)
+    }
+
+    @Test
     func sessionSnapshotKeepsCrashWorkspaceWithPersistedScrollback() {
         let projectDirectory = "/tmp/cmux-project"
         let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
