@@ -451,14 +451,14 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
-    return (f"github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, {key}) && inputs.pr_refused_retry_runner "
+    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) && inputs.pr_refused_retry_runner "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
-    return (f"github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, {key}) "
+    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) "
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
@@ -466,7 +466,7 @@ def root_lane(key: str) -> str:
 
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
-    return (f"github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, {key}) "
+    return (f"github.run_attempt == 2 && contains(inputs.pr_owned_jobs, {key}) "
             "&& (inputs.pr_side_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
@@ -780,8 +780,10 @@ class OwnedPools(unittest.TestCase):
         for actor in ("", "teamleaderleo", "github-actions"):
             choice = owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", actor=actor)
             self.assertEqual(choice.runner, LARGE, actor)
-        self.assertIn("github.triggering_actor == 'github-actions[bot]'",
-                      (WORKFLOWS / "ci.yml").read_text())
+        # The workflows no longer ask who started attempt 2: a person's re-run of failed jobs keeps
+        # attempt 1's outputs and goes back to the owned pool like the rescue's. Only the picker's light
+        # tier, which a full re-run reaches, stays the rescue's.
+        self.assertNotIn("github.triggering_actor", (WORKFLOWS / "ci.yml").read_text())
         # main() reads the actor Actions sets on every step.
         fresh = snap
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -2125,13 +2127,13 @@ class Wiring(unittest.TestCase):
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
         self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
-                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
+                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains("
+        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && contains("
                       "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) "
                       "|| github.event_name == 'pull_request' && "
@@ -2260,7 +2262,7 @@ class Wiring(unittest.TestCase):
         owned = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && "
                  "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
-                 "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
+                 "(inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
         self.assertEqual(job["runs-on"], (
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || "

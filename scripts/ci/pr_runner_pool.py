@@ -214,8 +214,7 @@ owned Mac lands on Blacksmith for the same reason. One exception, off unless
 `vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
 a `light` owned pool, the next fleet tier, when its whole owned peak is free
 there by the same rule as attempt 1, and only when github-actions[bot]
-started it (GITHUB_TRIGGERING_ACTOR, the same gate as ci.yml's runs-on for
-pr_refused_retry_runner). That attempt is the full re-run the
+started it (GITHUB_TRIGGERING_ACTOR). That attempt is the full re-run the
 rescue starts for a job stuck queued on `std`, which picks again; the rescue
 watches it, and a job stuck or refused there goes to Blacksmith on attempt
 3. The order is std, then light, then Blacksmith. The `persistent` output
@@ -312,10 +311,11 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# ci.yml sends attempt 2's owned-eligible jobs to pr_refused_retry_runner (the
-# light label on a light pick) only when this actor started it: the rescue's
-# re-run. A human re-run sends them to pr_retry_runner, so the picker must not
-# take light (or publish its marker) for one.
+# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
+# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
+# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
+# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
+# a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
 RESCUE_ACTOR = "github-actions[bot]"
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
