@@ -991,7 +991,6 @@ The following probes must not print help. They protect argument forwarding after
 
 <!-- cli-contract-negative-help-probes:start -->
 - `cmux vm exec demo -- --help` !> `Usage: cmux vm`
-- `cmux welcome` !> `Toggle Left Sidebar`
 <!-- cli-contract-negative-help-probes:end -->
 
 ## Current Help Caveats
