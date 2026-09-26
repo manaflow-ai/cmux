@@ -52,6 +52,11 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     /// closure, since the production gate is captured once and a single
     /// `swift test` run should not depend on process-global environment state.
     public typealias DiagnosticsEnabled = @Sendable () -> Bool
+    /// Invalidates actor-owned cache state after this generation is sealed.
+    /// The callback is invoked once per retired token, after the synchronous
+    /// lock-protected retirement has completed; it must not call back into
+    /// this coordinator.
+    public typealias InvalidateLifetime = @Sendable (ExternalHoverSurfaceLifetimeToken) -> Void
 
     /// (C) ExternalHover diagnostics — design v4 §5's `transition` stage,
     /// design v4 §7 guard 1: ONE structured outcome, computed from the
@@ -95,6 +100,7 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     private let manageDiagnosticsRenderDemand: ManageDiagnosticsRenderDemand
     private let logTransition: LogTransition
     private let diagnosticsEnabled: DiagnosticsEnabled
+    private let invalidateLifetime: InvalidateLifetime
 
     /// (C) diagnostics — review B2: which events still have a render
     /// demand armed on their behalf, so `manageDiagnosticsRenderDemand`
@@ -129,13 +135,15 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         project: @escaping Project,
         manageDiagnosticsRenderDemand: @escaping ManageDiagnosticsRenderDemand = { _ in },
         logTransition: @escaping LogTransition = { _ in },
-        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate().isEnabled }
+        diagnosticsEnabled: @escaping DiagnosticsEnabled = { ExternalHoverDiagnosticsGate().isEnabled },
+        invalidateLifetime: @escaping InvalidateLifetime = { _ in }
     ) {
         self.scheduler = scheduler
         self.project = project
         self.manageDiagnosticsRenderDemand = manageDiagnosticsRenderDemand
         self.logTransition = logTransition
         self.diagnosticsEnabled = diagnosticsEnabled
+        self.invalidateLifetime = invalidateLifetime
     }
 
     /// The token for the currently installed native-surface generation.
@@ -162,7 +170,7 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     ) -> ExternalHoverSurfaceLifetimeToken {
         lifetimeLock.lock()
         let oldToken = lifetimeToken
-        oldToken.retire()
+        let didRetire = oldToken.retire()
         releaseAllDiagnosticsDemand()
         let newToken = ExternalHoverSurfaceLifetimeToken(
             surfaceID: surfaceID,
@@ -170,15 +178,18 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
         )
         lifetimeToken = newToken
         lifetimeLock.unlock()
+        if didRetire { invalidateLifetime(oldToken) }
         return newToken
     }
 
     /// Permanently retires the current generation.
     public func retireLifetime() {
         lifetimeLock.lock()
-        defer { lifetimeLock.unlock() }
-        lifetimeToken.retire()
+        let token = lifetimeToken
+        let didRetire = token.retire()
         releaseAllDiagnosticsDemand()
+        lifetimeLock.unlock()
+        if didRetire { invalidateLifetime(token) }
     }
 
     /// Read-only snapshot for tests and diagnostics; takes the lock briefly.
@@ -509,12 +520,13 @@ public final class ExternalHoverOwnerCoordinator: @unchecked Sendable {
     public func teardown() {
         lifetimeLock.lock()
         let lifetimeToken = self.lifetimeToken
-        lifetimeToken.retire()
+        let didRetire = lifetimeToken.retire()
         lifetimeToken.lock.lock()
         let revision = lifetimeToken.mailbox.ownerRevision
         lifetimeToken.lock.unlock()
         releaseAllDiagnosticsDemand()
         lifetimeLock.unlock()
+        if didRetire { invalidateLifetime(lifetimeToken) }
         enqueueProjection(atRevision: revision, lifetimeToken: lifetimeToken)
     }
 

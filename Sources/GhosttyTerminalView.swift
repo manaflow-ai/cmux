@@ -4298,7 +4298,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             #endif
         },
-        diagnosticsEnabled: { [externalHoverDiagnosticsGate] in externalHoverDiagnosticsGate.isEnabled }
+        diagnosticsEnabled: { [externalHoverDiagnosticsGate] in externalHoverDiagnosticsGate.isEnabled },
+        invalidateLifetime: { token in
+            let lifetimeID = RuntimeSurfaceLifetimeID(
+                surfaceID: token.surfaceID,
+                runtimeSurfaceGeneration: token.runtimeSurfaceGeneration
+            )
+            Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
+        }
     )
     // (C) ExternalHover diagnostics — the "render 後" trigger's demand
     // counter/retention. `manageDiagnosticsRenderDemand` above calls this
@@ -10596,14 +10603,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghosttyMouseSessionLedger.invalidate()
         removeMouseUpEventMonitorIfUnused()
         resetCommandClickGestureState()
+        // The coordinator seals the generation and schedules actor-cache
+        // invalidation as one ordered ownership operation.
         externalHoverOwnerCoordinator.retireLifetime()
-        if let terminalSurface {
-            let lifetimeID = RuntimeSurfaceLifetimeID(
-                surfaceID: terminalSurface.id,
-                runtimeSurfaceGeneration: terminalSurface.runtimeSurfaceGeneration
-            )
-            Task { await GhosttyApp.externalHoverWorkService.invalidateSurface(lifetimeID) }
-        }
         terminalSurface = nil
     }
 
