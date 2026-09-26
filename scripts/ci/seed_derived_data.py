@@ -7,6 +7,7 @@
     seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
     seed_derived_data.py scope PREFIX
     seed_derived_data.py prefetch STORE REVISION
+    seed_derived_data.py keep DERIVED_DATA KEY
 
 nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
@@ -624,6 +625,14 @@ def main(argv: list[str]) -> int:
         exact, distance = chosen() or locate(prefix, revision)
         # The newest-pointer fallback stays within this width.
         start(Path(argv[2]), exact, scoped(prefix), revision, distance)
+        return 0
+    if len(argv) == 4 and argv[1] == "keep":
+        # The seed this job just built and saved: the next seed job on this Mac clones it instead of
+        # downloading it back (seed-derived-data.yml on the trusted pool). A no-op without a local cache.
+        try:
+            stash(Path(argv[2]), argv[3])
+        except (OSError, shutil.Error) as error:
+            print(f"Could not keep the seed on this Mac: {error}")
         return 0
     if len(argv) == 4 and argv[1] == "prefetch":
         print(json.dumps(prefetch(Path(argv[2]), argv[3])))
