@@ -1,0 +1,72 @@
+name: CI repository variables
+
+# `gh variable set` changes CI routing with no pull request, so no PR check
+# ever sees the new value, and the readers fail soft: a malformed
+# CI_OWNED_POOL_SLOTS counts as zero minis, a forbidden runner label is refused
+# at dispatch. scripts/ci/check_repo_variables.py runs the readers' own
+# validators against the live values and fails this run on a bad one. The
+# schedule is what catches a `gh variable set`; the push trigger covers edits
+# to the check itself. No pull_request trigger: a fork's run would read these
+# variables in fork code, and tests/test_ci_check_repo_variables.py (in the
+# guard suite) covers a PR that edits the check.
+#
+# Values come from the expression context (no token scope can read the
+# variables API), named one by one: a step's env is printed in its public log,
+# and only runner labels and pool sizes belong there, as in ci-health-report.yml.
+# tests/test_ci_check_repo_variables.py keeps this list equal to that one.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ci-repo-variables.yml
+      - scripts/ci/check_repo_variables.py
+      - scripts/ci/pr_runner_pool.py
+      - scripts/ci/runner_label_policy.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-repo-variables-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check repository variables
+    if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check the live values
+        env:
+          CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          CMUX_CI_RUNNER_VARIABLES: |
+            CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
+            CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
+        run: python3 scripts/ci/check_repo_variables.py
