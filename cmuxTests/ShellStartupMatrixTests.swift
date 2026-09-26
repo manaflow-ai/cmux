@@ -290,6 +290,57 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    @Test(arguments: [true, false])
+    func relayClaudeWrapperHandsOffToRemoteCLI(remoteCLIInstalled: Bool) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-claude-wrapper-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let shimDir = root.appendingPathComponent("tmp/cmux-cli-shims/surface")
+        let realBin = root.appendingPathComponent("real-bin")
+        defer { try? fileManager.removeItem(at: root) }
+        for directory in [home, shimDir, realBin] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        func writeExecutable(_ url: URL, _ body: String) throws {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "#!/bin/sh\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        // A shim named claude earlier in PATH must never be re-entered.
+        try writeExecutable(shimDir.appendingPathComponent("claude"), #"echo "shim $*""#)
+        try writeExecutable(realBin.appendingPathComponent("claude"), #"echo "real $*""#)
+        if remoteCLIInstalled {
+            try writeExecutable(home.appendingPathComponent(".cmux/bin/cmux"), #"echo "cli $*""#)
+        }
+
+        let shellDir = home.appendingPathComponent(".cmux/relay/64123.shell")
+        let install = (["cmux_shell_dir=\"\(shellDir.path)\""]
+            + RemoteInteractiveShellBootstrapBuilder.claudeWrapperInstallLines)
+            .joined(separator: "\n")
+        let wrapper = shellDir.appendingPathComponent("bin/cmux-claude-wrapper").path
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(home.path)",
+                "PATH=\(shimDir.path):\(realBin.path):/usr/bin:/bin",
+                "/bin/sh", "-c", install + "\n\"\(wrapper)\" --model opus",
+            ],
+            timeout: 5
+        )
+
+        expectFalse(result.timedOut, result.stderr)
+        expectEqual(result.status, 0, result.stderr)
+        expectEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            remoteCLIInstalled ? "cli claude-wrapper --model opus" : "real --model opus",
+            result.stderr
+        )
+        let permissions = try fileManager.attributesOfItem(atPath: wrapper)[.posixPermissions] as? NSNumber
+        expectEqual(permissions?.intValue, 0o700)
+    }
+
     @Test
     func generatedSshBootstrapFailsClosedWithoutPersistentPTYExecHelper() throws {
         let home = FileManager.default.temporaryDirectory

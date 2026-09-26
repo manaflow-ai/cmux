@@ -59,6 +59,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "cmux_shell_dir=\"\(shellStateDir)\"",
             "mkdir -p \"$cmux_shell_dir\"",
         ]
+        outerLines.append(contentsOf: claudeWrapperInstallLines)
         outerLines.append(contentsOf: initialCommandBootstrap.preparationLines)
         if let bundledZshIntegration {
             outerLines += [
@@ -407,6 +408,25 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "unset CMUX_BOOTSTRAP_TTY cmux_relay_cli cmux_relay_tty cmux_relay_report_tty cmux_relay_ports_kick",
         ]
     }
+
+    /// The shell integration's `claude` shim execs
+    /// `$CMUX_SHELL_INTEGRATION_DIR/bin/cmux-claude-wrapper` when present. On a
+    /// relay host that wrapper hands off to the remote CLI, which injects the
+    /// relay hooks through `--settings`, so launchers that resolve `claude`
+    /// from PATH (and set their own CLAUDE_CONFIG_DIR) still report status.
+    static let claudeWrapperInstallLines: [String] = [
+        "mkdir -p \"$cmux_shell_dir/bin\"",
+        "cat > \"$cmux_shell_dir/bin/cmux-claude-wrapper\" <<'CMUXCLAUDEWRAPPER'",
+        "#!/bin/sh",
+        "if [ -x \"$HOME/.cmux/bin/cmux\" ]; then exec \"$HOME/.cmux/bin/cmux\" claude-wrapper \"$@\"; fi",
+        "cmux_path=",
+        "cmux_ifs=$IFS; IFS=:",
+        "for cmux_entry in $PATH; do case \"$cmux_entry\" in *cmux-cli-shims*) ;; *) cmux_path=\"${cmux_path:+$cmux_path:}$cmux_entry\" ;; esac; done",
+        "IFS=$cmux_ifs; PATH=$cmux_path; export PATH",
+        "exec claude \"$@\"",
+        "CMUXCLAUDEWRAPPER",
+        "chmod 700 \"$cmux_shell_dir/bin/cmux-claude-wrapper\"",
+    ]
 
     private static func shellStateDirForRemoteRelayPort(_ remoteRelayPort: Int) -> String {
         "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"

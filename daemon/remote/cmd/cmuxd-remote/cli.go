@@ -163,6 +163,14 @@ doneFlags:
 	if socketPath == "" {
 		socketPath = defaultCloudCLIBridgeSocketIfExists()
 	}
+	// Agent entrypoints fail open: without a relay they launch or answer
+	// normally instead of blocking Claude.
+	switch cmdName {
+	case "claude-wrapper":
+		return runClaudeWrapper(socketPath, cmdArgs, refreshAddr)
+	case "claude-hook":
+		return runClaudeHookRelay(socketPath, cmdArgs, refreshAddr, os.Stdin, os.Stdout)
+	}
 	if socketPath == "" {
 		fmt.Fprintln(os.Stderr, "cmux: no relay connection is configured; reconnect this SSH workspace or provide --socket")
 		return 1
@@ -1318,6 +1326,8 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "                            set-anchor, new-workspace, set-color, set-icon, move, focus)")
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
+	fmt.Fprintln(os.Stderr, "  claude-wrapper [args...]  Launch Claude Code with cmux sidebar hooks")
+	fmt.Fprintln(os.Stderr, "  claude-hook <event>       Forward a Claude Code hook event to cmux")
 	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")
