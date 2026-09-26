@@ -16,7 +16,7 @@ and vendor/bonsplit) at STORE/spm-scratch/<runner>/<package path>, outside the
 workspace, where the clean cannot reach. The directory is per runner: each
 runner has its own workspace path, which SwiftPM bakes into its build, and runs
 one job at a time. A runner's directories beyond MAX_BYTES are dropped, least
-recently used first, before linking. Anything else (another runner, a missing
+recently built first (newest file inside), before linking. Anything else (another runner, a missing
 store) changes nothing, and any error leaves the package to build as before.
 """
 from __future__ import annotations
@@ -39,30 +39,39 @@ def packages(workspace: Path) -> list[Path]:
     return found
 
 
-def tree_bytes(root: Path) -> int:
+def tree_stats(root: Path) -> tuple[int, float]:
+    """Bytes under ROOT and the newest modification time in it. A build writes
+    inside its package's directory, so the newest time is when a job last used it."""
     total = 0
+    try:
+        newest = root.stat().st_mtime
+    except OSError:
+        newest = 0.0
     for base, _, files in os.walk(root):
         for name in files:
             try:
-                total += Path(base, name).lstat().st_size
+                info = Path(base, name).lstat()
             except OSError:
-                pass
-    return total
+                continue
+            total += info.st_size
+            newest = max(newest, info.st_mtime)
+    return total, newest
 
 
 def prune(scratch: Path, max_bytes: int = MAX_BYTES) -> None:
     """Drop the least recently used package directories until the runner's scratch fits MAX_BYTES."""
     try:
-        entries = [(entry.stat().st_mtime, entry) for entry in scratch.iterdir() if entry.is_dir()]
+        entries = [entry for entry in scratch.iterdir() if entry.is_dir()]
     except OSError:
         return
-    sizes = {entry: tree_bytes(entry) for _, entry in entries}
-    total = sum(sizes.values())
-    for _, entry in sorted(entries):
+    stats = {entry: tree_stats(entry) for entry in entries}
+    total = sum(size for size, _ in stats.values())
+    for entry in sorted(entries, key=lambda entry: stats[entry][1]):
         if total <= max_bytes:
             break
         shutil.rmtree(entry, ignore_errors=True)
-        total -= sizes[entry]
+        # Count only what was removed: a partly failed removal leaves the rest in use.
+        total -= stats[entry][0] - (tree_stats(entry)[0] if entry.exists() else 0)
 
 
 def link(workspace: Path, store: Path, runner: str) -> list[str]:
@@ -78,7 +87,6 @@ def link(workspace: Path, store: Path, runner: str) -> list[str]:
         build = package / ".build"
         try:
             target.mkdir(parents=True, exist_ok=True)
-            os.utime(target)  # recently used: the prune keeps it
             if build.is_symlink():
                 build.unlink()
             elif build.exists():

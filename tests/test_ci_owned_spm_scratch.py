@@ -55,9 +55,22 @@ class Link(unittest.TestCase):
         for index, name in enumerate(("old", "new")):
             (runner / name).mkdir(parents=True)
             (runner / name / "blob").write_bytes(b"x" * 100)
+            os.utime(runner / name / "blob", (index, index))
             os.utime(runner / name, (index, index))
         scratch.prune(runner, max_bytes=150)
         self.assertEqual(sorted(path.name for path in runner.iterdir()), ["new"])
+
+    def test_prune_ranks_by_the_last_build_not_the_last_link(self):
+        runner = self.store / "spm-scratch" / "r-glaeda"
+        for index, name in enumerate(("built", "linked")):
+            (runner / name).mkdir(parents=True)
+            (runner / name / "blob").write_bytes(b"x" * 100)
+            os.utime(runner / name / "blob", (index, index))
+        os.utime(runner / "built" / "blob", (10, 10))  # a later job built here
+        os.utime(runner / "built", (0, 0))
+        os.utime(runner / "linked", (5, 5))
+        scratch.prune(runner, max_bytes=150)
+        self.assertEqual(sorted(path.name for path in runner.iterdir()), ["built"])
 
     def test_the_workflow_links_before_the_package_tests(self):
         text = WORKFLOW.read_text()
