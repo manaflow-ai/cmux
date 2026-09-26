@@ -1,4 +1,6 @@
 import AppKit
+import CmuxCloud
+import CmuxCloudBannerCore
 import Testing
 
 #if canImport(cmux_DEV)

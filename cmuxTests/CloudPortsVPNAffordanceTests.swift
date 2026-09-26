@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import SwiftUI
