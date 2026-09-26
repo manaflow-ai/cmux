@@ -591,8 +591,9 @@ extension CMUXCLI {
     /// or JSON parsing. Hooks above 1 MiB fail open with a neutral payload: the
     /// lifecycle event is still admitted, but oversized untrusted detail is
     /// discarded instead of making the foreground hook process scale with stdin.
-    /// A writer that keeps stdin open past the read deadline gets whatever it
-    /// wrote by then admitted, not an unbounded wait for EOF.
+    /// A writer that keeps stdin open past the read deadline gets what it wrote
+    /// by then admitted when that is complete JSON, and the neutral payload
+    /// when the deadline cut it mid-document, not an unbounded wait for EOF.
     private static func readBoundedAgentHookInput(
         handle: FileHandle = .standardInput,
         timeout: TimeInterval = agentHookInputReadTimeoutSeconds
@@ -626,7 +627,8 @@ extension CMUXCLI {
             }
             data.append(contentsOf: buffer[0..<count])
         }
-        guard data.count <= maximumAgentHookInputBytes, !data.isEmpty else {
+        guard data.count <= maximumAgentHookInputBytes, !data.isEmpty,
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
             return nil
         }
         return String(data: data, encoding: .utf8)
