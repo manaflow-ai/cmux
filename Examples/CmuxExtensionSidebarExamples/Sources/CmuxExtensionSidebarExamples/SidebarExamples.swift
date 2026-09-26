@@ -26,7 +26,8 @@ struct ExampleSidebarSection {
         accessory: CmuxSidebarProviderRowAccessory? = .inspector,
         subtitle: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? = { _ in nil },
         trailingText: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderText? = { _ in nil },
-        leadingIcon: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderIcon? = { _ in nil }
+        leadingIcon: (CmuxSidebarProviderWorkspace) -> CmuxSidebarProviderIcon? = { _ in nil },
+        fallbackIcon: CmuxSidebarProviderIcon? = nil
     ) -> CmuxSidebarProviderSection {
         CmuxSidebarProviderSection(
             id: id,
@@ -47,7 +48,7 @@ struct ExampleSidebarSection {
                     accessory: accessory,
                     subtitle: subtitle(workspace),
                     trailingText: trailingText(workspace),
-                    leadingIcon: leadingIcon(workspace)
+                    leadingIcon: leadingIcon(workspace) ?? workspace.workspaceGroupIcon ?? fallbackIcon
                 )
             }
         )

@@ -12771,6 +12771,9 @@ struct VerticalTabsSidebar: View, Equatable {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
+            .onChange(of: renderContext.workspaceGroups) { _, _ in
+                refreshExtensionSidebarSnapshot()
+            }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
@@ -13093,6 +13096,7 @@ struct VerticalTabsSidebar: View, Equatable {
     ) -> CmuxSidebarProviderSnapshot {
         extensionSidebarSnapshot(
             workspaces: renderContext.tabs,
+            groups: renderContext.workspaceGroups,
             unreadSnapshot: unreadSnapshot
         )
     }
@@ -13100,6 +13104,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarSnapshotForCurrentTabs() -> CmuxSidebarProviderSnapshot {
         extensionSidebarSnapshot(
             workspaces: tabManager.tabs,
+            groups: tabManager.workspaceGroups,
             unreadSnapshot: sidebarUnread.snapshot
         )
     }
@@ -13108,6 +13113,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let tabs = tabManager.tabs
         let snapshot = extensionSidebarSnapshot(
             workspaces: tabs,
+            groups: tabManager.workspaceGroups,
             unreadSnapshot: sidebarUnread.snapshot
         )
         // The provider snapshot contains value types, so resolving each
@@ -13339,13 +13345,23 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func extensionSidebarSnapshot(
         workspaces: [Workspace],
+        groups: [WorkspaceGroup],
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> CmuxSidebarProviderSnapshot {
-        CmuxSidebarProviderSnapshot(
+        let groupIdentities = ExtensionSidebarGroupIdentity.byWorkspaceId(
+            workspaces: workspaces,
+            groups: groups,
+            resolveConfig: cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)
+        )
+        return CmuxSidebarProviderSnapshot(
             sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
             selectedWorkspaceId: tabManager.selectedTabId,
             workspaces: workspaces.map {
-                extensionWorkspaceSnapshot(for: $0, unreadSnapshot: unreadSnapshot)
+                extensionWorkspaceSnapshot(
+                    for: $0,
+                    unreadSnapshot: unreadSnapshot,
+                    groupIdentity: groupIdentities[$0.id]
+                )
             },
             windowId: windowId
         )
@@ -13353,7 +13369,8 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func extensionWorkspaceSnapshot(
         for workspace: Workspace,
-        unreadSnapshot: SidebarUnreadSnapshot
+        unreadSnapshot: SidebarUnreadSnapshot,
+        groupIdentity: ExtensionSidebarGroupIdentity?
     ) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
         return CmuxSidebarProviderWorkspace(
@@ -13364,6 +13381,8 @@ struct VerticalTabsSidebar: View, Equatable {
             rootPath: rootPath,
             projectRootPath: workspace.extensionSidebarProjectRootPath,
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
+            workspaceGroupIconSymbol: groupIdentity?.iconSymbol,
+            workspaceGroupColorHex: groupIdentity?.colorHex,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
             remoteConnectionState: workspace.remoteConnectionState.rawValue,
             unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id),
@@ -13905,7 +13924,10 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         return extensionWorkspaceSnapshot(
             for: workspace,
-            unreadSnapshot: sidebarUnread.snapshot
+            unreadSnapshot: sidebarUnread.snapshot,
+            // Row icons are resolved in the full provider snapshot above; this
+            // per-row projection supplies inspector content only.
+            groupIdentity: nil
         )
     }
 

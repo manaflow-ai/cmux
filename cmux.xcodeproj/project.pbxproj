@@ -1715,6 +1715,8 @@
 		A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */; };
 		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
+		E41107700000000000000001 /* ExtensionSidebarGroupIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41107700000000000000002 /* ExtensionSidebarGroupIdentity.swift */; };
+		4BEDB0B774F58B54297D3FE1 /* ExtensionSidebarGroupIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810DF758A571F6E69440EE0B /* ExtensionSidebarGroupIdentityTests.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
@@ -5686,6 +5688,8 @@
 		C11609000000000000000009 /* en */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = en; path = "en.lproj/cloud-agent-skill.md"; sourceTree = "<group>"; };
 		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
 		5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
+		E41107700000000000000002 /* ExtensionSidebarGroupIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarGroupIdentity.swift; sourceTree = "<group>"; };
+		810DF758A571F6E69440EE0B /* ExtensionSidebarGroupIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExtensionSidebarGroupIdentityTests.swift"; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
@@ -8840,6 +8844,7 @@
 					5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */,
 					C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */,
 				C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */,
+				E41107700000000000000002 /* ExtensionSidebarGroupIdentity.swift */,
 				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
 				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
@@ -12089,6 +12094,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				810DF758A571F6E69440EE0B /* ExtensionSidebarGroupIdentityTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
 			);
@@ -13661,6 +13667,7 @@
 				A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */,
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
+				E41107700000000000000001 /* ExtensionSidebarGroupIdentity.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0A717030000000000000002 /* ExternalApplicationWindowDependencies.swift in Sources */,
@@ -16084,6 +16091,7 @@
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
+				4BEDB0B774F58B54297D3FE1 /* ExtensionSidebarGroupIdentityTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */,
 				C0A717100000000000000002 /* ExternalWindowSamplingServiceTests.swift in Sources */,
