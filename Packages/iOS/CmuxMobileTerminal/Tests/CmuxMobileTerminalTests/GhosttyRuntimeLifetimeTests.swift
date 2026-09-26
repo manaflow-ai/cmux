@@ -89,6 +89,53 @@ struct GhosttyRuntimeLifetimeTests {
         }
         #expect(weakRuntime == nil)
     }
+
+    /// A full output queue refuses new work, but a surface's free has to get
+    /// in anyway. A refused free leaks the surface and the runtime it holds.
+    @MainActor
+    @Test("a surface free is admitted when the output queue is full")
+    func surfaceFreeIsAdmittedWhenTheOutputQueueIsFull() async throws {
+        let delegate = LifetimeTestSurfaceDelegate()
+        weak var weakRuntime: GhosttyRuntime?
+        var view: GhosttySurfaceView?
+        do {
+            let runtime = try GhosttyRuntime()
+            weakRuntime = runtime
+            view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+        }
+        try #require(weakRuntime != nil)
+        try #require(view?.surface != nil)
+        let queue = try #require(view?.outputQueue)
+
+        // The item the worker is running doesn't count against the queue's
+        // limit, so let the worker take the blocker before filling the queue
+        // behind it.
+        let blockerStarted = DispatchSemaphore(value: 0)
+        let releaseBlocker = DispatchSemaphore(value: 0)
+        defer { releaseBlocker.signal() }
+        let blockerQueued = queue.async {
+            blockerStarted.signal()
+            releaseBlocker.wait()
+        }
+        try #require(blockerQueued)
+        try #require(blockerStarted.wait(timeout: .now() + 5) == .success)
+        var fillers = 0
+        while fillers < 10_000, queue.async({}) {
+            fillers += 1
+        }
+        try #require(fillers > 0 && fillers < 10_000)
+
+        view?.prepareForDismantle()
+        view?.disposeSurface()
+        view = nil
+        releaseBlocker.signal()
+
+        let deadline = ContinuousClock.now + .seconds(10)
+        while weakRuntime != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(weakRuntime == nil)
+    }
 }
 
 @MainActor
