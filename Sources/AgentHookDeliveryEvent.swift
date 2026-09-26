@@ -334,3 +334,75 @@ extension TerminalController {
         return resolved
     }
 }
+
+extension AgentHookDeliveryEvent {
+    /// Host paths a relay payload may carry. They describe the remote machine,
+    /// and the local replay must never open a same-named path on this Mac.
+    private static let relayFilesystemPayloadKeys: Set<String> = [
+        "cwd", "working_directory", "workingDirectory",
+        "project_dir", "projectDir", "project_path", "projectPath",
+        "workspacePaths", "workspace_paths",
+        "transcript_path", "transcriptPath", "agent_transcript_path",
+    ]
+
+    /// Rebuilds an `agent.hook.enqueue` request that arrived through the SSH
+    /// relay. The relay gate has already scoped `workspace_id`/`surface_id` to
+    /// the owner workspace; they become the only replay environment, and host
+    /// paths are dropped from the payload because the remote host is untrusted.
+    static func relayAdmissionParameters(_ params: [String: Any]) -> [String: Any]? {
+        guard let workspaceID = params["workspace_id"] as? String,
+              UUID(uuidString: workspaceID) != nil,
+              let surfaceID = params["surface_id"] as? String,
+              UUID(uuidString: surfaceID) != nil,
+              let agent = params["agent"] as? String,
+              let subcommand = params["subcommand"] as? String,
+              let payload = params["payload"] as? String else {
+            return nil
+        }
+        var admitted: [String: Any] = [
+            "agent": agent,
+            "subcommand": subcommand,
+            "payload": relayPortablePayload(payload),
+            "relay_backed": true,
+            "environment": [
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+            ],
+        ]
+        admitted[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] =
+            params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey]
+        if let callerTTY = params["caller_tty"] as? String {
+            admitted["caller_tty"] = callerTTY
+        }
+        return admitted
+    }
+
+    static func relayPortablePayload(_ payload: String) -> String {
+        guard let data = payload.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let portable = removingRelayFilesystemKeys(object) as? [String: Any],
+              JSONSerialization.isValidJSONObject(portable),
+              let encoded = try? JSONSerialization.data(
+                  withJSONObject: portable,
+                  options: [.sortedKeys, .withoutEscapingSlashes]
+              ),
+              let text = String(data: encoded, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private static func removingRelayFilesystemKeys(_ value: Any) -> Any {
+        if let object = value as? [String: Any] {
+            var portable: [String: Any] = [:]
+            for (key, child) in object where !relayFilesystemPayloadKeys.contains(key) {
+                portable[key] = removingRelayFilesystemKeys(child)
+            }
+            return portable
+        }
+        if let array = value as? [Any] {
+            return array.map(removingRelayFilesystemKeys)
+        }
+        return value
+    }
+}

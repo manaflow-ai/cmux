@@ -37,10 +37,40 @@ struct RemoteRelayRoutingSchema {
         case "surface.resume.clear":
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
+        case "agent.hook.enqueue":
+            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
         }
+    }
+
+    /// Claude lifecycle events a relay host may admit. Decision hooks
+    /// (permission feed, CronCreate guard) and auxiliary workers stay local-only,
+    /// so a remote host can report state but never answer for the agent.
+    static let relayAgentHookSubcommands: Set<String> = [
+        "session-start", "prompt-submit", "stop", "notification", "session-end", "pre-tool-use",
+    ]
+    static let maximumRelayAgentHookPayloadBytes = 8 * 1_024
+    static let maximumRelayAgentHookCallerTTYBytes = 256
+
+    /// Returns the first `agent.hook.enqueue` parameter outside the relay
+    /// contract. Routing is carried only by the scoped `workspace_id` and
+    /// `surface_id` selectors; the app rebuilds the hook environment from them.
+    func agentHookContractViolation(in parameters: [String: Any]) -> String? {
+        guard parameters["agent"] as? String == "claude" else { return "agent" }
+        guard let subcommand = parameters["subcommand"] as? String,
+              Self.relayAgentHookSubcommands.contains(subcommand) else { return "subcommand" }
+        guard let payload = parameters["payload"] as? String,
+              payload.utf8.count <= Self.maximumRelayAgentHookPayloadBytes,
+              !payload.contains("\0") else { return "payload" }
+        guard parameters["relay_backed"] as? Bool == true else { return "relay_backed" }
+        if let rawTTY = parameters["caller_tty"], !(rawTTY is NSNull) {
+            guard let callerTTY = rawTTY as? String,
+                  callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
+                  !callerTTY.contains("\0") else { return "caller_tty" }
+        }
+        return nil
     }
 
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {

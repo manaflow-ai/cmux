@@ -10,6 +10,54 @@ import Testing
 
 @Suite(.serialized)
 struct AgentHookDeliveryQueueTests {
+    @Test("Relay-admitted hooks route only through their authorized selectors")
+    func relayAdmissionRebuildsEnvironmentFromSelectors() throws {
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let ownerID = UUID().uuidString
+        let params: [String: Any] = [
+            "agent": "claude",
+            "subcommand": "stop",
+            "payload": #"{"session_id":"sess-1","cwd":"/home/leo/repo","transcript_path":"/Users/leo/.ssh/id_ed25519","nested":{"transcriptPath":"/etc/passwd","keep":1}}"#,
+            "relay_backed": true,
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+            "caller_tty": "/dev/pts/4",
+            WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey: ownerID,
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: UUID().uuidString,
+        ]
+
+        let admitted = try #require(AgentHookDeliveryEvent.relayAdmissionParameters(params))
+        #expect(admitted["environment"] as? [String: String] == [
+            "CMUX_WORKSPACE_ID": workspaceID,
+            "CMUX_SURFACE_ID": surfaceID,
+        ])
+        #expect(admitted["caller_tty"] as? String == "/dev/pts/4")
+        #expect(admitted[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] as? String == ownerID)
+        #expect(admitted["workspace_id"] == nil)
+
+        let payload = try #require(admitted["payload"] as? String)
+        #expect(payload == #"{"nested":{"keep":1},"session_id":"sess-1"}"#)
+
+        let event = try #require(AgentHookDeliveryEvent(params: admitted, deliverySocketPath: "/tmp/cmux-test.sock"))
+        #expect(event.relayBacked)
+        #expect(event.sessionID == "sess-1")
+        #expect(event.environment["CMUX_SURFACE_ID"] == surfaceID)
+    }
+
+    @Test("Relay admission rejects requests without UUID selectors")
+    func relayAdmissionRequiresSelectors() {
+        var params: [String: Any] = [
+            "agent": "claude", "subcommand": "stop", "payload": "{}", "relay_backed": true,
+            "workspace_id": UUID().uuidString, "surface_id": "surface:1",
+        ]
+        #expect(AgentHookDeliveryEvent.relayAdmissionParameters(params) == nil)
+        params["surface_id"] = UUID().uuidString
+        params.removeValue(forKey: "workspace_id")
+        #expect(AgentHookDeliveryEvent.relayAdmissionParameters(params) == nil)
+        #expect(AgentHookDeliveryEvent.relayPortablePayload("not json") == "{}")
+    }
+
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
