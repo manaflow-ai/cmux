@@ -1240,6 +1240,7 @@
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */; };
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
+		7EB4C5BC5C8431C1908D8659 /* CmuxMainWindowKeyViewLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798B8F6B55F54D0D9EC703C0 /* CmuxMainWindowKeyViewLoopTests.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		C4B1E0000000000000000003 /* CmuxMobileHost in Frameworks */ = {isa = PBXBuildFile; productRef = C4B1E0000000000000000002 /* CmuxMobileHost */; };
@@ -5279,6 +5280,7 @@
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowConstrainFrameTests.swift; sourceTree = "<group>"; };
 		D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowFullScreenCapabilityTests.swift; sourceTree = "<group>"; };
+		798B8F6B55F54D0D9EC703C0 /* CmuxMainWindowKeyViewLoopTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxMainWindowKeyViewLoopTests.swift"; sourceTree = "<group>"; };
 		CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxModalAlertPresentation.swift; sourceTree = "<group>"; };
 		C54860110000000000000002 /* CmuxNavigationResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationResolution.swift; sourceTree = "<group>"; };
 		C54860120000000000000002 /* CmuxNavigationSurfaceDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNavigationSurfaceDescriptor.swift; sourceTree = "<group>"; };
@@ -12086,6 +12088,7 @@
 				537CAEFE97A3304B0243BC80 /* CLIKiroFeedPermissionModeTests.swift */,
 				E412D7061FB6A4CDC83A7784 /* ComputerUseUXTests+PermissionRefresh.swift */,
 				F31EBB65E7FAFD31F21EAF0C /* TerminalNotificationDirectInteractionTests+Visibility.swift */,
+				798B8F6B55F54D0D9EC703C0 /* CmuxMainWindowKeyViewLoopTests.swift */,
 				7D3846FF03B825DB80EF76C8 /* AgentChatTranscriptNotificationRecorder.swift */,
 				0F8CFA318418E40A8E61D7FE /* AgentChatTranscriptServiceLifetimeTests.swift */,
 				65D667411DD4754221281982 /* BrowserDesignModeSmoothScrollingTests.swift */,
@@ -15986,6 +15989,7 @@
 				A11C00040000000000000001 /* CmuxHostedSystemSymbolImageTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 					D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */,
+				7EB4C5BC5C8431C1908D8659 /* CmuxMainWindowKeyViewLoopTests.swift in Sources */,
 					C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */,
 				468100000000000000000001 /* CmuxNotificationHookCacheTests.swift in Sources */,
 				C85390050000000000000001 /* CMUXOpenCommandLocationTests.swift in Sources */,
