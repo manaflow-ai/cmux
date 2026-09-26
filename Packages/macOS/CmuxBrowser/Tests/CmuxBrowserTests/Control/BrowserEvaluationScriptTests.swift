@@ -100,7 +100,7 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
         host.id = 'shadow-host';
         document.body.appendChild(host);
         const root = host.attachShadow({mode: 'open'});
-        root.innerHTML = '<div><button>decoy</button></div><div><button>target</button></div>';
+        root.innerHTML = '<div><div></div><div><button>decoy</button></div></div><div><button>target</button></div>';
         const target = root.children[1].firstElementChild;
         let ancestor = root.children[1];
         for (let index = 0; index < \(depth); index += 1) {
