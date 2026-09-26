@@ -1498,6 +1498,7 @@
 		D11965050000000000000002 /* ComputerUseOnboardingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */; };
 		C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */; };
 		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
+		2C9156475A0C01A4B32D2A83 /* ComputerUseOnboardingIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */; };
 		C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */; };
 		C13049000000000000000602 /* ComputerUseOnboardingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000601 /* ComputerUseOnboardingStoreTests.swift */; };
 		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
@@ -2447,6 +2448,7 @@
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000009 /* PlainPastePTYFixture.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
+		5B0C00010000000000000101 /* PortalDividerOverlayRepaintTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000102 /* PortalDividerOverlayRepaintTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
 		D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000001 /* PortalSplitDividerRegion.swift */; };
@@ -5466,6 +5468,7 @@
 		D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingCoordinator.swift; sourceTree = "<group>"; };
 		C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingFixture.swift"; sourceTree = "<group>"; };
 		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
+		C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingIntentTests.swift"; sourceTree = "<group>"; };
 		C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingStep.swift; sourceTree = "<group>"; };
 		C13049000000000000000601 /* ComputerUseOnboardingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingStoreTests.swift"; sourceTree = "<group>"; };
 		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
@@ -6406,6 +6409,7 @@
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000009 /* PlainPastePTYFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainPastePTYFixture.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
+		5B0C00010000000000000102 /* PortalDividerOverlayRepaintTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerOverlayRepaintTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
 		D0C658660000000000000001 /* PortalSplitDividerRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerRegion.swift; sourceTree = "<group>"; };
@@ -11695,6 +11699,7 @@
 				9F007352E96022D7EFBE73C9 /* WorkspaceTodoSidebarModelTests.swift */,
 				5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */,
 				5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */,
+				5B0C00010000000000000102 /* PortalDividerOverlayRepaintTests.swift */,
 				C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */,
 				C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */,
 				5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */,
@@ -12085,6 +12090,7 @@
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
+				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16023,6 +16029,7 @@
 				0EC5CA157C24545908A734F5 /* ComputerUseExternalApplicationFixture.swift in Sources */,
 				C13049000000000000000002 /* ComputerUseOnboardingAdmissionTests.swift in Sources */,
 				C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */,
+				2C9156475A0C01A4B32D2A83 /* ComputerUseOnboardingIntentTests.swift in Sources */,
 				C13049000000000000000602 /* ComputerUseOnboardingStoreTests.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */,
@@ -16283,6 +16290,7 @@
 				B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 				C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */,
 				5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */,
+				5B0C00010000000000000101 /* PortalDividerOverlayRepaintTests.swift in Sources */,
 					B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
 					F11294000000000000000001 /* PortRetirementPublicationRegressionTests.swift in Sources */,
