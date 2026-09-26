@@ -247,12 +247,19 @@ struct CloudNativeLayoutProjectionTests {
         #expect(fixture.adoption(of: terminalC.id) === down)
     }
 
-    @Test("A terminal that no request created never takes an unbound reservation's pane")
-    func unboundDeviceReservationKeepsItsPane() async throws {
+    @Test("A terminal that no request created never takes an unbound reservation's pane, pending or failed",
+          arguments: [false, true])
+    func unboundDeviceReservationKeepsItsPane(creationFailed: Bool) async throws {
         let fixture = try DeviceSplitFixture()
         defer { fixture.tearDown() }
         let (reservation, _) = try fixture.reserve(.right)
         let reservedPane = try #require(fixture.viewer.paneId(forPanelId: reservation.panelID))
+        if creationFailed {
+            // A failed create keeps its pane and reservation for Reconnect, so
+            // the reserved panel must not block later layout updates.
+            fixture.viewer.failReservedCloudTerminalPane(reservation, error: CloudDiagnosticFailure.placement)
+            #expect(fixture.viewer.cloudPendingCreations[reservation.panelID] === reservation)
+        }
 
         let coordinator = fixture.makeCoordinator()
         defer { coordinator.stop() }
@@ -262,12 +269,13 @@ struct CloudNativeLayoutProjectionTests {
             second: .pane(id: "foreign", surfaceIDs: ["remote-foreign"], selectedSurfaceID: "remote-foreign"))))
         await coordinator.waitForIdle()
 
-        // The only reservation is still waiting for its create receipt, so the
-        // new terminal is projected without it.
+        // The only reservation never bound a create receipt, so the new
+        // terminal is projected without it and the reserved pane stays put.
         #expect(fixture.provider.adoptions.contains { $0.resource == foreign.id })
         #expect(fixture.adoption(of: foreign.id) == nil)
         let foreignPane = try #require(fixture.destinationPanes[foreign.id])
         #expect(foreignPane != reservedPane.id)
+        #expect(fixture.viewer.paneId(forPanelId: reservation.panelID) == reservedPane)
     }
 
     @Test("Only the terminal bound to a device reservation adopts its pane and queued input")
