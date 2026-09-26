@@ -19,7 +19,8 @@ import {
   normalizeFreestyleExecTimeout,
 } from "../services/vms/drivers/freestyle";
 import type { VMProvider } from "../services/vms/drivers/types";
-import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
+import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
+import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
@@ -115,6 +116,13 @@ describe("Freestyle platform contract", () => {
     ]);
   });
 
+  test("team VM adds exactly one VPC ingress rule", () => {
+    expect(freestyleFirewallRules({ memberIngressNetworkId: "vpc-team" })).toEqual([
+      { action: "allow", source: {}, destination: { public: true } },
+      { action: "allow", source: { vpcId: "vpc-team" }, destination: {} },
+    ]);
+  });
+
   test("firewall without a network: inbound 1337 opens publicly, as before", () => {
     expect(freestyleFirewallRules({ publicDaemonIngress: true })).toEqual([
       { action: "allow", source: {}, destination: { public: true } },
@@ -128,6 +136,65 @@ describe("Freestyle platform contract", () => {
     expect(FREESTYLE_NETWORK_FIREWALL_RULES).toEqual([
       { action: "allow", source: {}, destination: {} },
     ]);
+  });
+
+  test("create and restore add team ingress only when requested", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const provider = providerWith(fake);
+    await provider.create({ image: "snapshot", network: { id: "vpc-team", memberIngress: true } });
+    const teamRules = (fake.creates[0] as { firewall: { rules: unknown[] } }).firewall.rules;
+    expect(teamRules.filter((rule) => JSON.stringify(rule).includes("vpc-team"))).toHaveLength(1);
+    await provider.create({ image: "snapshot", network: { id: "vpc-team" } });
+    const personalRules = (fake.creates[1] as { firewall: { rules: unknown[] } }).firewall.rules;
+    expect(personalRules.filter((rule) => JSON.stringify(rule).includes("vpc-team"))).toHaveLength(0);
+    await provider.restore("snapshot", { network: { id: "vpc-team", memberIngress: true } });
+    const restoreRules = (fake.creates[2] as { firewall: { rules: unknown[] } }).firewall.rules;
+    expect(restoreRules.filter((rule) => JSON.stringify(rule).includes("vpc-team"))).toHaveLength(1);
+  });
+
+  test("team network creation omits members rule, including slug conflicts", async () => {
+    const network = { id: "vpc-team", slug: "team-slug", cidr: "10.1.0.0/24", cidrV6: "fd01::/64" };
+    let createCount = 0;
+    let createdOptions: unknown;
+    const client = {
+      vpc: {
+        create: async (options: unknown) => { createCount += 1; createdOptions = options; return { data: network }; },
+        get: async () => network,
+      },
+      firewall: { rules: { list: async () => { throw new Error("members heal must not run"); }, create: async () => { throw new Error("members heal must not run"); } } },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await provider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
+    expect(createCount).toBe(1);
+    expect(createdOptions).toEqual({ slug: "team-slug", displayName: undefined, firewall: { rules: [] } });
+    const conflictClient = {
+      ...client,
+      vpc: {
+        create: async () => { throw new FreestyleApiError(409, { code: "CONFLICT", message: "slug exists" }); },
+        get: async () => network,
+      },
+    } as unknown as Freestyle;
+    const conflictProvider = new FreestyleProvider({ client: () => conflictClient });
+    await conflictProvider.privateNetworking!.ensureNetwork({ slug: "team-slug", membersRule: false });
+  });
+
+  test("team tunnel attach/detach maps addresses and classifies overlap", async () => {
+    const attachment = { vpcId: "vpc-team", ipv4: "10.2.0.2", ipv6: "fd02::2" };
+    const client = {
+      tunnels: {
+        attachVpc: async () => ({ attachments: [attachment] }),
+        detachVpc: async () => { throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "gone" }); },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await expect(provider.privateNetworking!.attachTunnelNetwork!("tun-1", "vpc-team")).resolves.toEqual({ networkId: "vpc-team", addressV4: "10.2.0.2", addressV6: "fd02::2" });
+    await expect(provider.privateNetworking!.detachTunnelNetwork!("tun-1", "vpc-team")).resolves.toBeUndefined();
+    const errorProvider = new FreestyleProvider({ client: () => ({ tunnels: { detachVpc: async () => { throw new Error("detach failed"); } } } as unknown as Freestyle) });
+    await expect(errorProvider.privateNetworking!.detachTunnelNetwork!("tun-1", "vpc-team")).rejects.toBeInstanceOf(ProviderError);
+    const overlapProvider = new FreestyleProvider({ client: () => ({ tunnels: { attachVpc: async () => { throw new FreestyleApiError(409, { code: "CONFLICT", message: "overlap" }); } } } as unknown as Freestyle) });
+    const overlap = await overlapProvider.privateNetworking!.attachTunnelNetwork!("tun-1", "vpc-team").catch((error) => error);
+    expect(overlap).toBeInstanceOf(ProviderTunnelNetworkOverlapError);
+    expect(isProviderTunnelNetworkOverlap({ cause: overlap })).toBe(true);
   });
 
   test("create never re-reads or resizes a snapshot-backed machine", async () => {

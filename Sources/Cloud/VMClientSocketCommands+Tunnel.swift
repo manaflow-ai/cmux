@@ -69,6 +69,7 @@ extension TerminalController {
                 payload["address_v6"] = state.endpoint.addressV6 ?? NSNull()
                 payload["network_cidr"] = state.endpoint.networkCidr ?? NSNull()
                 payload["network_cidr_v6"] = state.endpoint.networkCidrV6 ?? NSNull()
+                payload["network_cidrs"] = state.endpoint.networkCidrs
                 payload["endpoint_host"] = state.endpoint.endpointHost ?? NSNull()
                 payload["endpoint_port"] = state.endpoint.endpointPort
                 payload["routes"] = state.endpoint.routes

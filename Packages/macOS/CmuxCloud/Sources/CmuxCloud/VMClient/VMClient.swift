@@ -929,6 +929,7 @@ public struct VMTunnelEndpoint: Sendable {
     public let addressV6: String?
     public let networkCidr: String?
     public let networkCidrV6: String?
+    public let networkCidrs: [String]
     public let created: Bool
     public let rotated: Bool
 
@@ -948,6 +949,7 @@ public struct VMTunnelEndpoint: Sendable {
         addressV6: String?,
         networkCidr: String?,
         networkCidrV6: String?,
+        networkCidrs: [String] = [],
         created: Bool,
         rotated: Bool
     ) {
@@ -966,6 +968,7 @@ public struct VMTunnelEndpoint: Sendable {
         self.addressV6 = addressV6
         self.networkCidr = networkCidr
         self.networkCidrV6 = networkCidrV6
+        self.networkCidrs = networkCidrs
         self.created = created
         self.rotated = rotated
     }
@@ -2147,6 +2150,12 @@ public actor VMClient {
         let tunnelPurpose = (obj["tunnelPurpose"] as? String) ?? fallbackPurpose
         let address = obj["address"] as? [String: Any]
         let network = obj["network"] as? [String: Any]
+        let fallbackCidrs = [network?["cidr"] as? String, network?["cidrV6"] as? String]
+        let rawNetworks = obj["networks"] as? [[String: Any]] ?? []
+        let networkCidrs = (rawNetworks.flatMap { [($0["cidr"] as? String), ($0["cidrV6"] as? String)] } + fallbackCidrs)
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { result, value in if !result.contains(value) { result.append(value) } }
         return VMTunnelEndpoint(
             accessGrantId: accessGrantId,
             tunnelId: tunnelId,
@@ -2163,6 +2172,7 @@ public actor VMClient {
             addressV6: address?["ipv6"] as? String,
             networkCidr: network?["cidr"] as? String,
             networkCidrV6: network?["cidrV6"] as? String,
+            networkCidrs: networkCidrs,
             created: (obj["created"] as? Bool) ?? false,
             rotated: (obj["rotated"] as? Bool) ?? false
         )
@@ -2468,6 +2478,7 @@ public actor VMClient {
             headers["X-Cmux-Operation-Id"] = context.operationID.uuidString.lowercased()
         }
         headers["X-Cmux-App-Revision"] = Bundle.main.object(forInfoDictionaryKey: "CMUXCommit") as? String
+        headers["X-Cmux-Private-Network-Routing"] = "team-networks"
         headers.merge(extraHeaders) { _, new in new }
         do {
             let (data, http) = try await performRequest(

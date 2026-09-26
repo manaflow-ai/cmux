@@ -13,6 +13,7 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -135,7 +136,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean },
+    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   /** Read a provider network without creating or repairing it. */
   readonly getNetwork?: (
@@ -165,6 +166,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     tunnelId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -375,4 +378,16 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "deleteTunnel", () =>
       privateNetworking(provider).deleteTunnel(tunnelId)
     ),
+  attachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "attachTunnelNetwork", async () => {
+      const impl = privateNetworking(provider).attachTunnelNetwork;
+      if (!impl) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await impl(tunnelId, networkId);
+    }),
+  detachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "detachTunnelNetwork", async () => {
+      const impl = privateNetworking(provider).detachTunnelNetwork;
+      if (!impl) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await impl(tunnelId, networkId);
+    }),
 });

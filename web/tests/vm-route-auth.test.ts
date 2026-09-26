@@ -33,6 +33,8 @@ const runVmWorkflow = mock(async () => {
   throw new Error("unauthenticated VM routes must not reach the VM workflow");
 });
 const createVm = mock(() => ({ workflow: "create" }));
+const enrollVmTunnel = mock(() => ({ workflow: "enroll-tunnel" }));
+const readVmTunnel = mock(() => ({ workflow: "read-tunnel" }));
 const openBaseVm = mock(() => ({ workflow: "base.open" }));
 const resetBaseVm = mock(() => ({ workflow: "base.reset" }));
 const listUserVms = mock(() => ({ workflow: "list" }));
@@ -80,6 +82,8 @@ const originalEnv = Object.fromEntries(
 // keep pointing at the originals under either registry semantics.
 const workflowsModule = await import("../services/vms/workflows");
 const realCreateVm = workflowsModule.createVm;
+const realEnrollVmTunnel = workflowsModule.enrollVmTunnel;
+const realReadVmTunnel = workflowsModule.readVmTunnel;
 const realDestroyVm = workflowsModule.destroyVm;
 const realExecVm = workflowsModule.execVm;
 const realForkVm = workflowsModule.forkVm;
@@ -128,6 +132,11 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
+  ...workflowsModule,
+  enrollVmTunnel: ((...args: Parameters<typeof realEnrollVmTunnel>) =>
+    useWorkflowStubs ? callMock(enrollVmTunnel, args) : realEnrollVmTunnel(...args)) as typeof realEnrollVmTunnel,
+  readVmTunnel: ((...args: Parameters<typeof realReadVmTunnel>) =>
+    useWorkflowStubs ? callMock(readVmTunnel, args) : realReadVmTunnel(...args)) as typeof realReadVmTunnel,
   VmWorkflowLive: realVmWorkflowLive,
   createVm: ((...args: Parameters<typeof realCreateVm>) =>
     useWorkflowStubs ? callMock(createVm, args) : realCreateVm(...args)) as typeof realCreateVm,
@@ -218,6 +227,7 @@ const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const { POST: tunnelPOST, GET: tunnelGET } = await import("../app/api/vm/tunnel/route");
 const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
 const {
   VmAccountDeletionInProgressError,
@@ -258,6 +268,8 @@ beforeEach(() => {
     },
   );
   createVm.mockClear();
+  enrollVmTunnel.mockClear();
+  readVmTunnel.mockClear();
   openBaseVm.mockClear();
   resetBaseVm.mockClear();
   destroyVm.mockClear();
@@ -523,6 +535,54 @@ describe("VM REST auth", () => {
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("tunnel POST and GET forward authenticated team membership", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const authedUser = await verifyRequest(new Request("https://cmux.test/api/vm/tunnel", { headers }));
+    expect(authedUser?.teamIds).toEqual(["team-1"]);
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    const enrollCalls = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((enrollCalls[0]?.[0] as { teamIds: readonly string[] }).teamIds).toEqual(authedUser?.teamIds);
+    const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
+    expect(read.status).toBe(200);
+    const readCalls = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((readCalls[0]?.[0] as { teamIds: readonly string[] }).teamIds).toEqual(authedUser?.teamIds);
+  });
+
+  test("passes the team directory only for capable create clients", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({ providerVmId: "provider-vm-1", provider: "freestyle", image: "snapshot-test", createdAt: 1_777_000_000_000, addressIpv4: "10.16.0.9", addressIpv6: null, cmuxTuiContract: "snapshot-v2" });
+    const capable = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test", "x-cmux-private-network-routing": "team-networks" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+    }));
+    expect(capable.status).toBe(200);
+    const createCalls = (createVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const capableInput = createCalls[0]?.[0] as { teamDirectory?: { listMemberIds?: unknown } } | undefined;
+    expect(typeof capableInput?.teamDirectory?.listMemberIds).toBe("function");
+    createVm.mockClear();
+    const legacy = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+    }));
+    expect(legacy.status).toBe(200);
+    const legacyCalls = (createVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const legacyInput = legacyCalls[0]?.[0] as { teamDirectory?: unknown } | undefined;
+    expect(legacyInput?.teamDirectory).toBeUndefined();
   });
 
   test("rejects an unknown `kind` on create and base open before touching workflows", async () => {
