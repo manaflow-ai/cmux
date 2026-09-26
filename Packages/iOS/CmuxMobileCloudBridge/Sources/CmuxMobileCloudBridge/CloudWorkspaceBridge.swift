@@ -21,10 +21,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// Machines this bridge publishes, in list order.
     public private(set) var admittedMachines: [CloudMachine] = []
 
-    private let controller: CloudSessionController
+    private let links: any CloudMachineLinkProviding
     private weak var store: MobileShellComposite?
     private var catalogTasks: [String: Task<Void, Never>] = [:]
-    private var attachments: [String: CloudTerminalAttachment] = [:]
+    private var attachments: [String: any CloudTerminalLinking] = [:]
     private var attachedSurfaceIDsByMachine: [String: String] = [:]
     private var attachTasks: [String: Task<Void, Never>] = [:]
     private var lastReportedGridBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
@@ -41,9 +41,12 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     /// first characters after opening a terminal are lost.
     private var pendingInputBySurfaceID: [String: Data] = [:]
 
-    /// Creates a bridge over the Cloud session controller.
-    public init(controller: CloudSessionController) {
-        self.controller = controller
+    /// Creates a bridge over a source of machine links.
+    ///
+    /// Production passes the app's ``CloudSessionController``; tests pass a
+    /// fake so attachment behavior is exercised without a tunnel.
+    public init(links: any CloudMachineLinkProviding) {
+        self.links = links
     }
 
     // MARK: Lifecycle
@@ -95,7 +98,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         catalogTasks[machine.id]?.cancel()
         catalogTasks[machine.id] = Task { [weak self] in
             guard let self else { return }
-            guard let connection = controller.connection(for: machine) else {
+            guard let connection = links.link(for: machine) else {
                 // No tunnel yet. The rows stay published as reconnecting, and
                 // the next call (a tunnel-ready change, or a pull to refresh)
                 // fills them in.
@@ -210,7 +213,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         // link down and ask for the same screen again, which a view reset or
         // a resync sweep can trigger repeatedly.
         if attachingSurfaceIDsByMachine[machine.id] == surfaceID { return }
-        guard let connection = controller.connection(for: machine) else { return }
+        guard let connection = links.link(for: machine) else { return }
         teardownAttachment(machineID: machine.id)
         attachedSurfaceIDsByMachine[machine.id] = surfaceID
         attachingSurfaceIDsByMachine[machine.id] = surfaceID

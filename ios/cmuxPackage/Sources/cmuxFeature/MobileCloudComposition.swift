@@ -75,7 +75,7 @@ struct MobileCloudComposition {
     /// through the same views a paired Mac's do.
     @MainActor
     func makeWorkspaceBridge(controller: CloudSessionController) -> CloudWorkspaceBridge {
-        CloudWorkspaceBridge(controller: controller)
+        CloudWorkspaceBridge(links: controller)
     }
 
     /// `<Application Support>/cmux-cloud-remote`, created 0700 on first use.
