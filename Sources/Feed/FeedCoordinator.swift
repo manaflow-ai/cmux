@@ -1238,7 +1238,7 @@ private extension FeedCoordinator {
             case .authorized, .provisional:
                 break
             case .notDetermined:
-                var authorizationOptions: UNAuthorizationOptions = [.alert]
+                var authorizationOptions: UNAuthorizationOptions = [.alert, .badge]
                 if effectiveEffects.sound {
                     authorizationOptions.insert(.sound)
                 }
