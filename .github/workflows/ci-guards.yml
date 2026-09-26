@@ -191,9 +191,17 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_settings_configuration_review_paths.py
 
+      - name: Validate cmux.json schema covers supported settings and shortcut actions
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_schema_parity.py
+
       - name: Validate Localizable.xcstrings catalog structure
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
+
+      - name: Validate Resources property lists have unique keys
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_resources_plist_unique_keys.py
 
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}

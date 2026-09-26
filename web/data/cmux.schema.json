@@ -120,6 +120,21 @@
         }
       }
     },
+    "customSidebars": {
+      "x-cmux-scopes": ["global"],
+      "title": "customSidebars",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Behavior of custom (user or agent authored) sidebars.",
+      "properties": {
+        "renderer": {
+          "type": "string",
+          "enum": ["inProcess", "remote"],
+          "default": "inProcess",
+          "description": "How a selected custom sidebar renders. \"inProcess\" renders native SwiftUI inside cmux with full hover, focus, and keyboard input; use it only for sidebars you authored. \"remote\" renders in an isolated worker process so a faulty sidebar cannot crash cmux, with input limited to clicks."
+        }
+      }
+    },
     "agentChat": {
       "title": "agentChat",
       "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",
@@ -512,7 +527,7 @@
         },
         "focusPaneOnFirstClick": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
         "paneResizeStepPixels": {
@@ -673,6 +688,11 @@
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
+        },
+        "textEditingGestures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -1156,6 +1176,18 @@
               "additionalProperties": false,
               "description": "Workspace todos checklist presentation.",
               "properties": {
+                "controls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Workspace todo editing controls.",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show Add Checklist Item and workspace status controls on workspace rows. When false, the todo summary stays read-only."
+                    }
+                  }
+                },
                 "checklistStyle": {
                   "type": "string",
                   "enum": ["popover", "inline"],
@@ -1171,6 +1203,16 @@
           "enum": ["vertical", "inline"],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
+        },
+        "stackBranchDirectory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render the git branch and working directory on separate lines instead of sharing one line."
+        },
+        "pathLastSegmentOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/."
         },
         "showNotificationMessage": {
           "type": "boolean",
@@ -1374,7 +1416,7 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "default": 0.03,
+          "default": 0.18,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
         }
       }
@@ -1418,6 +1460,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable cmux integration hooks for Claude Code."
+        },
+        "codexIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."
         },
         "claudeBinaryPath": {
           "type": "string",
@@ -1813,6 +1860,7 @@
               "newBrowserWorkspace",
               "newCloudWorkspace",
               "newCloudMachine",
+              "saveLayoutTemplate",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
