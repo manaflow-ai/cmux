@@ -747,8 +747,15 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 
 	set("PATH", pathWithStandardExecutableDirectories(env["PATH"]))
 	set("TERM", "xterm-256color")
-	setIfMissing("COLORTERM", "truecolor")
-	setIfMissing("TERM_PROGRAM", "ghostty")
+	// Force cmux's own terminal identity. These are inherited from the daemon's
+	// host environment (tmux, iTerm, Apple Terminal, ...); leaking the host
+	// values lets apps in the session mis-detect the terminal, so set them
+	// rather than only setting them when absent.
+	set("COLORTERM", "truecolor")
+	set("TERM_PROGRAM", "ghostty")
+	// The host's TERM_PROGRAM_VERSION describes the host terminal, not the
+	// ghostty identity set above, so drop it rather than pair them.
+	delete(env, "TERM_PROGRAM_VERSION")
 	setIfMissing("SHELL", shellPath)
 	set("CMUX_REMOTE_TRANSPORT", "ws")
 	if !envHasUTF8Locale(env) {
@@ -764,7 +771,11 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, key+"="+env[key])
+		value, ok := env[key]
+		if !ok {
+			continue
+		}
+		out = append(out, key+"="+value)
 	}
 	return out
 }
