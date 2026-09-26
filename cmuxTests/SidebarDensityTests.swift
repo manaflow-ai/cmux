@@ -95,6 +95,7 @@ final class SidebarDensityTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testRemotePortScanningFollowsDensityUnlessPortsAreSetExplicitly() throws {
         try withSuiteDefaults { defaults in
             XCTAssertTrue(Workspace.remotePortScanningEnabledFromSettings(defaults: defaults))
