@@ -144,8 +144,8 @@ struct CloudPortsVPNAffordanceTests {
         #expect(calls == 1)
     }
 
-    @Test("Default expansion requests discovery once; collapsed machines do not scan")
-    func defaultExpansionDemand() throws {
+    @Test("Opening Ports requests discovery once; closed Ports and collapsed machines do not scan")
+    func openedPortsDemand() throws {
         let suite = "ports-demand-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -159,13 +159,16 @@ struct CloudPortsVPNAffordanceTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
         defer { window.contentView = nil }
-        let first = machineNode(id: "visible")
+        let opened = machineNode(id: "opened")
+        let closed = machineNode(id: "closed")
         let collapsed = machineNode(id: "collapsed")
+        store.setExpanded(true, node: opened.children[0])
+        store.setExpanded(true, node: collapsed.children[0])
         store.setExpanded(false, node: collapsed)
-        coordinator.apply(nodes: [first, collapsed])
+        coordinator.apply(nodes: [opened, closed, collapsed])
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         coordinator.portsDemand.reconcile(coordinator: coordinator)
-        #expect(requested == [.cloud("visible")])
+        #expect(requested == [.cloud("opened")])
     }
 
     @Test("Ports Wake shares the expired-machine gate and rejects removed machines")

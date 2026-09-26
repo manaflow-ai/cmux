@@ -284,12 +284,12 @@ struct CloudPortOpenRegressionTests {
             privateAddress: "10.16.179.6",
             displayPortsOwned: true
         ) == [3000])
-        // Without a desktop, 6901 is an ordinary reachable listener; the
-        // loopback-only 5901 is still unreachable over the private address.
+        // Without a desktop, 5901 and 6901 are ordinary listeners; the browser
+        // proxy reaches the loopback-only 5901 on guest loopback.
         #expect(CmuxTuiSurfaceProvider.ports(
             from: scan,
             privateAddress: "10.16.179.6"
-        ) == [3000, 6901])
+        ) == [3000, 5901, 6901])
     }
 
     @Test("Loopback services remain discoverable independently of private-address metadata")
