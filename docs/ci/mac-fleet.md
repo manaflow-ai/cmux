@@ -210,12 +210,15 @@ them (section 5).
    more producer workflow. Note that the guard's exemption is **two byte-exact
    strings** (`tests/test_ci_self_hosted_guard.sh:1215-1219`), so a second
    owned-Mac lane is a deliberate guard edit, not an accident.
-3. **`app-host unit tests`** - do **not** move to minis, despite being 55% of
-   the minutes. It needs a foreground GUI session, it is six shards of
-   XCTest, and it is a required check. Its home is Blacksmith, where each
-   job gets a fresh VM and an Aqua login session. A shared mini cannot give
-   it either. (The isolated Tart pool that once offered this was retired on
-   2026-09-25; see `ci-runners.md`.)
+3. **`app-host unit tests`** - the app-host shards (and `tests-build-and-lag`)
+   take an owned pool unless `vars.CI_PR_POOL_OWNED_GUI == '0'`. They need a
+   foreground GUI session, and the minis' runners are LaunchAgents in the
+   logged-in user's Aqua session. On a pool whose gui label has a count, each
+   mini gets at most one GUI job at a time (`gui_runner()` in
+   `scripts/ci/pr_runner_pool.py`). Blacksmith (`pr_retry_runner`) is the
+   fallback for shards the picker does not place and for re-runs. (The
+   isolated Tart pool that once offered this was retired on 2026-09-25; see
+   `ci-runners.md`.)
 4. **Nightly app compile** - `build-nightly-app` takes the trusted runner on cmux15
    (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`) first on main's push and schedule runs, with
    Blacksmith as the fallback through ci-owned-pool-rescue.yml
