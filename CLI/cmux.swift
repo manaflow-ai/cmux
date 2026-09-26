@@ -19877,9 +19877,9 @@ struct CMUXCLI {
             """
         case "set-buffer":
             return """
-            Usage: cmux set-buffer [--name <name>] [--] <text>
+            Usage: cmux set-buffer [--name <name>] [--] [<text> | -]
 
-            Save text into a named tmux-compat buffer.
+            Save text into a named tmux-compat buffer, exactly as given. With no text argument, or with -, the text is read from stdin.
 
             Flags:
               --name <name>   Buffer name (default: default)
@@ -27421,7 +27421,27 @@ struct CMUXCLI {
         case "set-buffer":
             let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
             let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
-            let content = rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            // Store the text exactly as given, like tmux: trailing newlines and
+            // indentation are part of what paste-buffer should deliver. With no
+            // text argument, or a lone "-", read the text from stdin so output
+            // can be piped in (`cmd | cmux set-buffer`).
+            let textArgs = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
+            let content: String
+            if textArgs.isEmpty || textArgs == ["-"] {
+                guard isatty(STDIN_FILENO) != 1 else {
+                    throw CLIError(message: "set-buffer requires text")
+                }
+                let data = FileHandle.standardInput.readDataToEndOfFile()
+                guard let text = String(data: data, encoding: .utf8) else {
+                    throw CLIError(message: String(
+                        localized: "cli.setBuffer.error.invalidUTF8",
+                        defaultValue: "set-buffer: stdin is not valid UTF-8 text"
+                    ))
+                }
+                content = text
+            } else {
+                content = textArgs.joined(separator: " ")
+            }
             guard !content.isEmpty else {
                 throw CLIError(message: "set-buffer requires text")
             }
