@@ -1302,6 +1302,7 @@
         "compactAgentStatus": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.compactAgentStatus",
           "description": "Replace agent status rows (for example Running or Needs input) with one colored icon before the workspace title that shows agent, pull request, and branch state. Other status entries keep their rows."
         },
         "rightMaxWidth": {

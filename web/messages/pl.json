@@ -1348,6 +1348,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Zastępuje wiersze stanu agenta (na przykład Uruchomiony lub Wymaga danych) jedną kolorową ikoną przed tytułem obszaru roboczego, która pokazuje stan agenta, pull requesta i gałęzi. Pozostałe wpisy stanu zachowują własne wiersze.",
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
