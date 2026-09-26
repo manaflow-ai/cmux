@@ -146,7 +146,8 @@ struct CloudNativeLayoutProjectionTests {
         defer { viewer.teardownAllPanels(); manager.tabs = [] }
 
         let machine = SurfaceMachineID.device(.init(deviceID: "split-owner", tag: "test"))
-        let remoteWorkspace = SurfaceRemoteWorkspace(id: "remote-split", name: "Remote", index: 0, focused: true)
+        // The coordinator only accepts snapshots for UUID workspace identities.
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: UUID().uuidString, name: "Remote", index: 0, focused: true)
         let remoteA = "remote-a"
         let remoteB = "remote-b"
         let live = LiveWorkspaceFixture(); live.register(viewer)
@@ -165,6 +166,7 @@ struct CloudNativeLayoutProjectionTests {
         catalog.record(.init(resource: resourceA.id, workspaceID: viewer.id,
             panelID: sourcePanel, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteA))
 
+        let requestID = UUID()
         let reservation = try #require(viewer.reserveCloudTerminalPane(
             machine: machine,
             at: .split(workspaceID: viewer.id, paneID: sourcePane.id.uuidString, direction: .right),
@@ -172,7 +174,8 @@ struct CloudNativeLayoutProjectionTests {
             sourcePlacement: CloudTerminalSourcePlacement(
                 machine: machine, resource: resourceA,
                 remoteWorkspaceID: remoteWorkspace.id, remoteTabID: remoteA
-            )
+            ),
+            requestID: requestID
         ))
         let reservedPane = try #require(viewer.paneId(forPanelId: reservation.panelID))
         var requestedDestination: SurfaceDestination?
@@ -200,12 +203,14 @@ struct CloudNativeLayoutProjectionTests {
             )) },
             refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
         defer { coordinator.stop() }
+        // The create receipt binds the reservation before its snapshot is accepted.
+        catalog.upsert(resourceB)
+        #expect(coordinator.bindCreatedTerminal(requestID: requestID, remoteWorkspaceID: remoteWorkspace.id, resource: resourceB))
         coordinator.accept(DeviceWorkspaceLayoutSnapshot(workspaceID: remoteWorkspace.id,
             layout: .split(direction: .horizontal, ratio: 0.5,
                 first: .pane(id: "source", surfaceIDs: [remoteA], selectedSurfaceID: remoteA),
                 second: .pane(id: "new", surfaceIDs: [remoteB], selectedSurfaceID: remoteB)),
             revision: "after", sequence: 2))
-        catalog.upsert(resourceB)
         await coordinator.waitForIdle()
 
         guard case .tab(let workspaceID, let paneID, let index) = requestedDestination else {
@@ -216,6 +221,165 @@ struct CloudNativeLayoutProjectionTests {
         #expect(paneID == reservedPane.id.uuidString,
             "A remote split must adopt the empty pane created by Cmd-D/Cmd-Shift-D")
         #expect(index == 0)
+        #expect(provider.adoptions.map(\.resource) == [resourceB.id])
+        #expect(provider.adoptions.first?.reservation === reservation)
+    }
+
+    @Test("Two outstanding device splits each adopt the pane reserved for their own terminal")
+    func concurrentDeviceSplitsAdoptTheirOwnPanes() async throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (right, rightRequest) = try fixture.reserve(.right)
+        let (down, downRequest) = try fixture.reserve(.down)
+        let rightPane = try #require(fixture.viewer.paneId(forPanelId: right.panelID))
+        let downPane = try #require(fixture.viewer.paneId(forPanelId: down.panelID))
+        #expect(rightPane != downPane)
+
+        let coordinator = fixture.makeCoordinator()
+        defer { coordinator.stop() }
+        let terminalB = fixture.addTerminal("remote-b")
+        let terminalC = fixture.addTerminal("remote-c")
+        #expect(coordinator.bindCreatedTerminal(requestID: rightRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalB))
+        #expect(coordinator.bindCreatedTerminal(requestID: downRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalC))
+        coordinator.accept(fixture.snapshot(.split(direction: .horizontal, ratio: 0.5,
+            first: .split(direction: .vertical, ratio: 0.5,
+                first: fixture.sourceLayout,
+                second: .pane(id: "down", surfaceIDs: ["remote-c"], selectedSurfaceID: "remote-c")),
+            second: .pane(id: "right", surfaceIDs: ["remote-b"], selectedSurfaceID: "remote-b"))))
+        await coordinator.waitForIdle()
+
+        // Each terminal lands in the pane its own request reserved, whichever
+        // reservation the workspace happens to enumerate first.
+        #expect(fixture.destinationPanes[terminalB.id] == rightPane.id)
+        #expect(fixture.destinationPanes[terminalC.id] == downPane.id)
+        #expect(fixture.adoption(of: terminalB.id) === right)
+        #expect(fixture.adoption(of: terminalC.id) === down)
+    }
+
+    @Test("A terminal that no request created never takes an unbound reservation's pane or input")
+    func unboundDeviceReservationKeepsItsPaneAndInput() async throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (right, rightRequest) = try fixture.reserve(.right)
+        let (down, _) = try fixture.reserve(.down)
+        let downPane = try #require(fixture.viewer.paneId(forPanelId: down.panelID))
+        down.inputRelay.send(.bytes(Data("x".utf8)))
+
+        let coordinator = fixture.makeCoordinator()
+        defer { coordinator.stop() }
+        let terminalB = fixture.addTerminal("remote-b")
+        let foreign = fixture.addTerminal("remote-foreign")
+        #expect(coordinator.bindCreatedTerminal(requestID: rightRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalB))
+        coordinator.accept(fixture.snapshot(.split(direction: .horizontal, ratio: 0.5,
+            first: .split(direction: .vertical, ratio: 0.5,
+                first: fixture.sourceLayout,
+                second: .pane(id: "foreign", surfaceIDs: ["remote-foreign"], selectedSurfaceID: "remote-foreign")),
+            second: .pane(id: "right", surfaceIDs: ["remote-b"], selectedSurfaceID: "remote-b"))))
+        await coordinator.waitForIdle()
+
+        #expect(fixture.adoption(of: terminalB.id) === right)
+        #expect(fixture.provider.adoptions.contains { $0.resource == foreign.id })
+        #expect(fixture.adoption(of: foreign.id) == nil)
+        #expect(fixture.destinationPanes[foreign.id] != downPane.id)
+        #expect(fixture.viewer.cloudPendingCreations[down.panelID] === down)
+        #expect(down.inputRelay.pendingCount == 1)
+    }
+
+    /// One device-mirrored workspace whose only projected terminal is the split source.
+    @MainActor
+    private final class DeviceSplitFixture {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer: Workspace
+        let sourcePane: PaneID
+        let machine = SurfaceMachineID.device(.init(deviceID: "split-owner", tag: "test"))
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: UUID().uuidString, name: "Remote", index: 0, focused: true)
+        let live = LiveWorkspaceFixture()
+        let catalog: SurfaceCatalog
+        let provider: CloudPlacementTestProvider
+        let source: SurfaceResource
+        let sourceLayout: DeviceWorkspaceLayoutNode = .pane(id: "source", surfaceIDs: ["remote-a"], selectedSurfaceID: "remote-a")
+        private(set) var destinationPanes: [SurfaceResourceID: UUID] = [:]
+        private var sequence: UInt64 = 1
+
+        init() throws {
+            viewer = try #require(manager.selectedWorkspace)
+            sourcePane = try #require(viewer.bonsplitController.allPaneIds.first)
+            let sourcePanel = try #require(viewer.focusedPanelId)
+            live.register(viewer)
+            catalog = SurfaceCatalog(live: live)
+            provider = CloudPlacementTestProvider(machine: machine)
+            catalog.register(provider)
+            source = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: "remote-a"),
+                title: "remote-a", detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: "remote-a", workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(source)
+            catalog.record(.init(resource: source.id, workspaceID: viewer.id,
+                panelID: sourcePanel, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "remote-a"))
+            provider.materializeProjection = { [unowned self] resource, view, destination in
+                var pane = self.sourcePane
+                if case .tab(_, let rawPane, _) = destination,
+                   let id = UUID(uuidString: rawPane),
+                   let target = self.viewer.bonsplitController.allPaneIds.first(where: { $0.id == id }) {
+                    pane = target
+                }
+                self.destinationPanes[resource.id] = pane.id
+                let panel = try #require(self.viewer.newTerminalSurface(inPane: pane, focus: false))
+                return SurfaceProjection(resource: resource.id, workspaceID: self.viewer.id, panelID: panel.id,
+                    remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+            }
+        }
+
+        func tearDown() {
+            viewer.teardownAllPanels()
+            manager.tabs = []
+        }
+
+        /// Reserves a split of the source pane the way Cmd-D/Cmd-Shift-D does.
+        func reserve(_ direction: SurfaceSplitDirection) throws -> (CloudTerminalPaneReservation, UUID) {
+            let requestID = UUID()
+            let reservation = try #require(viewer.reserveCloudTerminalPane(
+                machine: machine,
+                at: .split(workspaceID: viewer.id, paneID: sourcePane.id.uuidString, direction: direction),
+                focus: false,
+                sourcePlacement: CloudTerminalSourcePlacement(
+                    machine: machine, resource: source,
+                    remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "remote-a"
+                ),
+                requestID: requestID
+            ))
+            return (reservation, requestID)
+        }
+
+        func addTerminal(_ key: String) -> SurfaceResource {
+            let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: key),
+                title: key, detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: key, workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(resource)
+            return resource
+        }
+
+        func makeCoordinator() -> DeviceWorkspaceLayoutCoordinator {
+            let remoteID = remoteWorkspace.id
+            let sourceLayout = sourceLayout
+            return DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+                workspace: { [viewer] in $0 == viewer.id ? viewer : nil },
+                request: { _, _ in try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(
+                    workspaceID: remoteID, layout: sourceLayout, revision: "before", sequence: 1
+                )) },
+                refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        }
+
+        func snapshot(_ layout: DeviceWorkspaceLayoutNode) -> DeviceWorkspaceLayoutSnapshot {
+            sequence += 1
+            return DeviceWorkspaceLayoutSnapshot(workspaceID: remoteWorkspace.id, layout: layout,
+                revision: "after-\(sequence)", sequence: sequence)
+        }
+
+        func adoption(of resource: SurfaceResourceID) -> CloudTerminalPaneReservation? {
+            provider.adoptions.first { $0.resource == resource }?.reservation
+        }
     }
 
     private func makeDeviceTestAuth(defaults: UserDefaults) -> AuthCoordinator {
