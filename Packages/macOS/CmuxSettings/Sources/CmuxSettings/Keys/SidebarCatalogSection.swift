@@ -164,6 +164,17 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarNotificationBadgePosition"
     )
 
+    /// Whether coding-agent status entries reported by agent hooks (for
+    /// example Claude Code's "Running") render as a tinted glyph on the
+    /// workspace title line instead of their own metadata row
+    /// (`sidebar.compactAgentStatus`). Defaults to off; other status entries
+    /// keep their rows either way.
+    public let compactAgentStatus = DefaultsKey<Bool>(
+        id: "sidebar.compactAgentStatus",
+        defaultValue: false,
+        userDefaultsKey: "sidebarCompactAgentStatus"
+    )
+
     public let showCustomMetadata = DefaultsKey<Bool>(
         id: "sidebar.showCustomMetadata",
         defaultValue: true,

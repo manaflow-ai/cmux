@@ -157,6 +157,23 @@ Shows a loading spinner on sidebar workspace rows that currently have running co
 
 The spinner is compositor-driven (a Core Animation transform run by the render server), so it costs no per-frame CPU and pauses automatically while the window is occluded or Reduce Motion is on. Toggle it manually per workspace with `cmux workspace loading <on|off> [--id <name>]`; each `--id` is a separate loader and the command prints the workspace state as `before=ON;after=OFF`.
 
+## `sidebar.compactAgentStatus`
+
+Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those agent entries draw as their colored icon on the title line instead, and hovering the icon shows the agent and status text.
+
+```json
+{
+  "sidebar": {
+    "compactAgentStatus": true
+  }
+}
+```
+
+- Default: `false`.
+- Only agent-owned status keys move (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
+- At most three agent icons show per workspace, ordered by priority and then by the most recent update.
+- The icons follow `sidebar.showCustomMetadata` and `sidebar.hideAllDetails` like the rows they replace. Toggle it from **Settings > Sidebar > Compact Agent Status**.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.

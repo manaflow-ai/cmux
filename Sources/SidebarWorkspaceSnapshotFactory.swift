@@ -72,6 +72,10 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
+        let statusEntries = SidebarAgentStatusTitleGlyph.partition(
+            detailVisibility.showsMetadata ? workspace.sidebarStatusEntriesInDisplayOrder() : [],
+            compacts: settings.compactsAgentStatus
+        )
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
@@ -88,9 +92,7 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
-                : [],
+            metadataEntries: statusEntries.rows,
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
@@ -118,7 +120,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
             taskStatusInput: taskStatusInput,
-            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
+            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace),
+            titleAgentStatuses: statusEntries.glyphs
         )
     }
 
@@ -136,6 +139,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            compactsAgentStatus: settings.compactsAgentStatus,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }

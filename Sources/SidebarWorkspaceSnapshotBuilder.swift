@@ -10,6 +10,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsGitBranch: Bool
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
+        var compactsAgentStatus = false
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
@@ -74,6 +75,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
         var deviceWorkspaceLabel: String? = nil
+        /// Agent status entries moved out of `metadataEntries` onto the title
+        /// line when `sidebar.compactAgentStatus` is on; empty otherwise.
+        var titleAgentStatuses: [SidebarAgentStatusTitleGlyph] = []
 
         var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
         var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }

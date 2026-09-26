@@ -90,7 +90,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: snapshot.checklistTotalCount,
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
             taskStatusInput: snapshot.taskStatusInput,
-            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
+            // Agent status glyphs are telemetry like the metadata rows they
+            // replace, so they stay frozen with them while the menu is open.
+            titleAgentStatuses: titleAgentStatuses
         )
     }
 }

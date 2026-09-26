@@ -3390,5 +3390,14 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
   }
 }

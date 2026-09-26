@@ -15,7 +15,8 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
-        metadataBlocks: [SidebarMetadataBlock] = []
+        metadataBlocks: [SidebarMetadataBlock] = [],
+        titleAgentStatuses: [SidebarAgentStatusTitleGlyph] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -53,7 +54,8 @@ struct SidebarAppKitRowCellTests {
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistFirstUncheckedText: nil,
+            titleAgentStatuses: titleAgentStatuses
         )
     }
 
@@ -66,6 +68,7 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
+        titleAgentStatuses: [SidebarAgentStatusTitleGlyph] = [],
         shortcutHintText: String? = nil,
         isMarkdownExpanded: Bool = false,
         colorSchemeIsDark: Bool = true
@@ -79,7 +82,8 @@ struct SidebarAppKitRowCellTests {
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
-                metadataBlocks: metadataBlocks
+                metadataBlocks: metadataBlocks,
+                titleAgentStatuses: titleAgentStatuses
             ),
             settings: resolvedSettings,
             isActive: isActive,

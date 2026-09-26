@@ -16128,6 +16128,8 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
+                SidebarAgentStatusTitleGlyphs(glyphs: workspaceSnapshot.titleAgentStatuses, pointSize: scaledFontSize(9), isActive: usesInvertedActiveForeground, activeColor: activeSecondaryColor(0.95), fallbackColor: activeSecondaryColor(0.8))
+
                 SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
 
                 if isEditing {
