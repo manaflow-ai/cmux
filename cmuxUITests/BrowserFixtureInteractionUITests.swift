@@ -514,8 +514,8 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         )
         XCTAssertTrue(
             try evalBool(
-                "window.__cmuxLog.filter(e => e.target === '#s-input' && e.type === 'input').length === 1 && " +
-                    "window.__cmuxLog.filter(e => e.isTrusted !== true).length === 0",
+                "window.__cmuxLog.filter(e => e.target === '#s-input' && e.type === 'input').map(e => e.value).join(',') === 's,sh,sha,shad,shado,shadow,shadow-,shadow-o,shadow-ok' && " +
+                    "window.__cmuxLog.filter(e => e.target === '#s-input').every(e => e.isTrusted === true)",
                 surfaceID: sid
             ),
             "selector-free shadow type should deliver trusted input events"

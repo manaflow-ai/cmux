@@ -6639,7 +6639,7 @@ class TerminalController {
         return trimmed
     }
 
-    private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
+    nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
         v2MainSync { v2BrowserFrameSelectorBySurface[surfaceId] }
     }
 

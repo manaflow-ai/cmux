@@ -435,8 +435,12 @@ extension TerminalController {
         }
 
         let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
-        if let error = resolved.error {
-            return Self.v2Encoder.response(id: request.id, error)
+        if let error = resolved.error,
+           case let .err(code, message, data) = error {
+            return Self.v2Encoder.response(
+                id: request.id,
+                .err(code: code, message: message, data: data.flatMap(JSONValue.init(foundationObject:)))
+            )
         }
         guard let context = resolved.context else {
             return Self.v2Encoder.response(
@@ -698,7 +702,7 @@ extension TerminalController {
         }
 
         let surfaceID = context.surfaceId
-        var payload: [String: Any] = [
+        let payload: [String: Any] = [
             "workspace_id": context.workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
             "surface_id": surfaceID.uuidString,
