@@ -23,8 +23,16 @@ let package = Package(
     targets: [
         // The same libghostty the Mac links; iOS feeds raw PTY bytes straight
         // into ghostty_surface_* so the phone runs the identical terminal core.
+        //
+        // Named distinctly from CmuxTerminalCore's binary target for the same
+        // xcframework: SwiftPM requires target names to be unique across the whole
+        // package graph, and any workspace that resolves the iOS and macOS packages
+        // together sees both. CmuxTerminalCore cannot be reused here - it is a macOS
+        // package - so the one xcframework is referenced twice under distinct target
+        // names. The module imported in source is still GhosttyKit; that name comes
+        // from the xcframework, not from this target.
         .binaryTarget(
-            name: "GhosttyKit",
+            name: "GhosttyKitMobile",
             path: "../../../GhosttyKit.xcframework"
         ),
         .target(
@@ -35,7 +43,7 @@ let package = Package(
                 "CmuxMobileDiagnostics",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminalKit",
-                "GhosttyKit",
+                "GhosttyKitMobile",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
