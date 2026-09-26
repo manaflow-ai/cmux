@@ -564,6 +564,10 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Update Pill") {
+                Button("Update State Debug…") {
+                    UpdateStateDebugWindowController.shared.show()
+                }
+                Divider()
                 Button("Show Update Pill") {
                     appDelegate.showUpdatePill(nil)
                 }
@@ -666,6 +670,9 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
+                    Button("Update State Debug…") {
+                        UpdateStateDebugWindowController.shared.show()
+                    }
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
@@ -1716,6 +1723,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.cloudTreeStyleGallery",
     "cmux.cloudSidebarDebugLab",
     "cmux.backgroundDebug",
+    "cmux.updateStateDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
@@ -1872,6 +1880,9 @@ private struct DebugWindowControlsView: View {
 
                 GroupBox("Open") {
                     VStack(alignment: .leading, spacing: 8) {
+                        Button("Update State Debug…") {
+                            UpdateStateDebugWindowController.shared.show()
+                        }
                         Button("Browser Import Hint Debug…") {
                             BrowserImportHintDebugWindowController.shared.show()
                         }
@@ -1961,6 +1972,7 @@ private struct DebugWindowControlsView: View {
                         }
                         Button("Open All Debug Windows") {
                             DebugWindowControlsWindowController.shared.show()
+                            UpdateStateDebugWindowController.shared.show()
                             BrowserImportHintDebugWindowController.shared.show()
                             BrowserProfilePopoverDebugWindowController.shared.show()
                             AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()

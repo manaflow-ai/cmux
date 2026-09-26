@@ -1793,7 +1793,11 @@ struct ContentView: View {
     ) -> CGFloat {
         guard isMinimalMode else { return WindowChromeMetrics.appTitlebarHeight }
         guard !isFullScreen else { return 0 }
-        return -max(0, min(titlebarPadding, hostingSafeAreaTop))
+        // The native titlebar/glass layer remains above the content view even
+        // when cmux hides its custom titlebar. Keep Bonsplit's pane tab strip
+        // below that layer so minimal mode does not render the tabs underneath
+        // the window chrome.
+        return max(WindowChromeMetrics.appTitlebarHeight, titlebarPadding, hostingSafeAreaTop)
     }
 
     nonisolated static func customTitlebarLeadingPadding(
@@ -15326,24 +15330,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarFooter: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
-    let onSendFeedback: () -> Void
-
-    var body: some View {
-#if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
-#else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
-#endif
-    }
-}
-
 struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -15361,13 +15347,24 @@ struct SidebarFooterButtons: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
+    /// Minimal mode keeps the footer quiet until the pointer enters its row.
+    @State private var isFooterHovered = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
     }
 
+    private var isUpdateActive: Bool {
+        !updateViewModel.effectiveState.isIdle
+    }
+
     private func shows(_ control: SidebarFooterControl) -> Bool {
-        SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
+        SidebarFooterPresentationPolicy.isVisible(
+            control,
+            presentationMode: presentationMode,
+            isHovered: isFooterHovered,
+            isUpdateActive: isUpdateActive
+        )
     }
 
     var body: some View {
@@ -15417,7 +15414,10 @@ struct SidebarFooterButtons: View {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: SidebarFooterButtonMetrics.buttonSize, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { isFooterHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isFooterHovered)
     }
 }
 
