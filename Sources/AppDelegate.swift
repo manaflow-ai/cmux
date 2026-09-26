@@ -3649,7 +3649,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard sessionSnapshotOverwriteGuard == nil,
               !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
               !isRunningUnderXCTestCached else { return }
-        archiveSessionSnapshotAndInstallOverwriteGuard(primaryOutcome: primaryOutcome)
+        archiveSessionSnapshotAndInstallOverwriteGuard(
+            primaryOutcome: primaryOutcome,
+            recoversMissingPrimary: Self.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: previousSessionLaunchWasUnclean,
+                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker()
+            )
+        )
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
