@@ -205,16 +205,21 @@ jobs:
           submodules: false
           lfs: false
 
-      # The newest ledger any run on main left. A missing or unreadable one
-      # starts empty: every head then gets its attempts again, nothing worse.
+      # The newest ledger any run on main of this repository left. A fork's
+      # pull request run can upload an artifact of this name from its own
+      # `main`, so the head repository must be this one. A missing or
+      # unreadable ledger starts empty: every head then gets its attempts
+      # again, nothing worse.
       - name: Read the previous attempt ledger
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ledger"
-          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$LEDGER_ARTIFACT&per_page=20" \
-            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")] | max_by(.created_at) | .id // empty' || true)"
+          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$LEDGER_ARTIFACT&per_page=100" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")
+                   | select(.workflow_run.head_repository_id == .workflow_run.repository_id)]
+                  | max_by(.created_at) | .id // empty' || true)"
           if [[ "$id" =~ ^[0-9]+$ ]] &&
              gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/ledger/previous.zip" &&
              unzip -p "$RUNNER_TEMP/ledger/previous.zip" ledger.json > "$RUNNER_TEMP/ledger/previous.json"; then
@@ -254,6 +259,8 @@ jobs:
           path: ${{ runner.temp }}/ledger/ledger.json
           retention-days: 7
           if-no-files-found: ignore
+          # A re-run attempt replaces the first attempt's ledger.
+          overwrite: true
 
   merge:
     name: PR catch-up merge
