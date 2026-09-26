@@ -4,22 +4,40 @@ name: PR catch-up
 # merges the base into the head (never a rebase), resolves the generated-file
 # conflicts with their generators, pushes, and comments.
 #
-# Ask for it with the `catch-up` label or a `/catch-up` comment, optionally
-# `/catch-up <full 40-hex sha>` to pin the head you looked at. Only people with
-# write, maintain or admin permission on this repository can start it. The
-# permission API decides; author_association is not used, because private org
-# members show up as CONTRIBUTOR or NONE there.
+# It runs on its own when a push to main passes CI fast guards (main just went
+# green at a new commit): scripts/ci/auto_catch_up_select.py picks the open
+# pull requests against main whose head is a branch here, not a draft, not
+# labeled `no-auto-catch-up`, quiet for 30 minutes, and either conflicting
+# with main or red only because of main (the CI fast guards comment from
+# guard_attribution.py marks a step "red on main too"). At most
+# CMUX_AUTO_CATCH_UP_MAX (default 15) per run, most recently pushed first, one
+# automatic attempt per head. It comments only when it pushed or when a person
+# must act; a head that moved, an up-to-date branch or a refused push stay
+# silent. The trigger is main's own push run, so there is no requester to
+# check. It needs the route App: without its token it does not push, since a
+# push with the Actions token would leave the pull request with no checks.
+#
+# Ask for it by hand with the `catch-up` label or a `/catch-up` comment,
+# optionally `/catch-up <full 40-hex sha>` to pin the head you looked at. Only
+# people with write, maintain or admin permission on this repository can start
+# it. The permission API decides; author_association is not used, because
+# private org members show up as CONTRIBUTOR or NONE there.
 #
 # Version 1 supports head branches in this repository only. Anyone who can
 # push there already has write access, so the head at request time is the
 # head a writer vouches for. Fork heads are refused with a comment; fork
 # support needs positive evidence that a maintainer approved the head.
 #
-# Three jobs, so the untrusted bytes never share a job with a write token:
+# Four jobs, so the untrusted bytes never share a job with a write token. merge
+# and finish run once per pull request, as a matrix of the selected ones (one
+# entry for a request by hand), and hand over through a per-PR artifact
+# because a matrix job has one set of outputs:
 #
 # - gate: who asked, and whether the head is a branch of this repository,
 #   with a read-only token. No concurrency group, so comments from anyone
 #   cannot cancel a writer's pending run.
+# - select (automatic path): the selection above, read-only, from trusted/.
+#   Each entry pins the head it judged; merge refuses a head that moved since.
 # - merge: read-only token. Checks the head out as data (no credentials, no
 #   submodules, no LFS) into `candidate/` and runs catch_up_pr.py and the
 #   generators it calls (normalize-pbxproj.py, generate-cmux-config-schema.py,
@@ -35,21 +53,32 @@ name: PR catch-up
 #
 # Pushes use the GLAEDA route App token (contents and workflows write), so the
 # new head starts CI like any push and a merge that brings in workflow changes
-# is accepted. Without the App they fall back to the Actions token, whose
-# pushes do not start workflows; the comment says so. The push is a
+# is accepted. Without the App a request by hand falls back to the Actions
+# token, whose pushes do not start workflows, and the comment says so; the
+# automatic path does not push at all. The push is a
 # compare-and-swap (--force-with-lease on the exact head that was merged, of a
 # commit that descends from it): it cannot drop commits, and it is refused if
 # the branch moved meanwhile.
+#
+# Concurrency: one merge and one push per pull request at a time, never
+# cancelled in progress, so a newer main run cannot stop a push; GitHub keeps
+# one pending job per group, so a newer request replaces a pending older one.
 on:
   pull_request_target:
     types: [labeled]
   issue_comment:
     types: [created]
+  workflow_run:
+    workflows: ["CI fast guards"]
+    types: [completed]
 
 permissions: {}
 
 env:
   PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+  # The file behind the workflow_run trigger's display name
+  # (tests/test_ci_workflow_run_sources.py).
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml
 
 jobs:
   gate:
@@ -71,8 +100,10 @@ jobs:
       pull-requests: read
     outputs:
       allowed: ${{ steps.gate.outputs.allowed }}
-      pin: ${{ steps.gate.outputs.pin }}
       refusal: ${{ steps.gate.outputs.refusal }}
+      # The one pull request this request is about, in the select job's shape.
+      # The pin is empty or 40 hex characters (checked below).
+      matrix: ${{ format('{{"include":[{{"pr":{0},"pin":"{1}","why":"request"}}]}}', github.event.pull_request.number || github.event.issue.number, steps.gate.outputs.pin) }}
     steps:
       - name: Check who asked, and for which branch
         id: gate
@@ -120,17 +151,76 @@ jobs:
           echo "pin=$pin" >> "$GITHUB_OUTPUT"
           echo "allowed=true" >> "$GITHUB_OUTPUT"
 
+  select:
+    name: PR catch-up selection
+    # Main's own push run went green: the trigger is trusted, so no requester
+    # is checked. Without the route App nothing could be pushed with checks,
+    # so nothing is selected.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.GLAEDA_ROUTE_APP_ID != ''
+    runs-on: ubuntu-24.04 # github-hosted-required: control plane for a write-token workflow
+    timeout-minutes: 10
+    # One selection at a time; a burst of main runs keeps the newest pending.
+    concurrency:
+      group: pr-catch-up-select
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - name: Check out the trusted tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: trusted
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Pick the pull requests to catch up
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED: ${{ github.workspace }}/trusted
+          MAX: ${{ vars.CMUX_AUTO_CATCH_UP_MAX }}
+        run: |
+          set -euo pipefail
+          python3 -I "$TRUSTED/scripts/ci/auto_catch_up_select.py" --repo "$GITHUB_REPOSITORY" \
+            --max "$MAX" --github-output "$GITHUB_OUTPUT"
+
   merge:
     name: PR catch-up merge
-    needs: gate
-    if: needs.gate.outputs.allowed == 'true' && needs.gate.outputs.refusal == ''
+    needs: [gate, select]
+    # A writer's request, or the automatic selection when it picked any.
+    if: >-
+      !cancelled() && (
+        (needs.gate.outputs.allowed == 'true' && needs.gate.outputs.refusal == '') ||
+        (needs.select.result == 'success' && needs.select.outputs.count != '0')
+      )
     # Untrusted pull request bytes: an ephemeral GitHub-hosted runner, never a
     # variable-selected host.
     runs-on: ubuntu-24.04 # github-hosted-required: checks out untrusted pull request bytes
     timeout-minutes: 20
-    # One catch-up per pull request at a time. Only writers reach this job.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}
+    # One catch-up per pull request at a time. Only writers and main's own
+    # green run reach this job.
     concurrency:
-      group: pr-catch-up-merge-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: pr-catch-up-merge-${{ matrix.pr }}
       cancel-in-progress: false
     permissions:
       # actions: read lists the base branch's CI fast guards runs, to merge
@@ -138,15 +228,9 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-    outputs:
-      refusal: ${{ steps.pr.outputs.refusal }}
-      head_ref: ${{ steps.pr.outputs.head_ref }}
-      head_sha: ${{ steps.pr.outputs.head_sha }}
-      base_ref: ${{ steps.pr.outputs.base_ref }}
-      status: ${{ steps.merge.outputs.status }}
-      base_sha: ${{ steps.merge.outputs.base_sha }}
-      merged_sha: ${{ steps.merge.outputs.merged_sha }}
     env:
+      PR_NUMBER: ${{ matrix.pr }}
+      AUTO: ${{ github.event_name == 'workflow_run' }}
       TRUSTED_SHA: ${{ github.sha }}
       TRUSTED: ${{ github.workspace }}/trusted
       CANDIDATE: ${{ github.workspace }}/candidate
@@ -159,7 +243,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PIN: ${{ needs.gate.outputs.pin }}
+          PIN: ${{ matrix.pin }}
         run: |
           set -euo pipefail
           refuse() {
@@ -285,6 +369,7 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           ACTOR: ${{ github.event.sender.login }}
+          GREEN_SHA: ${{ github.event.workflow_run.head_sha }}
           CHOSEN: ${{ steps.base.outputs.chosen }}
           TIP: ${{ steps.base.outputs.tip }}
           GIT_AUTHOR_NAME: github-actions[bot]
@@ -302,6 +387,9 @@ jobs:
           # among the newest 40, falls back to the tip as before.
           base="origin/$BASE_REF"
           note="Requested by $ACTOR on pull request #$PR_NUMBER."
+          if [[ "$AUTO" == true ]]; then
+            note="Automatic catch-up of pull request #$PR_NUMBER after CI fast guards passed on $BASE_REF at ${GREEN_SHA:0:12}."
+          fi
           if [[ "$CHOSEN" =~ ^[0-9a-f]{40}$ && "$TIP" =~ ^[0-9a-f]{40}$ ]] &&
              git -C "$CANDIDATE" merge-base --is-ancestor "$CHOSEN" "origin/$BASE_REF"; then
             base="$CHOSEN"
@@ -335,26 +423,57 @@ jobs:
             exit "$code"
           fi
 
+      # A matrix job has one set of outputs for all its entries, so each
+      # entry's answer travels in its own artifact. The push job trusts it no
+      # more than it trusted these outputs before: it validates every value
+      # and checks the merge against the pull request itself.
+      - name: Record the result for the push job
+        if: always()
+        env:
+          REFUSAL: ${{ steps.pr.outputs.refusal }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          STATUS: ${{ steps.merge.outputs.status }}
+          BASE_SHA: ${{ steps.merge.outputs.base_sha }}
+          MERGED_SHA: ${{ steps.merge.outputs.merged_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/catch-up"
+          jq -n --arg refusal "$REFUSAL" --arg head_ref "$HEAD_REF" --arg head_sha "$HEAD_SHA" \
+            --arg base_ref "$BASE_REF" --arg status "$STATUS" --arg base_sha "$BASE_SHA" --arg merged_sha "$MERGED_SHA" \
+            '{refusal: $refusal, head_ref: $head_ref, head_sha: $head_sha, base_ref: $base_ref,
+              status: $status, base_sha: $base_sha, merged_sha: $merged_sha}' > "$RUNNER_TEMP/catch-up/outputs.json"
+
       - name: Hand the result to the push job
-        if: always() && steps.pr.outputs.head_sha != ''
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: catch-up-${{ github.run_id }}
+          name: catch-up-${{ github.run_id }}-${{ matrix.pr }}
           path: ${{ runner.temp }}/catch-up/
           retention-days: 1
           if-no-files-found: ignore
 
   finish:
     name: PR catch-up push and comment
-    needs: [gate, merge]
+    needs: [gate, select, merge]
     # Runs for every gated request so a label from someone without write
-    # access is still removed; only a writer's request joins the concurrency
-    # group, so such a label cannot cancel a writer's pending push.
-    if: always() && needs.gate.result == 'success'
+    # access is still removed, and for each automatically selected pull
+    # request. Only a writer's request or main's own green run joins the
+    # shared concurrency group, so such a label cannot cancel a pending push.
+    if: >-
+      always() && (
+        needs.gate.result == 'success' ||
+        (needs.select.result == 'success' && needs.select.outputs.count != '0')
+      )
     runs-on: ubuntu-24.04 # github-hosted-required: holds the push token
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}
     concurrency:
-      group: ${{ needs.gate.outputs.allowed == 'true' && format('pr-catch-up-push-{0}', github.event.pull_request.number || github.event.issue.number) || format('pr-catch-up-unprivileged-{0}', github.run_id) }}
+      group: ${{ (needs.gate.outputs.allowed == 'true' || needs.select.result == 'success') && format('pr-catch-up-push-{0}', matrix.pr) || format('pr-catch-up-unprivileged-{0}-{1}', github.run_id, matrix.pr) }}
       cancel-in-progress: false
     permissions:
       # The fallback push when the App token is unavailable.
@@ -363,15 +482,13 @@ jobs:
       issues: write
       pull-requests: write
     env:
+      PR_NUMBER: ${{ matrix.pr }}
+      AUTO: ${{ needs.select.result == 'success' }}
+      # A writer asked, or main's own green run selected this pull request.
+      AUTHORIZED: ${{ needs.gate.outputs.allowed == 'true' || needs.select.result == 'success' }}
       TRUSTED: ${{ github.workspace }}/trusted
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      REFUSAL: ${{ needs.gate.outputs.refusal || needs.merge.outputs.refusal }}
-      MERGE_STATUS: ${{ needs.merge.outputs.status }}
-      HEAD_SHA: ${{ needs.merge.outputs.head_sha }}
-      HEAD_REF: ${{ needs.merge.outputs.head_ref }}
-      BASE_REF: ${{ needs.merge.outputs.base_ref }}
-      BASE_SHA: ${{ needs.merge.outputs.base_sha }}
-      MERGED_SHA: ${{ needs.merge.outputs.merged_sha }}
+      GATE_REFUSAL: ${{ needs.gate.outputs.refusal }}
     steps:
       - name: Acknowledge the comment
         if: needs.gate.outputs.allowed == 'true' && github.event_name == 'issue_comment'
@@ -384,7 +501,7 @@ jobs:
             -f content=rocket > /dev/null || true
 
       - name: Check out the trusted tools
-        if: needs.gate.outputs.allowed == 'true'
+        if: env.AUTHORIZED == 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
@@ -396,21 +513,62 @@ jobs:
           lfs: false
 
       - name: Fetch the merge result
-        if: needs.gate.outputs.allowed == 'true' && needs.merge.outputs.head_sha != ''
+        if: env.AUTHORIZED == 'true' && needs.gate.outputs.refusal == ''
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: catch-up-${{ github.run_id }}
+          name: catch-up-${{ github.run_id }}-${{ matrix.pr }}
           path: ${{ runner.temp }}/catch-up
+
+      # The merge job's answer for this pull request, validated before any of
+      # it reaches a step: commit ids are 40 hex, branch names pass
+      # check-ref-format (no spaces, no control characters), the status is one
+      # the merge script prints. Anything else reads as no answer.
+      - name: Read the merge result
+        id: merge
+        if: env.AUTHORIZED == 'true'
+        run: |
+          set -euo pipefail
+          file="$RUNNER_TEMP/catch-up/outputs.json"
+          [[ -f "$file" ]] || { echo "No merge result for #$PR_NUMBER."; exit 0; }
+          # A value with a line break reads as empty.
+          value() { jq -r --arg key "$1" '.[$key] // "" | strings | select(test("[\\r\\n]") | not)' "$file" 2> /dev/null || true; }
+          status="$(value status)"
+          head_sha="$(value head_sha)"
+          base_sha="$(value base_sha)"
+          merged_sha="$(value merged_sha)"
+          head_ref="$(value head_ref)"
+          base_ref="$(value base_ref)"
+          case "$status" in merged|up_to_date|blocked|error|'') ;; *) status=error ;; esac
+          for sha in "$head_sha" "$base_sha" "$merged_sha"; do
+            [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::bad commit id in the merge result"; exit 0; }
+          done
+          for ref in "$head_ref" "$base_ref"; do
+            [[ -z "$ref" ]] || git check-ref-format --branch "$ref" > /dev/null ||
+              { echo "::warning::bad branch name in the merge result"; exit 0; }
+          done
+          {
+            echo "status=$status"
+            echo "head_sha=$head_sha"
+            echo "base_sha=$base_sha"
+            echo "merged_sha=$merged_sha"
+            echo "head_ref=$head_ref"
+            echo "base_ref=$base_ref"
+          } >> "$GITHUB_OUTPUT"
 
       # Nothing the merge job produced is trusted here: the pull request is
       # read again, both parents are fetched from this repository, and the
       # merge commit is checked against git's own merge of them.
       - name: Verify the merge against the pull request
         id: verify
-        if: needs.gate.outputs.allowed == 'true' && needs.merge.outputs.status == 'merged'
+        if: env.AUTHORIZED == 'true' && steps.merge.outputs.status == 'merged'
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.merge.outputs.head_sha }}
+          HEAD_REF: ${{ steps.merge.outputs.head_ref }}
+          BASE_REF: ${{ steps.merge.outputs.base_ref }}
+          BASE_SHA: ${{ steps.merge.outputs.base_sha }}
+          MERGED_SHA: ${{ steps.merge.outputs.merged_sha }}
         run: |
           set -euo pipefail
           echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -477,10 +635,21 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           ACTIONS_TOKEN: ${{ github.token }}
           REPO: ${{ steps.verify.outputs.repo }}
+          HEAD_SHA: ${{ steps.merge.outputs.head_sha }}
+          HEAD_REF: ${{ steps.merge.outputs.head_ref }}
+          MERGED_SHA: ${{ steps.merge.outputs.merged_sha }}
         run: |
           set -euo pipefail
           outcome=pushed
           token="$APP_TOKEN"
+          if [[ -z "$token" && "$AUTO" == true ]]; then
+            # An Actions-token push starts no workflows, which would leave the
+            # pull request without checks on its new head. Nobody asked, so
+            # leave the branch alone.
+            echo "::warning::No route App token; the automatic catch-up of #$PR_NUMBER did not push."
+            echo "outcome=skipped-no-app-token" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ -z "$token" ]]; then
             outcome=pushed-without-ci
             token="$ACTIONS_TOKEN"
@@ -512,32 +681,56 @@ jobs:
           fi
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 
+      # By hand, every request gets an answer. The automatic path answers
+      # only a push or something a person must fix, marked with the head it
+      # tried so auto_catch_up_select.py does not try that head again; a
+      # refusal there is a head that moved or closed, and stays silent.
       - name: Comment the result
-        if: always() && needs.gate.outputs.allowed == 'true'
+        if: always() && env.AUTHORIZED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERIFIED: ${{ steps.verify.outputs.ok }}
           PUSH_OUTCOME: ${{ steps.push.outputs.outcome }}
+          MERGE_STATUS: ${{ steps.merge.outputs.status }}
+          HEAD_SHA: ${{ steps.merge.outputs.head_sha }}
+          HEAD_REF: ${{ steps.merge.outputs.head_ref }}
+          BASE_REF: ${{ steps.merge.outputs.base_ref }}
         run: |
           set -euo pipefail
           comment="$RUNNER_TEMP/comment.md"
-          if [[ -n "$REFUSAL" ]]; then
-            printf '%s\n' "$REFUSAL" > "$comment"
+          refusal="$GATE_REFUSAL"
+          if [[ -z "$refusal" && -f "$RUNNER_TEMP/catch-up/outputs.json" ]]; then
+            refusal="$(jq -r '.refusal // "" | strings' "$RUNNER_TEMP/catch-up/outputs.json" 2> /dev/null || true)"
+          fi
+          if [[ -n "$refusal" ]]; then
+            if [[ "$AUTO" == true ]]; then
+              echo "Automatic catch-up of #$PR_NUMBER refused: $refusal"
+              exit 0
+            fi
+            printf '%s\n' "$refusal" > "$comment"
           else
             push="${PUSH_OUTCOME:-not-attempted}"
             if [[ "$MERGE_STATUS" == merged && "$VERIFIED" != true ]]; then
               push=unverified
             fi
+            auto=()
+            if [[ "$AUTO" == true ]]; then
+              auto=(--auto --head-sha "$HEAD_SHA")
+            fi
             python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" comment --result "$RUNNER_TEMP/catch-up/result.json" \
               --push "$push" --base-name "${BASE_REF:-main}" --head-name "${HEAD_REF:-this branch}" \
-              --run-url "$RUN_URL" > "$comment"
+              --run-url "$RUN_URL" "${auto[@]}" > "$comment"
+          fi
+          if [[ ! -s "$comment" ]]; then
+            echo "Nothing to say on #$PR_NUMBER (${MERGE_STATUS:-no result}, ${PUSH_OUTCOME:-no push})."
+            exit 0
           fi
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$comment"
 
       # The label is a one-shot request: drop it whatever happened, so adding
       # it again asks again. A 404 means it was not there.
       - name: Remove the catch-up label
-        if: always()
+        if: always() && github.event_name != 'workflow_run'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

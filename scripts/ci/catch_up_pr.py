@@ -43,7 +43,7 @@ Exit codes: 0 merged or already up to date, 1 blocked (needs a person),
 Usage:
   catch_up_pr.py merge --base origin/main|SHA [--repo DIR] [--tools-root DIR] [--title T] [--json]
   catch_up_pr.py verify --repo DIR --head SHA --base SHA --merged SHA --base-tip REF
-  catch_up_pr.py comment --result result.json --push pushed|...
+  catch_up_pr.py comment --result result.json --push pushed|... [--auto --head-sha SHA]
 """
 
 from __future__ import annotations
@@ -690,11 +690,48 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
             f" did not push. Nothing changed on the branch; comment `/catch-up` to try again.{footer}")
 
 
+AUTO_MARKER = "<!-- cmux-auto-catch-up head={head} -->"
+# Outcomes the automatic path says nothing about: nothing changed and nobody
+# needs to act (up to date, the branch moved, the push job refused the merge,
+# no push token). The next green main run looks at the pull request again.
+AUTO_SILENT_PUSHES = frozenset({"rejected", "unverified", "skipped-no-app-token"})
+
+
+def render_auto_comment(result: dict, push: str, base_name: str, head_name: str, run_url: str,
+                        head_sha: str) -> str:
+    """The comment for a catch-up nobody asked for, or "" when it should stay silent.
+
+    It carries AUTO_MARKER for the head it tried, which auto_catch_up_select.py
+    reads so that head is not tried again.
+    """
+    status = result.get("status")
+    if not re.fullmatch(r"[0-9a-f]{40}", head_sha or "") or status == "up_to_date":
+        return ""
+    if status == "merged" and push in AUTO_SILENT_PUSHES:
+        return ""
+    body = render_comment(result, push, base_name, head_name, "")
+    lines = [AUTO_MARKER.format(head=head_sha),
+             f"Automatic catch-up: {code(base_name)} is green again and this branch needed it.", "", body]
+    if status == "merged" and push == "pushed":
+        lines += ["", "If your next push is rejected because the branch moved, run `git pull --no-rebase` and push"
+                  " again; do not force-push over this merge."]
+    else:
+        lines += ["", "Automatic catch-up will not try this head again; a new push or `/catch-up` does."]
+    lines.append("Label the pull request `no-auto-catch-up` to opt out.")
+    footer = f"\n\n<sub>[Catch-up run]({run_url}) · RFC #14631</sub>" if run_url else ""
+    return "\n".join(lines) + footer
+
+
 def command_comment(args: argparse.Namespace) -> int:
     try:
         result = json.loads(Path(args.result).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         result = {"status": "error", "message": f"no catch-up result ({error.__class__.__name__})"}
+    if args.auto:
+        text = render_auto_comment(result, args.push, args.base_name, args.head_name, args.run_url, args.head_sha)
+        if text:
+            print(text)
+        return 0
     print(render_comment(result, args.push, args.base_name, args.head_name, args.run_url))
     return 0
 
@@ -722,10 +759,13 @@ def main(argv: list[str]) -> int:
     comment.add_argument("--result", required=True)
     comment.add_argument("--push", required=True,
                          choices=["pushed", "pushed-without-ci", "rejected", "needs-workflows", "push-denied",
-                                  "unverified", "not-attempted"])
+                                  "unverified", "not-attempted", "skipped-no-app-token"])
     comment.add_argument("--base-name", default="main")
     comment.add_argument("--head-name", default="this branch")
     comment.add_argument("--run-url", default="")
+    comment.add_argument("--auto", action="store_true",
+                         help="the automatic path: marked with --head-sha, empty when nothing needs saying")
+    comment.add_argument("--head-sha", default="", help="the head the automatic catch-up tried")
     comment.set_defaults(func=command_comment)
     args = parser.parse_args(argv)
     return args.func(args)

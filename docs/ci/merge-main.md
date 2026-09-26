@@ -45,6 +45,34 @@ failure's origin is unknown or the guard run ended without step results.
 | `--no-guards` | Merge only. |
 | `--strict` | Exit 3 when the branch introduced a guard failure; 2 when it cannot tell. |
 
+## Automatic catch-up
+
+Open pull requests are caught up without anyone asking. Each time a push to
+main passes CI fast guards, `.github/workflows/pr-catch-up.yml` runs
+`scripts/ci/auto_catch_up_select.py`, which picks pull requests against main
+whose head is a branch of this repository, that are not drafts, have no
+`no-auto-catch-up` label, and have not been pushed for 30 minutes (an agent
+still pushing is left alone; heads older than 14 days are skipped too), and
+that either conflict with main or are red only because of main (their CI fast
+guards comment from `guard_attribution.py` marks a step "red on main too, not
+this PR"). It takes at most `CMUX_AUTO_CATCH_UP_MAX` (a repository variable,
+default 15) per run, most recently pushed first, since every catch-up push
+re-runs the pull request's CI. Each selected pull request gets the same merge,
+verification and compare-and-swap push as `/catch-up`, pinned to the head the
+selection judged.
+
+It comments when it pushed, and when a person has to act (a conflict outside
+the generated files, a merge that brings in workflow changes); that comment
+carries `<!-- cmux-auto-catch-up head=<sha> -->`, and the selector never tries
+that head again, so a stuck conflict is reported once per head. A head that
+moved, a branch already up to date, or a push refused because the branch moved
+stays silent and is looked at again on the next green main run. Without the
+route App token it does not push, since an Actions-token push starts no CI.
+
+If your push is rejected because the branch moved, run `git pull --no-rebase`
+and push again. Never force-push over a catch-up merge. `merge-main.sh` stays
+the way to catch up locally, for example before main's newest commit is green.
+
 The `/catch-up` workflow (`.github/workflows/pr-catch-up.yml`) uses the same
 selection for a pull request based on main, in its own step so the token that
 reads the runs never shares an environment with pull request bytes: it merges

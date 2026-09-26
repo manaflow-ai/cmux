@@ -9,9 +9,9 @@ blocking files named. The real normalizer, schema generator and xcstrings
 merger resolve conflicts; a stub tools root stands in for a failing generator.
 
 The last cases read .github/workflows/pr-catch-up.yml: it runs on
-pull_request_target and issue_comment next to a write token, so it must only
-execute the trusted base checkout's scripts and never interpolate event text
-into a shell.
+pull_request_target, issue_comment and main's green CI fast guards runs next
+to a write token, so it must only execute the trusted base checkout's scripts
+and never interpolate event text into a shell.
 """
 
 from __future__ import annotations
@@ -541,6 +541,43 @@ class CommentTests(unittest.TestCase):
         self.assertIn("Nothing was pushed", text)
         self.assertNotIn("\u2014", text)
 
+    def test_automatic_comment_is_marked_with_the_tried_head(self) -> None:
+        head = "c" * 40
+        result = {"status": "blocked", "base": "a" * 40, "blocking": [{"path": "README.md", "reason": "not generated"}]}
+        text = MODULE.render_auto_comment(result, "not-attempted", "main", "feature", "https://run", head)
+        self.assertTrue(text.startswith(f"<!-- cmux-auto-catch-up head={head} -->\n"), text)
+        self.assertIn("will not try this head again", text)
+        self.assertIn("no-auto-catch-up", text)
+        self.assertTrue(text.endswith("RFC #14631</sub>"), "the run link stays last")
+        self.assertNotIn("\u2014", text)
+
+    def test_automatic_push_comment_says_how_to_pull(self) -> None:
+        result = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40, "resolved": []}
+        text = MODULE.render_auto_comment(result, "pushed", "main", "feature", "", "c" * 40)
+        self.assertIn("Caught `feature` up", text)
+        self.assertIn("git pull --no-rebase", text)
+        self.assertIn("do not force-push", text)
+
+    def test_automatic_path_stays_silent_when_nobody_must_act(self) -> None:
+        merged = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40}
+        for push in ("rejected", "unverified", "skipped-no-app-token"):
+            self.assertEqual(MODULE.render_auto_comment(merged, push, "main", "f", "", "c" * 40), "", push)
+        self.assertEqual(MODULE.render_auto_comment({"status": "up_to_date"}, "not-attempted", "main", "f", "",
+                                                    "c" * 40), "")
+        # No head to key the marker on: saying something would repeat every run.
+        blocked = {"status": "blocked", "blocking": []}
+        self.assertEqual(MODULE.render_auto_comment(blocked, "not-attempted", "main", "f", "", ""), "")
+        self.assertTrue(MODULE.render_auto_comment(merged, "needs-workflows", "main", "f", "", "c" * 40))
+
+    def test_automatic_comment_cli_prints_nothing_when_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Path(tmp) / "result.json"
+            result.write_text(json.dumps({"status": "up_to_date"}), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "comment", "--result", str(result), "--push", "not-attempted",
+                 "--auto", "--head-sha", "c" * 40], capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
     def test_pushed_without_ci_says_so(self) -> None:
         result = {"status": "merged", "base": "a" * 40, "head_after": "b" * 40,
                   "resolved": [{"path": "x.xcstrings", "method": "xcstrings key-level union"}]}
@@ -562,8 +599,52 @@ class WorkflowTests(unittest.TestCase):
     def test_triggers(self) -> None:
         events = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(events, {"pull_request_target": {"types": ["labeled"]},
-                                  "issue_comment": {"types": ["created"]}})
+                                  "issue_comment": {"types": ["created"]},
+                                  "workflow_run": {"workflows": ["CI fast guards"], "types": ["completed"]}})
         self.assertEqual(self.workflow["permissions"], {})
+
+    def test_automatic_path_starts_only_from_main_going_green(self) -> None:
+        condition = " ".join(self.workflow["jobs"]["select"]["if"].split())
+        for clause in ("github.event_name == 'workflow_run'", "github.event.workflow_run.event == 'push'",
+                       "github.event.workflow_run.path == '.github/workflows/ci-fast-guards.yml'",
+                       "github.event.workflow_run.head_branch == 'main'",
+                       "github.event.workflow_run.conclusion == 'success'",
+                       "github.event.workflow_run.head_repository.full_name == github.repository",
+                       "vars.GLAEDA_ROUTE_APP_ID != ''"):
+            self.assertIn(clause, condition)
+        self.assertTrue(all(level == "read" for level in self.workflow["jobs"]["select"]["permissions"].values()))
+        # The gate never runs for it, so no requester text reaches that path.
+        self.assertNotIn("workflow_run", self.workflow["jobs"]["gate"]["if"])
+
+    def test_per_pull_request_jobs_are_a_matrix(self) -> None:
+        jobs = self.workflow["jobs"]
+        for name in ("merge", "finish"):
+            strategy = jobs[name]["strategy"]
+            self.assertIs(strategy["fail-fast"], False, name)
+            self.assertLessEqual(strategy["max-parallel"], 3, name)
+            self.assertEqual(strategy["matrix"],
+                             "${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}", name)
+            self.assertEqual(jobs[name]["env"]["PR_NUMBER"], "${{ matrix.pr }}", name)
+            self.assertIs(jobs[name]["concurrency"]["cancel-in-progress"], False, name)
+        self.assertEqual(jobs["merge"]["concurrency"]["group"], "pr-catch-up-merge-${{ matrix.pr }}")
+        pin = next(step for step in jobs["merge"]["steps"] if step.get("id") == "pr")["env"]["PIN"]
+        self.assertEqual(pin, "${{ matrix.pin }}")
+        # Each entry's result travels in its own artifact.
+        upload = next(step for step in jobs["merge"]["steps"] if "upload-artifact" in str(step.get("uses")))
+        download = next(step for step in jobs["finish"]["steps"] if "download-artifact" in str(step.get("uses")))
+        self.assertEqual(upload["with"]["name"], download["with"]["name"])
+        self.assertIn("matrix.pr", upload["with"]["name"])
+
+    def test_automatic_path_never_pushes_with_the_actions_token(self) -> None:
+        push = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "push")["run"]
+        self.assertLess(push.index('[[ -z "$token" && "$AUTO" == true ]]'), push.index('token="$ACTIONS_TOKEN"'))
+        self.assertIn("skipped-no-app-token", push)
+
+    def test_finish_validates_the_matrix_handoff(self) -> None:
+        read = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "merge")["run"]
+        self.assertIn("^[0-9a-f]{40}$", read)
+        self.assertIn('git check-ref-format --branch "$ref"', read)
+        self.assertIn("merged|up_to_date|blocked|error", read)
 
     def test_no_event_text_in_shell(self) -> None:
         # Titles, branch names and comment bodies reach steps through env only.
@@ -579,7 +660,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_checkouts_do_not_keep_credentials(self) -> None:
         checkouts = [step for step in run_steps(self.workflow) if str(step.get("uses", "")).startswith("actions/checkout@")]
-        self.assertEqual(len(checkouts), 3)
+        self.assertEqual(len(checkouts), 4)
         for step in checkouts:
             self.assertIs(step["with"]["persist-credentials"], False)
             self.assertFalse(step["with"].get("submodules"), "submodules would fetch PR-chosen URLs")
@@ -601,14 +682,19 @@ class WorkflowTests(unittest.TestCase):
         jobs = self.workflow["jobs"]
         self.assertNotIn("concurrency", jobs["gate"])
         self.assertNotIn("concurrency", self.workflow)
-        self.assertEqual(jobs["merge"]["needs"], "gate")
-        self.assertIn("needs.gate.outputs.allowed == 'true'", jobs["merge"]["if"])
+        self.assertEqual(jobs["merge"]["needs"], ["gate", "select"])
+        self.assertIn("needs.gate.outputs.allowed == 'true' && needs.gate.outputs.refusal == ''", jobs["merge"]["if"])
+        self.assertIn("needs.select.result == 'success'", jobs["merge"]["if"])
         # finish also runs for a non-writer's label (to remove it), so its
-        # shared group is chosen by the gate's writer decision; anyone else
-        # gets a group of their own run and cannot cancel a writer's push.
+        # shared group is chosen by the gate's writer decision or main's own
+        # green run; anyone else gets a group of their own run and cannot
+        # cancel a pending push.
         group = jobs["finish"]["concurrency"]["group"]
-        self.assertTrue(group.startswith("${{ needs.gate.outputs.allowed == 'true' && format('pr-catch-up-push-"), group)
+        self.assertTrue(group.startswith("${{ (needs.gate.outputs.allowed == 'true' || needs.select.result == 'success')"
+                                         " && format('pr-catch-up-push-"), group)
         self.assertIn("github.run_id", group)
+        self.assertEqual(jobs["finish"]["env"]["AUTHORIZED"],
+                         "${{ needs.gate.outputs.allowed == 'true' || needs.select.result == 'success' }}")
 
     def pr_script(self) -> str:
         return next(step["run"] for step in self.workflow["jobs"]["merge"]["steps"] if step.get("id") == "pr")

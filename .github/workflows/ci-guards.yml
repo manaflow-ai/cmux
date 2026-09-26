@@ -392,6 +392,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_catch_up_pr.py
 
+      - name: Validate automatic PR catch-up selection
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_auto_catch_up_select.py
+
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
