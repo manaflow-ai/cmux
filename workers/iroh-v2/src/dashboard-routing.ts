@@ -2,7 +2,7 @@ import type { StackAuthority } from "./auth";
 import { encodeResponse, errorResponse, httpFailure, inputRequestId, parseInput, readBoundedBody } from "./boundary";
 import { DashboardOpenSchema } from "./contracts/common";
 import { DASHBOARD_AUTHORITY_HEADER, issueDashboardTicket, verifyDashboardTicket } from "./dashboard-auth";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError } from "./errors";
 
 interface Dependencies {
   environment: string; projectId: string; keys: Readonly<Record<string, string>>;
@@ -69,7 +69,7 @@ export async function routeDashboard(request: Request, services: Dependencies): 
     return cors(await services.dispatchTeam(claims.authority.teamId, forwarded));
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
-    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...failureDiagnostics(error) });
     return cors(httpFailure(error, requestId));
   }
 }
