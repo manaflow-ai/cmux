@@ -116,27 +116,13 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
-        // A CI Mac without a logged-in GUI session launches cmux in the
-        // background, and XCTest records that it could not activate it. Only
-        // that activation issue is expected: queries, clicks and keys still
-        // reach a background app through accessibility.
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        options.issueMatcher = { issue in
-            [issue.compactDescription, issue.detailedDescription, issue.associatedError?.localizedDescription]
-                .compactMap { $0 }
-                .joined(separator: "\n")
-                .contains("Failed to activate application")
-        }
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-            if app.state == .runningBackground {
-                app.activate()
-            }
-        }
+        // Hover and Cmd-Y need a foreground app. Do not mask an activation
+        // failure with XCTExpectFailure: the E2E lane rejects that as a pass.
+        app.launch()
+        app.activate()
         XCTAssertTrue(
-            app.state == .runningForeground || app.state == .runningBackground,
-            "Expected cmux to be running, state=\(app.state.rawValue)"
+            app.wait(for: .runningForeground, timeout: 12),
+            "Expected cmux in the foreground before UI input, state=\(app.state.rawValue)"
         )
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20), "Expected the main window")
         return app
