@@ -63,6 +63,7 @@ public struct SwiftViewInterpreter: Sendable {
         onLargeStack {
             let env = EvalEnvironment(values: state)
             self.registerFunctions(program.file.statements, env)
+            self.bindTopLevelVariables(program.file.statements, env)
             for item in program.file.statements {
                 if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
                     // A tripped node budget means the tree was truncated
@@ -110,6 +111,16 @@ public struct SwiftViewInterpreter: Sendable {
         for item in items {
             if let fn = item.item.as(FunctionDeclSyntax.self) {
                 env.defineFunction(fn.name.text, fn)
+            }
+        }
+    }
+
+    /// Binds file-scope variables into the root environment so user functions
+    /// can resolve constants declared outside their bodies.
+    private func bindTopLevelVariables(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) {
+        for item in items {
+            if let decl = item.item.as(VariableDeclSyntax.self) {
+                applyBinding(decl, env)
             }
         }
     }
@@ -296,7 +307,7 @@ public struct SwiftViewInterpreter: Sendable {
             // called in view position; evaluate its body as view items.
             if let decl = env.lookupFunction(ref.baseName.text), let body = decl.body {
                 let scope = bindParameters(decl, call, env)
-                let nodes = evalItems(body.statements, scope)
+                let nodes = evalItemsResult(body.statements, scope).nodes
                 if nodes.count == 1 { return nodes[0] }
                 return RenderNode(kind: .vstack, children: nodes)
             }
@@ -306,10 +317,28 @@ public struct SwiftViewInterpreter: Sendable {
 
     // MARK: - ViewBuilder statements
 
+    /// The rendered nodes from a block and whether an explicit `return`
+    /// terminated the current function evaluation.
+    private enum ViewBlockResult {
+        case completed([RenderNode])
+        case returned([RenderNode])
+
+        var nodes: [RenderNode] {
+            switch self {
+            case let .completed(nodes), let .returned(nodes):
+                nodes
+            }
+        }
+    }
+
     private func evalItems(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) -> [RenderNode] {
+        evalItemsResult(items, env).nodes
+    }
+
+    private func evalItemsResult(_ items: CodeBlockItemListSyntax, _ env: EvalEnvironment) -> ViewBlockResult {
         env.budget.enter()
         defer { env.budget.leave() }
-        guard !env.budget.exceeded, !env.budget.nodesExceeded else { return [] }
+        guard !env.budget.exceeded, !env.budget.nodesExceeded else { return .completed([]) }
         registerFunctions(items, env)
         var out: [RenderNode] = []
         for item in items {
@@ -320,21 +349,39 @@ public struct SwiftViewInterpreter: Sendable {
             if let decl = node.as(VariableDeclSyntax.self) {
                 applyBinding(decl, env)
             } else if let loop = node.as(ForStmtSyntax.self) {
-                out += evalFor(loop, env)
+                switch evalFor(loop, env) {
+                case let .completed(nodes):
+                    out += nodes
+                case let .returned(nodes):
+                    return .returned(nodes)
+                }
             } else if let ifExpr = ifExpression(node) {
-                out += evalIf(ifExpr, env)
+                switch evalIf(ifExpr, env) {
+                case let .completed(nodes):
+                    out += nodes
+                case let .returned(nodes):
+                    return .returned(nodes)
+                }
             } else if let switchExpr = switchExpression(node) {
-                out += evalSwitch(switchExpr, env)
+                switch evalSwitch(switchExpr, env) {
+                case let .completed(nodes):
+                    out += nodes
+                case let .returned(nodes):
+                    return .returned(nodes)
+                }
             } else if let ret = node.as(ReturnStmtSyntax.self), let expr = ret.expression {
                 // A view helper with an explicit `return SomeView` (or
                 // `return ForEach(...) { }`) renders its returned expression,
-                // not nothing.
+                // not nothing, and exits the function instead of appending to
+                // the surrounding builder output.
+                var returned: [RenderNode] = []
                 if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
-                    out += evalForEach(call, env)
+                    returned = evalForEach(call, env)
                 } else if let child = evalView(expr, env) {
                     env.budget.recordNode()
-                    out.append(child)
+                    returned = [child]
                 }
+                return .returned(returned)
             } else if let expr = node.as(ExprSyntax.self) {
                 if let call = expr.as(FunctionCallExprSyntax.self), isForEach(call) {
                     out += evalForEach(call, env)
@@ -344,7 +391,7 @@ public struct SwiftViewInterpreter: Sendable {
                 }
             }
         }
-        return out
+        return .completed(out)
     }
 
     /// Extracts an `if` from a code-block item, whether it appears directly
@@ -530,15 +577,15 @@ public struct SwiftViewInterpreter: Sendable {
 
     /// Evaluates a view-position `switch`: the first matching (or `default`)
     /// case's statements are rendered.
-    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: EvalEnvironment) -> [RenderNode] {
+    private func evalSwitch(_ switchExpr: SwitchExprSyntax, _ env: EvalEnvironment) -> ViewBlockResult {
         let subject = expressions.eval(switchExpr.subject, env)
         for caseSyntax in switchExpr.cases {
             guard let switchCase = caseSyntax.as(SwitchCaseSyntax.self) else { continue }
             if switchCaseMatches(switchCase.label, subject, env) {
-                return evalItems(switchCase.statements, env.makeChild())
+                return evalItemsResult(switchCase.statements, env.makeChild())
             }
         }
-        return []
+        return .completed([])
     }
 
     /// Whether a `switch` case label matches `subject` (literal/`.member`
@@ -561,35 +608,40 @@ public struct SwiftViewInterpreter: Sendable {
         }
     }
 
-    private func evalFor(_ loop: ForStmtSyntax, _ env: EvalEnvironment) -> [RenderNode] {
+    private func evalFor(_ loop: ForStmtSyntax, _ env: EvalEnvironment) -> ViewBlockResult {
         guard let name = loop.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
               let sequence = expressions.eval(loop.sequence, env),
-              let values = sequence.iterationValues else { return [] }
+              let values = sequence.iterationValues else { return .completed([]) }
         var out: [RenderNode] = []
         for value in values {
             if env.budget.nodesExceeded { break } // same early-out as evalForEach
             let scope = env.makeChild()
             scope.define(name, value)
-            out += evalItems(loop.body.statements, scope)
+            switch evalItemsResult(loop.body.statements, scope) {
+            case let .completed(nodes):
+                out += nodes
+            case let .returned(nodes):
+                return .returned(nodes)
+            }
         }
-        return out
+        return .completed(out)
     }
 
-    private func evalIf(_ ifExpr: IfExprSyntax, _ env: EvalEnvironment) -> [RenderNode] {
+    private func evalIf(_ ifExpr: IfExprSyntax, _ env: EvalEnvironment) -> ViewBlockResult {
         // The then-branch runs in a child scope so `if let x = …` bindings are
         // visible to it.
         let scope = env.makeChild()
         if conditionsPass(ifExpr.conditions, scope) {
-            return evalItems(ifExpr.body.statements, scope)
+            return evalItemsResult(ifExpr.body.statements, scope)
         }
-        guard let elseBody = ifExpr.elseBody else { return [] }
+        guard let elseBody = ifExpr.elseBody else { return .completed([]) }
         if let block = elseBody.as(CodeBlockSyntax.self) {
-            return evalItems(block.statements, env.makeChild())
+            return evalItemsResult(block.statements, env.makeChild())
         }
         if let elseIf = elseBody.as(IfExprSyntax.self) {
             return evalIf(elseIf, env)
         }
-        return []
+        return .completed([])
     }
 
     /// Evaluates an `if`/`guard` condition list against `scope`, binding any
