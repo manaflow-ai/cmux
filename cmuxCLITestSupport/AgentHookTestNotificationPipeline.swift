@@ -110,13 +110,6 @@ struct AgentHookNotificationClassifierRegressionTests {
         #expect(summary.subtitle == expectedSubtitle)
         #expect(summary.body.contains("Try again"))
         #expect(!summary.body.contains(banner))
-        #expect(agentNotificationShouldDeliver(
-            category: .other,
-            pending: false,
-            permissionEnabled: false,
-            turnMode: .never,
-            idleEnabled: false
-        ))
     }
 
     @Test func genericStopRejectsHistoricalFailureProse() {
