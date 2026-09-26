@@ -1497,6 +1497,7 @@
 		D11965050000000000000002 /* ComputerUseOnboardingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */; };
 		C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */; };
 		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
+		2C9156475A0C01A4B32D2A83 /* ComputerUseOnboardingIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */; };
 		C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */; };
 		C13049000000000000000602 /* ComputerUseOnboardingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000601 /* ComputerUseOnboardingStoreTests.swift */; };
 		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
@@ -5465,6 +5466,7 @@
 		D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingCoordinator.swift; sourceTree = "<group>"; };
 		C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingFixture.swift"; sourceTree = "<group>"; };
 		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
+		C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingIntentTests.swift"; sourceTree = "<group>"; };
 		C0A711200000000000000001 /* ComputerUseOnboardingStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingStep.swift; sourceTree = "<group>"; };
 		C13049000000000000000601 /* ComputerUseOnboardingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingStoreTests.swift"; sourceTree = "<group>"; };
 		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
@@ -12085,6 +12087,7 @@
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
 				E9D3F4EA811FB31EA9AEB386 /* DeviceGridQueueTests.swift */,
+				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16021,6 +16024,7 @@
 				0EC5CA157C24545908A734F5 /* ComputerUseExternalApplicationFixture.swift in Sources */,
 				C13049000000000000000002 /* ComputerUseOnboardingAdmissionTests.swift in Sources */,
 				C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */,
+				2C9156475A0C01A4B32D2A83 /* ComputerUseOnboardingIntentTests.swift in Sources */,
 				C13049000000000000000602 /* ComputerUseOnboardingStoreTests.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */,
