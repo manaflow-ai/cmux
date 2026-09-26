@@ -3175,16 +3175,25 @@ class LiveIdleRunners(unittest.TestCase):
         self.assertEqual((snap["source"], snap["warm"]), ("live", stale["warm"]))
 
     def test_runs_younger_than_a_job_bound_the_queue_by_their_peaks(self):
-        # A full suite that took the minis 5 minutes ago: its admission runs
-        # (busy on the runners), its 10 later jobs are on the way. They count
-        # toward the bound, not toward the wait.
-        routed = pool.Routed(owned={MINI: 11}, owned_now={MINI: 3}, live_now={}, live_runs={})
+        # A full suite that took the minis 5 minutes ago: its admission and
+        # side lanes run (3 of the 11 busy runners), its 8 later jobs are on
+        # the way. They count toward the bound, not toward the wait.
+        routed = pool.Routed(owned={MINI: 11}, owned_now={MINI: 3}, live_now={}, live_runs={}, live_unknown=0)
         busy = fleet(busy=0)
-        kwargs = dict(live_owned={MINI: 0}, live_online={MINI: 11}, queue_rounds="", routed=routed)
-        # 11 x (1 + 1) - 11 busy - 11 on the way = 0 places.
+        kwargs = dict(live_owned={MINI: 0}, live_online={MINI: 11}, queue_rounds="", jobs=4, routed=routed)
+        # The fake returns the run for the snapshot's window too, so its
+        # admission may still be queued (older than the live window): 11 x
+        # (1 + 1) - 11 busy - 1 queued - 8 on the way = 2 places, too few for 4.
         self.assertEqual(owned_choice(busy, **kwargs).runner, LARGE)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, jobs=2)).runner, MINI)
         # Without that run: a round of 11 places.
         self.assertEqual(owned_choice(busy, **dict(kwargs, routed=pool.Routed())).runner, MINI)
+        # Runs past the live window whose route is unknown are not replayed:
+        # their jobs are on the runners already.
+        unknown = pool.Routed(unknown=4, live_now={}, live_runs={}, live_unknown=0)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=unknown)).runner, MINI)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=dataclasses.replace(unknown, live_unknown=3))).runner,
+                         LARGE)
         # A fork run still needs the janitor's copied settings.
         self.assertEqual(choose(None, head="someone/cmux", default="", pins={}, live_owned={MINI: 9}).runner, "")
 
@@ -3210,6 +3219,11 @@ class LiveIdleRunners(unittest.TestCase):
         self.assertEqual((routed.owned, routed.runs()), ({MINI: 22}, {MINI: 2}))
         # Only the run younger than LIVE_WINDOW_MINUTES holds machines toward the live wait.
         self.assertEqual((routed.live_now, routed.live_runs), ({MINI: pool.REPLAYED_RUN_JOBS}, {MINI: 1}))
+        # An unreadable route is unknown, and counted in the live window only while young.
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "run_route", return_value=None):
+            routed = client.pull_request_routes_since("x", exclude_run_id=None, now=NOW)
+        self.assertEqual((routed.unknown, routed.live_unknown), (2, 1))
         self.assertEqual(pool.Routed(owned={MINI: 7, LIGHT: 0}).runs(), {MINI: 1})
 
 
