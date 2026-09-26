@@ -66,6 +66,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - Conflict note: preserve the distinction between `icWidth()` for a face's
   measured or conservative fallback metric and `fallbackIcWidth()` for the
   primary terminal grid's missing-ideograph target.
+- The fork `main` pin `0068ece733` carries this follow-up fix, but this branch
+  retains the published `2decb9c145` artifact so the SIGHUP teardown fix remains
+  available; a later GhosttyKit publication can combine both changes.
 
 ### Cloud restore replay trailing rows
 
