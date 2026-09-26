@@ -222,14 +222,15 @@ struct CloudPortRecoveryTests {
     private func withPortsFixture(
         _ body: (URL, CmuxTuiSurfaceProvider, SurfaceCatalog) async throws -> Void
     ) async throws {
-        let root = URL(fileURLWithPath: "/tmp/cmux-ports-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let fixtureID = UUID().uuidString.prefix(8).lowercased()
+        let root = URL(fileURLWithPath: "/tmp/cmux-ports-\(fixtureID)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let client = root.appendingPathComponent("daemon-fixture")
         try Self.portsDaemonScript.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: client.path)
         let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
-            terminalProfile: .shell, destination: "ports-fixture.invalid", port: nil, identityFile: nil,
+            terminalProfile: .shell, destination: "ports-fixture-\(fixtureID).invalid", port: nil, identityFile: nil,
             sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
         ))
