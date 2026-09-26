@@ -548,7 +548,10 @@ class CommentTests(unittest.TestCase):
         self.assertTrue(text.startswith(f"<!-- cmux-auto-catch-up head={head} -->\n"), text)
         self.assertIn("will not try this head again", text)
         self.assertIn("no-auto-catch-up", text)
-        self.assertTrue(text.endswith("RFC #14631</sub>"), "the run link stays last")
+        self.assertTrue(text.endswith("[Catch-up run](https://run)</sub>"), "the run link stays last")
+        # Posted on many pull requests: no mention, no issue cross-reference.
+        self.assertNotIn("@", text)
+        self.assertNotIn("#", text.replace("<!-- cmux-auto-catch-up", ""))
         self.assertNotIn("\u2014", text)
 
     def test_automatic_push_comment_says_how_to_pull(self) -> None:
@@ -568,6 +571,27 @@ class CommentTests(unittest.TestCase):
         blocked = {"status": "blocked", "blocking": []}
         self.assertEqual(MODULE.render_auto_comment(blocked, "not-attempted", "main", "f", "", ""), "")
         self.assertTrue(MODULE.render_auto_comment(merged, "needs-workflows", "main", "f", "", "c" * 40))
+        self.assertTrue(MODULE.render_auto_comment(merged, "push-denied", "main", "f", "", "c" * 40))
+
+    def test_automatic_path_stays_silent_on_an_error_or_no_result(self) -> None:
+        # A lost runner or a crash is not something the author must fix, and
+        # a marker would stop every later attempt on this head.
+        for result in ({"status": "error", "message": "git failed"}, {}, {"status": ""}, {"status": "weird"}):
+            for push in ("not-attempted", "unverified"):
+                self.assertEqual(MODULE.render_auto_comment(result, push, "main", "f", "", "c" * 40), "",
+                                 (result, push))
+        with tempfile.TemporaryDirectory() as tmp:
+            completed = subprocess.run(
+                [sys.executable, str(SCRIPT), "comment", "--result", str(Path(tmp) / "missing.json"),
+                 "--push", "not-attempted", "--auto", "--head-sha", "c" * 40], capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
+    def test_blocked_paths_cannot_mention_anyone(self) -> None:
+        result = {"status": "blocked", "base": "a" * 40,
+                  "blocking": [{"path": "@team/x.swift", "reason": "ask @someone about #12"}]}
+        text = MODULE.render_auto_comment(result, "not-attempted", "main", "f", "", "c" * 40)
+        self.assertIn("`@team/x.swift`", text, "a path is inline code")
+        self.assertNotRegex(text, r"(?<![`\u200b])@someone")
 
     def test_automatic_comment_cli_prints_nothing_when_silent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -586,6 +610,84 @@ class CommentTests(unittest.TestCase):
         self.assertIn("CI will not start on its own", text)
 
 
+class ReadResultTests(unittest.TestCase):
+    """catch_up_pr.py read-result: the push job's only reader of the merge job's artifact."""
+
+    HEAD, BASE, MERGED = "a" * 40, "b" * 40, "c" * 40
+
+    def good(self, **changes: object) -> dict:
+        return {"refusal": "", "head_ref": "feature/x", "head_sha": self.HEAD, "base_ref": "main",
+                "status": "merged", "base_sha": self.BASE, "merged_sha": self.MERGED, **changes}
+
+    def read(self, data: object, pin: str = "", raw: str | None = None) -> tuple[dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "outputs.json"
+            path.write_text(raw if raw is not None else json.dumps(data), encoding="utf-8")
+            completed = subprocess.run([sys.executable, "-I", str(SCRIPT), "read-result", "--file", str(path),
+                                        "--pin", pin], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        lines = completed.stdout.splitlines()
+        self.assertTrue(all("=" in line for line in lines), lines)
+        return dict(line.split("=", 1) for line in lines), completed.stderr
+
+    def test_valid_result_passes_through(self) -> None:
+        outputs, _ = self.read(self.good(), pin=self.HEAD)
+        self.assertEqual(outputs, {"status": "merged", "head_sha": self.HEAD, "base_sha": self.BASE,
+                                   "merged_sha": self.MERGED, "head_ref": "feature/x", "base_ref": "main"})
+
+    def test_line_break_cannot_add_an_output(self) -> None:
+        outputs, _ = self.read(self.good(head_ref="x\nmerged_sha=" + "d" * 40, status="merged\nok=true"))
+        self.assertEqual(outputs["head_ref"], "")
+        self.assertEqual(outputs["status"], "")
+        self.assertEqual(outputs["merged_sha"], self.MERGED)
+        self.assertNotIn("ok", outputs)
+
+    def test_bad_commit_id_yields_nothing_to_push(self) -> None:
+        for key in ("head_sha", "base_sha", "merged_sha"):
+            for bad in ("A" * 40, "a" * 39, "--upload-pack=x", "HEAD"):
+                outputs, warning = self.read(self.good(**{key: bad}))
+                self.assertNotIn("merged_sha", outputs, (key, bad))
+                self.assertIn(f"bad commit id in {key}", warning)
+
+    def test_bad_branch_names_yield_nothing_to_push(self) -> None:
+        for bad in ("../main", "-x", "a b", "refs/heads/../x", "x..y", "x.lock"):
+            outputs, warning = self.read(self.good(head_ref=bad))
+            self.assertNotIn("status", outputs, bad)
+            self.assertIn("bad branch name in head_ref", warning)
+
+    def test_unknown_status_reads_as_error(self) -> None:
+        outputs, _ = self.read(self.good(status="pushed"))
+        self.assertEqual(outputs["status"], "error")
+
+    def test_result_for_another_head_than_the_pin(self) -> None:
+        outputs, warning = self.read(self.good(), pin="e" * 40)
+        self.assertEqual(outputs, {})
+        self.assertIn("another head", warning)
+
+    def test_refusal_is_one_line_without_workflow_commands(self) -> None:
+        outputs, _ = self.read({"refusal": "closed ::error::x"})
+        self.assertEqual(outputs, {"status": "", "head_sha": "", "base_sha": "", "merged_sha": "", "head_ref": "",
+                                   "base_ref": "", "refusal": "closed :error:x"})
+        outputs, _ = self.read({"refusal": "one\n::set-output name=x::y"})
+        self.assertNotIn("refusal", outputs)
+        outputs, _ = self.read({"refusal": "x" * 5000})
+        self.assertEqual(len(outputs["refusal"]), MODULE.REFUSAL_LIMIT)
+
+    def test_missing_or_unreadable_file_is_no_answer(self) -> None:
+        outputs, warning = self.read(None, raw="{not json")
+        self.assertEqual(outputs, {})
+        self.assertIn("not an object", warning)
+        outputs, _ = self.read(["merged"])
+        self.assertEqual(outputs, {})
+        completed = subprocess.run([sys.executable, "-I", str(SCRIPT), "read-result", "--file", "/nonexistent/x.json"],
+                                   capture_output=True, text=True)
+        self.assertEqual((completed.returncode, completed.stdout), (0, ""))
+
+
+def upload_step(job: dict) -> dict:
+    return next(step for step in job["steps"] if "upload-artifact" in str(step.get("uses")))
+
+
 def run_steps(workflow: dict) -> list[dict]:
     return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
 
@@ -600,7 +702,8 @@ class WorkflowTests(unittest.TestCase):
         events = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(events, {"pull_request_target": {"types": ["labeled"]},
                                   "issue_comment": {"types": ["created"]},
-                                  "workflow_run": {"workflows": ["CI fast guards"], "types": ["completed"]}})
+                                  "workflow_run": {"workflows": ["CI fast guards"], "types": ["completed"],
+                                                   "branches": ["main"]}})
         self.assertEqual(self.workflow["permissions"], {})
 
     def test_automatic_path_starts_only_from_main_going_green(self) -> None:
@@ -621,12 +724,19 @@ class WorkflowTests(unittest.TestCase):
         for name in ("merge", "finish"):
             strategy = jobs[name]["strategy"]
             self.assertIs(strategy["fail-fast"], False, name)
-            self.assertLessEqual(strategy["max-parallel"], 3, name)
             self.assertEqual(strategy["matrix"],
                              "${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}", name)
             self.assertEqual(jobs[name]["env"]["PR_NUMBER"], "${{ matrix.pr }}", name)
             self.assertIs(jobs[name]["concurrency"]["cancel-in-progress"], False, name)
-        self.assertEqual(jobs["merge"]["concurrency"]["group"], "pr-catch-up-merge-${{ matrix.pr }}")
+        # finish waits for every merge entry, so all of a default selection merges at once.
+        self.assertGreaterEqual(jobs["merge"]["strategy"]["max-parallel"], 15)
+        self.assertLessEqual(jobs["finish"]["strategy"]["max-parallel"], 3)
+        # A request by hand and the automatic path never share a group: GitHub
+        # keeps one pending job per group, and a newer one replaces it.
+        self.assertEqual(jobs["merge"]["concurrency"]["group"],
+                         "${{ github.event_name == 'workflow_run' && format('pr-catch-up-auto-merge-{0}', matrix.pr)"
+                         " || format('pr-catch-up-merge-{0}', matrix.pr) }}")
+        self.assertIs(upload_step(jobs["merge"])["with"]["overwrite"], True)
         pin = next(step for step in jobs["merge"]["steps"] if step.get("id") == "pr")["env"]["PIN"]
         self.assertEqual(pin, "${{ matrix.pin }}")
         # Each entry's result travels in its own artifact.
@@ -641,10 +751,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("skipped-no-app-token", push)
 
     def test_finish_validates_the_matrix_handoff(self) -> None:
-        read = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "merge")["run"]
-        self.assertIn("^[0-9a-f]{40}$", read)
-        self.assertIn('git check-ref-format --branch "$ref"', read)
-        self.assertIn("merged|up_to_date|blocked|error", read)
+        # ReadResultTests runs this command against crafted artifacts.
+        read = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "merge")
+        self.assertIn('"$TRUSTED/scripts/ci/catch_up_pr.py" read-result', read["run"])
+        self.assertIn('--pin "$PIN"', read["run"])
+        self.assertEqual(read["env"]["PIN"], "${{ matrix.pin }}")
 
     def test_no_event_text_in_shell(self) -> None:
         # Titles, branch names and comment bodies reach steps through env only.
@@ -690,7 +801,8 @@ class WorkflowTests(unittest.TestCase):
         # green run; anyone else gets a group of their own run and cannot
         # cancel a pending push.
         group = jobs["finish"]["concurrency"]["group"]
-        self.assertTrue(group.startswith("${{ (needs.gate.outputs.allowed == 'true' || needs.select.result == 'success')"
+        self.assertTrue(group.startswith("${{ needs.select.result == 'success' && format('pr-catch-up-auto-push-{0}',"
+                                         " matrix.pr) || needs.gate.outputs.allowed == 'true'"
                                          " && format('pr-catch-up-push-"), group)
         self.assertIn("github.run_id", group)
         self.assertEqual(jobs["finish"]["env"]["AUTHORIZED"],

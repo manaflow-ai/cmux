@@ -6,16 +6,20 @@ name: PR catch-up
 #
 # It runs on its own when a push to main passes CI fast guards (main just went
 # green at a new commit): scripts/ci/auto_catch_up_select.py picks the open
-# pull requests against main whose head is a branch here, not a draft, not
-# labeled `no-auto-catch-up`, quiet for 30 minutes, and either conflicting
-# with main or red only because of main (the CI fast guards comment from
-# guard_attribution.py marks a step "red on main too"). At most
-# CMUX_AUTO_CATCH_UP_MAX (default 15) per run, most recently pushed first, one
-# automatic attempt per head. It comments only when it pushed or when a person
-# must act; a head that moved, an up-to-date branch or a refused push stay
-# silent. The trigger is main's own push run, so there is no requester to
-# check. It needs the route App: without its token it does not push, since a
-# push with the Actions token would leave the pull request with no checks.
+# pull requests against main whose head is an unprotected branch here, not a
+# draft, not labeled `no-auto-catch-up`, quiet for 30 minutes, and either
+# conflicting with main or red only because of main (the CI fast guards
+# comment about the current head from guard_attribution.py marks a step "red
+# on main too") while missing the green commit. At most CMUX_AUTO_CATCH_UP_MAX
+# (default 15) per run, most recently pushed first. It comments only when it
+# pushed or when a person must act on that head (a conflict outside the
+# generated files, a refused push), once per head and without mentions; an
+# up-to-date branch, an error, a head that moved or a refused merge stay
+# silent, and the selector's ledger artifact stops it from selecting one head
+# more than twice. The trigger is main's own push run, so there is no
+# requester to check. It needs the route App: without its key it selects
+# nothing, and without a token it does not push, since a push with the Actions
+# token would leave the pull request with no checks.
 #
 # Ask for it by hand with the `catch-up` label or a `/catch-up` comment,
 # optionally `/catch-up <full 40-hex sha>` to pin the head you looked at. Only
@@ -37,7 +41,9 @@ name: PR catch-up
 #   with a read-only token. No concurrency group, so comments from anyone
 #   cannot cancel a writer's pending run.
 # - select (automatic path): the selection above, read-only, from trusted/.
-#   Each entry pins the head it judged; merge refuses a head that moved since.
+#   Each entry pins the head it judged; merge refuses a head that moved since,
+#   and finish refuses a result for another head. It also keeps the attempt
+#   ledger artifact, which counts selections per head.
 # - merge: read-only token. Checks the head out as data (no credentials, no
 #   submodules, no LFS) into `candidate/` and runs catch_up_pr.py and the
 #   generators it calls (normalize-pbxproj.py, generate-cmux-config-schema.py,
@@ -60,9 +66,13 @@ name: PR catch-up
 # commit that descends from it): it cannot drop commits, and it is refused if
 # the branch moved meanwhile.
 #
-# Concurrency: one merge and one push per pull request at a time, never
-# cancelled in progress, so a newer main run cannot stop a push; GitHub keeps
-# one pending job per group, so a newer request replaces a pending older one.
+# Concurrency: never cancelled in progress, so a newer main run cannot stop a
+# push. A request by hand and the automatic path use separate groups per pull
+# request (pr-catch-up-merge-N and pr-catch-up-push-N, pr-catch-up-auto-merge-N
+# and pr-catch-up-auto-push-N), because GitHub keeps one pending job per group
+# and a newer one replaces it: an automatic run must never drop a writer's
+# pending request. Two runs on one pull request cannot both land a push, since
+# each push is a compare-and-swap on the head it merged.
 on:
   pull_request_target:
     types: [labeled]
@@ -71,11 +81,15 @@ on:
   workflow_run:
     workflows: ["CI fast guards"]
     types: [completed]
+    # Pull request runs would start a run whose jobs all skip.
+    branches: [main]
 
 permissions: {}
 
 env:
   PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+  # The automatic path's attempt ledger (auto_catch_up_select.py).
+  LEDGER_ARTIFACT: pr-catch-up-auto-ledger
   # The file behind the workflow_run trigger's display name
   # (tests/test_ci_workflow_run_sources.py).
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci-fast-guards.yml
@@ -171,6 +185,8 @@ jobs:
       group: pr-catch-up-select
       cancel-in-progress: false
     permissions:
+      # actions: read finds the previous run's ledger artifact.
+      actions: read
       contents: read
       issues: read
       pull-requests: read
@@ -189,16 +205,55 @@ jobs:
           submodules: false
           lfs: false
 
+      # The newest ledger any run on main left. A missing or unreadable one
+      # starts empty: every head then gets its attempts again, nothing worse.
+      - name: Read the previous attempt ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ledger"
+          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$LEDGER_ARTIFACT&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main")] | max_by(.created_at) | .id // empty' || true)"
+          if [[ "$id" =~ ^[0-9]+$ ]] &&
+             gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/ledger/previous.zip" &&
+             unzip -p "$RUNNER_TEMP/ledger/previous.zip" ledger.json > "$RUNNER_TEMP/ledger/previous.json"; then
+            echo "Read ledger artifact $id."
+          else
+            rm -f "$RUNNER_TEMP/ledger/previous.json"
+            echo "No previous ledger; starting a new one."
+          fi
+
       - name: Pick the pull requests to catch up
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
           TRUSTED: ${{ github.workspace }}/trusted
           MAX: ${{ vars.CMUX_AUTO_CATCH_UP_MAX }}
+          GREEN_SHA: ${{ github.event.workflow_run.head_sha }}
+          # The App id is a variable, its key a secret; secrets cannot gate a
+          # job, so a missing key is caught here and nothing is selected.
+          HAS_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY != '' }}
         run: |
           set -euo pipefail
+          if [[ "$HAS_APP_KEY" != true ]]; then
+            echo "::warning::GLAEDA_ROUTE_APP_KEY is not set; automatic catch-up selects nothing."
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 -I "$TRUSTED/scripts/ci/auto_catch_up_select.py" --repo "$GITHUB_REPOSITORY" \
-            --max "$MAX" --github-output "$GITHUB_OUTPUT"
+            --green-sha "$GREEN_SHA" --max "$MAX" --github-output "$GITHUB_OUTPUT" \
+            --ledger-in "$RUNNER_TEMP/ledger/previous.json" --ledger-out "$RUNNER_TEMP/ledger/ledger.json"
+
+      - name: Keep the attempt ledger for the next run
+        if: steps.select.outputs.count != '' && steps.select.outputs.count != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.LEDGER_ARTIFACT }}
+          path: ${{ runner.temp }}/ledger/ledger.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   merge:
     name: PR catch-up merge
@@ -215,12 +270,14 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # Read-only and GitHub-hosted, and finish waits for every entry, so the
+      # whole default selection merges at once.
+      max-parallel: 15
       matrix: ${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}
-    # One catch-up per pull request at a time. Only writers and main's own
-    # green run reach this job.
+    # One catch-up per pull request and path at a time. Only writers and
+    # main's own green run reach this job.
     concurrency:
-      group: pr-catch-up-merge-${{ matrix.pr }}
+      group: ${{ github.event_name == 'workflow_run' && format('pr-catch-up-auto-merge-{0}', matrix.pr) || format('pr-catch-up-merge-{0}', matrix.pr) }}
       cancel-in-progress: false
     permissions:
       # actions: read lists the base branch's CI fast guards runs, to merge
@@ -453,6 +510,8 @@ jobs:
           path: ${{ runner.temp }}/catch-up/
           retention-days: 1
           if-no-files-found: ignore
+          # A re-run attempt replaces the first attempt's result.
+          overwrite: true
 
   finish:
     name: PR catch-up push and comment
@@ -473,7 +532,7 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.select.outputs.matrix || needs.gate.outputs.matrix) }}
     concurrency:
-      group: ${{ (needs.gate.outputs.allowed == 'true' || needs.select.result == 'success') && format('pr-catch-up-push-{0}', matrix.pr) || format('pr-catch-up-unprivileged-{0}-{1}', github.run_id, matrix.pr) }}
+      group: ${{ needs.select.result == 'success' && format('pr-catch-up-auto-push-{0}', matrix.pr) || needs.gate.outputs.allowed == 'true' && format('pr-catch-up-push-{0}', matrix.pr) || format('pr-catch-up-unprivileged-{0}-{1}', github.run_id, matrix.pr) }}
       cancel-in-progress: false
     permissions:
       # The fallback push when the App token is unavailable.
@@ -521,40 +580,19 @@ jobs:
           path: ${{ runner.temp }}/catch-up
 
       # The merge job's answer for this pull request, validated before any of
-      # it reaches a step: commit ids are 40 hex, branch names pass
-      # check-ref-format (no spaces, no control characters), the status is one
-      # the merge script prints. Anything else reads as no answer.
+      # it reaches a step (catch_up_pr.py read-result): commit ids are 40 hex,
+      # branch names pass check-ref-format, the status is one the merge script
+      # prints, the head is the pinned one, and the refusal is one line with no
+      # workflow commands. Anything else reads as no answer.
       - name: Read the merge result
         id: merge
         if: env.AUTHORIZED == 'true'
+        env:
+          PIN: ${{ matrix.pin }}
         run: |
           set -euo pipefail
-          file="$RUNNER_TEMP/catch-up/outputs.json"
-          [[ -f "$file" ]] || { echo "No merge result for #$PR_NUMBER."; exit 0; }
-          # A value with a line break reads as empty.
-          value() { jq -r --arg key "$1" '.[$key] // "" | strings | select(test("[\\r\\n]") | not)' "$file" 2> /dev/null || true; }
-          status="$(value status)"
-          head_sha="$(value head_sha)"
-          base_sha="$(value base_sha)"
-          merged_sha="$(value merged_sha)"
-          head_ref="$(value head_ref)"
-          base_ref="$(value base_ref)"
-          case "$status" in merged|up_to_date|blocked|error|'') ;; *) status=error ;; esac
-          for sha in "$head_sha" "$base_sha" "$merged_sha"; do
-            [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::warning::bad commit id in the merge result"; exit 0; }
-          done
-          for ref in "$head_ref" "$base_ref"; do
-            [[ -z "$ref" ]] || git check-ref-format --branch "$ref" > /dev/null ||
-              { echo "::warning::bad branch name in the merge result"; exit 0; }
-          done
-          {
-            echo "status=$status"
-            echo "head_sha=$head_sha"
-            echo "base_sha=$base_sha"
-            echo "merged_sha=$merged_sha"
-            echo "head_ref=$head_ref"
-            echo "base_ref=$base_ref"
-          } >> "$GITHUB_OUTPUT"
+          python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" read-result \
+            --file "$RUNNER_TEMP/catch-up/outputs.json" --pin "$PIN" >> "$GITHUB_OUTPUT"
 
       # Nothing the merge job produced is trusted here: the pull request is
       # read again, both parents are fetched from this repository, and the
@@ -683,14 +721,16 @@ jobs:
 
       # By hand, every request gets an answer. The automatic path answers
       # only a push or something a person must fix, marked with the head it
-      # tried so auto_catch_up_select.py does not try that head again; a
-      # refusal there is a head that moved or closed, and stays silent.
+      # tried so auto_catch_up_select.py does not try that head again, with no
+      # mentions (catch_up_pr.py render_auto_comment); everything else,
+      # including a refusal, stays silent and is bounded by the ledger.
       - name: Comment the result
         if: always() && env.AUTHORIZED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERIFIED: ${{ steps.verify.outputs.ok }}
           PUSH_OUTCOME: ${{ steps.push.outputs.outcome }}
+          MERGE_REFUSAL: ${{ steps.merge.outputs.refusal }}
           MERGE_STATUS: ${{ steps.merge.outputs.status }}
           HEAD_SHA: ${{ steps.merge.outputs.head_sha }}
           HEAD_REF: ${{ steps.merge.outputs.head_ref }}
@@ -698,10 +738,8 @@ jobs:
         run: |
           set -euo pipefail
           comment="$RUNNER_TEMP/comment.md"
-          refusal="$GATE_REFUSAL"
-          if [[ -z "$refusal" && -f "$RUNNER_TEMP/catch-up/outputs.json" ]]; then
-            refusal="$(jq -r '.refusal // "" | strings' "$RUNNER_TEMP/catch-up/outputs.json" 2> /dev/null || true)"
-          fi
+          # The merge job's refusal comes validated from the Read step.
+          refusal="${GATE_REFUSAL:-$MERGE_REFUSAL}"
           if [[ -n "$refusal" ]]; then
             if [[ "$AUTO" == true ]]; then
               echo "Automatic catch-up of #$PR_NUMBER refused: $refusal"
