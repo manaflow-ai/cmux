@@ -663,16 +663,10 @@ final class MobileHostService {
                 )
             }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
-            if result.overflowed {
-                if result.startDrain {
-                    Task { await connection.drainQueuedEvents() }
-                }
-                continue
-            }
+            // An overflow is closed by the drain, which consumes it first.
             if result.startDrain {
-                Task { await connection.drainQueuedEvents() }
+                connection.startEventDrain()
             }
-
         }
         if !resyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
@@ -1464,6 +1458,8 @@ actor MobileHostConnection {
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
+    /// The drain the queue's claim admitted, kept so `close()` cancels it.
+    private nonisolated let eventDrainTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
@@ -1607,9 +1603,14 @@ actor MobileHostConnection {
         firstFrameTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
-        // Rejects all future admissions and releases every queued payload; the
-        // drain loop observes the closed queue and exits on its own.
+        // Rejects all future admissions and claims and releases every queued
+        // payload. A drain parked in a write is cancelled rather than left to
+        // outlive the connection; one between writes exits on its own.
         eventQueue.close()
+        eventDrainTask.withLock { task -> Task<Void, Never>? in
+            defer { task = nil }
+            return task
+        }?.cancel()
         let tasks = responseTasks.values.map(\.task)
         responseTasks.removeAll()
         for task in tasks {
@@ -2233,7 +2234,7 @@ actor MobileHostConnection {
             return false
         }
         if result.startDrain {
-            Task { await self.drainQueuedEvents() }
+            startEventDrain()
         }
         return result.admitted
     }
@@ -2271,7 +2272,7 @@ actor MobileHostConnection {
         defer {
             independentEventNegotiationInProgress = false
             if eventQueue.claimDrain() {
-                Task { await self.drainQueuedEvents() }
+                startEventDrain()
             }
         }
         let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
@@ -2292,6 +2293,15 @@ actor MobileHostConnection {
         }
         downgradeIndependentSubscriptionsToControl()
         return false
+    }
+
+    /// Starts the drain a queue claim admitted and keeps its handle. The claim
+    /// admits one drain at a time, so this replaces only the handle of a drain
+    /// that already released its claim.
+    nonisolated func startEventDrain() {
+        eventDrainTask.withLock { task in
+            task = Task { [weak self] in await self?.drainQueuedEvents() }
+        }
     }
 
     /// Single-writer drain loop: at most one instance runs per connection
