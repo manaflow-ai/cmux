@@ -15,30 +15,39 @@ public struct AgentRestorePlanner: Sendable {
 
     private let isExecutableFile: @Sendable (String) -> Bool
     private let isReadableFile: @Sendable (String) -> Bool
+    private let externalLaunchers: AgentExternalLauncherRegistry
 
     /// Creates a restore planner.
     ///
     /// - Parameters:
     ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
     ///   - isReadableFile: Readable-file lookup used to remove stale Claude settings paths.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
     public init(
         isExecutableFile: @escaping @Sendable (String) -> Bool,
-        isReadableFile: @escaping @Sendable (String) -> Bool = AgentRestoreReadableFileResolver().isReadableFile(atPath:)
+        isReadableFile: @escaping @Sendable (String) -> Bool = AgentRestoreReadableFileResolver().isReadableFile(atPath:),
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
     ) {
         self.isExecutableFile = isExecutableFile
         self.isReadableFile = isReadableFile
+        self.externalLaunchers = externalLaunchers
     }
 
     /// Creates a restore planner backed by an injected executable-file resolver.
     ///
-    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    /// - Parameters:
+    ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - readableFileResolver: The filesystem dependency used to check Claude settings paths.
+    ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
     public init(
         executableFileResolver: AgentRestoreExecutableFileResolver,
-        readableFileResolver: AgentRestoreReadableFileResolver = AgentRestoreReadableFileResolver()
+        readableFileResolver: AgentRestoreReadableFileResolver = AgentRestoreReadableFileResolver(),
+        externalLaunchers: AgentExternalLauncherRegistry = .empty
     ) {
         self.init(
             isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
-            isReadableFile: readableFileResolver.isReadableFile(atPath:)
+            isReadableFile: readableFileResolver.isReadableFile(atPath:),
+            externalLaunchers: externalLaunchers
         )
     }
 
@@ -139,13 +148,67 @@ public struct AgentRestorePlanner: Sendable {
         }
         guard !routedArguments.isEmpty else { return nil }
 
-        let preflights = hermesPreflights(
+        var preflights = hermesPreflights(
             arguments: &routedArguments,
             kind: kind,
             environment: environment,
             ambientEnvironment: ambientEnvironment,
             profilePin: hermesProfilePin
         )
+
+        // A routed Subrouter resume names its own launcher (`sr claude proxy`,
+        // `sr codex`) in argv[0], so a user-declared external launcher must
+        // not wrap it a second time.
+        if request.mode == .resumeAgent,
+           routedClaudeResume == nil,
+           let checkpointID = normalized(request.checkpointID),
+           !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+               launcher: request.launchCommand?.launcher,
+               sessionId: checkpointID,
+               executablePath: request.launchCommand?.executablePath,
+               arguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           let externalLauncher = externalLaunchers.resolvedLauncher(
+               id: request.launchCommand?.externalLauncher,
+               kind: kind
+           ) {
+            // After managed-wrapper routing, so the restore keeps its authorization environment and
+            // its custom-executable hint even when the wrapper replaces argv[0] with its own binary,
+            // and after the preflights are built, so each of them is wrapped as a whole command
+            // rather than inheriting the wrapper's own subcommand in place of the agent.
+            routedArguments = externalLauncher.applyingResumePrefix(to: routedArguments)
+            // The wrapper re-execs the agent by name, so the shim that managed-wrapper routing put
+            // in argv[0] is gone. Keep it reachable on PATH — for the resumed agent and for every
+            // preflight, which runs the same agent through the same wrapper — or the wrapped
+            // commands lose cmux's hooks.
+            let shimEnvironmentKey = externalLauncher.includesAgentExecutable
+                ? nil
+                : AgentRestoreLaunch(kind: kind, sessionID: request.checkpointID)?
+                    .wrapperShimEnvironmentKey
+            preflights = preflights.compactMap { preflight in
+                let preflightEnvironment = shimEnvironmentKey.map { key in
+                    AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                        preflight.environment,
+                        shimEnvironmentKey: key,
+                        isExecutableFile: isExecutableFile
+                    )
+                } ?? preflight.environment
+                return AgentRestorePreflightInvocation(
+                    arguments: externalLauncher.applyingResumePrefix(to: preflight.arguments),
+                    environment: preflightEnvironment
+                )
+            }
+            if let shimEnvironmentKey {
+                environment = AgentExternalLauncherRegistry.environmentRoutingWrappedAgentThroughShim(
+                    environment,
+                    shimEnvironmentKey: shimEnvironmentKey,
+                    isExecutableFile: isExecutableFile
+                )
+            }
+        }
+        guard !routedArguments.isEmpty else { return nil }
+
         return AgentRestoreInvocation(
             arguments: routedArguments,
             workingDirectory: workingDirectory,
