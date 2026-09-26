@@ -97,29 +97,32 @@ pub struct DrawCursors {
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let panes_accept_focus = app.focus == FocusTarget::Pane;
-    let areas = app.pane_areas.clone();
-    let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
+    let visible_surfaces: HashSet<_> = app.pane_areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_kitty_graphics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
     let mut terminal_cursor = None;
-    for area in &areas {
+    // PaneArea is Copy, so take one snapshot per iteration instead of cloning
+    // the entire vector on every frame. The copy also ends the borrow before
+    // the drawing helpers mutate the app's render hit maps.
+    for index in 0..app.pane_areas.len() {
+        let area = app.pane_areas[index];
         let focused = panes_accept_focus && Some(area.pane) == active_pane;
-        draw_box(app, frame, area, focused);
+        draw_box(app, frame, &area, focused);
         if area.bar.is_some() {
-            draw_tab_bar(app, frame, area, focused);
+            draw_tab_bar(app, frame, &area, focused);
         }
-        let cursors = draw_content(app, frame, area, focused);
+        let cursors = draw_content(app, frame, &area, focused);
         if cursors.input.is_some() {
             input_cursor = cursors.input;
         }
         if cursors.terminal.is_some() {
             terminal_cursor = cursors.terminal;
         }
-        draw_scrollbar(app, frame, area, focused);
-        push_resize_hits(app, area);
+        draw_scrollbar(app, frame, &area, focused);
+        push_resize_hits(app, &area);
     }
     DrawCursors { input: input_cursor, terminal: terminal_cursor }
 }
@@ -191,6 +194,35 @@ fn clip_tab_bar_rect(logical: Rect, bar: Rect, source_x: u16) -> Option<Rect> {
         width: end - start,
         height: 1,
     })
+}
+
+fn tab_scroll_for_active(
+    widths: &[u16],
+    active_tab: usize,
+    requested_scroll: usize,
+    inner_width: u16,
+    plus_width: u16,
+    arrow_width: u16,
+) -> usize {
+    let max_scroll = widths.len().saturating_sub(1);
+    let mut scroll = requested_scroll.min(max_scroll);
+    if widths.is_empty() || scroll >= active_tab {
+        return scroll;
+    }
+
+    let mut range_width: u64 =
+        widths[scroll..=active_tab].iter().map(|width| u64::from(*width)).sum();
+    while scroll < active_tab {
+        let left_arrow = if scroll > 0 { arrow_width } else { 0 };
+        let available = inner_width
+            .saturating_sub(left_arrow.saturating_add(plus_width).saturating_add(arrow_width));
+        if range_width <= u64::from(available) {
+            break;
+        }
+        range_width -= u64::from(widths[scroll]);
+        scroll += 1;
+    }
+    scroll
 }
 
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
@@ -319,23 +351,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let plus_w: u16 = (plus_label.width() as u16).max(1);
     let arrow_w: u16 = 1;
 
-    // Clamp the requested scroll, then bump it until the active tab fits.
-    let max_scroll = tabs.len().saturating_sub(1);
-    let mut scroll = app.tab_scroll.get(&pane_id).copied().unwrap_or(0).min(max_scroll);
-    let fits = |scroll: usize| {
-        let left_arrow = if scroll > 0 { arrow_w } else { 0 };
-        let mut budget = inner_w.saturating_sub(left_arrow + plus_w + arrow_w);
-        for w in &widths[scroll..=active_tab.max(scroll)] {
-            if *w > budget {
-                return false;
-            }
-            budget -= *w;
-        }
-        true
-    };
-    while scroll < active_tab && !fits(scroll) {
-        scroll += 1;
-    }
+    // Advance the requested scroll in one pass until the active range fits.
+    let scroll = tab_scroll_for_active(
+        &widths,
+        active_tab,
+        app.tab_scroll.get(&pane_id).copied().unwrap_or(0),
+        inner_w,
+        plus_w,
+        arrow_w,
+    );
     app.tab_scroll.insert(pane_id, scroll);
 
     let mut hits = Vec::new();
@@ -451,8 +475,9 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         draw_browser_content(app, frame, area, &surface);
         return DrawCursors { input: cursor.filter(|_| focused), terminal: None };
     }
+    let selection_visible = app.selection_is_visible(area.surface);
     let selection: Option<Selection> =
-        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
+        app.selection.filter(|s| s.surface == area.surface && selection_visible);
     let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
     let theme = app.config.theme;
 
@@ -472,7 +497,17 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
     app.rendered_pane_content_generations
         .insert(area.surface, PaneContentGeneration::Terminal(render.content_generation));
-    if focused && app.menu.is_none() && app.prompt.is_none() && app.pairing_dialog.is_none() {
+    if focused
+        && app.menu.is_none()
+        && app.prompt.is_none()
+        && app.pairing_dialog.is_none()
+        // A scoped attach client is a transparent passthrough: it asserts a
+        // cursor shape and color on the host terminal only when the inner
+        // application authored one (DECSCUSR), never for session or frontend
+        // defaults. Otherwise the host terminal's own configured cursor
+        // style stays untouched.
+        && (!app.is_surface_only() || surface.cursor_style_authored())
+    {
         let (shape, blinking) = render.frame.cursor_visual;
         app.use_terminal_cursor_spec(
             super::terminal_grid::resolved_cursor_color(&render),
@@ -526,11 +561,11 @@ fn draw_browser_content(
     let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
-        Some("starting browser...".to_string())
+        Some(localization::catalog().browser.starting.to_string())
     } else if surface.browser_url().is_none() {
-        Some("browser panes are not supported over attach yet".to_string())
+        Some(localization::catalog().browser.attach_unsupported.to_string())
     } else if !app.graphics_supported {
-        Some("terminal has no kitty graphics support".to_string())
+        Some(localization::catalog().browser.graphics_unsupported.to_string())
     } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
@@ -542,7 +577,7 @@ fn draw_browser_content(
                     .map(|tab| tab.title.clone())
             })
             .unwrap_or_else(|| "browser".to_string());
-        Some(format!("loading {}...", truncate(&url, 48)))
+        Some(localization::catalog().browser.loading(&truncate(&url, 48)))
     } else {
         None
     };
@@ -681,7 +716,7 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
 
 #[cfg(test)]
 mod tests {
-    use super::{client_border_labels, clip_tab_bar_rect};
+    use super::{client_border_labels, clip_tab_bar_rect, tab_scroll_for_active};
     use crate::session::{ClientInfo, ClientSizeInfo};
     use cmux_tui_core::Rect;
 
@@ -690,6 +725,22 @@ mod tests {
         let bar = Rect { x: 0, y: 0, width: 8, height: 1 };
         let logical = Rect { x: 1, y: 0, width: 3, height: 1 };
         assert_eq!(clip_tab_bar_rect(logical, bar, 10), None);
+    }
+
+    #[test]
+    fn tab_scroll_preserves_requested_offset_when_active_range_fits() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 2, 1, 15, 1, 1), 1);
+    }
+
+    #[test]
+    fn tab_scroll_advances_to_the_first_offset_that_fits_active_tab() {
+        assert_eq!(tab_scroll_for_active(&[4, 5, 6, 7], 3, 0, 16, 1, 1), 2);
+    }
+
+    #[test]
+    fn tab_scroll_handles_a_large_tab_set_without_changing_selection_semantics() {
+        let widths = vec![3; 100_000];
+        assert_eq!(tab_scroll_for_active(&widths, 99_999, 0, 12, 1, 1), 99_997);
     }
 
     fn client(id: u64, surface: u64, size: Option<(u16, u16)>) -> ClientInfo {

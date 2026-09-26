@@ -72,7 +72,18 @@ extension SessionPersistencePolicy {
         var removedAny = false
         var pathCache: [String: Bool] = [:]
         var windows: [SessionWindowSnapshot] = []
+        var phantomWindowCount = 0
         for window in snapshot.windows {
+            // A window with no workspaces and no window Dock is a phantom "empty
+            // shell" (seen after an unclean shutdown, #6646). Restoring it still
+            // builds a real NSWindow, and several at launch have been reported to
+            // wedge the WindowServer, so it is never persisted or replayed.
+            // Dropping one is not crash-diagnostic data: `removedAny` stays false
+            // so save paths do not delete the primary or set the crash-only marker.
+            guard !window.isPhantomSessionWindow else {
+                phantomWindowCount += 1
+                continue
+            }
             let result = pruningCmuxCrashDiagnosticWorkspaces(
                 from: window,
                 crashDirectoryComponents: crashDirectoryComponents,
@@ -84,7 +95,7 @@ extension SessionPersistencePolicy {
             }
         }
 
-        if windows.count != snapshot.windows.count {
+        if windows.count + phantomWindowCount != snapshot.windows.count {
             removedAny = true
         }
         guard !windows.isEmpty else {
@@ -279,11 +290,14 @@ extension SessionPersistencePolicy {
         let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
         let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
         let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
-            guard occupiedGroupIds.contains(group.id) else { return nil }
+            let keepsEmptyPinnedGroup = group.isPinned == true && group.anchorIsEmpty == true
+            guard occupiedGroupIds.contains(group.id) || keepsEmptyPinnedGroup else { return nil }
             let groupId = Optional(group.id)
             let originalMembers = originalMembersByGroupId[groupId] ?? []
             let keptMembers = keptMembersByGroupId[groupId] ?? []
-            guard !keptMembers.isEmpty else { return nil }
+            if keptMembers.isEmpty {
+                return keepsEmptyPinnedGroup ? group : nil
+            }
 
             var copy = group
             let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
@@ -294,6 +308,7 @@ extension SessionPersistencePolicy {
             } ?? 0
             copy.anchorMemberIndex = newAnchorIndex
             copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
+            copy.anchorIsEmpty = nil
             return copy
         }
         return pruned.isEmpty ? nil : pruned
@@ -344,5 +359,13 @@ extension SessionPersistencePolicy {
 
     private static func isNilOrBlank(_ value: String?) -> Bool {
         value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+}
+
+extension SessionWindowSnapshot {
+    /// Whether this window carries nothing to restore: no workspaces and no
+    /// window Dock. See `SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows`.
+    var isPhantomSessionWindow: Bool {
+        tabManager.workspaces.isEmpty && dock == nil
     }
 }

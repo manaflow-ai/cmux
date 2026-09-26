@@ -1,7 +1,7 @@
 import Foundation
 
 /// A captured agent launch kept as structured values for later resume planning.
-public struct AgentLaunchCommand: Codable, Equatable, Sendable {
+public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// The cmux launcher classification, when one was captured.
     public var launcher: String?
     /// The id of the user-declared external launcher that started the agent, when one was detected.

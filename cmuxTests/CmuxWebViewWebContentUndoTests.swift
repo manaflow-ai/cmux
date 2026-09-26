@@ -1,5 +1,7 @@
 import AppKit
+import CmuxBrowser
 import Carbon.HIToolbox
+import CmuxTerminal
 import Testing
 import WebKit
 import ObjectiveC.runtime
@@ -71,8 +73,195 @@ private final class WebContentUndoSpy {
     var redoCount = 0
 }
 
+private final class ApplicationUndoTerminalProbe: GhosttyNSView {
+    private(set) var afterMenuMissEvents: [NSEvent] = []
+
+    override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
+        afterMenuMissEvents.append(event)
+        return true
+    }
+}
+
+private final class ApplicationUndoMenuProbe: NSObject {
+    private(set) var callCount = 0
+
+    @objc func perform(_ sender: Any?) {
+        _ = sender
+        callCount += 1
+    }
+}
+
+private final class ApplicationUndoNeutralResponder: NSView {
+    override var acceptsFirstResponder: Bool { true }
+}
+
 @Suite(.serialized)
 final class CmuxWebViewWebContentUndoTests {
+    @Test
+    @MainActor
+    func applicationSendEventRoutesTerminalUndoBeforeAppKitMenu() throws {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let menuProbe = ApplicationUndoMenuProbe()
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let undoItem = NSMenuItem(
+            title: "Undo",
+            action: #selector(ApplicationUndoMenuProbe.perform(_:)),
+            keyEquivalent: "z"
+        )
+        undoItem.keyEquivalentModifierMask = [.command]
+        undoItem.target = menuProbe
+        menu.addItem(undoItem)
+        NSApp.mainMenu = menu
+        defer { NSApp.mainMenu = previousMenu }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+        let terminal = ApplicationUndoTerminalProbe(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        container.addSubview(terminal)
+        #expect(window.makeFirstResponder(terminal))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "z",
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Z)
+        ))
+        NSApp.sendEvent(event)
+
+        #expect(menuProbe.callCount == 0)
+        #expect(terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers } == ["z"])
+    }
+
+    @Test
+    @MainActor
+    func applicationSendEventConsumesUndoWithoutAnOwningSurface() throws {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let menuProbe = ApplicationUndoMenuProbe()
+        let previousMenu = NSApp.mainMenu
+        let menu = NSMenu(title: "Main")
+        let undoItem = NSMenuItem(
+            title: "Undo",
+            action: #selector(ApplicationUndoMenuProbe.perform(_:)),
+            keyEquivalent: "z"
+        )
+        undoItem.keyEquivalentModifierMask = [.command]
+        undoItem.target = menuProbe
+        menu.addItem(undoItem)
+        NSApp.mainMenu = menu
+        defer { NSApp.mainMenu = previousMenu }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let responder = ApplicationUndoNeutralResponder(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        window.contentView = responder
+        #expect(window.makeFirstResponder(responder))
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "z",
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Z)
+        ))
+        NSApp.sendEvent(event)
+
+        #expect(menuProbe.callCount == 0)
+    }
+
+    @Test
+    @MainActor
+    func agentSessionWebContentUndoManagerIsScopedPerWebView() throws {
+        _ = NSApplication.shared
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let agentWebView = AgentSessionWebView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 420),
+            configuration: WKWebViewConfiguration()
+        )
+        // Model the page declining Cmd-Z, as the browser undo tests do.
+        // A fresh WKWebView otherwise accepts the event for asynchronous web
+        // content dispatch, so a synchronous local-undo assertion is invalid.
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, _ in
+            currentWebView === agentWebView ? false : nil
+        }
+        window.contentView = agentWebView
+        window.makeKeyAndOrderFront(nil)
+        try #require(window.makeFirstResponder(agentWebView))
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            agentWebView.removeFromSuperview()
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let webViewUndoManager = try #require(agentWebView.undoManager)
+        #expect(webViewUndoManager !== window.undoManager)
+        let spy = WebContentUndoSpy()
+        webViewUndoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
+        #expect(webViewUndoManager.canUndo)
+        #expect(window.undoManager?.canUndo == false)
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "z",
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Z)
+        ))
+        #expect(window.cmuxRouteApplicationUndoRedoCommandEquivalent(event))
+        #expect(spy.undoCount == 1)
+    }
+
     @Test
     @MainActor
     func browserCmdZPerformsWebContentUndoWhenPageDeclinesTheChord() throws {
@@ -134,7 +323,8 @@ final class CmuxWebViewWebContentUndoTests {
         try withBrowserUndoWindow { window, webView, _ in
             let secondWebView = CmuxWebView(
                 frame: webView.frame,
-                configuration: WKWebViewConfiguration()
+                configuration: WKWebViewConfiguration(),
+                host: CmuxWebViewAppHost()
             )
             defer { secondWebView.removeFromSuperview() }
             webView.superview?.addSubview(secondWebView)
@@ -145,6 +335,46 @@ final class CmuxWebViewWebContentUndoTests {
             #expect(firstManager !== window.undoManager)
             #expect(secondManager !== window.undoManager)
         }
+    }
+
+    /// Every WebKit view embedded by cmux must keep page edit commands out of
+    /// the window's shared undo stack. Markdown previews use a distinct
+    /// `WKWebView` subclass, so covering only `CmuxWebView` would leave the
+    /// stale-target lifetime bug reachable through that surface.
+    @Test
+    @MainActor
+    func markdownWebContentUndoManagerIsScopedPerWebView() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let markdownWebView = MarkdownWebView(
+            frame: container.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        container.addSubview(markdownWebView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            markdownWebView.removeFromSuperview()
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let webViewUndoManager = try #require(markdownWebView.undoManager)
+        #expect(webViewUndoManager !== window.undoManager)
+
+        let spy = WebContentUndoSpy()
+        webViewUndoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
+        #expect(webViewUndoManager.canUndo)
+        #expect(window.undoManager?.canUndo == false)
     }
 
     @MainActor
@@ -165,7 +395,7 @@ final class CmuxWebViewWebContentUndoTests {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
-        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
 

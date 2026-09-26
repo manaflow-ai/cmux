@@ -89,7 +89,10 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        selectedAgentHookResumeLaunchCommand(
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
+        return selectedAgentHookResumeLaunchCommand(
             kind: kind,
             current: current,
             mapped: mapped,
@@ -158,6 +161,9 @@ extension CMUXCLI {
         currentCwd: String?,
         mapped: ClaudeHookSessionRecord?
     ) -> String? {
+        guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
+            return nil
+        }
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return currentCwd ?? mapped?.cwd
         }

@@ -11,12 +11,26 @@ extension CmuxSettingsFileStore {
 
     /// Returns the effective socket access policy represented by live defaults.
     static func liveSocketAccessMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        SocketControlSettings.effectiveMode(userMode: configuredSocketMode(defaults: defaults))
+        socketControlPolicyResolution(defaults: defaults).mode
+    }
+
+    /// Returns the authoritative socket policy snapshot, including whether a
+    /// forced MDM value owns the effective mode.
+    static func socketControlPolicyResolution(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> SocketControlPolicyResolution {
+        SocketControlPolicyResolver(
+            defaults: defaults,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        ).resolve()
     }
 
     /// Preserves restrictive policies; broader invalid policies fall back to `cmuxOnly`.
     static func failClosedSocketMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        let configuredMode = configuredSocketMode(defaults: defaults)
+        let configuredMode = socketControlPolicyResolution(defaults: defaults).mode
         switch configuredMode {
         case .off, .cmuxOnly, .password:
             return configuredMode
@@ -28,12 +42,14 @@ extension CmuxSettingsFileStore {
     /// Makes a newly bootstrapped primary file the durable owner of the resolved socket policy.
     static func materializeBootstrapSocketPolicy(
         in template: Data,
-        imported: ManagedSettingsValue?
+        imported: ManagedSettingsValue?,
+        defaults: UserDefaults = .standard
     ) -> Data {
         guard let imported else { return template }
         let resolved = socketModeAfterMissingPrimary(
             prior: imported,
-            fallback: socketModeManagedValue(in: template)
+            fallback: socketModeManagedValue(in: template),
+            defaults: defaults
         )
         guard case .string(let rawMode) = resolved else { return template }
         let source = (try? JSONCParser.source(data: template).text) ?? defaultTemplate()
@@ -101,6 +117,7 @@ extension CmuxSettingsFileStore {
     /// Creates the process store wired to the host's shared reload coordinator.
     static var appLive: CmuxSettingsFileStore {
         CmuxSettingsFileStore(
+            languageSettingsStore: LanguageSettingsStore(defaults: .standard),
             onWatchedFileReload: { source in
                 AppDelegate.shared?.reconcileSocketListenerConfiguration(source: source)
             }

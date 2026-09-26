@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXAuthCore
 import CmuxAuthRuntime
 import AppKit
@@ -26,6 +27,8 @@ struct MacAuthComposition {
     let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
+    /// Reconciles Cloud transports with the coordinator's selected team.
+    let cloudTeamScopeObserver: CloudTeamScopeObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -145,6 +148,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -177,14 +181,32 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                // Tear down local Cloud VM workspaces before the coordinator
+                // clears auth. This closes live WebSockets, removes persisted
+                // reconnect configuration, and prevents a signed-out Mac (or
+                // a paired phone still connected to it) from retaining a
+                // usable remote surface.
+                AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                DeviceRegistryClient.shared.beginSignOut()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
+                await DeviceRegistryClient.shared.withdrawForSignOut(
+                    accessToken: accessToken, refreshToken: refreshToken
+                )
+                await VMClient.revokeCloudAccess(
+                    deviceID: MobileHostIdentity.deviceID(),
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
+                // Endpoint/preview credentials are separate from Stack Auth;
+                // revoke them with the captured pre-clear token pair before
+                // the coordinator's server-session revocation tail completes.
+                await VMClient.revokeEndpointLeases(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
@@ -195,11 +217,15 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        }
     }
 
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
+        cloudTeamScopeObserver.start()
         coordinator.start()
     }
 

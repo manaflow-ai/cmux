@@ -1,14 +1,14 @@
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileHost
 import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the pairing
-/// host and mints a Tailscale pairing code. Automatic Iroh discovery needs no
-/// QR. The displayed Tailscale code never expires and is never regenerated on
-/// a timer; Refresh Code re-mints on demand.
+/// in, and on explicit pairing opt-in before starting the v2 IROH host. v2 pairing
+/// uses the signed-in account and device identity, so it has no QR or address
+/// to display.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); sign-in routes through the shared ``HostAccountFlow``
@@ -22,31 +22,65 @@ final class MobilePairingModel {
         case loading
         /// The Mac is not signed in; pairing can't be authorized yet.
         case signedOut
-        /// Signed in; bringing the listener up and minting the first ticket.
+        /// iOS pairing is disabled in Mac Settings.
+        case pairingDisabled
+        /// Signed in; bringing the v2 IROH listener up.
         case preparing
-        /// A ticket is ready to display.
+        /// The v2 IROH listener is ready for the signed-in iPhone.
         case ready(Ready)
-        /// A phone has attached to the listener; show a paired/success state
-        /// instead of the QR + spinner.
-        case connected(Ready)
-        /// No phone-reachable Tailscale route is available yet.
-        case needsReachableTransport
-        /// The listener could not be started or no ticket could be minted.
+        /// A phone has attached to the listener; show a paired/success state.
+        /// Carries the state to restore when the connection count falls back to
+        /// the baseline.
+        indirect case connected(from: State)
+        /// Compatibility state retained for old callers while the v2 window is
+        /// active. The v2 path does not publish direct or Tailscale routes.
+        case needsReachableTransport(reachableViaIroh: Bool)
+        /// The listener could not be started.
         case failed(String)
     }
 
-    /// A minted ticket ready for display.
+    /// Pairing status. Legacy fields remain for source compatibility with old
+    /// previews; v2 always leaves them empty and sets ``v2Only``.
     struct Ready: Equatable {
-        /// The `cmux-ios://attach?...` URL encoded into the QR code.
+        /// Legacy attach URL. Empty for v2.
         let attachURL: String
-        /// Reachable Tailscale `host:port` routes represented by the code.
+        /// Legacy Tailscale routes. Empty for v2.
         let tailscaleLines: [String]
-        /// The best route for manual phone entry, behind the "Copy IP" and
-        /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
+        /// Legacy manual route. `nil` for v2.
         let manualEntry: CmxManualPairingEntry?
+        /// Whether this Mac's IROH endpoint is ready for the signed-in iPhone.
+        let reachableViaIroh: Bool
+        /// v2 pairing uses the authenticated IROH bootstrap and has no QR.
+        let v2Only: Bool
 
-        /// Whether at least one Tailscale route resolved.
+        init(
+            attachURL: String,
+            tailscaleLines: [String],
+            manualEntry: CmxManualPairingEntry?,
+            reachableViaIroh: Bool,
+            v2Only: Bool = false
+        ) {
+            self.attachURL = attachURL
+            self.tailscaleLines = tailscaleLines
+            self.manualEntry = manualEntry
+            self.reachableViaIroh = reachableViaIroh
+            self.v2Only = v2Only
+        }
+
+        /// Whether a legacy Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
+
+        /// Recomputes compatibility route diagnostics from host status. The v2
+        /// pairing view does not use these legacy fields.
+        func updatingRoutes(_ routes: [CmxAttachRoute]) -> Ready {
+            Ready(
+                attachURL: attachURL,
+                tailscaleLines: MobilePairingModel.tailscaleLines(routes),
+                manualEntry: CmxManualPairingEntry.best(in: routes),
+                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes),
+                v2Only: v2Only
+            )
+        }
     }
 
     struct PairingRoutePlan: Equatable, Sendable {
@@ -63,7 +97,9 @@ final class MobilePairingModel {
     }
 
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { updatePreparationDeadline() }
+    }
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
     /// Exact iOS apps this Mac build can intentionally address.
@@ -81,6 +117,9 @@ final class MobilePairingModel {
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
     private var refreshGeneration = 0
+    private let preparationClock: any Clock<Duration>
+    private let preparationTimeout: Duration
+    @ObservationIgnored var preparationTimeoutTask: Task<Void, Never>?
 
     /// Creates a pairing model.
     ///
@@ -93,9 +132,16 @@ final class MobilePairingModel {
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
     ///     side effect; the displayed Tailscale QR carries no token and never
     ///     expires.
-    init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
+    init(
+        host: MobileHostService? = nil,
+        ticketTTL: TimeInterval = 600,
+        preparationClock: any Clock<Duration> = ContinuousClock(),
+        preparationTimeout: Duration = .seconds(30)
+    ) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
+        self.preparationClock = preparationClock
+        self.preparationTimeout = preparationTimeout
         let targetStore = MobileIOSPairingTargetStore()
         iosAppTargetStore = targetStore
         let targets = targetStore.availableNamespaces.map { namespace in
@@ -113,9 +159,11 @@ final class MobilePairingModel {
         } ?? targets[0]
     }
 
+    deinit { preparationTimeoutTask?.cancel() }
+
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
 
-    /// Selects one exact iOS app and regenerates the pairing code for it.
+    /// Selects one exact iOS app for legacy compatibility previews.
     func selectIOSAppTarget(_ target: MobileIOSAppTarget) async {
         guard availableIOSAppTargets.contains(target),
               selectedIOSAppTarget != target,
@@ -132,9 +180,8 @@ final class MobilePairingModel {
         await refresh()
     }
 
-    /// Re-evaluates sign-in state and, when signed in, brings the listener up
-    /// and mints a fresh attach ticket. Safe to call repeatedly (Refresh button,
-    /// or the view re-running it when auth state settles).
+    /// Re-evaluates sign-in and pairing opt-in before starting the v2 listener.
+    /// Safe to call repeatedly when auth or settings change.
     func refresh() async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -150,16 +197,23 @@ final class MobilePairingModel {
             )
             return
         }
+        // Enter the bounded state before waiting for auth restoration. A host
+        // whose bootstrap never completes must not leave the pairing sheet in
+        // an indefinite loading spinner.
+        state = .preparing
         await coordinator.awaitBootstrapped()
         guard generation == refreshGeneration else { return }
+        guard state == .preparing else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
             return
         }
         signedInEmail = coordinator.currentUser?.primaryEmail
-        state = .preparing
-        enablePairingHost()
+        guard MobileHostService.isListeningEnabled else {
+            state = .pairingDisabled
+            return
+        }
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
@@ -172,50 +226,9 @@ final class MobilePairingModel {
             )
             return
         }
-        guard let routePlan = PairingRoutePlan.make(routes: status.routes) else {
-            state = .needsReachableTransport
-            observeRouteAvailability()
-            return
-        }
-        do {
-            let payload = try await host.createAttachTicket(
-                workspaceID: "",
-                terminalID: nil,
-                ttl: ticketTTL,
-                routeDisclosureMode: routePlan.disclosureMode,
-                pairingURLScheme: selectedIOSAppTarget.pairingURLScheme
-            )
-            guard generation == refreshGeneration else { return }
-            guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
-                state = .failed(
-                    String(
-                        localized: "mobile.pairing.error.noTicket",
-                        defaultValue: "Could not generate a pairing code. Try again."
-                    )
-                )
-                return
-            }
-            state = .ready(
-                Ready(
-                    attachURL: attachURL,
-                    tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
-                )
-            )
-            observeConnections()
-        } catch MobileAttachTicketStoreError.noRoutes,
-                MobileAttachTicketStoreError.routeUnavailable,
-                MobileAttachTicketStoreError.invalidAttachURL {
-            state = .needsReachableTransport
-            observeRouteAvailability()
-        } catch {
-            state = .failed(
-                String(
-                    localized: "mobile.pairing.error.noTicket",
-                    defaultValue: "Could not generate a pairing code. Try again."
-                )
-            )
-        }
+        guard generation == refreshGeneration else { return }
+        receiveHostStatus(status, baselineConnectionCount: status.activeConnectionCount)
+        observeHostStatus()
     }
 
     private static func targetDisplayName(
@@ -252,100 +265,132 @@ final class MobilePairingModel {
         }
     }
 
-    /// Launches the Mac browser sign-in flow. Fire-and-forget; the view re-runs
-    /// ``refresh()`` when the coordinator's auth state settles.
-    func signIn() {
-        state = .loading
-        AppDelegate.shared?.auth?.browserSignIn.beginSignIn()
-    }
     /// Cancels the connection observation. Call when the window closes.
-    ///
-    /// There is deliberately no timer to cancel: the displayed code never
-    /// expires and is never regenerated behind the user's back. If a
-    /// Tailscale address changes while the window sits open, the Refresh Code
-    /// button re-mints on demand.
     func stopObserving() {
+        // Invalidate any pending generation-guarded work (e.g. the observer's
+        // spawned re-mint) so nothing revives the pairing host after close.
+        refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        preparationTimeoutTask?.cancel()
+        preparationTimeoutTask = nil
     }
 
-    /// Watches the mobile host's connection status while a code is displayed and
-    /// flips between `.ready` (QR shown, waiting) and `.connected` (a phone has
-    /// attached). Cancelled and superseded on each ``refresh()`` via the generation
-    /// guard, and on ``stopObserving()``.
-    private func observeConnections() {
+    /// Watches the mobile host's status while the window is open and flips
+    /// waiting states to `.connected` as phones attach and detach.
+    private func observeHostStatus() {
         connectionObservationTask?.cancel()
         let generation = refreshGeneration
-        // Connections already present when this code is displayed (another phone
-        // is attached, or we are pairing an additional device). Only a NEW
-        // connection above this baseline means "this freshly minted QR was
-        // scanned"; without the baseline, opening the window while a phone is
-        // already connected would falsely jump to "connected" before the new
-        // ticket is ever used, which also makes pairing an additional device
-        // impossible (the QR would hide immediately).
+        // Connections already present when this code is displayed establish the
+        // baseline. Only a new connection above it changes the waiting state.
         let baseline = host.statusSnapshot().activeConnectionCount
         connectionObservationTask = Task { [weak self] in
             guard let self else { return }
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                self.state = Self.connectionTransition(
-                    from: self.state,
-                    activeConnectionCount: status.activeConnectionCount,
-                    baselineConnectionCount: baseline
-                )
+                guard MobileHostService.isListeningEnabled else {
+                    self.state = .pairingDisabled
+                    return
+                }
+                self.receiveHostStatus(status, baselineConnectionCount: baseline)
             }
         }
     }
 
-    /// Automatically replaces the temporary no-route state when a Tailscale
-    /// route appears. This is event-driven by the host status cache.
-    private func observeRouteAvailability() {
-        connectionObservationTask?.cancel()
+    /// Relay binding may finish from cache before v2 setup. Keep preparing until
+    /// the runtime confirms registration for the current account and team.
+    static func v2StatusTransition(
+        _ status: MobileHostServiceStatus,
+        baselineConnectionCount: Int
+    ) -> State {
+        guard status.isRunning else { return .failed(preparationFailureMessage) }
+        guard status.isPairingReady else {
+            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
+        }
+        let ready = State.ready(Ready(
+            attachURL: "", tailscaleLines: [], manualEntry: nil,
+            reachableViaIroh: true, v2Only: true
+        ))
+        return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+    }
+
+    /// A retry starts in `refresh`; repeated pending status cannot hide an error.
+    func receiveHostStatus(_ status: MobileHostServiceStatus, baselineConnectionCount: Int) {
+        let next = Self.v2StatusTransition(status, baselineConnectionCount: baselineConnectionCount)
+        if case .failed = state, next == .preparing { return }
+        if next != state { state = next }
+    }
+
+    private static var preparationFailureMessage: String {
+        String(localized: "mobile.pairing.error.preparationFailed",
+               defaultValue: "Pairing could not finish. Check your connection and try again.")
+    }
+
+    private func updatePreparationDeadline() {
+        guard state == .preparing else {
+            preparationTimeoutTask?.cancel()
+            preparationTimeoutTask = nil
+            return
+        }
+        guard preparationTimeoutTask == nil else { return }
+        let clock = preparationClock
+        let timeout = preparationTimeout
         let generation = refreshGeneration
-        connectionObservationTask = Task { [weak self] in
-            guard let self else { return }
-            for await status in self.host.statusUpdates() {
-                guard !Task.isCancelled,
-                      generation == self.refreshGeneration else { return }
-                guard PairingRoutePlan.make(routes: status.routes) != nil else {
-                    continue
-                }
-                Task { @MainActor [weak self] in
-                    await self?.refresh()
-                }
-                return
-            }
+        // This deadline bounds the visible preparing state, including a bound
+        // endpoint whose authenticated registration has not completed.
+        preparationTimeoutTask = Task { @MainActor [weak self, clock] in
+            do { try await clock.sleep(for: timeout) } catch { return }
+            guard !Task.isCancelled, let self, self.refreshGeneration == generation,
+                  self.state == .preparing else { return }
+            self.preparationTimeoutTask = nil
+            self.state = .failed(Self.preparationFailureMessage)
         }
     }
 
-    /// Computes the next render state from a connection-count change, relative to
-    /// the `baselineConnectionCount` captured when the code was displayed. A
-    /// connection *above* the baseline (a phone that attached after the QR was
-    /// shown) flips a displayed ticket from `.ready` to `.connected`; dropping
-    /// back to the baseline flips it back so the QR returns. All other states
-    /// pass through unchanged. Pure, so the transition is unit tested without a
-    /// live host.
-    static func connectionTransition(
+    /// Computes the next render state from a host status event. Pure, so the
+    /// transitions are unit tested without a live host.
+    ///
+    /// A connection above the captured baseline flips the waiting state to
+    /// `.connected`; dropping back restores the prior waiting state.
+    static func statusTransition(
         from current: State,
+        routes: [CmxAttachRoute],
         activeConnectionCount: Int,
         baselineConnectionCount: Int
     ) -> State {
         let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
-            return .connected(ready)
-        case let .connected(ready) where !connected:
-            return .ready(ready)
+            return .connected(from: .ready(ready.updatingRoutes(routes)))
+        case let .ready(ready):
+            return .ready(ready.updatingRoutes(routes))
+        case .needsReachableTransport where connected:
+            return .connected(
+                from: .needsReachableTransport(
+                    reachableViaIroh: hasIrohRoute(routes)
+                )
+            )
+        case .needsReachableTransport:
+            return .needsReachableTransport(reachableViaIroh: hasIrohRoute(routes))
+        case let .connected(prior) where !connected:
+            return statusTransition(
+                from: prior,
+                routes: routes,
+                activeConnectionCount: activeConnectionCount,
+                baselineConnectionCount: baselineConnectionCount
+            )
+        case .connected:
+            return current
         default:
             return current
         }
     }
 
-    private func enablePairingHost() {
-        // Never force the listener on under a managed remote-control disable.
-        guard MobileRemoteControlPolicy.isEnabled else { return }
-        UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+    /// Whether this Mac's Iroh endpoint is registered in `routes`.
+    private nonisolated static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {
+        routes.contains { $0.kind == .iroh }
     }
 
     /// Whether `route` can serve a physical iPhone: a Tailscale route that does
@@ -356,7 +401,7 @@ final class MobilePairingModel {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }
 
-    private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
+    private nonisolated static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
         routes.compactMap { route in
             guard route.kind == .tailscale,
                   case let .hostPort(host, port) = route.endpoint else {

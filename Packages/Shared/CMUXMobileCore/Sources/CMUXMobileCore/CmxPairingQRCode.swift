@@ -14,7 +14,16 @@ import Foundation
 ///
 /// Tailscale compatibility codes keep the v2 grammar so already-released
 /// clients can still scan them:
-/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`.
+/// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&r=<host>:<port>[&r=<host>:<port>...]`.
+///
+/// The only metadata a Tailscale code carries is what the phone consults
+/// before dialing: `ub`, the opaque Stack user id the account preflight
+/// matches against the signed-in phone so a wrong-account scan fails fast
+/// (#6028), and `pc`, the pairing compatibility level, which fielded
+/// decoders default to 0 when absent — omitting it would spuriously fire the
+/// cross-version pairing warning on every current phone. App version and
+/// build (`av`/`ab`) only ever decorated that warning's message, so they are
+/// no longer written; the decoder still reads them from older Macs' codes.
 ///
 /// Both grammars share these properties:
 /// - **No auth token.** The owner's Stack access token is the host's sole
@@ -22,9 +31,10 @@ import Foundation
 ///   code look like a leaked credential.
 /// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
 ///   screen for an hour still pairs.
-/// - **No display name, no device id.** Both arrive post-handshake from
-///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
-///   shell adopts the host-reported identity once connected.
+/// - **No display name, no device id, no build metadata.** All arrive
+///   post-handshake from `mobile.host.status`; the decoder leaves
+///   `macDeviceID` empty and the shell adopts the host-reported identity
+///   once connected.
 /// - **No loopback, ever.** v2 routes are Tailscale `host:port` only: the
 ///   encoder drops a DEBUG Mac's dev loopback route instead of encoding it,
 ///   the Mac refuses to mint a QR without a Tailscale route (it shows the
@@ -90,10 +100,20 @@ public struct CmxPairingQRCode: Sendable {
             guard let identity = encodableIrohIdentity(of: ticket) else {
                 return nil
             }
-            items = [
+            var irohItems = [
                 "v=\(Self.irohVersion)",
                 "i=\(identity.endpointID)"
             ]
+            // The Mac device id rides along so the decoded ticket can name the
+            // peer intent (`expectedPeerDeviceID`) the irx transport requires
+            // before any dial. Endpoint-only tickets decode with an empty
+            // device id, and a fresh pairing then has no post-handshake source
+            // for it, so every injected physical-device auto-pair fails
+            // `missingPeerIntent` without this field.
+            if let macDeviceID = normalizedNonEmpty(ticket.macDeviceID) {
+                irohItems.append("d=\(percentEncodeQueryValue(macDeviceID))")
+            }
+            items = irohItems
         case .legacyPrivateNetworkCompatibility:
             guard let routes = encodableTailscaleRoutes(of: ticket) else {
                 return nil
@@ -104,12 +124,6 @@ public struct CmxPairingQRCode: Sendable {
             }
             if let compatibilityVersion = ticket.macPairingCompatibilityVersion {
                 compatibilityItems.append("pc=\(compatibilityVersion)")
-            }
-            if let version = normalizedNonEmpty(ticket.macAppVersion) {
-                compatibilityItems.append("av=\(percentEncodeQueryValue(version))")
-            }
-            if let build = normalizedNonEmpty(ticket.macAppBuild) {
-                compatibilityItems.append("ab=\(percentEncodeQueryValue(build))")
             }
             compatibilityItems.append(contentsOf: routes.map { route -> String in
                 guard case let .hostPort(host, port) = route.endpoint else {
@@ -303,13 +317,19 @@ private extension CmxPairingQRCode {
     /// Decode the v3 endpoint-only Iroh grammar.
     func decodeIroh(_ components: URLComponents) throws -> CmxAttachTicket {
         let items = components.queryItems ?? []
-        guard items.count == 2,
+        // `d` (the Mac device id) is optional so pre-existing endpoint-only
+        // URLs keep decoding; everything else stays exact-cardinality strict.
+        guard items.count <= 3,
+              items.allSatisfy({ ["v", "i", "d"].contains($0.name) }),
               items.filter({ $0.name == "v" }).count == 1,
               let endpointID = items.first(where: { $0.name == "i" })?.value,
               items.filter({ $0.name == "i" }).count == 1,
+              items.filter({ $0.name == "d" }).count <= 1,
               let identity = try? CmxIrohPeerIdentity(endpointID: endpointID) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        let macDeviceID = items.first(where: { $0.name == "d" })?.value?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let route = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
@@ -319,7 +339,7 @@ private extension CmxPairingQRCode {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
-            macDeviceID: "",
+            macDeviceID: macDeviceID,
             macDisplayName: nil,
             // v3 is intentionally endpoint-only. `nil` means the QR did not
             // make a compatibility claim, unlike v2's explicit unknown value

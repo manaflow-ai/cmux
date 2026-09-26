@@ -18,7 +18,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
-| `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
+| `Ctrl-b N` or `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
@@ -48,6 +48,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `m` | Open the machine provider menu when the machine rail is focused |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
@@ -59,19 +60,21 @@ These defaults come from `Keys::default`.
 | `Alt-k` or `Alt-Up` | Focus up |
 | `Ctrl-b j` or `Ctrl-b Down` | Focus down |
 | `Alt-j` or `Alt-Down` | Focus down |
-| `Alt-=` | Grow the focused split, or its horizontal viewport column |
-| `Alt--` | Shrink the focused split, or its horizontal viewport column |
+| `Ctrl-b +` or `Alt-=` | Grow the focused split, or its horizontal viewport column |
+| `Ctrl-b -` or `Alt--` | Shrink the focused split, or its horizontal viewport column |
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
 | `Cmd-k` / `Super-k` | Clear retained PTY history and completed visible rows while preserving active input |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
+Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
 When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeless Alt bindings reveal the focused pane. The viewport movement is animated unless `viewport.animation` is false.
 
-On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
+On a screen created with `Ctrl-b g`, `Ctrl-b +` / `Alt-=` and `Ctrl-b -` / `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
 
 `Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that removes a created pane opens a confirmation prompt; type `CONFIRM` to remove its tab placements and commit the undo. Session-owned PTY terminals remain alive, while single-view browser tabs close. Closing a pane directly clears that screen's undo history because the journal cannot reconstruct its exact tab membership or a closed browser target.
 
@@ -87,11 +90,11 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 
 ## Focused Sidebar
 
-When the built-in sidebar is focused, its header gains an accent background and its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
+When the built-in sidebar is focused, its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
-When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, and Esc returns to the active pane. Clicking a view header focuses that view. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
+When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
 ## Modeless Alt Layer
 
@@ -129,7 +132,9 @@ User commands from the top-level `commands` config section bind through the same
     "alt_shortcuts": false,
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t", "cmd+t"],
-    "new-pane-smart": "alt+n",
+    "new-pane-smart": ["alt+n", "N"],
+    "resize-grow": ["alt+=", "shift+="],
+    "resize-shrink": ["alt+-", "-"],
     "select-screen-0": "0",
     "select-screen-1": "1",
     "next-screen": ["n", "alt+]"],
@@ -193,6 +198,7 @@ toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
 focus-sidebar
+provider-menu
 new-pane-right
 undo-layout
 focus-left

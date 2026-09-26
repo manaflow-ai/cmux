@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -83,6 +84,62 @@ struct ManagedPolicySettingsImportTests {
             #expect(defaults.object(forKey: key) == nil)
 
             // Neither may an explicit reload.
+            store.reload()
+            #expect(defaults.object(forKey: key) == nil)
+        }
+    }
+
+    @Test func importerSkipsUserURLAllowlistWhenItsManagedPolicyIsForced() throws {
+        let defaults = UserDefaults.standard
+        let key = BrowserURLAllowlistPolicy.userDefaultsKey
+        let preservedKeys = [key, Self.backupsKey, Self.importedManagedDefaultsKey]
+        let previousValues = preservedKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (preservedKey, value) in previousValues {
+                if let value { defaults.set(value, forKey: preservedKey) }
+                else { defaults.removeObject(forKey: preservedKey) }
+            }
+        }
+        preservedKeys.forEach { defaults.removeObject(forKey: $0) }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ManagedPolicySettingsImportTests.URLAllowlist.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data("""
+        {
+          "browser": {
+            "urlAllowlist": ["internal.example.com"]
+          }
+        }
+        """.utf8).write(to: settingsFileURL)
+
+        let unforcedStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+        try withExtendedLifetime(unforcedStore) {
+            #expect(defaults.string(forKey: key) == "internal.example.com")
+        }
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: Self.backupsKey)
+        defaults.removeObject(forKey: Self.importedManagedDefaultsKey)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { $0 == key }
+        )
+        try withExtendedLifetime(store) {
+            #expect(defaults.object(forKey: key) == nil)
             store.reload()
             #expect(defaults.object(forKey: key) == nil)
         }
@@ -172,6 +229,67 @@ struct ManagedPolicySettingsImportTests {
                let remaining = try? JSONSerialization.jsonObject(with: remainingData) as? [String: Any] {
                 #expect(remaining[key] == nil)
             }
+        }
+    }
+
+    @Test func legacyArrayExternalPatternsSurviveManagedSettingsRemoval() throws {
+        let defaults = UserDefaults.standard
+        let key = BrowserExternalURLPolicy.userDefaultsKey
+        let preservedKeys = [key, Self.backupsKey, Self.importedManagedDefaultsKey]
+        let previousValues = preservedKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (preservedKey, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: preservedKey)
+                } else {
+                    defaults.removeObject(forKey: preservedKey)
+                }
+            }
+        }
+        preservedKeys.forEach { defaults.removeObject(forKey: $0) }
+
+        // Older releases persisted this setting as an array. Keep that shape
+        // (including a tail beyond the bounded runtime matcher) so the
+        // managed-settings backup exercises the compatibility path without
+        // allowing normalization to discard user data.
+        let legacyRules = (0..<300).map { "legacy-\($0).example.com" }
+        defaults.set(legacyRules, forKey: key)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "ManagedPolicySettingsImportTests.LegacyExternalPatterns.\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let managedSettings = """
+        {
+          "browser": {
+            "urlsToAlwaysOpenExternally": ["managed.example.com"]
+          }
+        }
+        """
+        try Data(managedSettings.utf8).write(to: settingsFileURL)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+        try withExtendedLifetime(store) {
+            #expect(defaults.string(forKey: key) == "managed.example.com")
+
+            // Removing the file-managed value must restore the legacy user's
+            // rules rather than treating the array backup as absent.
+            try Data("{\"browser\": {}}".utf8).write(to: settingsFileURL)
+            store.reload()
+
+            #expect(defaults.object(forKey: key) as? [String] == legacyRules)
+            #expect(BrowserExternalURLPolicy(defaults: defaults).patterns == Array(legacyRules.prefix(256)))
         }
     }
 }

@@ -7,6 +7,7 @@
 mod command;
 mod lifecycle;
 mod raw;
+mod shorthand;
 mod wire;
 
 use std::borrow::Cow;
@@ -34,6 +35,73 @@ const PUBLIC_SCOPES: &[&str] = &[
     "provider",
     "raw",
 ];
+
+const REMOTE_COMMANDS: &[&str] = &[
+    "remote",
+    "connect",
+    "ssh",
+    "forward",
+    "browser-proxy",
+    "rpc",
+    "enroll",
+    "known-daemons",
+    "remote-probe",
+    "remote-link",
+    "remote-sidecar",
+    "remote-stop",
+    "install-self",
+    "wg",
+];
+
+/// Maps the actions accepted after the `remote` noun to their direct command
+/// aliases. Keeping this mapping with the remote command grammar prevents
+/// startup normalization from drifting from the public CLI parser.
+pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
+    match action {
+        "connect" => Some("connect"),
+        "ssh" => Some("ssh"),
+        "forward" => Some("forward"),
+        "browser-proxy" => Some("browser-proxy"),
+        "rpc" => Some("rpc"),
+        "enroll" => Some("enroll"),
+        "known-daemons" => Some("known-daemons"),
+        "stop" => Some("remote-stop"),
+        _ => None,
+    }
+}
+
+/// Returns whether argv selects the remote command family.
+///
+/// Keeping this classifier next to the public CLI grammar prevents startup
+/// routing and the Unix remote implementation from maintaining separate lists.
+pub(super) fn is_remote_invocation(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return false,
+            "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
+                    return false;
+                }
+                index += 2;
+            }
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
+                if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
+                    return false;
+                }
+                index += 1;
+            }
+            value if value.starts_with('-') => return false,
+            value => return REMOTE_COMMANDS.contains(&value),
+        }
+    }
+    false
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum OutputMode {
@@ -76,7 +144,11 @@ impl std::fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 pub fn is_public_scope(value: &str) -> bool {
-    PUBLIC_SCOPES.contains(&value)
+    PUBLIC_SCOPES.contains(&canonical_scope(value))
+}
+
+pub(super) fn canonical_scope(value: &str) -> &str {
+    shorthand::scope(value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
@@ -133,6 +205,7 @@ fn parse_command(
     global: GlobalArgs,
     command_args: Vec<String>,
 ) -> Result<ParsedCommand, UsageError> {
+    let command_args = shorthand::normalize(&command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -153,18 +226,16 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
-            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
+            }
+            Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
+                Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
-    if command_args
-        .iter()
-        .take_while(|value| value.as_str() != "--")
-        .any(|value| matches!(value.as_str(), "-h" | "--help"))
-    {
+    if has_help_option(&command_args) {
         let words = command_args
             .iter()
             .take_while(|value| value.as_str() != "--")
@@ -173,7 +244,10 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "status" | "stop" | "reload-config") =>
+                if matches!(
+                    *action,
+                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                ) =>
             {
                 Some(format!("server {action}"))
             }
@@ -249,6 +323,25 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             index += 1;
             continue;
         }
+        // Match clap's standard long-option form, where an option value can
+        // follow an equals sign (for example, `--socket=/tmp/cmux.sock`).
+        // This keeps one-token invocations convenient without changing the
+        // existing separated-value grammar.
+        if let Some((flag, inline_value)) = value.split_once('=')
+            && matches!(flag, "--socket" | "--session" | "--machine")
+        {
+            if inline_value.is_empty() {
+                return Err((UsageError::new(format!("{flag} needs a value")), global.output));
+            }
+            match flag {
+                "--socket" => global.socket = Some(PathBuf::from(inline_value)),
+                "--session" => global.session = Some(inline_value.to_owned()),
+                "--machine" => global.machine = Some(inline_value.to_owned()),
+                _ => unreachable!(),
+            }
+            index += 1;
+            continue;
+        }
         match value.as_str() {
             "--socket" => {
                 global.socket = Some(PathBuf::from(
@@ -266,23 +359,25 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(global_value(args, index, value).map_err(|error| (error, global.output))?);
                 index += 2;
             }
-            "--json" => {
-                set_output_mode(&mut global, OutputMode::Json, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--jsonl" => {
-                set_output_mode(&mut global, OutputMode::JsonLines, value)
-                    .map_err(|error| (error, global.output))?;
-                index += 1;
-            }
-            "--quiet" => {
-                set_output_mode(&mut global, OutputMode::Quiet, value)
+            "--json" | "--jsonl" | "--quiet" => {
+                let output = match value.as_str() {
+                    "--json" => OutputMode::Json,
+                    "--jsonl" => OutputMode::JsonLines,
+                    "--quiet" => OutputMode::Quiet,
+                    _ => unreachable!(),
+                };
+                set_output_mode(&mut global, output, value)
                     .map_err(|error| (error, global.output))?;
                 index += 1;
             }
             _ => {
                 command.push(value.clone());
+                if option_takes_value(value)
+                    && let Some(next) = args.get(index + 1)
+                {
+                    command.push(next.clone());
+                    index += 1;
+                }
                 index += 1;
             }
         }
@@ -290,8 +385,39 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
     Ok((global, command))
 }
 
+/// Option arity is shared with resource tokenization. Values such as --help or
+/// --json are payloads when owned by a preceding option, never global switches.
+fn option_takes_value(value: &str) -> bool {
+    shorthand::short_value_option(value)
+        || (value.starts_with("--")
+            && !value.contains('=')
+            && !matches!(
+                value,
+                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
+            )
+            && !command::is_boolean_flag(value.trim_start_matches("--")))
+}
+
+fn has_help_option(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if matches!(value, "-h" | "--help") {
+            return true;
+        }
+        index += if option_takes_value(value) { 2 } else { 1 };
+    }
+    false
+}
+
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
-    args.get(index + 1).cloned().ok_or_else(|| UsageError::new(format!("{flag} needs a value")))
+    match args.get(index + 1) {
+        Some(value) if !value.starts_with("--") => Ok(value.clone()),
+        _ => Err(UsageError::new(format!("{flag} needs a value"))),
+    }
 }
 
 fn set_output_mode(
@@ -324,9 +450,12 @@ fn scope_help_for(
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
     match scope {
+        "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
+        "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Borrowed(MACHINE_HELP),
@@ -356,6 +485,7 @@ USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+  cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -376,8 +506,10 @@ GLOBAL OPTIONS
 
 PROCESS HELP
   cmux help start
+  cmux help shorthands
   cmux attach --help
   cmux relay --help
+  cmux wg hub --help
   cmux machine-agent --help
 
 RESOURCE SCOPES
@@ -475,8 +607,8 @@ USAGE
   cmux workspace list
   cmux workspace create [--name <value>] [--empty] [--correlation-key <value>] [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
-  cmux workspace <selector> run [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--correlation-key <value>] shell <script>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace <selector> screen ...
   Nested panes support split --right or --down.
@@ -507,7 +639,7 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 ";
 
@@ -532,6 +664,7 @@ USAGE
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
+  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
@@ -559,6 +692,10 @@ USAGE
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+  cmux agent plugin list
+  cmux agent plugin install <git-url> [--name <value>] [--force]
+  cmux agent plugin use|update|remove <name-or-id>
+  cmux agent plugin use --builtin
 ";
 
 const SIDEBAR_HELP: &str = "\
@@ -637,6 +774,44 @@ mod tests {
     }
 
     #[test]
+    fn global_value_options_accept_inline_equals_values() {
+        let (global, command) = parse_globals(&strings(&[
+            "--socket=/tmp/review.sock",
+            "--session=review-session",
+            "--machine=builder",
+            "workspace",
+            "list",
+        ]))
+        .unwrap();
+        assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert_eq!(global.machine.as_deref(), Some("builder"));
+        assert_eq!(command, strings(&["workspace", "list"]));
+    }
+
+    #[test]
+    fn global_value_options_reject_empty_inline_values() {
+        let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--socket needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_reject_following_option() {
+        let error =
+            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--session needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_accept_hyphen_prefixed_values() {
+        let (global, command) =
+            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
+        assert_eq!(global.session.as_deref(), Some("-1"));
+        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
+        assert!(command.is_empty());
+    }
+
+    #[test]
     fn server_lifecycle_routing_flags_follow_action() {
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
             parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
@@ -676,6 +851,31 @@ mod tests {
     }
 
     #[test]
+    fn server_stats_parses_with_routing_options() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stats", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server stats must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
+        assert!(
+            scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
+        );
+    }
+
+    #[test]
+    fn server_stats_help_routes_to_the_stats_topic() {
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["server", "stats", "--help"])).unwrap()
+        else {
+            panic!("server stats help must produce a scoped help topic");
+        };
+        assert_eq!(topic, "server stats");
+        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+    }
+
+    #[test]
     fn every_scope_has_dedicated_help() {
         let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         for scope in PUBLIC_SCOPES {
@@ -706,5 +906,128 @@ mod tests {
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
+    }
+
+    #[test]
+    fn remote_invocation_allows_leading_global_options() {
+        assert!(is_remote_invocation(&strings(&["remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session", "-1", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--socket", "-tmp/socket", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session=dev", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&[
+            "--session",
+            "dev",
+            "--socket",
+            "/tmp/cmux.sock",
+            "remote",
+            "rpc",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
+    }
+
+    #[test]
+    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
+        assert!(!is_remote_invocation(&strings(&["--session"])));
+        assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--json", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&[
+            "--socket",
+            "--session=dev",
+            "remote",
+            "connect",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session=", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
+    }
+
+    #[test]
+    fn shorthand_resource_paths_preserve_selectors_and_payloads() {
+        for (short, canonical) in [
+            (vec!["ws", "ls"], vec!["workspace", "list"]),
+            (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
+            (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
+            (
+                vec!["ws", "name:ls", "win", "current", "p", "current", "get"],
+                vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--json"],
+                vec!["terminal", "current", "write", "--text=--json"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--help"],
+                vec!["terminal", "current", "write", "--text=--help"],
+            ),
+            (
+                vec!["ws", "current", "run", "--", "echo", "--json", "neww"],
+                vec!["workspace", "current", "run", "--", "echo", "--json", "neww"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (global.output, request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_tmux_commands_share_canonical_operations() {
+        for (short, canonical) in [
+            (vec!["ls"], vec!["session", "list"]),
+            (vec!["lsw"], vec!["screen", "list"]),
+            (vec!["lsp"], vec!["pane", "list"]),
+            (vec!["neww", "-n", "api"], vec!["screen", "create", "--name", "api"]),
+            (vec!["splitw", "-h"], vec!["pane", "current", "split", "--right"]),
+            (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
+            (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
+            (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
+            (
+                vec!["renamew", "-t", "api", "backend"],
+                vec!["screen", "api", "rename", "--name", "backend"],
+            ),
+            (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
+            (
+                vec!["send-keys", "C-c", "Enter"],
+                vec!["terminal", "current", "keys", "ctrl+c", "enter"],
+            ),
+            (
+                vec!["send-keys", "-l", "hello", "世界"],
+                vec!["terminal", "current", "write", "--text", "hello世界"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
+        for args in [
+            vec!["splitw", "-h", "-v"],
+            vec!["splitw", "-d"],
+            vec!["selectp", "-L", "-R"],
+            vec!["neww", "-n", "one", "--name", "two"],
+            vec!["selectw", "-t"],
+            vec!["capturep", "-t", "one", "--target", "two"],
+            vec!["send-keys", "hello world"],
+            vec!["new-session"],
+        ] {
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
     }
 }

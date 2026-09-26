@@ -85,7 +85,10 @@ struct MarkdownPanelView: View {
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
                 session: panel.rendererSession,
-                onRequestPanelFocus: onRequestPanelFocus
+                onRequestPanelFocus: onRequestPanelFocus,
+                onViewAttachedToWindow: { [weak panel] in
+                    panel?.replayPendingPreviewFocusAfterWindowAttach()
+                }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .opacity(panel.displayMode == .preview ? 1 : 0)
@@ -99,9 +102,26 @@ struct MarkdownPanelView: View {
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    gutterBackgroundColor: appearance.backgroundColor,
+                    wordWrap: fileEditorWordWrap,
+                    filePath: panel.filePath
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
             }
         }
     }
@@ -177,7 +197,7 @@ struct MarkdownPanelView: View {
                 .cmuxFont(size: 12, design: .monospaced)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: panel.filePath)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))

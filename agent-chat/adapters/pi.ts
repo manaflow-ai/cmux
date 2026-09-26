@@ -230,7 +230,7 @@ function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true, handoff: true } });
 }
 
 async function captureState(sess: SessionCtx) {
@@ -351,6 +351,10 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
+      // A low-level run can end before Pi has finished retrying, compacting, or
+      // draining a queued follow-up. Keep the turn active until agent_settled.
+      break;
+    case "agent_settled":
       finishTurn(sess);
       break;
     case "error":

@@ -1,7 +1,9 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -76,6 +78,7 @@ struct AgentHibernationProcessTerminationTests {
             processID, processTTYDevice, processGroupID in
             CmuxTopProcessInfo(
                 pid: processID,
+                processIdentity: AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: Int64(processID), startMicroseconds: processID == 202 ? 2 : processID == 303 ? 3 : 1),
                 parentPID: 1,
                 name: "test",
                 path: nil,
@@ -103,17 +106,17 @@ struct AgentHibernationProcessTerminationTests {
         )
         let rootIdentity = AgentPIDProcessIdentity(
             pid: 101,
-            startSeconds: 10,
+            startSeconds: 101,
             startMicroseconds: 1
         )
         let lateIdentity = AgentPIDProcessIdentity(
             pid: 202,
-            startSeconds: 20,
+            startSeconds: 202,
             startMicroseconds: 2
         )
         let unrelatedIdentity = AgentPIDProcessIdentity(
             pid: 303,
-            startSeconds: 30,
+            startSeconds: 303,
             startMicroseconds: 3
         )
         let identities = [
@@ -145,7 +148,6 @@ struct AgentHibernationProcessTerminationTests {
         #expect(epoch.signalableProcessIdentities == [rootIdentity])
         #expect(probedProcessIDs.withLock { $0 } == [101, 202])
     }
-
     @MainActor
     @Test
     func terminationSignalsValidatedProcessGroupWithoutRedundantPIDSignal() async {
@@ -438,6 +440,93 @@ struct AgentHibernationProcessTerminationTests {
     }
 
     @Test
+    func processScopeRejectsDescendantWithoutSharedTTYEvidence() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let ttyDevice = Int64(0x123)
+        let process: (Int, Int, Int64?, Bool) -> CmuxTopProcessInfo = {
+            processID, parentProcessID, processTTYDevice, isAgentProcess in
+            CmuxTopProcessInfo(
+                pid: processID,
+                parentPID: parentProcessID,
+                name: "test-\(processID)",
+                path: "/usr/bin/test-\(processID)",
+                ttyDevice: processTTYDevice,
+                cmuxWorkspaceID: isAgentProcess ? workspaceID : nil,
+                cmuxSurfaceID: isAgentProcess ? panelID : nil,
+                cmuxAttributionReason: isAgentProcess ? "cmux-test" : nil,
+                processGroupID: 100,
+                terminalProcessGroupID: 100,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(100, 1, ttyDevice, false),
+                process(101, 100, ttyDevice, true),
+                process(102, 101, nil, false),
+            ],
+            sampledAt: .now,
+            includesProcessDetails: true
+        )
+
+        let scope = snapshot.agentHibernationProcessScope(
+            panelProcessIDs: [101, 102],
+            agentProcessIDs: [101]
+        )
+
+        #expect(scope.terminationProcessIDs == [100, 101, 102])
+        #expect(scope.containsUnrelatedProcess)
+    }
+
+    @Test
+    func processScopeBoundsOversizedDescendantTree() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let ttyDevice = Int64(0x123)
+        let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
+        let makeProcess: (Int, Int) -> CmuxTopProcessInfo = {
+            processID, parentProcessID in
+            CmuxTopProcessInfo(
+                pid: processID,
+                parentPID: parentProcessID,
+                name: "test-\(processID)",
+                path: "/usr/bin/test-\(processID)",
+                ttyDevice: processID <= 101 ? ttyDevice : nil,
+                cmuxWorkspaceID: processID == 101 ? workspaceID : nil,
+                cmuxSurfaceID: processID == 101 ? panelID : nil,
+                cmuxAttributionReason: processID == 101 ? "cmux-test" : nil,
+                processGroupID: processID <= 101 ? 100 : nil,
+                terminalProcessGroupID: processID <= 101 ? 100 : nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processes = [makeProcess(100, 1)] +
+            Array(101...(100 + maximumProcessCount + 8)).map { processID in
+                makeProcess(processID, processID == 101 ? 100 : processID - 1)
+            }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: .now,
+            includesProcessDetails: true
+        )
+
+        let scope = snapshot.agentHibernationProcessScope(
+            panelProcessIDs: [101],
+            agentProcessIDs: [101]
+        )
+
+        #expect(scope.terminationProcessIDs.count <= maximumProcessCount)
+        #expect(scope.containsUnrelatedProcess)
+    }
+
+    @Test
     func validatesExactProcessGeneration() throws {
         let workspaceID = UUID()
         let panelID = UUID()
@@ -458,20 +547,24 @@ struct AgentHibernationProcessTerminationTests {
             processIdentities: identities
         )
 
-        let terminations = try #require(
-            AgentHibernationController.validatedScopedProcessTerminations(
-                for: scope,
-                processIdentityProvider: { identities[$0] },
-                processGroupProvider: { pid_t($0 + 1_000) }
-            )
-        )
+        guard let terminations = AgentHibernationController.validatedScopedProcessTerminations(
+            for: scope,
+            processIdentityProvider: { identities[$0] },
+            processGroupProvider: { pid_t($0 + 1_000) },
+            // Fixture PIDs must not read an unrelated runner process's TTY.
+            processTTYDeviceProvider: { $0 == 202 ? 123 : nil }
+        ) else {
+            Issue.record("The exact process-generation fixture must validate")
+            return
+        }
 
         #expect(
             terminations == [
                 .init(
                     processID: 202,
                     processIdentity: secondIdentity,
-                    processGroupID: 1_202
+                    processGroupID: 1_202,
+                    ttyDevice: 123
                 ),
                 .init(
                     processID: 101,
@@ -705,7 +798,8 @@ struct AgentHibernationProcessTerminationTests {
         panel.completeAgentHibernationTermination()
 
         #expect(!panel.isAgentHibernationTerminating)
-        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: false))
+        #expect(panel.prepareAgentHibernationResume() == .resumed(queuedStartupInput: true))
+        #expect(panel.surface.nextRuntimeInitialInput == agent.resumeStartupInput())
         #expect(!panel.isAgentHibernated)
     }
 

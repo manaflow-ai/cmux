@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import Foundation
@@ -8,6 +9,11 @@ import Foundation
 /// in a `Workspace`.
 @MainActor
 protocol PaneDropContainer: AnyObject {
+    var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { get }
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> SurfaceTransferRejection?
     /// Returns the selected panel owned by `paneId`.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
@@ -38,6 +44,18 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    /// Projects a Cloud tree row (one resource, or a workspace's collection) at this destination.
+    func performPortalSurfaceResourceDrop(
+        group: SurfaceResourceGroup,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     /// Returns the drag operation for a simulator file destination, if present.
     func simulatorFileDropOperation(
         urls: [URL],
@@ -64,6 +82,18 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { .init(cloudMachine: nil) }
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> SurfaceTransferRejection? { nil }
+
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool { false }
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool { false }
+
     /// Handles synthetic capabilities before the caller's normal surface move.
     ///
     /// Returning `nil` means the transfer is a live Bonsplit surface. A non-nil
@@ -77,6 +107,12 @@ extension PaneDropContainer {
         guard let source = sourceResolver.registeredSource(id: id) else {
             return nil
         }
+
+        let transfer = PaneDragTransfer(
+            tabId: id, sourcePaneId: request.sourcePaneId.id,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
 
         let handled: Bool
         switch source {
@@ -92,6 +128,10 @@ extension PaneDropContainer {
                     destination: request.destination
                 )
             )
+        case .surfaceResources(let group):
+            handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
+        case .rightSidebarTool(let mode):
+            handled = canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: request.destination)
         case .surface:
             return nil
         }
@@ -106,9 +146,12 @@ extension PaneDropContainer {
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
+        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
         switch source {
-        case .vaultSession, .filePreview:
+        case .vaultSession, .filePreview, .surfaceResources:
             return true
+        case .rightSidebarTool(let mode):
+            return canPerformRightSidebarToolDrop(mode)
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
         }
@@ -122,6 +165,11 @@ extension PaneDropContainer {
         zone: DropZone,
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
+        let transfer = PaneDragTransfer(
+            tabId: tabId, sourcePaneId: sourcePaneId,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard canPerformPortalPaneDrop(transfer, source: source) else { return false }
         let destination = PaneDropRouting.destination(
             targetPane: paneId,
             zone: zone
@@ -137,6 +185,10 @@ extension PaneDropContainer {
                 urls: [URL(fileURLWithPath: entry.filePath)],
                 destination: destination
             ))
+        case .surfaceResources(let group):
+            return performPortalSurfaceResourceDrop(group: group, destination: destination)
+        case .rightSidebarTool(let mode):
+            return canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -153,6 +205,14 @@ extension PaneDropContainer {
         panelId _: UUID
     ) -> NSDragOperation? {
         nil
+    }
+
+    /// Declines Cloud rows for containers that cannot host a projected surface (the Dock).
+    func performPortalSurfaceResourceDrop(
+        group _: SurfaceResourceGroup,
+        destination _: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        false
     }
 
     /// Declines simulator handling for containers without simulator panels.
@@ -211,7 +271,8 @@ extension PaneDropContainer {
         _ urls: [URL],
         context: PaneDropContext,
         hostedView: GhosttySurfaceScrollView?,
-        window: NSWindow?
+        window: NSWindow?,
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         if let hostedView {
             return performPanelTextDrop(
@@ -219,7 +280,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window,
                 insert: {
-                    hostedView.handleDroppedURLs(urls)
+                    hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }
@@ -233,7 +294,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window ?? terminalPanel.surface.uiWindow,
                 insert: {
-                    terminalPanel.hostedView.handleDroppedURLs(urls)
+                    terminalPanel.hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }
@@ -252,9 +313,18 @@ extension PaneDropContainer {
 }
 
 extension Workspace: PaneDropContainer {
-    /// A live surface can always ask the workspace dispatcher to move it.
-    func canPerformPortalSurfaceDrop(_: PaneDragTransfer) -> Bool {
-        true
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool {
+        !isRetiredFromOwningTabManager && mode.canOpenAsPane && mode.isAvailable()
+    }
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleRightSidebarToolDrop(mode: mode, destination: destination)
+    }
+
+    func canPerformPortalSurfaceDrop(_ transfer: PaneDragTransfer) -> Bool {
+        surfaceDropRejection(transfer, source: .surface) == nil
     }
 
     /// Uses the same restore-aware launch as every existing workspace Vault drop.
@@ -263,6 +333,14 @@ extension Workspace: PaneDropContainer {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         handleSessionDrop(entry: entry, destination: destination)
+    }
+
+    /// Projects a dragged Cloud row through the surface catalog.
+    func performPortalSurfaceResourceDrop(
+        group: SurfaceResourceGroup,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleSurfaceResourceDrop(group: group, destination: destination)
     }
 
     /// Returns the workspace panel selected in the target pane.

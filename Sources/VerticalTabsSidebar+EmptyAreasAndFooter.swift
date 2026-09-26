@@ -197,9 +197,9 @@ struct SidebarFooterCircularIcon: View {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: style.pointSize,
-            weight: style.weight
+            weight: style.weight,
+            tint: .secondary
         )
-        .foregroundStyle(.secondary)
     }
 }
 
@@ -225,182 +225,6 @@ struct SidebarFooterHelpIcon: View {
 
     var body: some View {
         SidebarFooterCircularIcon(systemName: systemName, style: style)
-    }
-}
-
-struct SidebarAccountMenuButton: View {
-    @EnvironmentObject private var tabManager: TabManager
-    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
-    private let title = String(localized: "settings.section.account", defaultValue: "Account")
-    private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-    @State private var isPopoverPresented = false
-#if DEBUG
-    @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
-    private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
-    @AppStorage(SidebarFooterProfileDisplayDebugSettings.displayKey)
-    private var debugProfileDisplay = SidebarFooterProfileDisplayDebugSettings.defaultDisplay.rawValue
-#endif
-
-    private var profileIconSize: CGFloat {
-#if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.profileIconSize
-#endif
-    }
-
-    private var prefersProfileIcon: Bool {
-#if DEBUG
-        SidebarFooterProfileDisplayDebugChoice(rawValue: debugProfileDisplay) == .icon
-#else
-        false
-#endif
-    }
-
-    private func presentation(
-        isSignedIn: Bool,
-        hasProfilePicture: Bool
-    ) -> SidebarAccountButtonPresentation {
-        let presentation = SidebarAccountButtonPresentation.resolve(
-            isSignedIn: isSignedIn,
-            prefersProfileIcon: prefersProfileIcon,
-            hasProfilePicture: hasProfilePicture
-        )
-#if DEBUG
-        if !presentation.showsProfilePicture {
-            return SidebarAccountButtonPresentation(
-                visual: presentation.visual,
-                size: profileIconSize
-            )
-        }
-#endif
-        return presentation
-    }
-
-    var body: some View {
-        let identity = accountFlow?.currentIdentity
-        let isSignedIn = identity != nil
-        let buttonTitle = isSignedIn ? title : signInTitle
-        let presentation = presentation(
-            isSignedIn: isSignedIn,
-            hasProfilePicture: identity?.avatarURL != nil
-        )
-        Button {
-            if isSignedIn {
-                isPopoverPresented.toggle()
-            } else {
-                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
-                    tabManager: tabManager,
-                    debugSource: "sidebar.account"
-                )
-            }
-        } label: {
-            SidebarAccountAvatar(
-                avatarURL: identity?.avatarURL,
-                displayName: identity?.displayName ?? "",
-                email: identity?.email ?? "",
-                isSignedIn: presentation.showsProfilePicture,
-                size: presentation.size
-            )
-            .frame(width: buttonSize, height: buttonSize)
-        }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .disabled(accountFlow?.isWorkingOnAuth == true)
-        .frame(width: buttonSize, height: buttonSize)
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPopoverPresented,
-            preferredEdge: .maxY,
-            detachedGap: 4
-        ) {
-            SidebarAccountPopover(
-                accountFlow: accountFlow,
-                dismiss: { isPopoverPresented = false }
-            )
-        })
-        .safeHelp(buttonTitle)
-        .accessibilityLabel(buttonTitle)
-        .accessibilityIdentifier("SidebarAccountMenuButton")
-    }
-}
-
-private struct SidebarAccountPopover: View {
-    let accountFlow: HostAccountFlow?
-    let dismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let identity = accountFlow?.currentIdentity {
-                HStack(spacing: 10) {
-                    SidebarAccountAvatar(
-                        avatarURL: identity.avatarURL,
-                        displayName: identity.displayName,
-                        email: identity.email,
-                        isSignedIn: true,
-                        size: 34
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(identity.displayName.isEmpty ? identity.email : identity.displayName)
-                            .cmuxFont(size: 13, weight: .semibold)
-                            .lineLimit(1)
-                        if !identity.email.isEmpty && identity.email != identity.displayName {
-                            Text(identity.email)
-                                .cmuxFont(size: 11)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                Divider()
-            } else {
-                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
-                    .cmuxFont(size: 13, weight: .semibold)
-                Button {
-                    dismiss()
-                    accountFlow?.startSignIn()
-                } label: {
-                    Label(
-                        String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
-                        systemImage: "person.crop.circle.badge.plus"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("SidebarAccountSignInButton")
-            }
-            if accountFlow?.isProUpgradeAvailable == true {
-                if accountFlow?.currentIdentity == nil {
-                    Divider()
-                }
-                Button {
-                    dismiss()
-                    accountFlow?.openProUpgrade()
-                } label: {
-                    Label(
-                        String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                        systemImage: "sparkles"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("SidebarAccountUpgradeButton")
-            }
-            if accountFlow?.currentIdentity != nil {
-                Button {
-                    dismiss()
-                    Task { await accountFlow?.signOut() }
-                } label: {
-                    Label(
-                        String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
-                        systemImage: "rectangle.portrait.and.arrow.right"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("SidebarAccountSignOutButton")
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(accountFlow?.isWorkingOnAuth == true)
-        .padding(12)
-        .frame(width: 220, alignment: .leading)
     }
 }
 
@@ -446,7 +270,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+    private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterMobileIconDebugSettings.defaultSize
@@ -471,8 +295,7 @@ struct SidebarMobileConnectButton: View {
                     debugSource: "sidebar.mobileConnect"
                 )
             } label: {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                    .foregroundStyle(.secondary)
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium, tint: .secondary)
                     .frame(
                         width: SidebarFooterButtonMetrics.buttonSize,
                         height: SidebarFooterButtonMetrics.buttonSize
@@ -595,20 +418,14 @@ struct SidebarEmptyArea: View {
     private var dropTarget: some View {
         let base = hitTarget
             .onTapGesture(count: 2) {
-                // When the active workspace is a remote-tmux mirror, route through
-                // performNewWorkspaceAction so a new workspace becomes a new tmux
-                // session instead of a local (orphan) workspace. Gate on the
-                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
-                // be polluted with a dragged-in local workspace (move targets don't
-                // exclude dedicated windows), and `contains` would then misroute a
-                // local empty-area double-tap into spawning an unwanted tmux session.
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
+                // Both sidebar implementations (this one and the AppKit table)
+                // share one entry point so a configured `ui.newWorkspace.action`,
+                // and the remote-tmux mirror routing, behave identically here and
+                // for the `+` button.
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.performSidebarEmptyAreaNewWorkspaceAction(tabManager: tabManager)
                 } else {
-                    tabManager.addWorkspace(placementOverride: .end)
+                    tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
@@ -629,6 +446,9 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
+            // This full-height background extends behind the rows. Keep it
+            // SwiftUI-only so native hit testing cannot steal row presses;
+            // the AppKit table and clip view own native-sidebar window drags.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())

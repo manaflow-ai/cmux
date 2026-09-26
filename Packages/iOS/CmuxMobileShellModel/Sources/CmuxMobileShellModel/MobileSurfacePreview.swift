@@ -67,6 +67,8 @@ public struct MobileSurfacePreview: Identifiable, Equatable, Sendable {
     public let kind: Kind
     /// User-facing surface title.
     public let title: String
+    /// Whether the surface currently holds focus on the owning Mac.
+    public let isFocused: Bool
     /// Backing path for file-oriented surfaces, when supplied by the Mac.
     public let filePath: String?
     /// Bounded checklist/status data for a todo surface.
@@ -78,11 +80,13 @@ public struct MobileSurfacePreview: Identifiable, Equatable, Sendable {
         kind: Kind,
         title: String,
         filePath: String? = nil,
-        todo: MobileTodoSnapshot? = nil
+        todo: MobileTodoSnapshot? = nil,
+        isFocused: Bool = false
     ) {
         self.id = id
         self.kind = kind
         self.title = title
+        self.isFocused = isFocused
         self.filePath = filePath
         self.todo = todo
     }

@@ -374,12 +374,14 @@ extension Workspace {
         remoteConnectionState = .connected
         remoteConnectionDetail = nil
         clearProxyOnlyRemoteSidebarArtifacts()
+        clearRecoveredRemoteDaemonSidebarArtifacts()
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
     }
 
     private func applyRemoteTerminalLaunchingPresentation() {
         guard remoteConfiguration != nil,
+              !remoteControllerIsParked,
               !hasAuthoritativelyConnectedRemoteTerminal(
                   in: DockSplitStore.liveRemoteTerminalStores(
                       presentationWorkspaceID: id
@@ -409,8 +411,7 @@ extension Workspace {
         let hasLaunchingTerminal = activeRemoteTerminalSurfaceIds.contains {
             remoteTerminalSessionStatesBySurfaceId[$0]?.phase == .launching
         }
-        if remoteControllerConnectionState == .error ||
-            remoteControllerConnectionState == .suspended {
+        if remoteControllerIsParked {
             applyRemoteConnectionStateUpdate(
                 remoteControllerConnectionState,
                 detail: remoteControllerConnectionDetail,
