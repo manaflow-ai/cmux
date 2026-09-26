@@ -18,6 +18,7 @@ final class PlainPastePTYFixture {
     let surface: TerminalSurface
     let window: NSWindow
     private let previousMenu: NSMenu?
+    private let workerClient: TerminalPastePreparationWorkerClient
     var view: GhosttyNSView { surface.hostedView.surfaceView }
 
     init(optimized: Bool) throws {
@@ -40,6 +41,7 @@ final class PlainPastePTYFixture {
             executableURL: fullWrapper, pasteboardService: owner,
             plainTextExecutableURL: optimized ? textWrapper : nil
         )
+        workerClient = client
         let service = TerminalImageTransferPreparationService(
             operation: { try await client.prepare($0) },
             cleanup: { $0.cleanupTransferredTemporaryFiles(using: owner) }
@@ -118,37 +120,32 @@ final class PlainPastePTYFixture {
         try #require(surface.readText(region: .screen)?.contains("PASTE_READY") == true)
     }
 
-    /// Pays the session's one-time pasteboard cost before the timed trials.
+    /// Warms this fixture's worker launch path before the timed trials.
     ///
-    /// On the owned Mac runners the first full worker that reads the real
-    /// general pasteboard takes 0.7-0.9 s when the Mac is idle and more than
-    /// the 5 s preparation deadline when it is loaded, although the same
-    /// binary answers a synthetic-pasteboard request in ~80 ms. Every later
-    /// worker, full or plain-text, finishes in ~15-50 ms. The deadline then
-    /// drops trial 0 (`deadlineExceeded`). Run one full worker
-    /// against the real general pasteboard outside the paste service, with
-    /// no deadline, so trial 0 measures a fresh worker spawn per paste
-    /// rather than the host's first pasteboard access. It calls the app
-    /// binary directly, so the launch counts stay per-trial.
-    func warmPasteboardAccess() async throws {
-        let app = try #require(Bundle.main.executableURL)
+    /// The launch-counting wrapper is a fresh shell script per fixture, and
+    /// its first launch of the app binary is slow on the owned Mac runners:
+    /// 0.86-1.1 s on an idle mini, over the paste service's 5 s deadline on a
+    /// loaded one, which drops trial 0 as `deadlineExceeded`. The same binary
+    /// launched directly, as the app does, answered the same general-pasteboard
+    /// paste request in ~50 ms just before, and every later wrapper launch
+    /// takes ~15-50 ms. So run one preparation through the wrapper, outside the
+    /// service and its deadline, then clear the launch log so the per-trial
+    /// counts are unchanged and trial 0 measures a fresh worker per paste.
+    func warmWorkerLaunchPath() async throws {
         NSPasteboard.general.clearContents()
         try #require(NSPasteboard.general.setString("cmux-paste-pty-warmup", forType: .string))
-        let client = TerminalPastePreparationWorkerClient(
-            executableURL: app, pasteboardService: GhosttyApp.terminalPasteboard,
-            plainTextExecutableURL: nil
-        )
         let started = ContinuousClock.now
-        let result = try await client.prepare(TerminalPastePreparationRequest(
+        let result = try await workerClient.prepare(TerminalPastePreparationRequest(
             pasteboard: TerminalPasteboardReadRequest(pasteboard: NSPasteboard.general),
             mode: .paste,
             destination: .terminal
         ))
         let elapsed = started.duration(to: .now)
         guard case .terminal(.insertText("cmux-paste-pty-warmup")) = result else {
-            Issue.record("Pasteboard warm-up did not read the warm-up text: \(result)")
+            Issue.record("Worker warm-up did not read the warm-up text: \(result)")
             return
         }
+        try Data().write(to: launches)
         print("PASTE_PTY_WARMUP duration=\(elapsed)")
     }
 

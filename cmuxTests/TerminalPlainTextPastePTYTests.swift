@@ -19,7 +19,7 @@ extension TerminalPlainTextPasteStartupTests {
             let fixture = try PlainPastePTYFixture(optimized: optimized)
             defer { fixture.close() }
             try await fixture.waitUntilReady()
-            try await fixture.warmPasteboardAccess()
+            try await fixture.warmWorkerLaunchPath()
             for trial in 0..<6 {
                 let text = "paste-\(trial) 日本語 🦀 e\u{301}\nsecond\tline\n"
                 NSPasteboard.general.clearContents()
