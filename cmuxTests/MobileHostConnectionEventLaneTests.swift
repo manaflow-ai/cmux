@@ -712,8 +712,10 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
-    @Test func testQueueOverflowClosesWithoutWaitingOutLaneNegotiation() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func testQueueOverflowClosesWithoutWaitingOutLaneNegotiation() async throws {
         let control = RecordingMobileHostByteTransport()
+        let (closed, closedContinuation) = AsyncStream<Void>.makeStream()
         let independent = TestMobileHostIndependentEventWriter(
             behavior: .blockAfterProbe
         )
@@ -731,7 +733,7 @@ extension MobileHostAuthorizationTests {
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
+            onClose: { _ in closedContinuation.yield(()) }
         )
         _ = await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
             id: "subscribe",
@@ -777,10 +779,9 @@ extension MobileHostAuthorizationTests {
         // on its next pass instead of yielding to the parked negotiation.
         #expect(!overflow.startDrain)
         await independent.failBlockedSend()
-        for _ in 0..<1_000 {
-            if await control.observedCloseCount() > 0 { break }
-            await Task.yield()
-        }
+        // The connection reports its close after closing the transport.
+        var closedEvents = closed.makeAsyncIterator()
+        _ = await closedEvents.next()
         #expect(await control.observedCloseCount() == 1)
         await independent.releaseBlockedProbe(result: false)
         _ = await negotiation.value
