@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension AppDelegate {
@@ -52,7 +53,7 @@ extension AppDelegate {
     nonisolated static func markCrashOnlyPrimarySnapshotRemoval(
         defaults: UserDefaults = .standard
     ) {
-        defaults.set(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        defaults.setIfChanged(true, forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 
     nonisolated static func hasCrashOnlyPrimarySnapshotRemovalMarker(
@@ -64,6 +65,7 @@ extension AppDelegate {
     nonisolated static func clearCrashOnlyPrimarySnapshotRemovalMarker(
         defaults: UserDefaults = .standard
     ) {
-        defaults.removeObject(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
+        // Called on every autosave write; skip the no-op removal notification.
+        defaults.removeObjectIfPresent(forKey: crashOnlyPrimarySnapshotRemovalDefaultsKey)
     }
 }
