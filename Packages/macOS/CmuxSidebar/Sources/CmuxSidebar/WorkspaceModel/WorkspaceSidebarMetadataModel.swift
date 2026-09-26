@@ -72,11 +72,7 @@ public final class WorkspaceSidebarMetadataModel {
     /// erase a deliberate script-to-sidebar association.
     public var manualPullRequest: SidebarPullRequestState? {
         get { manualPullRequestStore.state }
-        set {
-            if manualPullRequestStore.replace(newValue) {
-                statusEntriesSubject.send(statusEntries)
-            }
-        }
+        set { updateManualPullRequest { $0.replace(newValue) } }
     }
 
     /// Applies an explicit CLI handoff and emits the existing sidebar snapshot
@@ -89,32 +85,42 @@ public final class WorkspaceSidebarMetadataModel {
         status: SidebarPullRequestStatus,
         branch: String?
     ) -> Bool {
-        let changed = manualPullRequestStore.attach(
-            number: number,
-            label: label,
-            url: url,
-            status: status,
-            branch: branch
-        )
-        if changed { statusEntriesSubject.send(statusEntries) }
-        return changed
+        updateManualPullRequest {
+            $0.attach(
+                number: number,
+                label: label,
+                url: url,
+                status: status,
+                branch: branch
+            )
+        }
     }
 
     /// Reconciles a matching watcher result with the explicit CLI state.
     @discardableResult
     public func reconcileManualPullRequest(with watcherState: SidebarPullRequestState) -> Bool {
-        let changed = manualPullRequestStore.reconcile(with: watcherState)
-        if changed { statusEntriesSubject.send(statusEntries) }
-        return changed
+        updateManualPullRequest { $0.reconcile(with: watcherState) }
     }
 
     /// Clears the explicit CLI association and emits the existing sidebar
     /// snapshot pulse when it was present.
     @discardableResult
     public func clearManualPullRequest() -> Bool {
-        let changed = manualPullRequestStore.clear()
-        if changed { statusEntriesSubject.send(statusEntries) }
-        return changed
+        updateManualPullRequest { $0.clear() }
+    }
+
+    /// Runs one store transition on a copy and writes it back only when it
+    /// changed, so Observation (the Todo pane's inferred status) and the
+    /// sidebar snapshot pulse fire for real changes and not for every
+    /// watcher poll that reconciles to the same value.
+    private func updateManualPullRequest(
+        _ transition: (inout SidebarManualPullRequestStore) -> Bool
+    ) -> Bool {
+        var store = manualPullRequestStore
+        guard transition(&store) else { return false }
+        manualPullRequestStore = store
+        statusEntriesSubject.send(statusEntries)
+        return true
     }
 
     /// Per-panel pull-request state keyed by panel id (legacy
@@ -152,7 +158,6 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
     @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
-    @ObservationIgnored
     private var manualPullRequestStore = SidebarManualPullRequestStore()
 
     /// Creates an empty sidebar-metadata model.
