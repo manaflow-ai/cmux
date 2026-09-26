@@ -134,6 +134,37 @@ struct ControlPlaneConcurrencyTests {
         #expect(Set(result.completed) == Set([1, 2, 3]))
     }
 
+    @Test func longLivedConnectionReleaseStartsQueuedCommand() async {
+        let pool = ControlClientWorkerPool(
+            maximumConcurrentJobs: 1,
+            maximumPendingJobs: 1
+        )
+        let probe = PoolProbe()
+        let gate = PoolGate()
+
+        let stream = await pool.submit { lease in
+            await probe.started()
+            await lease.releaseCapacity()
+            await gate.wait()
+            await probe.finished(1)
+        }
+        let command = await pool.submit {
+            await probe.started()
+            await probe.finished(2)
+        }
+
+        #expect(stream == .started)
+        #expect(command != .rejected)
+
+        for _ in 0..<10_000 {
+            if await probe.hasStarted(2) { break }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        #expect(await probe.hasStarted(2))
+        await gate.openNext()
+    }
+
     @Test func pollingLimiterAllowsBurstThenAppliesPerClientBackpressure() async {
         let clock = TestMonotonicClock()
         let limiter = ControlClientRateLimiter(
