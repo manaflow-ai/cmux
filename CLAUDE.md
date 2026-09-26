@@ -72,9 +72,18 @@ actual executed tests on the current SHA: a green skipped job is not coverage.
 Adding or removing the label affects new event runs, not the label snapshot of
 an existing run or a rerun of that event.
 
+## Proposing tests
+
+Propose a test to the user and get their approval before adding it to any CI
+suite. This covers a new test file or case, moving a test into a different
+lane, and wiring an existing test into a workflow. The proposal states the bug
+or behavior it protects, the command that runs it, its measured runtime, the
+proposed lane (PR, main, INTERNAL, or release) and its dependencies, and what
+it cannot prove. A test is not coverage until a workflow runs it.
+
 ## Regression test commits
 
-Keep two commits: first the failing behavioral regression, then the fix. Run the
+Once the test is approved, keep two commits: first the failing behavioral regression, then the fix. Run the
 same focused command on both and record the commit SHAs, expected failure, and
 passing result. A setup failure or zero executed tests is not regression proof.
 When this proof is available locally, push both commits together after the fix
