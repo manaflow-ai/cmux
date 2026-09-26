@@ -198,6 +198,10 @@ extension TerminalController {
         guard let newId else {
             return .createFailed
         }
+        // An explicit divider position wins over equalize-on-create.
+        if dividerPosition == nil {
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newId)
+        }
         return .created(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
