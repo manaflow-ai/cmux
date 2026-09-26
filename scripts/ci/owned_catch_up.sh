@@ -40,7 +40,8 @@ case "$state" in /*) ;; *) usage ;; esac
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 workspace="$(git rev-parse --show-toplevel)"
-[ "$workspace" = "$(cd "$here/../.." && pwd)" ] || { echo "run from the checkout this script is in" >&2; exit 64; }
+[ "$(cd "$workspace" && pwd -P)" = "$(cd "$here/../.." && pwd -P)" ] \
+  || { echo "run from the checkout this script is in" >&2; exit 64; }
 cd "$workspace"
 head="$(git rev-parse HEAD)"
 
@@ -58,6 +59,7 @@ export CMUX_COMPILE_ADMISSION_CAS="$root/compile-admission-cas"
 export CMUX_SKIP_ZIG_BUILD=1
 export CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26
 export CMUX_CI_SKIP_XCODE_SELECT=1
+export CI=true  # as in a job: build phases read it (a missing cargo fails the Nucleo FFI build instead of skipping)
 # The seed key's runner fields, as compile admission sees them on an owned mini.
 export RUNNER_OS=macOS RUNNER_ARCH=ARM64
 export CMUX_SEED_GIT_DIR="$workspace/.git"
@@ -85,21 +87,21 @@ except ValueError: print("")' "$1" "$2"
 }
 last_json() { grep '^{' | tail -n 1; }
 
-scripts/ci/clear-dirs.sh "$dd" "$CMUX_COMPILE_ADMISSION_CAS"
+scripts/ci/clear-dirs.sh "$dd" "$CMUX_COMPILE_ADMISSION_CAS" >>"$log" 2>&1 || fail "clear"
 CMUX_CI_XCODE_APP="$CMUX_CI_XCODE_APP" ./scripts/select-ci-xcode.sh >>"$log" 2>&1 || fail "select-ci-xcode"
 export DEVELOPER_DIR="$CMUX_CI_XCODE_APP/Contents/Developer"
 ./scripts/install-rust-ci.sh >>"$log" 2>&1 || fail "install-rust-ci"
 
 phase=check
-fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$dd")" || fail "fingerprint"
-checked="$(python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$workspace" "$state" | last_json)" \
+fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$dd" 2>>"$log")" || fail "fingerprint"
+checked="$(python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$workspace" "$state" 2>>"$log" | last_json)" \
   || checked='{}'
 warm="$(field "$checked" warm)"
 prefer=false seed_key=""
 if [ "$warm" = true ]; then
   # Kept seeds only (no MAX_DISTANCE): the same comparison a job runs, without a GitHub compare.
   preferred="$(python3 scripts/ci/owned_build_state.py prefer "$store" "$workspace" \
-    "admission-derived-data-v1-$RUNNER_OS-$RUNNER_ARCH-$fingerprint-" "$head" | last_json)" || preferred='{}'
+    "admission-derived-data-v1-$RUNNER_OS-$RUNNER_ARCH-$fingerprint-" "$head" 2>>"$log" | last_json)" || preferred='{}'
   prefer="$(field "$preferred" prefer)"
   [ "$(field "$preferred" local)" = true ] && seed_key="$(field "$preferred" seed_key)"
 fi
@@ -108,7 +110,7 @@ phase=resolve
 GHOSTTYKIT_ARCHIVE_CACHE_DIR="$state/ghosttykit-archives" ./scripts/download-prebuilt-ghosttykit.sh >>"$log" 2>&1 \
   || fail "ghosttykit"
 python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages >>"$log" 2>&1 || fail "sanitize"
-scripts/ci/clear-dirs.sh "$dd"
+scripts/ci/clear-dirs.sh "$dd" >>"$log" 2>&1 || fail "clear"
 CMUX_CI_MOVE_SOURCE_PACKAGES=1 scripts/ci/compile-app-host-test-product.sh canonical-resolve \
   "$dd" "$workspace/.ci-source-packages" >>"$log" 2>&1 || fail "resolve"
 
@@ -116,7 +118,7 @@ phase=adopt
 seed_hit=false
 if [ "$warm" != true ] || [ "$prefer" = true ]; then
   seeded="$(CMUX_SEED_EXACT="$seed_key" python3 scripts/ci/seed_derived_data.py adopt "$CMUX_CI_CANONICAL_SRC" "$dd" \
-    "admission-derived-data-v1-$RUNNER_OS-$RUNNER_ARCH-$fingerprint-" "$head" | last_json)" || seeded='{}'
+    "admission-derived-data-v1-$RUNNER_OS-$RUNNER_ARCH-$fingerprint-" "$head" 2>>"$log" | last_json)" || seeded='{}'
   seed_hit="$(field "$seeded" hit)"
   [ "$seed_hit" = true ] && adopted="seed:$(field "$seeded" key)"
 fi
@@ -128,8 +130,9 @@ python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$dd" >>
 
 phase=build
 status=0
+# Its output goes to the log once: the 4th argument would tee the same lines there again.
 scripts/ci/compile-app-host-test-product.sh canonical-build "$dd" "$workspace/.ci-source-packages" \
-  "$CMUX_COMPILE_ADMISSION_CAS" "$log" >>"$log" 2>&1 || status=$?
+  "$CMUX_COMPILE_ADMISSION_CAS" /dev/null >>"$log" 2>&1 || status=$?
 defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges >/dev/null 2>&1 || true
 [ "$status" = 0 ] || fail "compile exit $status"
 

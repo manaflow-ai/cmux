@@ -252,8 +252,17 @@ def clone(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
+def sweep_discarded(store: Path) -> None:
+    """Remove kept DerivedData a killed `clear` left aside (12 to 40 GB each). glaeda's idle catch-up
+    (owned_catch_up.sh) is killed whenever a job starts, so a kill inside `keep` is no longer rare. Only the
+    holder of this slot's token touches its store, so nothing here is in use."""
+    for stale in store.glob(f".{DERIVED}.discard-*"):
+        remove(stale)
+
+
 def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
+    sweep_discarded(store)
     if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
         # Which seeds this root adopts, for seed_derived_data.py `prefetch`
         # to fetch ahead while the Mac is idle. Best effort.
@@ -376,6 +385,7 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     if not fingerprint or not derived.is_dir():
         return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
     store.mkdir(parents=True, exist_ok=True)
+    sweep_discarded(store)
     incoming = store / f".{DERIVED}.incoming"
     clone(derived, incoming)
     # A seed's record is never replayed here (adopt reads RECORD only).

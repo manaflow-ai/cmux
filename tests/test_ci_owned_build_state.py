@@ -70,6 +70,18 @@ class Check(Fixture):
             run(state.check, self.store, "fp", self.workspace)
         self.assertFalse((self.store / state.seed.SEED_SOURCE).exists())
 
+    def test_check_and_keep_sweep_what_a_killed_clear_left_aside(self):
+        # glaeda's idle catch-up is killed whenever a job starts; a kill inside clear's rmtree leaves this
+        self.keep()
+        for name in (".derived-data.discard-111", ".derived-data.discard-222"):
+            (self.store / name / "Build").mkdir(parents=True)
+        run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual(sorted(p.name for p in self.store.glob(".derived-data.discard-*")), [])
+        self.assertTrue((self.store / state.DERIVED).is_dir(), "the kept build itself stays")
+        (self.store / ".derived-data.discard-333").mkdir()
+        run(state.keep, self.store, self.derived, "fp")
+        self.assertFalse((self.store / ".derived-data.discard-333").exists())
+
     def test_cold_store(self):
         result = run(state.check, self.store, "fp", self.workspace)
         self.assertEqual((result["warm"], result["packages"]), ("false", "false"))
