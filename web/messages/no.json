@@ -1347,6 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Erstatter agentstatusrader (for eksempel Kjører eller Trenger inndata) med ett farget ikon foran arbeidsområdets tittel som viser agent-, pull request- og grenstatus. Andre statusoppføringer beholder sine egne rader.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },

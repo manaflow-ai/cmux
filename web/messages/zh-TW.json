@@ -1347,6 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "將代理程式狀態列（例如「執行中」或「需要輸入」）取代為工作區標題前的一個彩色圖示，用於顯示代理程式、拉取請求和分支狀態。其他狀態項目仍保留各自的列。",
           "notificationMessageLineLimit": "每個工作區標題下方顯示的最新通知最大行數。",
           "rightMaxWidth": "右側邊欄的最大寬度（點）。省略時使用內建動態上限。"
         },

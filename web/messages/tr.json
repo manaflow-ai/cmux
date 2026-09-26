@@ -1347,6 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Ajan durum satırlarını (örneğin Çalışıyor veya Girdi gerekiyor) çalışma alanı başlığının önünde ajan, pull request ve dal durumunu gösteren tek bir renkli simgeyle değiştirir. Diğer durum girdileri kendi satırlarında kalır.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },

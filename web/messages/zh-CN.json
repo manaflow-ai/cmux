@@ -1347,6 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "将代理状态行（例如“运行中”或“需要输入”）替换为工作区标题前的一个彩色图标，用于显示代理、拉取请求和分支状态。其他状态条目仍保留各自的行。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

@@ -1347,6 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Sostituisce le righe di stato dell’agente (ad esempio In esecuzione o Richiede input) con un’icona colorata prima del titolo del workspace che mostra lo stato dell’agente, della pull request e del branch. Le altre voci di stato mantengono le proprie righe.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
