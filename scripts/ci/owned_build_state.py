@@ -475,13 +475,30 @@ def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dic
     return {"runner": runner, "pool": pool, "keys": keys[:MAX_WARM_KEYS]}
 
 
+def owned_by_live_process(path: Path) -> bool:
+    """Whether PATH ends in `-<pid>` of a process still running: another slot's save in flight."""
+    suffix = path.name.rsplit("-", 1)[-1]
+    if not suffix.isdigit() or int(suffix) <= 0:
+        return False
+    try:
+        os.kill(int(suffix), 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
 def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     package_store = package_store or store
     package_store.mkdir(parents=True, exist_ok=True)
     # Leftovers of a save that was cancelled or lost a rename race to
     # another slot, and a slot's own packages from before PACKAGE_STORE.
+    # Every slot shares the package store, so another slot's save still in
+    # flight (its `.incoming-<pid>` or `.discard-<pid>`) is left alone.
     for stale in package_store.glob(f".{PACKAGES}.*"):
-        remove(stale)
+        if not owned_by_live_process(stale):
+            remove(stale)
     if package_store != store:
         remove(store / PACKAGES)
     # The resolve moved the packages into the canonical tree; a job that
