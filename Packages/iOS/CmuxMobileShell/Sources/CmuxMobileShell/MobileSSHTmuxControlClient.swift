@@ -1,6 +1,16 @@
 internal import CmuxMobileSSH
 import Foundation
 
+/// The byte pipe a tmux control client runs over: an SSH exec channel in the
+/// app, an in-memory pipe in tests.
+protocol MobileSSHTmuxControlTransport: AnyObject, Sendable {
+    var events: AsyncStream<SSHSessionEvent> { get }
+    func write(_ data: Data) async throws
+    func close() async
+}
+
+extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
+
 /// One `tmux -C` control client for one tmux session, over one SSH exec
 /// channel (no PTY, so the stream carries no DCS framing or CRs).
 ///
@@ -45,7 +55,7 @@ final class MobileSSHTmuxControlClient {
 
     let sessionName: String
     let groupedSessionName: String
-    private let channel: SSHSessionChannel
+    private let channel: any MobileSSHTmuxControlTransport
     private var parser = MobileSSHTmuxControlParser()
     /// Reply handlers for this client's commands, in send order.
     private var pendingReplies: [((lines: [Data], isError: Bool)) -> Void] = []
@@ -78,7 +88,9 @@ final class MobileSSHTmuxControlClient {
         case live
     }
 
-    private init(sessionName: String, groupedSessionName: String, channel: SSHSessionChannel) {
+    /// A client over an already started `tmux -C` stream. The app goes
+    /// through ``open(connection:tmux:session:)``; tests pass a pipe.
+    init(sessionName: String, groupedSessionName: String, channel: any MobileSSHTmuxControlTransport) {
         self.sessionName = sessionName
         self.groupedSessionName = groupedSessionName
         self.channel = channel
@@ -117,7 +129,7 @@ final class MobileSSHTmuxControlClient {
         return client
     }
 
-    private func startPump() {
+    func startPump() {
         pump = Task { @MainActor [weak self] in
             guard let events = self?.channel.events else { return }
             for await event in events {
