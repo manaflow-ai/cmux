@@ -218,6 +218,10 @@ path = "tests/test_issue_6714_zsh_shim_noclobber.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_shell_cli_shim_path_normalization.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_issue_9356_bash_shim_noclobber.py"
 lane = "macos-cli-no-socket"
 

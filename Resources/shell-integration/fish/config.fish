@@ -364,6 +364,7 @@ if test "$_cmux_integration_enabled" != 0
             if set -q TMPDIR; and test -n "$TMPDIR"
                 set tmp_root "$TMPDIR"
             end
+            set tmp_root (string replace -r '/+$' '' -- "$tmp_root")
             set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
         end
         set -l shim_path "$shim_root/$command_name"

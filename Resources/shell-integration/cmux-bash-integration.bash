@@ -329,7 +329,11 @@ _cmux_install_cli_command_shim() {
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
     local shim_parent="${shim_root%/*}"
     if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+        local tmp_root="${TMPDIR:-/tmp}"
+        while [[ "$tmp_root" == */ ]]; do
+            tmp_root="${tmp_root%/}"
+        done
+        shim_root="$tmp_root/cmux-cli-shims/$surface_component"
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
