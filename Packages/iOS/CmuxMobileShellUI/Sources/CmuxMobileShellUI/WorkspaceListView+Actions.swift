@@ -11,7 +11,8 @@ extension WorkspaceListView {
                 canCreate: canCreateWorkspaceForMacSelection,
                 canCreateGroup: createWorkspaceGroup != nil,
                 computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets,
-                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds
+                sshKinds: createSSHWorkspace == nil ? [] : sshNewWorkspaceKinds,
+                sshTargetHostID: createSSHWorkspace == nil ? nil : sshCreateHostID
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
                 createWorkspace: createWorkspace,

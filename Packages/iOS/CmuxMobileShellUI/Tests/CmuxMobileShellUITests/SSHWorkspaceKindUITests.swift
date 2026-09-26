@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -20,6 +21,36 @@ import Testing
         let single = WorkspaceListNewWorkspaceMenuValue(canCreate: true, canCreateGroup: false, sshKinds: options)
         #expect(!single.asksForComputer)
         #expect(single.sshKinds.count == 3)
+    }
+
+    /// Switching SSH hosts must replace `+`'s create action. The menu is
+    /// `Equatable` on its value, and two hosts offer the same kinds, so the
+    /// value carries the target host; otherwise SwiftUI kept the previous
+    /// host's action and the first New Shell after a switch opened there.
+    @MainActor @Test func switchingHostsInvalidatesTheNewWorkspaceMenu() {
+        let options = [MobileSSHKindAvailability(kind: .shell)].map(WorkspaceCreateKindOption.init)
+        let first = UUID()
+        let second = UUID()
+        var created: [UUID] = []
+        func menu(_ host: UUID) -> WorkspaceListNewWorkspaceMenu {
+            WorkspaceListNewWorkspaceMenu(
+                value: WorkspaceListNewWorkspaceMenuValue(
+                    canCreate: true,
+                    canCreateGroup: false,
+                    sshKinds: options,
+                    sshTargetHostID: host
+                ),
+                actions: WorkspaceListNewWorkspaceMenuActions(
+                    createWorkspace: {},
+                    createWorkspaceGroup: nil,
+                    createSSHWorkspace: { _ in created.append(host) }
+                )
+            )
+        }
+        #expect(menu(first) == menu(first))
+        #expect(menu(first) != menu(second))
+        menu(second).actions.createSSHWorkspace?(.shell)
+        #expect(created == [second])
     }
 
     @Test func groupedLayoutReachesThePickerAndNamesItsActions() {

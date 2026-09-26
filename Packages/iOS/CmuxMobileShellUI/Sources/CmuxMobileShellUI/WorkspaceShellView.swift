@@ -1278,6 +1278,7 @@ struct WorkspaceShellView: View {
             createSSHWorkspace: sshCreateHostID.map { hostID in
                 { kind in createSSHWorkspace(hostID: hostID, kind: kind) }
             },
+            sshCreateHostID: sshCreateHostID,
             canCreateWorkspace: canCreateWorkspaceForSelection,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in

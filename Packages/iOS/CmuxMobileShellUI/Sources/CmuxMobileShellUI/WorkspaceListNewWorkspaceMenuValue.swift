@@ -10,6 +10,11 @@ struct WorkspaceListNewWorkspaceMenuValue: Equatable {
     /// When `+` creates on one SSH computer: the kinds it offers (PRD D31).
     /// Empty for a Mac, where `+` creates a workspace directly.
     var sshKinds: [WorkspaceCreateKindOption] = []
+    /// The SSH computer `+` creates on. Part of the value because the menu
+    /// is `Equatable` on its value alone: two hosts offer the same kinds,
+    /// so without it switching hosts kept the previous host's create action
+    /// and the first New Shell after a switch opened on the old host.
+    var sshTargetHostID: UUID?
 
     var asksForComputer: Bool { computerTargets.count > 1 }
 }

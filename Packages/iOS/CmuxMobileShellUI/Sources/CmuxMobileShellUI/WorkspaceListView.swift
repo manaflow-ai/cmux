@@ -61,6 +61,8 @@ struct WorkspaceListView: View {
     /// action (PRD D31). Empty/`nil` for Macs.
     var sshNewWorkspaceKinds: [WorkspaceCreateKindOption] = []
     var createSSHWorkspace: ((MobileSSHWorkspaceKind) -> Void)? = nil
+    /// The SSH computer ``createSSHWorkspace`` creates on.
+    var sshCreateHostID: UUID? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
