@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,11 @@ func TestEnsureClaudeNodeOptionsRestoreModuleLivesInPrivateHomeDirectory(t *test
 	}
 	if string(content) != claudeNodeOptionsRestoreModuleScript {
 		t.Fatalf("restore module content mismatch")
+	}
+	// Concurrent launches share this file, so loading it must not delete it.
+	if strings.Contains(claudeNodeOptionsRestoreModuleScript, "unlinkSync") ||
+		strings.Contains(claudeNodeOptionsRestoreModuleScript, "rmdirSync") {
+		t.Fatalf("restore module deletes itself; a concurrent launch would lose it")
 	}
 
 	// Reuse is stable across launches, so a purged TMPDIR cannot strand it.

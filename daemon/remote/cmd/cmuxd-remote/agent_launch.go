@@ -18,12 +18,6 @@ if (hadOriginalNodeOptions) {
 }
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
-try {
-  const fs = require("node:fs");
-  const path = require("node:path");
-  fs.unlinkSync(__filename);
-  fs.rmdirSync(path.dirname(__filename));
-} catch {}
 `
 
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
