@@ -181,8 +181,10 @@ exit 97
             upload = by_id(upload_id)
             self.assertEqual(
                 upload['with']['name'],
-                'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
-                'publish under the name ci.yml uses, so a later run can adopt it')
+                'app-host-products-v1-${{ steps.reuse.outputs.product_key'
+                ' || steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+                'publish under the name ci.yml uses, so a later run can adopt it,'
+                ' or the name of the root a reused product moved this job to')
 
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'],
@@ -497,6 +499,15 @@ exit 97
         def explode(*_):
             raise OSError('unreachable')
         self.assertFalse(revision_on_main.contained_in_main('o/r', sha, 't', compare=explode))
+
+    def test_an_owned_mac_neither_restores_nor_saves_the_cache(self):
+        # 8 owned builds on 2026-09-25 hit 0 to 6 entries (one outlier, 409)
+        # while the transfers cost 1.5 to 3.5 min at the owned Macs' bandwidth.
+        owned = "!startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
+        self.assertIn(owned, step('Restore E2E compilation cache')['if'])
+        self.assertIn(owned, step('Bound E2E compilation cache')['if'])
+        # The save only follows a bound that allowed it.
+        self.assertIn("steps.compilation-cache-bound.outputs.save == 'true'", step('Save E2E compilation cache')['if'])
 
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()

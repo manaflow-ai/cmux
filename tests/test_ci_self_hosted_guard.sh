@@ -1726,9 +1726,10 @@ from pathlib import Path
 import yaml
 
 
-# Attempt 1 of compile admission may take the warm labels in
-# pr_admission_runner, a JSON array; the env restates the first, the root label.
-WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+# Attempt 1 of compile admission may take the pinned labels of
+# admission-placement or pr_admission_runner, a JSON array; the env restates
+# the first, the root label.
+WARM_RUNS_ON = "fromJSON(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
 
 
 def restated(value):
