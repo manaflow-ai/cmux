@@ -1389,7 +1389,9 @@ struct SidebarWorkspaceTableTests {
             level: .info,
             source: "test"
         )
-        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear" }
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(2)) {
+            cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear"
+        }
         #expect(
             cell.currentModelForMeasurement?.snapshot.customDescription == "after telemetry clear",
             "Telemetry changes after the color menu closes must repaint the mounted row."
