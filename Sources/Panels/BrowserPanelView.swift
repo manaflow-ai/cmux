@@ -1188,6 +1188,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                browserOpenExternallyAndCloseButton
                 if isChromeCompact {
                     browserActiveModeButtonWithShortcutHint
                     browserScreenshotCopiedIndicator
@@ -1313,6 +1314,37 @@ struct BrowserPanelView: View {
                 )
             }
         }
+    }
+
+    private var browserOpenExternallyAndCloseButton: some View {
+        let label = String(
+            localized: "browser.openExternallyAndClose",
+            defaultValue: "Open in Default Browser and Close Tab"
+        )
+        return Button {
+            guard let app = AppDelegate.shared,
+                  let target = app.browserActionTarget(for: panel) else { return }
+            if !BrowserActionDispatcher(appDelegate: app).perform(
+                .openInDefaultBrowserAndClose,
+                on: target
+            ) {
+                NSSound.beep()
+            }
+        } label: {
+            CmuxSystemSymbolImage(
+                systemName: "arrow.up.right.square",
+                pointSize: devToolsButtonIconSize,
+                weight: .medium,
+                tint: .primary
+            )
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .disabled(panel.externalBrowserURL == nil)
+        .safeHelp(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("BrowserOpenExternallyAndCloseButton")
     }
 
     private var browserToolbarDownloads: [BrowserDownloadRecord] {
