@@ -100,6 +100,12 @@ class ReadoutTests(unittest.TestCase):
         self.assertIn("no history (stats unreachable: URLError)", text)
         self.assertIn("| - | - |", text)
 
+    def test_pipes_in_names_do_not_break_tables(self):
+        jobs = [job("a | b", 0, 1, 100, steps=[("x | y", 0, 60)])]
+        text = readout.build_readout(jobs, None, "pr")
+        self.assertIn("| a \\| b |", text)
+        self.assertIn("| x \\| y |", text)
+
     def test_nothing_ran(self):
         self.assertIn("No job ran", readout.build_readout([JOBS[-1]], None, "pr"))
 

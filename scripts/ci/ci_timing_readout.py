@@ -70,6 +70,11 @@ def short_name(name: str) -> str:
     return name.rsplit(" / ", 1)[-1]
 
 
+def cell(text: str) -> str:
+    """text safe inside a Markdown table cell."""
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ")
+
+
 def shard_group(name: str) -> str | None:
     head, sep, tail = name.rpartition(" (")
     if sep and tail.endswith(")") and "/" in tail and tail[:-1].replace("/", "").isdigit():
@@ -262,7 +267,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
             queue = flag(f"{queue} ({queue_rank})", queue_high)
         vs = flag(f"{run_rank} ({run_ref})", run_high) if run_rank else "-"
         lines.append(
-            f"| {job.name} | {where(job.raw)} | {queue} | {fmt_duration(job.run)} | {vs} | {trend(run_series) or '-'} |"
+            f"| {cell(job.name)} | {cell(where(job.raw))} | {queue} | {fmt_duration(job.run)} | {vs} | {trend(run_series) or '-'} |"
         )
 
     step_rows = []
@@ -272,7 +277,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
             series = history.find("step", job.name, name)
             step_rank, step_ref, high = compare(seconds, series)
             vs = flag(f"{step_rank} ({step_ref})", high) if step_rank else "-"
-            step_rows.append(f"| {short_name(job.name)} | {name} | {fmt_duration(seconds)} | {vs} |")
+            step_rows.append(f"| {cell(short_name(job.name))} | {cell(name)} | {fmt_duration(seconds)} | {vs} |")
     if step_rows:
         lines += ["", "| job | longest steps | time | vs last 7 days |", "| --- | --- | --- | --- |", *step_rows]
 
