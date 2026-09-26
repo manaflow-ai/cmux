@@ -88,7 +88,7 @@ extension TerminalController {
         guard let record = service.sessionRecord(sessionID: sessionID) else {
             throw MobileChatArtifactIndexError.sessionNotFound
         }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        guard let transcriptPath = await service.resolvedTranscriptPath(for: record) else {
             throw MobileChatArtifactIndexError.sessionUnavailable
         }
         let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
@@ -307,7 +307,7 @@ extension TerminalController {
         guard let record = service.sessionRecord(sessionID: sessionID) else {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        guard let transcriptPath = await service.resolvedTranscriptPath(for: record) else {
             return .failure(mobileChatArtifactError(.sessionUnavailable, path: requestedPath))
         }
         do {
