@@ -67,6 +67,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate the CI timing readout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_timing_readout.py
+
       - name: Validate the repository variable check
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
