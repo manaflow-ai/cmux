@@ -19,6 +19,16 @@
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
 
+# The effective uid, read once from the kernel. Bash's $EUID is not usable here:
+# macOS /bin/bash 3.2 takes EUID from the environment, and the uid decides which
+# owner the cmux-cua trust check and auth-token check accept. Cleared at startup
+# so the environment cannot seed it.
+cmux_codex_wrapper_uid=""
+cmux_codex_wrapper_effective_uid() {
+    [[ -n "$cmux_codex_wrapper_uid" ]] || cmux_codex_wrapper_uid="$(/usr/bin/id -u 2>/dev/null || true)"
+    [[ "$cmux_codex_wrapper_uid" =~ ^[0-9]+$ ]]
+}
+
 cmux_codex_wrapper_is_self_or_shim() {
     local candidate="$1"
     [[ -n "$candidate" ]] || return 1
@@ -147,9 +157,9 @@ cmux_computer_use_stat_owner_modes() {
 cmux_computer_use_owner_modes_are_trusted() {
     local output="$1"
     local expected_count="$2"
-    # Bash's EUID is the effective uid `id -u` prints; reading it spawns nothing.
-    local current_uid="${EUID:-}" owner mode extra count=0
-    [[ "$current_uid" =~ ^[0-9]+$ ]] || return 1
+    local current_uid owner mode extra count=0
+    cmux_codex_wrapper_effective_uid || return 1
+    current_uid="$cmux_codex_wrapper_uid"
     while read -r owner mode extra; do
         [[ -z "$extra" && "$owner" =~ ^[0-9]+$ && "$mode" =~ ^[0-9]+$ ]] || return 1
         [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
@@ -227,7 +237,7 @@ cmux_computer_use_auth_token() {
     if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
         metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
         read -r owner mode <<< "$metadata"
-        if [[ "$owner" == "${EUID:-}" && "$mode" == "600" ]]; then
+        if cmux_codex_wrapper_effective_uid && [[ "$owner" == "$cmux_codex_wrapper_uid" && "$mode" == "600" ]]; then
             IFS= read -r token < "$auth_file" || true
             if [[ -n "$token" ]]; then
                 printf '%s' "$token"
@@ -377,8 +387,8 @@ cmux_codex_emit_computer_use_args() {
         runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     fi
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
-    runtime_uid="${EUID:-}"
-    [[ "$runtime_uid" =~ ^[0-9]+$ ]] || return 1
+    cmux_codex_wrapper_effective_uid || return 1
+    runtime_uid="$cmux_codex_wrapper_uid"
     cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
     # The helper owns external onboarding. Mark that contract explicitly so
