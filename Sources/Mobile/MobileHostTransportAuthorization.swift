@@ -25,6 +25,22 @@ struct MobileHostRPCExecutionContext: Sendable {
     let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+    /// Shared fence token for terminal RPCs and the sibling Iroh input lane.
+    /// A reconnect gets a fresh token, so work admitted by the old connection
+    /// cannot apply after the replacement becomes current.
+    let terminalInputOrderingToken: MobileTerminalInputOrderingToken?
+
+    init(
+        connectionID: UUID,
+        authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry?,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
+    ) {
+        self.connectionID = connectionID
+        self.authorization = authorization
+        self.artifactTransfers = artifactTransfers
+        self.terminalInputOrderingToken = terminalInputOrderingToken
+    }
 
     func issueArtifactTransfer(
         canonicalPath: String

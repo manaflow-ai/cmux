@@ -971,13 +971,19 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             await irx.close(code: .identityMismatch, origin: .local)
             return
         }
+        let terminalInputOrderingToken = await MainActor.run {
+            MobileHostService.shared.terminalInputOrdering.beginConnection(
+                identity: "iroh:\(peer.bindingID)"
+            )
+        }
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
-                journal: journal)
+                journal: journal,
+                terminalInputOrderingToken: terminalInputOrderingToken)
         }
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
@@ -1004,6 +1010,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
             remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
             peerRequestHandler: peerRequestHandler,
+            terminalInputOrderingToken: terminalInputOrderingToken,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.isCurrent(token) == true }
@@ -1029,7 +1036,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
-        journal: IrxJournal
+        journal: IrxJournal,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -1057,7 +1065,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         cursor: cursor,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        terminalInputOrderingToken: terminalInputOrderingToken
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1072,7 +1081,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     await MobileHostIrxTerminalLaneServer.serveInputOnly(
                         resourceID: resource,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        terminalInputOrderingToken: terminalInputOrderingToken
                     )
                     await terminalLaneQuota.release()
                 }

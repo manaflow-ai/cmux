@@ -295,6 +295,12 @@ class TerminalController {
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
+    nonisolated static var terminalInputOrderingStaleMessage: String {
+        String(
+            localized: "socket.terminal.inputOrderingStale",
+            defaultValue: "This terminal input belongs to an older connection; reconnect and try again."
+        )
+    }
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -14668,6 +14674,85 @@ class TerminalController {
         _ request: MobileHostRPCRequest,
         executionContext: MobileHostRPCExecutionContext? = nil
     ) async -> MobileHostRPCResult {
+        guard request.isOrderedTerminalInput,
+              let executionContext,
+              let orderingToken = executionContext.terminalInputOrderingToken
+        else {
+            return await mobileHostHandleRPCUnordered(
+                request,
+                executionContext: executionContext
+            )
+        }
+        if let error = mobileTerminalAliasValidationError(params: request.params) {
+            return mobileHostResult(error)
+        }
+        guard let surfaceID = mobileCanonicalTerminalTarget(params: request.params)?.surfaceID else {
+            return await mobileHostHandleRPCUnordered(
+                request,
+                executionContext: executionContext
+            )
+        }
+
+        let inputSequence = mobileInputSequence(params: request.params)
+        guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
+            surfaceID: surfaceID,
+            token: orderingToken,
+            inputSequence: inputSequence
+        ) else {
+            return mobileHostResult(.err(
+                code: "stale_input",
+                message: Self.terminalInputOrderingStaleMessage,
+                data: ["surface_id": surfaceID.uuidString]
+            ))
+        }
+
+        await ticket.waitForTurn()
+        defer {
+            MobileHostService.shared.terminalInputOrdering.finish(ticket)
+        }
+        guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
+            return mobileHostResult(.err(
+                code: "stale_input",
+                message: Self.terminalInputOrderingStaleMessage,
+                data: ["surface_id": surfaceID.uuidString]
+            ))
+        }
+        var pinnedParams = request.params
+        pinnedParams.removeValue(forKey: "terminal_id")
+        pinnedParams.removeValue(forKey: "tab_id")
+        pinnedParams["surface_id"] = surfaceID.uuidString
+        let pinnedRequest = MobileHostRPCRequest(
+            id: request.id,
+            method: request.method,
+            params: pinnedParams,
+            auth: request.auth
+        )
+        return await mobileHostHandleRPCUnordered(
+            pinnedRequest,
+            executionContext: executionContext
+        )
+    }
+
+    private func mobileInputSequence(params: [String: Any]) -> UInt64? {
+        guard let raw = params["input_sequence"] else { return nil }
+        if let string = raw as? String {
+            return UInt64(string)
+        }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        // NSNumber's decimal spelling preserves integer precision beyond the
+        // 53-bit exact range of Double while rejecting fractional and negative
+        // values through UInt64's parser.
+        return UInt64(number.stringValue)
+    }
+
+    @MainActor
+    private func mobileHostHandleRPCUnordered(
+        _ request: MobileHostRPCRequest,
+        executionContext: MobileHostRPCExecutionContext? = nil
+    ) async -> MobileHostRPCResult {
         // The mobile data-plane RPC speaks `MobileHostRPCRequest` /
         // `MobileHostRPCResult` and dispatches directly to the app-side
         // `v2Mobile*` bodies. It deliberately does NOT route through the v2
@@ -16083,7 +16168,8 @@ class TerminalController {
 
     func mobileResolveWorkspaceAndSurface(
         params: [String: Any],
-        requireTerminal: Bool
+        requireTerminal: Bool,
+        materializeSurface: Bool = true
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
         guard let tabManager = v2ResolveTabManager(params: params),
               let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -16124,7 +16210,8 @@ class TerminalController {
         // resolves a terminal to read or drive, materialize the surface
         // headlessly so attaching alone loads it. Idempotent and a no-op once
         // the surface exists.
-        if requireTerminal,
+        if materializeSurface,
+           requireTerminal,
            let surfaceId,
            let owned = workspace.terminalInputTarget(forPanelID: surfaceId),
            let target = workspace.controlSocketTerminalTarget(for: owned) {

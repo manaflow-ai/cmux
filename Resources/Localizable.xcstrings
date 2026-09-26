@@ -443553,6 +443553,65 @@
         }
       }
     },
+    "socket.terminal.inputOrderingStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This terminal input belongs to an older connection; reconnect and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このターミナル入力は古い接続に属しています。再接続してもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Terminaleingabe gehört zu einer älteren Verbindung. Stellen Sie die Verbindung wieder her und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette saisie du terminal appartient à une ancienne connexion. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي إدخالات الطرفية هذه إلى اتصال أقدم. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta entrada de terminal pertenece a una conexión anterior. Vuelve a conectarte e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這筆終端機輸入屬於較舊的連線；請重新連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此终端输入属于较旧的连接；请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 터미널 입력은 이전 연결에 속합니다. 다시 연결한 후 시도해 주세요."
+          }
+        }
+      }
+    },
     "socket.terminal.processExited": {
       "extractionState": "manual",
       "localizations": {
