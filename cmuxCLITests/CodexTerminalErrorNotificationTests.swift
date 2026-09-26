@@ -35,7 +35,7 @@ struct CodexTerminalErrorNotificationTests {
         environment["HOME"] = root.path
         environment["CFFIXED_USER_HOME"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
         let hookInput = #"{"session_id":"\#(sessionID)","cwd":"\#(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"\#(banner)"}"#
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CodexTerminalErrorBundleMarker.self
