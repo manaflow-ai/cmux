@@ -35,6 +35,37 @@ import UIKit
         #expect(abs(fixture.screenY(of: "workspace-20") - before) < 0.5)
     }
 
+    @Test func rowShowingLessThanAPixelIsNotTheAnchor() throws {
+        let ids = (0..<40).map { "workspace-\($0)" }
+        let fixture = Fixture(ids: ids)
+        let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
+        try #require(overlap > 0 && overlap < fixture.pixel)
+        let before = fixture.screenY(of: "workspace-20")
+
+        // Only anchoring workspace-20 keeps it in place: anchoring the sliver
+        // of workspace-19 above it, or no anchor, lets the new row push it down.
+        fixture.update(ids: Array(ids[..<20]) + ["new"] + Array(ids[20...]))
+
+        #expect(abs(fixture.screenY(of: "workspace-20") - before) < 0.5)
+    }
+
+    @Test func rowShowingOnePixelIsTheAnchor() throws {
+        let ids = (0..<40).map { "workspace-\($0)" }
+        let fixture = Fixture(ids: ids)
+        let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel)
+        try #require(overlap >= fixture.pixel && overlap < fixture.pixel * 2)
+        let before = fixture.screenY(of: "workspace-19")
+
+        // Only anchoring workspace-19 keeps it in place: with no anchor the
+        // removal above pulls it up, and anchoring workspace-20 lets the new
+        // row between them pull it up.
+        fixture.update(
+            ids: ids[..<20].filter { $0 != "workspace-3" } + ["new"] + Array(ids[20...])
+        )
+
+        #expect(abs(fixture.screenY(of: "workspace-19") - before) < 0.5)
+    }
+
     @Test func notificationMovingAVisibleRowToTheTopKeepsItsNeighborsInPlace() throws {
         let ids = (0..<40).map { "workspace-\($0)" }
         let fixture = Fixture(ids: ids)
@@ -151,6 +182,23 @@ import UIKit
             tableView.layoutIfNeeded()
         }
 
+        var pixel: CGFloat { 1 / max(tableView.traitCollection.displayScale, 1) }
+
+        /// Scrolls so `row` ends `overlap` points below the top of the viewport,
+        /// and returns the overlap measured the way the viewport anchor measures it.
+        func scroll(row: Int, overlappingTopBy overlap: CGFloat) throws -> CGFloat {
+            let indexPath = IndexPath(row: row, section: 0)
+            let topInset = tableView.adjustedContentInset.top
+            let maxY = tableView.rectForRow(at: indexPath).maxY
+            var offset = maxY - overlap - topInset
+            // Rounding can leave the measured overlap an ulp short of the target.
+            while maxY - (offset + topInset) < overlap { offset = offset.nextDown }
+            tableView.contentOffset.y = offset
+            tableView.layoutIfNeeded()
+            try #require(tableView.indexPathsForVisibleRows?.contains(indexPath) == true)
+            return maxY - (tableView.contentOffset.y + topInset)
+        }
+
         func indexPath(of rawID: String) -> IndexPath? {
             renderedIDs().firstIndex(of: rawID).map { IndexPath(row: $0, section: 0) }
         }
@@ -160,13 +208,24 @@ import UIKit
             return tableView.rectForRow(at: indexPath).minY - tableView.contentOffset.y
         }
 
-        /// Reads the data source's rows instead of asking it for cells. This
+        /// Reads the data source's rows instead of asking it for cells, then
+        /// checks each visible cell draws the workspace its row names. This
         /// table is laid out in a window, so UIKit has already dequeued cells
         /// for its rows, and dequeuing a second cell for one of those index
         /// paths throws.
         func renderedIDs() -> [String] {
-            #expect(tableView.numberOfRows(inSection: 0) == coordinator.renderedItems.count)
-            return coordinator.renderedItems.compactMap { $0.workspaceID?.rawValue }
+            let items = coordinator.renderedItems
+            #expect(tableView.numberOfRows(inSection: 0) == items.count)
+            for indexPath in tableView.indexPathsForVisibleRows ?? [] where items.indices.contains(indexPath.row) {
+                let cell = tableView.cellForRow(at: indexPath) as? WorkspaceListTableCell
+                guard case .workspace(let row)? = cell?.renderedModel else {
+                    Issue.record("Visible row \(indexPath.row) draws no workspace")
+                    continue
+                }
+                // The fixture names each workspace after its ID.
+                #expect(row.content.name == items[indexPath.row].workspaceID?.rawValue)
+            }
+            return items.compactMap { $0.workspaceID?.rawValue }
         }
 
         static func configuration(ids: [String], previews: [String: String]) -> WorkspaceListTable {
