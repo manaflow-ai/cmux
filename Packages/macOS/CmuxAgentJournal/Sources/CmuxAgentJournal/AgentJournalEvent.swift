@@ -36,4 +36,6 @@ public struct AgentJournalEvent: Sendable, Equatable {
     public var isAttributed: Bool {
         draft.unattributedReason == nil && draft.surfaceId != nil && draft.workspaceId != nil
     }
+    /// Authoritative objective state, when this is a goal update event.
+    public var goalLifecycle: AgentGoalLifecycle? { draft.goalLifecycle }
 }

@@ -367,7 +367,7 @@ struct ControlCommandExecutionPolicyTests {
             "list_notifications", "clear_notifications",
         ]
         #expect(ControlCommandExecutionPolicy.notificationV1Commands == notification)
-        let agentJournal: Set<String> = ["agent_journal_append"]
+        let agentJournal: Set<String> = ["agent_journal_append", "agent_journal_goal"]
         #expect(ControlCommandExecutionPolicy.agentJournalV1Commands == agentJournal)
         let terminalRead: Set<String> = ["read_screen"]
         #expect(ControlCommandExecutionPolicy.terminalReadV1Commands == terminalRead)
