@@ -990,12 +990,7 @@ class GhosttyApp {
                 prefix: "cmux-titlebar-proxy-icon",
                 logLabel: "titlebar proxy icon (fallback)"
             )
-            loadInlineGhosttyConfig(
-                "shell-integration = none",
-                into: fallbackConfig,
-                prefix: "cmux-shell-integration-override",
-                logLabel: "shell integration override (fallback)"
-            )
+            loadCmuxShellIntegrationOverride(fallbackConfig)
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
             loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
@@ -1125,6 +1120,42 @@ class GhosttyApp {
                 )
             }
         }
+    }
+
+    /// Bit order of Ghostty's packed `ShellIntegrationFeatures`.
+    static let ghosttyShellIntegrationFeatureNames = [
+        "cursor", "sudo", "title", "ssh-env", "ssh-terminfo", "path",
+    ]
+    /// Ghostty's defaults: cursor, title and path on.
+    static let ghosttyDefaultShellIntegrationFeatures: CUnsignedInt = 0b100101
+
+    /// Spells out every shell-integration feature from `features` with the
+    /// cursor bit cleared. Ghostty parses the value starting from its defaults,
+    /// so listing only `no-cursor` would reset the user's other choices.
+    static func shellIntegrationFeaturesWithoutCursor(_ features: CUnsignedInt) -> String {
+        ghosttyShellIntegrationFeatureNames.enumerated().map { bit, name in
+            bit != 0 && features & (1 << CUnsignedInt(bit)) != 0 ? name : "no-\(name)"
+        }.joined(separator: ",")
+    }
+
+    /// cmux sources Ghostty's shell integration from its own bootstrap files,
+    /// so keep Ghostty's prompt cursor escape out of that managed path while
+    /// preserving the user's other shell-integration features.
+    func loadCmuxShellIntegrationOverride(_ config: ghostty_config_t) {
+        var features = Self.ghosttyDefaultShellIntegrationFeatures
+        let key = "shell-integration-features"
+        if !ghostty_config_get(config, &features, key, UInt(key.utf8.count)) {
+            features = Self.ghosttyDefaultShellIntegrationFeatures
+        }
+        loadInlineGhosttyConfig(
+            """
+            shell-integration = none
+            shell-integration-features = \(Self.shellIntegrationFeaturesWithoutCursor(features))
+            """,
+            into: config,
+            prefix: "cmux-shell-integration-override",
+            logLabel: "shell integration override"
+        )
     }
 
     private func loadCmuxDefaultAppearanceConfig(
@@ -1286,12 +1317,7 @@ class GhosttyApp {
 
         // Prevent Ghostty from overriding ZDOTDIR — cmux handles shell
         // integration itself via the .zshenv bootstrap (#2594).
-        loadInlineGhosttyConfig(
-            "shell-integration = none",
-            into: config,
-            prefix: "cmux-shell-integration-override",
-            logLabel: "shell integration override"
-        )
+        loadCmuxShellIntegrationOverride(config)
         loadCmuxManagedTerminalSettingsConfig(config)
         loadGlobalFontMagnificationConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)

@@ -1082,6 +1082,10 @@ path = "tests/test_shell_scrollback_restore_replay_path_regression.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_shell_welcome_banner_startup.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_zdotdir_user_override.py"
 lane = "legacy"
 
@@ -1300,4 +1304,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_owned_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
