@@ -163,9 +163,9 @@ Integration additions for the relay path:
 
 ### Claude Code hooks
 
-The relay shell bootstrap writes `~/.cmux/relay/<port>.shell/bin/cmux-claude-wrapper`, which the shell integration's `claude` shim runs. It execs `cmux claude-wrapper`, which resolves the real `claude` from `PATH` (skipping cmux shims) and, when the relay answers `system.ping`, adds one `--settings` file with relay hooks. Existing `--settings` arguments are merged into that file because Claude Code applies only the last one; launchers that put their own `--settings` and `CLAUDE_CONFIG_DIR` in front of `claude` (for example `sr claude proxy`) keep both. Merged copies live in `~/.cmux/claude-settings/` (mode `0600`) and are pruned after 7 idle days.
+The relay shell bootstrap writes `~/.cmux/relay/<port>.shell/bin/cmux-claude-wrapper`, which the shell integration's `claude` shim runs. It execs `cmux claude-wrapper`, which resolves the real `claude` from `PATH` (skipping cmux shims) and, when the relay answers `system.ping`, adds one `--settings` file with relay hooks. Existing `--settings` arguments are merged into that file because Claude Code applies only the last one; launchers that put their own `--settings` and `CLAUDE_CONFIG_DIR` in front of `claude` (for example `sr claude proxy`) keep both. A marker env var stops a launcher that re-resolves `claude` from stacking hooks twice, and the shim directories are dropped from `PATH` before exec. Merged copies live in `~/.cmux/claude-settings/` (mode `0600`) and are pruned after 7 idle days.
 
-Each hook runs `cmux claude-hook <event>`, which always prints `{}` and exits 0. It sends `agent.hook.enqueue` with the surface from `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`, the Claude process TTY, and a payload of at most 4 KiB without `cwd` or transcript paths. `CMUX_CLAUDE_HOOKS_DISABLED=1` turns both off.
+Each hook runs `cmux claude-hook <event>`, which always prints `{}` and exits 0. It sends `agent.hook.enqueue` with the surface from `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID`, the Claude process TTY, and a payload of at most 6 KiB without `cwd` or transcript paths. `CMUX_CLAUDE_HOOKS_DISABLED=1` turns both off.
 
 ### Protocol and flags
 

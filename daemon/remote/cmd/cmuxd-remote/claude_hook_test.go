@@ -98,6 +98,7 @@ func TestCompactClaudeHookPayloadBoundsLargeEvents(t *testing.T) {
 		"session_id":             "sess-2",
 		"hook_event_name":        "Stop",
 		"last_assistant_message": strings.Repeat("x", 10_000),
+		"prompt":                 strings.Repeat("z", 5_000),
 		"transcript_path":        "/home/leo/t.jsonl",
 		"tool_response":          map[string]any{"stdout": strings.Repeat("y", 10_000)},
 	}
@@ -259,5 +260,19 @@ func TestWriteClaudeSettingsFilePrunesIdleCopies(t *testing.T) {
 	}
 	if info, err := os.Stat(path); err != nil || time.Since(info.ModTime()) > time.Minute {
 		t.Fatalf("reused settings copy was not refreshed: %v", err)
+	}
+}
+
+func TestClaudeArgsWithRelayHooksRejectsBareSettingsFlag(t *testing.T) {
+	if _, err := claudeArgsWithRelayHooks([]string{"--model", "opus", "--settings"}, "cmux", t.TempDir()); err == nil {
+		t.Fatal("a trailing --settings without a value must skip injection")
+	}
+}
+
+func TestPathWithoutCmuxShims(t *testing.T) {
+	t.Setenv("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", "/custom/shim")
+	got := pathWithoutCmuxShims("/custom/shim:/tmp/cmux-cli-shims/s:/usr/bin::/bin")
+	if got != "/usr/bin:/bin" {
+		t.Fatalf("pathWithoutCmuxShims = %q", got)
 	}
 }

@@ -20,10 +20,15 @@ import (
 // slow or missing relay never blocks the agent.
 
 const (
-	claudeHookMaximumInputBytes   = 1 << 20
-	claudeHookMaximumPayloadBytes = 4 * 1024
-	claudeHookRoundTripTimeout    = 3 * time.Second
-	claudeHookDeclaredTimeout     = 5
+	claudeHookMaximumInputBytes = 1 << 20
+	// The relay contract admits 8 KiB; 6 KiB stays inside a 16 KiB relay
+	// frame even when every byte needs JSON escaping.
+	claudeHookMaximumPayloadBytes = 6 * 1024
+	// Set on the exec'd claude so a launcher that re-resolves `claude` from
+	// PATH passes through instead of stacking a second set of hooks.
+	claudeRelayWrapperActiveKey = "CMUX_CLAUDE_RELAY_WRAPPER_ACTIVE"
+	claudeHookRoundTripTimeout  = 3 * time.Second
+	claudeHookDeclaredTimeout   = 5
 )
 
 // claudeRelayHookEvents are the non-decision lifecycle events the relay admits.
@@ -210,15 +215,17 @@ func runClaudeWrapper(socketPath string, args []string, refreshAddr func() strin
 		return 127
 	}
 	launchArgs := args
-	if claudeWrapperShouldInject(args, socketPath, refreshAddr) {
+	if os.Getenv(claudeRelayWrapperActiveKey) != "1" && claudeWrapperShouldInject(args, socketPath, refreshAddr) {
 		if injected, err := claudeArgsWithRelayHooks(args, cmuxBin, claudeSettingsCacheDir()); err == nil {
 			launchArgs = injected
 			_ = os.Setenv("CMUX_CLAUDE_PID", strconv.Itoa(os.Getpid()))
 			_ = os.Setenv("CMUX_CLAUDE_HOOK_CMUX_BIN", cmuxBin)
+			_ = os.Setenv(claudeRelayWrapperActiveKey, "1")
 		} else {
 			fmt.Fprintf(os.Stderr, "cmux: launching claude without cmux hooks: %v\n", err)
 		}
 	}
+	_ = os.Setenv("PATH", pathWithoutCmuxShims(os.Getenv("PATH")))
 	argv := append([]string{realClaude}, launchArgs...)
 	if err := syscall.Exec(realClaude, argv, os.Environ()); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: failed to exec claude: %v\n", err)
@@ -318,7 +325,9 @@ func claudeArgsWithRelayHooks(args []string, cmuxBin string, cacheDir string) ([
 		}
 		var value string
 		switch {
-		case argument == "--settings" && index+1 < len(args):
+		case argument == "--settings" && index+1 == len(args):
+			return nil, fmt.Errorf("--settings requires a value")
+		case argument == "--settings":
 			value = args[index+1]
 			index++
 		case strings.HasPrefix(argument, "--settings="):
@@ -461,4 +470,18 @@ func pruneClaudeSettingsFiles(dir string, keep string, now time.Time) {
 			_ = os.Remove(path)
 		}
 	}
+}
+
+// pathWithoutCmuxShims drops the shell integration's claude shim directories
+// so the real claude and anything it launches do not re-enter the wrapper.
+func pathWithoutCmuxShims(pathEnv string) string {
+	shimRoot := os.Getenv("CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
+	var kept []string
+	for _, dir := range filepath.SplitList(pathEnv) {
+		if dir == "" || (shimRoot != "" && dir == shimRoot) || strings.Contains(dir, "/cmux-cli-shims") {
+			continue
+		}
+		kept = append(kept, dir)
+	}
+	return strings.Join(kept, string(os.PathListSeparator))
 }
