@@ -32,6 +32,7 @@ extension CMUXCLI {
     wsLog("prompt received");
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
+    cancelStateSettle(sessionId);
     const lifecycle = lifecycleFor(sessionId);
     if (!lifecycle) return;
     lifecycle.stateReadVersion += 1;
@@ -119,6 +120,7 @@ extension CMUXCLI {
       reconcileThreadState(sessionId, lifecycle.authoritativeState);
     } else {
       refreshThreadState(sessionId, thread);
+      scheduleStateSettle(sessionId);
     }
   });
 }
