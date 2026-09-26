@@ -15,9 +15,17 @@ import Foundation
 ///
 /// Public so app-side stores that encode layout snapshots off the main thread
 /// (closed-item history) share the same guard.
-public enum SessionSnapshotCodingStack {
-    /// Matches the default macOS main-thread stack size.
-    public static let stackSize = 8 << 20
+public struct SessionSnapshotCodingStack: Sendable {
+    /// Stack size, in bytes, of the thread that runs off-main coding work.
+    public let stackSize: Int
+
+    /// Creates a runner.
+    ///
+    /// - Parameter stackSize: Stack bytes for the coding thread. Defaults to
+    ///   8 MB, the default macOS main-thread stack size.
+    public init(stackSize: Int = 8 << 20) {
+        self.stackSize = stackSize
+    }
 
     /// Runs `body` synchronously on a thread with ``stackSize`` bytes of stack.
     ///
@@ -26,7 +34,7 @@ public enum SessionSnapshotCodingStack {
     /// - Parameter body: The coding work to run.
     /// - Returns: The value `body` returns.
     /// - Throws: The error `body` throws.
-    public static func run<T>(_ body: () throws -> T) throws -> T {
+    public func run<T>(_ body: () throws -> T) throws -> T {
         if Thread.isMainThread {
             return try body()
         }

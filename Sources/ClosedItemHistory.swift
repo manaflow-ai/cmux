@@ -686,12 +686,12 @@ final class ClosedItemHistoryStore: ObservableObject {
         let decoder = JSONDecoder()
         // Records carry workspace layout trees; decode on a main-sized stack
         // because this runs on a 512 KB concurrency pool thread (#4656).
-        if let snapshot = try? SessionSnapshotCodingStack.run({
+        if let snapshot = try? SessionSnapshotCodingStack().run({
             try decoder.decode(ClosedItemHistoryPersistenceSnapshot.self, from: data)
         }), snapshot.version == ClosedItemHistoryPersistenceSnapshot.currentVersion {
             return snapshot.records
         }
-        return (try? SessionSnapshotCodingStack.run {
+        return (try? SessionSnapshotCodingStack().run {
             try decoder.decode([ClosedItemHistoryRecord].self, from: data)
         }) ?? []
     }
@@ -719,7 +719,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             let snapshot = ClosedItemHistoryPersistenceSnapshot(records: records)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            let data = try SessionSnapshotCodingStack.run { try encoder.encode(snapshot) }
+            let data = try SessionSnapshotCodingStack().run { try encoder.encode(snapshot) }
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
                 return
             }
