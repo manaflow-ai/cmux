@@ -810,6 +810,44 @@ struct AgentHookDeliveryQueueTests {
         )
     }
 
+    @Test("Configured hook timeout applies to delivery and identifies the timed-out hook")
+    func configuredHookTimeoutIsAppliedAndLogged() async throws {
+        let fixture = try AgentHookStalledProcessFixture()
+        defer { fixture.remove() }
+        let suiteName = "AgentHookDeliveryQueueTests.hookTimeout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(1_000, forKey: "agentHookTimeoutMs")
+        let logs = AgentHookDeliveryLogProbe()
+        let process = AgentHookDeliveryProcess(
+            executableURLProvider: { fixture.executableURL },
+            deliveryTimeout: .seconds(3),
+            terminationGrace: .milliseconds(20),
+            userDefaults: defaults,
+            logger: { message in
+                logs.append(message)
+            }
+        )
+        let event = try makeEvent(
+            agent: "codex",
+            subcommand: "post-tool-use",
+            payload: #"{"hook_event_name":"PostToolUse"}"#,
+            surfaceID: "surface-configured-timeout"
+        )
+        let started = ContinuousClock().now
+
+        await process.deliver(event)
+
+        let elapsed = started.duration(to: ContinuousClock().now)
+        #expect(elapsed < .seconds(2))
+        let messages = await logs.messages()
+        #expect(messages.contains {
+            $0.contains("agent=codex")
+                && $0.contains("subcommand=post-tool-use")
+                && $0.contains("elapsed_ms=")
+        })
+    }
+
     @Test("Installed Codex lifecycle hooks persist after app-owned queue replay")
     func installedCodexHooksPersistThroughDeliveryQueue() async throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
@@ -1013,6 +1051,23 @@ struct AgentHookDeliveryQueueTests {
             options: .regularExpression
         )
         return "CMUX_\(component)_PID"
+    }
+}
+
+private final class AgentHookDeliveryLogProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var captured: [String] = []
+
+    func append(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        captured.append(message)
+    }
+
+    func messages() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return captured
     }
 }
 

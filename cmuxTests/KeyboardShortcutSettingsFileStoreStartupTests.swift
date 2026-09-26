@@ -1695,3 +1695,42 @@ struct FileEditorSettingsFileParsingTests {
         try body()
     }
 }
+
+@Suite("Agent hook timeout settings file", .serialized)
+struct AgentHookTimeoutSettingsFileTests {
+    @Test("Imports automation.hookTimeoutMs into UserDefaults")
+    func importsHookTimeoutMilliseconds() throws {
+        let defaults = UserDefaults.standard
+        let key = "agentHookTimeoutMs"
+        let previousValue = defaults.object(forKey: key)
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-timeout-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+
+        defaults.removeObject(forKey: key)
+        try #"{"automation":{"hookTimeoutMs":30000}}"#.write(
+            to: settingsFileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        withExtendedLifetime(store) {
+            #expect(defaults.integer(forKey: key) == 30_000)
+        }
+    }
+}

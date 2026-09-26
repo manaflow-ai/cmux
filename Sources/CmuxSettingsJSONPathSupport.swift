@@ -143,6 +143,25 @@ struct SettingsFileStringMapping {
     let defaultsKey: String
 }
 
+struct SettingsFileIntegerMapping {
+    let jsonKey: String
+    let defaultsKey: String
+    let validRange: ClosedRange<Int>?
+    let invalidPath: String?
+
+    init(
+        jsonKey: String,
+        defaultsKey: String,
+        validRange: ClosedRange<Int>? = nil,
+        invalidPath: String? = nil
+    ) {
+        self.jsonKey = jsonKey
+        self.defaultsKey = defaultsKey
+        self.validRange = validRange
+        self.invalidPath = invalidPath
+    }
+}
+
 struct SettingsFileStringArrayMapping {
     let jsonKey: String
     let defaultsKey: String
@@ -377,6 +396,15 @@ enum AutomationSettingsFileMapping {
         .init(jsonKey: "claudeBinaryPath", defaultsKey: automation.claudeBinaryPath.userDefaultsKey),
         .init(jsonKey: "ripgrepBinaryPath", defaultsKey: automation.ripgrepBinaryPath.userDefaultsKey),
         .init(jsonKey: "autoNamingAgent", defaultsKey: automation.autoNamingAgent.userDefaultsKey),
+    ]
+
+    static let integerSettings: [SettingsFileIntegerMapping] = [
+        .init(
+            jsonKey: "hookTimeoutMs",
+            defaultsKey: automation.hookTimeoutMilliseconds.userDefaultsKey,
+            validRange: AutomationCatalogSection.hookTimeoutMillisecondsRange,
+            invalidPath: automation.hookTimeoutMilliseconds.id
+        ),
     ]
 }
 
