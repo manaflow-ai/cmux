@@ -252,8 +252,17 @@ def clone(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
+def sweep_discarded(store: Path) -> None:
+    """Remove kept DerivedData a killed `clear` left aside (12 to 40 GB each). glaeda's idle catch-up
+    (owned_catch_up.sh) is killed whenever a job starts, so a kill inside `keep` is no longer rare. Only the
+    holder of this slot's token touches its store, so nothing here is in use."""
+    for stale in store.glob(f".{DERIVED}.discard-*"):
+        remove(stale)
+
+
 def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
+    sweep_discarded(store)
     if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
         # Which seeds this root adopts, for seed_derived_data.py `prefetch`
         # to fetch ahead while the Mac is idle. Best effort.
@@ -331,9 +340,21 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
     return result
 
 
-def record(source: Path, derived: Path) -> dict[str, str]:
-    """Record the input times this compile sees, for the next job's adopt."""
+def record(source: Path, derived: Path, distance_out: str = "") -> dict[str, str]:
+    """Record the input times this compile sees, for the next job's adopt.
+
+    With DISTANCE_OUT (CMUX_WARM_DISTANCE_START), it first compares this
+    record with the one the adopted DerivedData carries, the kept build's own
+    or the seed's MANIFEST, and writes the changed paths there for
+    warm_distance.py: the exact distance from the start, at no extra digest.
+    """
     manifest = derived / RECORD
+    start = None
+    if distance_out:
+        for name in (RECORD, seed.MANIFEST):
+            with contextlib.suppress(OSError, ValueError):
+                start = json.loads((derived / name).read_text())
+                break
     if manifest.is_file() or manifest.is_symlink():
         manifest.unlink()
     recorded = seed.warm.record(source)
@@ -341,6 +362,15 @@ def record(source: Path, derived: Path) -> dict[str, str]:
     incoming = derived / f".{RECORD}.incoming"
     incoming.write_text(json.dumps(recorded, sort_keys=True))
     incoming.rename(manifest)
+    if distance_out:
+        # After the record is in place: nothing here may cost the next job its replay.
+        try:
+            import warm_distance  # noqa: PLC0415 - only owned admissions record a distance
+            changed = changed_paths(recorded, start) if isinstance(start, dict) else None
+            warm_distance.start_distance(recorded, start if isinstance(start, dict) else None, changed,
+                                         Path(distance_out))
+        except Exception as error:  # noqa: BLE001 - a distance is best effort
+            print(f"warm distance: not written ({type(error).__name__}: {error})"[:200])
     return {"recorded": "true", "inputs": str(len(recorded))}
 
 
@@ -355,6 +385,7 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     if not fingerprint or not derived.is_dir():
         return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
     store.mkdir(parents=True, exist_ok=True)
+    sweep_discarded(store)
     incoming = store / f".{DERIVED}.incoming"
     clone(derived, incoming)
     # A seed's record is never replayed here (adopt reads RECORD only).
@@ -364,6 +395,9 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     stamp.pop("fingerprint", None)
     stamp.pop("merged_onto", None)
     stamp.pop("pr", None)
+    # The previous build's own diff (warm_distance.py stamp_pull_request): this build's is added after.
+    for field in ("pr_app_swift_files", "pr_app_swift_total", "pr_package_interface", "pr_hot_files"):
+        stamp.pop(field, None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
@@ -748,7 +782,7 @@ def main(argv: list[str]) -> int:
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))
         return 0
     if len(argv) == 4 and argv[1] == "record":
-        write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
+        write_outputs(record(Path(argv[2]).resolve(), Path(argv[3]), os.environ.get("CMUX_WARM_DISTANCE_START", "")))
         return 0
     if len(argv) in (5, 6, 7) and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) >= 6 else "",

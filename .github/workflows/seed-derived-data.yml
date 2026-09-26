@@ -224,7 +224,8 @@ jobs:
       # worker builds PR code as cmux). The same per-root layout owned
       # admission uses (seed_caches). It starts with 185 GiB free, and once
       # the cache exists it stays on so prune_local keeps the disk at its
-      # 170 GiB floor (and each root's newest two).
+      # floor (seed_derived_data.LOCAL_KEEP_MIN_FREE_BYTES, and each root's
+      # newest two).
       - name: Keep seeds on a trusted Mac
         if: matrix.pool == vars.CI_SEED_TRUSTED_POOL && contains(format(' {0} ', vars.CI_SEED_KEEP_LOCAL_RUNNERS), format(' {0} ', runner.name))
         continue-on-error: true
