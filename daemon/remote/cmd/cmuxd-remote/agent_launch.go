@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -355,16 +354,32 @@ func closeTempFileAfterError(file *os.File, primary error) error {
 }
 
 func ensureClaudeNodeOptionsRestoreModule() (string, error) {
-	// A predictable shared /tmp directory would let another same-UID process
-	// tamper with the module before Node loads it. Retain this randomized,
-	// private directory through the returned path for the launch lifetime.
-	dir, err := os.MkdirTemp(os.TempDir(), "cmux-claude-node-options-")
+	// The preload must outlive the Claude session: every Node child loads it
+	// via NODE_OPTIONS, and the OS purges temp directories under long-lived
+	// sessions (https://github.com/manaflow-ai/cmux/issues/12022). Keep it in
+	// ~/.cmuxterm like the macOS wrapper, private and never through a symlink.
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("home directory %q is not absolute", home)
+	}
+	dir := filepath.Join(home, ".cmuxterm", "cmux-claude-node-options")
 	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
+	for _, path := range []string{dir, restoreModulePath} {
+		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("refusing symlinked Node options restore path %q", path)
+		}
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return "", err
+	}
 	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
-		return "", fmt.Errorf("create Node options restore module: %w", errors.Join(err, os.RemoveAll(dir)))
+		return "", fmt.Errorf("create Node options restore module: %w", err)
 	}
 	return restoreModulePath, nil
 }
@@ -383,6 +398,10 @@ func configureClaudeNodeOptions(restoreModulePath string) {
 
 func mergeNodeOptions(existing string, restoreModulePath string) string {
 	requireFlag := "--require=" + restoreModulePath
+	// NODE_OPTIONS splits on whitespace; quote the path when HOME has spaces.
+	if strings.ContainsAny(restoreModulePath, " \t\n") {
+		requireFlag = `--require="` + restoreModulePath + `"`
+	}
 	const memoryFlag = "--max-old-space-size=4096"
 	cleaned := cleanedNodeOptions(existing)
 	if cleaned == "" {
