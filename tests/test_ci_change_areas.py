@@ -19,23 +19,7 @@ from unittest.mock import patch
 
 import yaml
 
-
-def _disable_git_auto_maintenance() -> None:
-    """Stop git from leaving a background writer in fixture repositories.
-
-    git commit, fetch, and clone start `git maintenance run --auto --detach`,
-    which can outlive the command and still be writing into `.git` when a
-    TemporaryDirectory is removed ("Directory not empty: '.git'"). Every git
-    child of this module, including the ones the routed workflow scripts
-    start, inherits this environment.
-    """
-    index = int(os.environ.get("GIT_CONFIG_COUNT") or 0)
-    os.environ[f"GIT_CONFIG_KEY_{index}"] = "maintenance.auto"
-    os.environ[f"GIT_CONFIG_VALUE_{index}"] = "false"
-    os.environ["GIT_CONFIG_COUNT"] = str(index + 1)
-
-
-_disable_git_auto_maintenance()
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -4601,7 +4585,7 @@ def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
-    return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
+    return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
@@ -6154,7 +6138,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "github.event.pull_request.head.repo.full_name == github.repository && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && "
         "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
-        "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
+        "(inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (
