@@ -30,9 +30,18 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
         try assertSidebarPullRequestClickFallsThrough(clickabilityOverride: false, expectsPlainText: true)
     }
 
+    func testSidebarPullRequestSurvivesSummaryRename() throws {
+        try assertSidebarPullRequestClickFallsThrough(
+            clickabilityOverride: false,
+            expectsPlainText: true,
+            renameWithSummaryUpdates: true
+        )
+    }
+
     private func assertSidebarPullRequestClickFallsThrough(
         clickabilityOverride: Bool?,
-        expectsPlainText: Bool
+        expectsPlainText: Bool,
+        renameWithSummaryUpdates: Bool = false
     ) throws {
         let app = XCUIApplication.cmuxTestApplication()
         defer { app.terminate() }
@@ -48,6 +57,9 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
                 "-sidebarMakePullRequestClickable",
                 clickabilityOverride ? "true" : "false",
             ]
+        }
+        if renameWithSummaryUpdates {
+            app.launchArguments += ["-cmux.flags.override.sidebar-summary-snapshots-experiment", "true"]
         }
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -92,6 +104,22 @@ final class SidebarPullRequestInteractivityUITests: XCTestCase {
             "Expected the second workspace to stay selected before clicking the PR row"
         )
 
+        _ = try requirePullRequestElement(app: app, labelToken: "PR #\(pullRequestNumber)")
+        if renameWithSummaryUpdates {
+            let title = "Summary rename preserves PR"
+            let request: [String: Any] = [
+                "id": UUID().uuidString,
+                "method": "workspace.rename",
+                "params": ["workspace_id": pullRequestWorkspaceId, "title": title],
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let command = try XCTUnwrap(String(data: data, encoding: .utf8))
+            let response = try XCTUnwrap(socketCommand(command))
+            let responseData = try XCTUnwrap(response.data(using: .utf8))
+            let result = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+            XCTAssertEqual(result["ok"] as? Bool, true, response)
+            XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 5.0))
+        }
         let pullRequestElement = try requirePullRequestElement(app: app, labelToken: "PR #\(pullRequestNumber)")
         if expectsPlainText {
             XCTAssertNotEqual(

@@ -558171,6 +558171,124 @@
           }
         }
       }
+    },
+    "featureFlags.sidebarSummarySnapshots.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates workspace titles without rebuilding branch, directory, and pull request details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدّث عناوين مساحات العمل دون إعادة حساب تفاصيل الفروع والمجلدات وطلبات السحب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiert Arbeitsbereichstitel, ohne Details zu Branches, Verzeichnissen und Pull Requests neu zu berechnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza los títulos de los espacios de trabajo sin recalcular los detalles de ramas, directorios y solicitudes de incorporación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met à jour les titres des espaces de travail sans recalculer les détails des branches, des répertoires et des demandes de fusion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチ、ディレクトリ、プルリクエストの詳細を再計算せずに、ワークスペースのタイトルを更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브랜치, 디렉터리 및 풀 리퀘스트 세부 정보를 다시 계산하지 않고 작업 공간 제목을 업데이트합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新工作区标题时，不重新计算分支、目录和拉取请求的详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新工作區標題時，不重新計算分支、目錄和提取要求的詳細資訊。"
+          }
+        }
+      }
+    },
+    "featureFlags.sidebarSummarySnapshots.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar summary updates"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديثات ملخص الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisierung der Seitenleistenübersicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizaciones del resumen de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mises à jour du résumé de la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの概要更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 요약 업데이트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏摘要更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄摘要更新"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
