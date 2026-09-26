@@ -30,9 +30,10 @@ extension DeviceWorkspaceLayoutNode {
     /// with no placed neighbor goes at the end of the last pane, in local
     /// order, then sorted for panels `local` does not contain.
     ///
-    /// Each surface, pane, and local node is indexed once. The cost is linear
-    /// in the panels of both trees, plus the depth of this tree for each
-    /// restored split.
+    /// Each surface, pane, and local node is indexed once, and one pass over
+    /// this tree finds every restored split's anchor. The cost is linear in
+    /// the panels of both trees, up to the inverse Ackermann factor of that
+    /// pass's union-find.
     ///
     /// Panel IDs must be unique within each tree. When one repeats, only its
     /// first occurrence anchors a kept neighbor.
@@ -64,6 +65,8 @@ private struct DeviceWorkspaceLayoutGraft {
         var allKept: Bool
         /// Target positions of the subtree's panels the target already shows.
         var targetPositions: ClosedRange<Int>?
+        /// The smallest target subtree holding those panels.
+        var targetAnchor: Int?
     }
 
     private let kept: Set<String>
@@ -81,14 +84,13 @@ private struct DeviceWorkspaceLayoutGraft {
     /// Kept tabs to place before or after an anchor panel, in insertion order.
     private var tabsBefore: [String: [String]] = [:]
     private var tabsAfter: [String: [String]] = [:]
-    private var ancestorMarks: [Int] = []
-    private var markGeneration = 0
 
     init(target: DeviceWorkspaceLayoutNode, kept: Set<String>, local: DeviceWorkspaceLayoutNode) {
         self.kept = kept
         targetRoot = indexTarget(target, parent: nil)
         present = Set(targetPositionBySurface.keys)
         localRoot = indexLocal(local)
+        indexAnchors()
     }
 
     /// Restores kept panels from one local subtree, in local pre-order.
@@ -106,11 +108,7 @@ private struct DeviceWorkspaceLayoutGraft {
                 return
             }
             let (branch, sibling) = firstIsKept ? (children.first, children.second) : (children.second, children.first)
-            if let positions = localNodes[sibling].targetPositions {
-                let anchor = lowestCommonAncestor(
-                    targetPaneAtPosition[positions.lowerBound],
-                    targetPaneAtPosition[positions.upperBound]
-                )
+            if let anchor = localNodes[sibling].targetAnchor {
                 wrap(anchor, with: localNodes[branch].node, direction: direction, ratio: ratio, branchFirst: firstIsKept)
             }
             graft(sibling)
@@ -184,6 +182,40 @@ private struct DeviceWorkspaceLayoutGraft {
         return min(lhs.lowerBound, rhs.lowerBound)...max(lhs.upperBound, rhs.upperBound)
     }
 
+    /// Anchors each local subtree at the lowest common ancestor of its first
+    /// and last target panes, answering every subtree in one pass over the
+    /// target (Tarjan's offline algorithm). A wrap only inserts a split above
+    /// a target node, beside a branch with no target panel, so an anchor from
+    /// the unwrapped target stays the smallest subtree holding those panes.
+    private mutating func indexAnchors() {
+        var queries = [[(other: Int, local: Int)]](repeating: [], count: targetNodes.count)
+        for (local, entry) in localNodes.enumerated() {
+            guard let positions = entry.targetPositions else { continue }
+            let lhs = targetPaneAtPosition[positions.lowerBound]
+            let rhs = targetPaneAtPosition[positions.upperBound]
+            queries[lhs].append((rhs, local))
+            if lhs != rhs { queries[rhs].append((lhs, local)) }
+        }
+        var sets = DisjointSets(count: targetNodes.count)
+        var ancestor = Array(targetNodes.indices)
+        var visited = [Bool](repeating: false, count: targetNodes.count)
+        func visit(_ index: Int) {
+            if case .split(_, _, let first, let second) = targetNodes[index] {
+                visit(first)
+                sets.union(index, first)
+                ancestor[sets.find(index)] = index
+                visit(second)
+                sets.union(index, second)
+                ancestor[sets.find(index)] = index
+            }
+            visited[index] = true
+            for query in queries[index] where visited[query.other] {
+                localNodes[query.local].targetAnchor = ancestor[sets.find(query.other)]
+            }
+        }
+        visit(targetRoot)
+    }
+
     // MARK: Grafting
 
     /// Anchors each kept tab to its previous placed neighbor in the local
@@ -230,24 +262,6 @@ private struct DeviceWorkspaceLayoutGraft {
             targetRoot = splitIndex
         }
         Self.forEachSurface(in: branch) { present.insert($0) }
-    }
-
-    private mutating func lowestCommonAncestor(_ lhs: Int, _ rhs: Int) -> Int {
-        markGeneration += 1
-        if ancestorMarks.count < targetNodes.count {
-            ancestorMarks += Array(repeating: 0, count: targetNodes.count - ancestorMarks.count)
-        }
-        var node: Int? = lhs
-        while let current = node {
-            ancestorMarks[current] = markGeneration
-            node = targetParents[current]
-        }
-        node = rhs
-        while let current = node {
-            if ancestorMarks[current] == markGeneration { return current }
-            node = targetParents[current]
-        }
-        return targetRoot
     }
 
     // MARK: Building
@@ -316,6 +330,40 @@ private struct DeviceWorkspaceLayoutGraft {
         case .split(_, _, let first, let second):
             forEachSurface(in: first, body)
             forEachSurface(in: second, body)
+        }
+    }
+}
+
+/// Union-find over `0..<count`, with union by rank and path halving.
+private struct DisjointSets {
+    private var parents: [Int]
+    private var ranks: [UInt8]
+
+    init(count: Int) {
+        parents = Array(0..<count)
+        ranks = Array(repeating: 0, count: count)
+    }
+
+    mutating func find(_ element: Int) -> Int {
+        var element = element
+        while parents[element] != element {
+            parents[element] = parents[parents[element]]
+            element = parents[element]
+        }
+        return element
+    }
+
+    mutating func union(_ lhs: Int, _ rhs: Int) {
+        let lhs = find(lhs)
+        let rhs = find(rhs)
+        guard lhs != rhs else { return }
+        if ranks[lhs] < ranks[rhs] {
+            parents[lhs] = rhs
+        } else if ranks[lhs] > ranks[rhs] {
+            parents[rhs] = lhs
+        } else {
+            parents[rhs] = lhs
+            ranks[lhs] += 1
         }
     }
 }

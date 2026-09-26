@@ -56,6 +56,24 @@ struct DeviceWorkspaceLayoutReservedPanelTests {
             second: .split(direction: .vertical, ratio: 0.25, first: divided, second: reserved)))
     }
 
+    /// Two reserved splits around the same terminals keep their local
+    /// nesting, and a third wraps only the terminals it divided.
+    @Test func restoresNestedSplitsAroundTheSameTerminals() {
+        let a = DeviceWorkspaceLayoutNode.pane(id: "a", surfaceIDs: ["a"], selectedSurfaceID: nil)
+        let divided = DeviceWorkspaceLayoutNode.split(direction: .vertical, ratio: 0.5,
+            first: .pane(id: "b", surfaceIDs: ["b"], selectedSurfaceID: nil),
+            second: .pane(id: "c", surfaceIDs: ["c"], selectedSurfaceID: nil))
+        let owner = DeviceWorkspaceLayoutNode.split(direction: .horizontal, ratio: 0.5, first: a, second: divided)
+        let local = DeviceWorkspaceLayoutNode.split(direction: .horizontal, ratio: 0.2,
+            first: .pane(id: "r3", surfaceIDs: ["r3"], selectedSurfaceID: nil),
+            second: .split(direction: .vertical, ratio: 0.8,
+                first: .split(direction: .horizontal, ratio: 0.5, first: a,
+                    second: .split(direction: .vertical, ratio: 0.3, first: divided,
+                        second: .pane(id: "r1", surfaceIDs: ["r1"], selectedSurfaceID: nil))),
+                second: .pane(id: "r2", surfaceIDs: ["r2"], selectedSurfaceID: nil)))
+        #expect(owner.grafting(["r1", "r2", "r3"], from: local) == local)
+    }
+
     @Test func strandedPanelsGoLastInLocalOrderThenSorted() {
         let local = DeviceWorkspaceLayoutNode.split(direction: .horizontal, ratio: 0.5,
             first: .pane(id: "p1", surfaceIDs: ["k2", "k1"], selectedSurfaceID: nil),
