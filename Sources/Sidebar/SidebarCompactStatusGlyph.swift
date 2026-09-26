@@ -20,7 +20,8 @@ import SwiftUI
 /// 3. Pull request: green when open, purple when merged, gray when closed.
 /// 4. Branch without a pull request: purple branch glyph.
 /// 5. Agent idle: filled gray dot.
-/// 6. Agent present but state unknown (starting, queued): hollow ring.
+/// 6. Any other agent presence (starting, state unknown, or running with the
+///    spinner turned off): hollow ring.
 struct SidebarCompactStatusGlyph: Equatable {
     enum Kind: Equatable {
         case attention

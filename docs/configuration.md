@@ -174,18 +174,18 @@ The glyph shows the loudest state that applies:
 | State | Glyph |
 | --- | --- |
 | An agent needs input or reported an error | red warning triangle |
-| An agent is running | none; the loading spinner (`showAgentActivity`) is the running indicator |
+| An agent is running | none; the loading spinner (`showAgentActivity`) is the running indicator. With the spinner off, the rows below apply |
 | Open pull request | green pull request glyph |
 | Merged pull request | purple merge glyph |
 | Closed pull request | gray pull request glyph |
 | Branch, no pull request | purple branch glyph |
 | Agent idle | filled gray dot |
-| Agent starting or state unknown | hollow ring |
+| Agent starting, state unknown, or running with the spinner off | hollow ring |
 
 - Default: `false`.
 - Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
 - Like the loading spinner, the glyph stays visible when `sidebar.hideAllDetails` is on, so turning on both gives one line per workspace.
-- Pull request state comes from the same data as `sidebar.showPullRequests`. Toggle it from **Settings > Sidebar > Compact Agent Status**.
+- Pull request and branch state follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 

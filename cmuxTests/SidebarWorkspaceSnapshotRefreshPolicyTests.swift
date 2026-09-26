@@ -161,6 +161,29 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
+    @Test func contextMenuCompactStatusGlyphUpdatesWithTheSpinner() {
+        // Running agent: the spinner is the indicator, so no glyph.
+        let current = Self.snapshot(latestConversationMessage: "old message", activeCodingAgentCount: 1)
+        // The agent went idle: spinner gone, idle dot takes its place.
+        let idle = SidebarCompactStatusGlyph.resolve(.init(lifecycleStates: [.idle]))
+        let next = Self.snapshot(
+            latestConversationMessage: "new message",
+            activeCodingAgentCount: 0,
+            compactStatusGlyph: idle
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 0)
+        #expect(decision.workspaceSnapshotStorage?.compactStatusGlyph == idle)
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -188,7 +211,8 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0
+        activeCodingAgentCount: Int = 0,
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -224,7 +248,8 @@ import Testing
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistFirstUncheckedText: nil,
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 

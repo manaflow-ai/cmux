@@ -352,6 +352,7 @@ struct SidebarWorkspaceSnapshotFactory {
     /// Inputs for the compact status glyph. Read independently of detail
     /// visibility: like the loading spinner, the glyph is a live status
     /// signal that stays on the title line when the detail rows are hidden.
+    /// Only the branch and PR toggles themselves turn their part off.
     private func compactStatusInput(
         agentEntries: [SidebarStatusEntry],
         showsRunningSpinner: Bool,
@@ -363,10 +364,16 @@ struct SidebarWorkspaceSnapshotFactory {
                 states.filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }.values
             },
             showsRunningSpinner: showsRunningSpinner,
-            pullRequests: workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map {
-                .init(label: $0.label, number: $0.number, status: $0.status)
-            },
-            branch: workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
+            // Honor the user's branch and PR toggles themselves (not detail
+            // visibility), so the glyph still works under Hide All Details.
+            pullRequests: settings.details.showPullRequests
+                ? workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map {
+                    .init(label: $0.label, number: $0.number, status: $0.status)
+                }
+                : [],
+            branch: settings.showsGitBranch
+                ? workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
+                : nil
         )
     }
 
