@@ -86,6 +86,8 @@ its receipts. Required CI and review still apply to the final pushed head.
 
 Catch a branch up with `scripts/merge-main.sh`, not a raw `git merge origin/main`. It merges the newest main commit whose CI fast guards passed (a red or pending tip is skipped, and it says which commits and why), resolves generated-file conflicts the way `/catch-up` does, then runs `scripts/ci/guards-local.sh` and labels each failure inherited from main or introduced by this branch. Fix the introduced ones; the inherited ones are main's. `--dry-run` shows the pick, `--tip` merges a red tip on purpose. See [docs/ci/merge-main.md](docs/ci/merge-main.md).
 
+Catch-up now happens automatically: when main goes green, `pr-catch-up.yml` merges it into open pull requests that conflict with main or are red only because of main, once their head has been quiet for 30 minutes (label `no-auto-catch-up` to opt out). If a push is rejected because the branch moved, run `git pull --no-rebase` and push again; never force-push over the catch-up merge. `merge-main.sh` stays for local use, for example before main's newest commit is green.
+
 ## First pass, then dogfood
 
 A first pass ends when the change is implemented, [scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md) passed, and the PR is open. Native app/build-input changes require the tagged build on the pushed HEAD and focused tests; `web/` PRs also require the live Vercel preview URL. Docs and portable contributor tooling use their relevant checks without an unrelated app build. Then hand off; do not sit watching CI or running speculative review passes.
