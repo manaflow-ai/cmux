@@ -188,8 +188,73 @@ struct DeviceTerminalMirrorTests {
         #expect(sent == ["ls\r"])
     }
 
-    @Test("A reserved pane keeps what was typed while its first attach failed and delivers it first", .timeLimit(.minutes(1)))
+    @Test("A reserved pane keeps what was typed while its first replay failed on a live link", .timeLimit(.minutes(1)))
     func adoptedPaneKeepsInputTypedBeforeFirstAttachSticks() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var replayFails = true
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(
+            surfaceID: surfaceID, events: events, isConnected: { true }, replayFails: { replayFails }
+        ) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("cd build\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { session.phase == .detached }
+        // The link to the Mac stayed up and the terminal has never attached,
+        // so this is still the pane's early input for the same remote shell.
+        relay.send(.bytes(Data("make\r".utf8)))
+        #expect(relay.pendingCount == 2)
+
+        replayFails = false
+        session.retry()
+        try await Self.waitUntil { session.phase == .attached }
+        relay.send(.bytes(Data("pwd\r".utf8)))
+        try await Self.waitUntil { sent.joined().hasSuffix("pwd\r") }
+        #expect(sent.joined() == "cd build\rmake\rpwd\r")
+    }
+
+    @Test("A reserved pane drops its early input once the link to its Mac drops before an attach sticks", .timeLimit(.minutes(1)))
+    func adoptedPaneDropsEarlyInputWhenTheLinkDropsBeforeAttach() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var connected = true
+        var replayFails = true
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(
+            surfaceID: surfaceID, events: events, isConnected: { connected }, replayFails: { replayFails }
+        ) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("cd build\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { session.phase == .detached }
+        #expect(relay.pendingCount == 1)
+
+        // A Mac that restarts can restore a terminal under this surface ID with
+        // a new shell, so input held for the old shell must never reach it.
+        connected = false
+        events.send(.linkLost, surfaceID: surfaceID)
+        try await Self.waitUntil { relay.pendingCount == 0 }
+        relay.send(.bytes(Data("make\r".utf8)))
+        #expect(relay.pendingCount == 0)
+
+        connected = true
+        replayFails = false
+        events.send(.linkReconnected, surfaceID: surfaceID)
+        try await Self.waitUntil { session.phase == .attached }
+        relay.send(.bytes(Data("pwd\r".utf8)))
+        try await Self.waitUntil { sent.joined().hasSuffix("pwd\r") }
+        #expect(sent.joined() == "pwd\r")
+    }
+
+    @Test("A reserved pane drops its early input when its first attach finds the Mac unreachable", .timeLimit(.minutes(1)))
+    func adoptedPaneDropsEarlyInputWhenItsMacIsUnreachable() async throws {
         let events = DeviceLinkTerminalEvents()
         var connected = false
         var sent: [String] = []
@@ -202,17 +267,16 @@ struct DeviceTerminalMirrorTests {
         session.adopt(relay)
         session.start()
         try await Self.waitUntil { session.phase == .detached }
-        // The terminal has never attached, so this is still the pane's early
-        // input for the same remote surface.
+        #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("make\r".utf8)))
-        #expect(relay.pendingCount == 2)
+        #expect(relay.pendingCount == 0)
 
         connected = true
         session.retry()
         try await Self.waitUntil { session.phase == .attached }
         relay.send(.bytes(Data("pwd\r".utf8)))
         try await Self.waitUntil { sent.joined().hasSuffix("pwd\r") }
-        #expect(sent.joined() == "cd build\rmake\rpwd\r")
+        #expect(sent.joined() == "pwd\r")
     }
 
     @Test("A reserved pane never replays input typed after its attached Mac became unreachable", .timeLimit(.minutes(1)))
@@ -244,12 +308,13 @@ struct DeviceTerminalMirrorTests {
         #expect(sent.joined() == "ls\rpwd\r")
     }
 
-    @Test("A reserved pane's queued input is discarded when its mirror session is replaced", .timeLimit(.minutes(1)))
+    @Test("A reserved pane's queued input is discarded when its mirror session stops", .timeLimit(.minutes(1)))
     func adoptedPaneDiscardsQueuedInputWhenItsSessionStops() async throws {
         let events = DeviceLinkTerminalEvents()
-        var sent: [String] = []
-        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { false }) {
-            sent.append($0)
+        let session = Self.inputRecordingSession(
+            surfaceID: surfaceID, events: events, isConnected: { true }, replayFails: { true }
+        ) { _ in
+            Issue.record("A stopped session must not deliver held input")
         }
         defer { events.finishAll() }
         let relay = CloudOptimisticInputRelay()
@@ -259,26 +324,18 @@ struct DeviceTerminalMirrorTests {
         try await Self.waitUntil { session.phase == .detached }
         #expect(relay.pendingCount == 1)
 
+        // Whatever owns the surface next never sees the stopped owner's bytes.
         session.stop()
         #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("typed after replacement\r".utf8)))
         #expect(relay.pendingCount == 0)
-
-        // A replacement session for the same surface must not inherit the
-        // stopped owner's bytes.
-        let replacement = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { true }) {
-            sent.append($0)
-        }
-        defer { replacement.stop() }
-        replacement.start()
-        try await Self.waitUntil { replacement.phase == .attached }
-        #expect(sent.isEmpty)
     }
 
     private static func inputRecordingSession(
         surfaceID: UUID,
         events: DeviceLinkTerminalEvents,
         isConnected: @escaping @MainActor @Sendable () -> Bool,
+        replayFails: @escaping @MainActor @Sendable () -> Bool = { false },
         onInput: @escaping @MainActor @Sendable (String) -> Void
     ) -> DeviceTerminalMirrorSession {
         DeviceTerminalMirrorSession(
@@ -289,12 +346,15 @@ struct DeviceTerminalMirrorTests {
                     onInput(text)
                     return try JSONSerialization.data(withJSONObject: [String: Any]())
                 }
+                if replayFails() { throw ReplayUnavailable() }
                 return try JSONSerialization.data(withJSONObject: [
                     "columns": 80, "rows": 24, "seq": 0, "data_b64": ""
                 ])
             }
         )
     }
+
+    private struct ReplayUnavailable: Error {}
 
     private static func waitUntil(
         timeout: Duration = .seconds(5),
