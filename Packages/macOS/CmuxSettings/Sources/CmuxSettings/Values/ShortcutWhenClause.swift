@@ -223,6 +223,36 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
         }
     }
 
+    /// Whether the clause reads the context key `name` anywhere in its tree,
+    /// as a bareword, a focus atom, or the left-hand side of a comparison.
+    ///
+    /// The app target uses this to skip computing an expensive context value
+    /// for clauses that never look at it.
+    ///
+    /// ```swift
+    /// ShortcutWhenClause.parse("!terminalAlternateScreen")?
+    ///     .references(key: "terminalAlternateScreen") // true
+    /// ```
+    ///
+    /// - Parameter name: The context key name.
+    /// - Returns: `true` when evaluating the clause can read `name`.
+    public func references(key name: String) -> Bool {
+        switch self {
+        case .always:
+            return false
+        case let .atom(atom):
+            return atom.rawValue == name
+        case let .key(key):
+            return key == name
+        case let .compare(key, _, _):
+            return key == name
+        case let .not(clause):
+            return clause.references(key: name)
+        case let .and(lhs, rhs), let .or(lhs, rhs):
+            return lhs.references(key: name) || rhs.references(key: name)
+        }
+    }
+
     // MARK: - Conflict-detection helpers
 
     /// The bare context key when this clause is a single ``atom(_:)`` or

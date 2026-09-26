@@ -34,6 +34,16 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case commandPaletteVisible
     /// The focused terminal's find overlay is open.
     case terminalFindVisible
+    /// The focused terminal is showing the alternate screen, which full-screen
+    /// applications such as vim, less, htop and tmux switch to. Lets a binding
+    /// fire at the shell prompt and pass through to the application otherwise,
+    /// for example `"closeTab": "!terminalAlternateScreen"` with `closeTab`
+    /// bound to `ctrl+w`. `false` when no terminal owns focus.
+    ///
+    /// Reading it serializes the terminal viewport, so the app target only
+    /// resolves it for a keystroke that already matches the binding of an
+    /// action whose clause names this key.
+    case terminalAlternateScreen
     /// The focused workspace is using the freeform canvas layout.
     case workspaceCanvasLayout
     /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
@@ -48,7 +58,7 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
         switch self {
         case .sidebarFocus, .browserFocus, .markdownFocus, .filePreviewTextEditorFocus, .terminalFocus,
              .simulatorFocus,
-             .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout:
+             .commandPaletteVisible, .terminalFindVisible, .terminalAlternateScreen, .workspaceCanvasLayout:
             return .bool
         case .sidebarMode:
             return .string

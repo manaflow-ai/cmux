@@ -62,6 +62,29 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether text-editing gestures use the browser-style layout: Command
+    /// moves and deletes by word like Option, and Control+Left/Right move to
+    /// the line start and end. Only consulted while ``textEditingGestures`` is
+    /// on. Off by default, which keeps the macOS text-field convention of
+    /// Command for lines and Option for words.
+    public let textEditingCommandMovesByWord = DefaultsKey<Bool>(
+        id: "terminal.textEditingCommandMovesByWord",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingCommandMovesByWord"
+    )
+
+    /// Whether text-editing gestures stay active while a full-screen
+    /// application has the terminal on the alternate screen. Off by default,
+    /// so vim, less and htop receive the original chords. tmux, screen and
+    /// zellij keep the outer terminal on the alternate screen the whole time,
+    /// so people who work inside a multiplexer turn this on to keep gestures
+    /// at the multiplexed shell prompt.
+    public let textEditingGesturesInFullScreenApps = DefaultsKey<Bool>(
+        id: "terminal.textEditingGesturesInFullScreenApps",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingGesturesInFullScreenApps"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.

@@ -44,6 +44,8 @@ extension CmuxSettingsFileStore {
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
         "terminal.textEditingGestures",
+        "terminal.textEditingCommandMovesByWord",
+        "terminal.textEditingGesturesInFullScreenApps",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",

@@ -179,6 +179,20 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(
                 section: .terminal,
+                id: "text-editing-command-moves-by-word",
+                title: String(localized: "settings.terminal.textEditingCommandMovesByWord", defaultValue: "Command Moves by Word"),
+                paths: ["terminal.textEditingCommandMovesByWord"],
+                synonyms: "terminal.textEditingCommandMovesByWord command word browser control arrow line start end home karabiner layout"
+            ),
+            .init(
+                section: .terminal,
+                id: "text-editing-gestures-full-screen-apps",
+                title: String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
+                paths: ["terminal.textEditingGesturesInFullScreenApps"],
+                synonyms: "terminal.textEditingGesturesInFullScreenApps alternate screen tmux screen zellij vim less tui full screen multiplexer"
+            ),
+            .init(
+                section: .terminal,
                 id: "reflow-hard-wrap-on-copy",
                 title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
                 detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOff", defaultValue: "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line."),
