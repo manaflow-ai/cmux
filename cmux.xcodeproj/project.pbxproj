@@ -1932,6 +1932,7 @@
 		F0A110030000000000000001 /* GhosttyMouseSessionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */; };
 		A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */; };
 		D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */; };
+		123810000000000000000006 /* GhosttyNSView+CellMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */; };
 		B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */; };
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
@@ -3518,6 +3519,9 @@
 		C0DE6B420000000000000001 /* TerminalPanelTextBoxState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */; };
 		6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
+		123810000000000000000002 /* TerminalPaneMetricInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */; };
+		123810000000000000000004 /* TerminalPaneMetricsFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000003 /* TerminalPaneMetricsFixture.swift */; };
+		123810000000000000000008 /* TerminalPaneMetricsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000007 /* TerminalPaneMetricsWindow.swift */; };
 		B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */; };
 		B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000002 /* TerminalPastePreparationDestination.swift */; };
 		B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000A /* TerminalPastePreparationFailure.swift */; };
@@ -5907,6 +5911,7 @@
 		F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerTests.swift; sourceTree = "<group>"; };
 		A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationDispatcherTests.swift; sourceTree = "<group>"; };
 		D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationScrollRuntimeBridge.swift; sourceTree = "<group>"; };
+		123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CellMetrics.swift"; sourceTree = "<group>"; };
 		B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardActions.swift"; sourceTree = "<group>"; };
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
@@ -7469,6 +7474,9 @@
 		C0DE6B420000000000000002 /* TerminalPanelTextBoxState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelTextBoxState.swift; sourceTree = "<group>"; };
 		811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelUnavailableView.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
+		123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricInvalidationTests.swift; sourceTree = "<group>"; };
+		123810000000000000000003 /* TerminalPaneMetricsFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricsFixture.swift; sourceTree = "<group>"; };
+		123810000000000000000007 /* TerminalPaneMetricsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricsWindow.swift; sourceTree = "<group>"; };
 		B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteboardReadRequest.swift; sourceTree = "<group>"; };
 		B88355000000000000000002 /* TerminalPastePreparationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationDestination.swift; sourceTree = "<group>"; };
 		B8835700000000000000000A /* TerminalPastePreparationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationFailure.swift; sourceTree = "<group>"; };
@@ -9510,6 +9518,7 @@
 				F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */,
 				F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */,
 				126570000000000000000007 /* GhosttyTerminalView+Representable.swift */,
 				030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */,
 				DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */,
@@ -11401,6 +11410,9 @@
 				C12758000000000000000009 /* PlainPastePTYFixture.swift */,
 				C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */,
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
+				123810000000000000000003 /* TerminalPaneMetricsFixture.swift */,
+				123810000000000000000007 /* TerminalPaneMetricsWindow.swift */,
+				123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */,
 				5B6E489A561B4E319CE3331B /* TerminalPortalTransitionAttributionTests.swift */,
 				776C2DFD963A4F6E87A10FDA /* TerminalWindowPortalExternalGeometrySyncTests.swift */,
 				60D3266B6D154D5C9F14286E /* TerminalPortalReconciliationReentrancyTests.swift */,
@@ -13822,6 +13834,7 @@
 				F0A1100B0000000000000001 /* GhosttyMouseSessionLedgerSession.swift in Sources */,
 				F0A110070000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift in Sources */,
 				D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */,
+				123810000000000000000006 /* GhosttyNSView+CellMetrics.swift in Sources */,
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
@@ -16579,6 +16592,9 @@
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				123810000000000000000002 /* TerminalPaneMetricInvalidationTests.swift in Sources */,
+				123810000000000000000004 /* TerminalPaneMetricsFixture.swift in Sources */,
+				123810000000000000000008 /* TerminalPaneMetricsWindow.swift in Sources */,
 				B12715000000000000000001 /* TerminalPastePreparationReapingTests.swift in Sources */,
 				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,
 				C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */,
