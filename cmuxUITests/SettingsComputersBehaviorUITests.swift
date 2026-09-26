@@ -13,28 +13,29 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
     private let discoveryToggleID = "SettingsComputersDiscoveryToggle"
     private let incomingAccessToggleID = "SettingsComputersIncomingAccessToggle"
     private let refreshButtonID = "SettingsComputersRefresh"
-    private let cloudFlagKey = "cmux.flags.override.cloud-machines-enabled-release"
-    private let cloudOnArguments = ["-cloud.beta.machines.enabled", "YES"]
-    private var savedCloudFlag: Any?
+    private var cloudOnArguments: [String] { cloudArguments(betaEnabled: true) }
 
     override func setUp() {
         super.setUp()
         // Fresh installs leave discovery off; start every run from that default.
         resetDefaults([discoveryKey])
-        // The flag reader accepts only a typed Boolean override; a launch
-        // argument such as YES is a string and does not force the flag on.
-        let defaults = UserDefaults(suiteName: "com.cmuxterm.app.debug")
-        savedCloudFlag = defaults?.object(forKey: cloudFlagKey)
-        defaults?.set(true, forKey: cloudFlagKey)
-        defaults?.synchronize()
     }
 
     override func tearDown() {
-        let defaults = UserDefaults(suiteName: "com.cmuxterm.app.debug")
-        defaults?.set(savedCloudFlag, forKey: cloudFlagKey)
-        defaults?.synchronize()
         resetDefaults([discoveryKey])
         super.tearDown()
+    }
+
+    /// Forces the Cloud Machines flag on and sets the Beta Features opt-in.
+    /// Plist-typed booleans: the flag reader accepts only real booleans, so a
+    /// bare "YES" string via the argument domain never enables it. The
+    /// argument domain also reaches a tagged bundle's defaults, which a write
+    /// to a fixed suite would miss.
+    private func cloudArguments(betaEnabled: Bool) -> [String] {
+        [
+            "-cmux.flags.override.cloud-machines-enabled-release", "<true/>",
+            "-cloud.beta.machines.enabled", betaEnabled ? "<true/>" : "<false/>",
+        ]
     }
 
     func testDevicesSectionShowsDiscoveryAndAccessControls() {
@@ -183,7 +184,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
     }
 
     func testDevicesSwitchesAreDisabledWhileCloudMachinesIsOff() {
-        let app = makeLaunchedApp(additionalArguments: ["-cloud.beta.machines.enabled", "NO"])
+        let app = makeLaunchedApp(additionalArguments: cloudArguments(betaEnabled: false))
         let window = openSettings(app)
         defer { closeSettings(app, window) }
 
