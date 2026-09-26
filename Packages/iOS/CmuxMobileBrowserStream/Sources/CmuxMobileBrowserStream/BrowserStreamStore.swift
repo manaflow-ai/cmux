@@ -81,7 +81,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0]
     }
 
-    /// Replaces the discovered panels for a workspace while preserving existing stream state.
+    /// Replaces the discovered panels for a workspace, keeping stream state for panels that
+    /// remain and retiring state for panels that disappeared.
     /// - Parameters:
     ///   - workspaceID: The Mac-local workspace identifier.
     ///   - descriptors: The current browser panel descriptors.
@@ -262,7 +263,10 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         }
         acknowledgeFrame = acknowledge
         guard statesByPanel[event.panelID] != nil else { return event.panelID }
-        Task { await decoder(for: event.panelID).submit(event) }
+        // Resolve the decoder now: a Task body runs later, and a close in between
+        // would otherwise recreate decoder state for a retired panel.
+        let panelDecoder = decoder(for: event.panelID)
+        Task { await panelDecoder.submit(event) }
         return event.panelID
     }
 
