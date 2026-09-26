@@ -148,7 +148,11 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 indentation: "    ",
                 directShellCommand: chainedRemoteCommandLaunch
                     ?? "\(shellExec) --rcfile \"$cmux_shell_dir/.bashrc\" -i",
-                tmuxShellCommand: "\(bashExec) --rcfile \"\(shellStateDir)/.bashrc\" -i"
+                // tmux stores `default-command` at the session level. Resolve
+                // the relay directory from the session environment each time
+                // a pane is created so reconnects cannot leave new panes
+                // pointing at a deleted relay rcfile.
+                tmuxShellCommand: "\(bashExec) --rcfile \"${CMUX_SHELL_INTEGRATION_DIR:-\(shellStateDir)}/.bashrc\" -i"
             ),
             "    ;;",
             "  fish)",
