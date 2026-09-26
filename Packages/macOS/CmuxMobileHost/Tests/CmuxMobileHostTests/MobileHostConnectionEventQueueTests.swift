@@ -45,6 +45,23 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.consumeOverflow())
     }
 
+    @Test("A growing replacement grid sheds droppable events before it overflows")
+    func replacementShedsDroppableEventsBeforeOverflow() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 4, maximumByteCount: 4)
+        queue.updateSubscribedTopics(["device.terminal.grid", "terminal.bytes"])
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).admitted)
+        #expect(queue.enqueue(topic: "terminal.bytes", coalesceKey: nil, isFullRenderGridFrame: false, frame: Data([2, 3])).admitted)
+        // The replacement needs 3 bytes where the old grid held 1; shedding the
+        // terminal bytes makes room, so the connection must stay open.
+        let result = queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data(count: 3))
+        #expect(result.admitted)
+        #expect(!result.overflowed)
+        #expect(result.shedEventCount == 1)
+        #expect(!queue.consumeOverflow())
+        #expect(queue.dequeue()?.frame.count == 3)
+        #expect(queue.dequeue() == nil)
+    }
+
     @Test("A replacement overflow with no active drain starts one")
     func replacementOverflowStartsIdleDrain() {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 4, maximumByteCount: 4)
