@@ -51,6 +51,8 @@ use serde_json::Value;
 use zeroize::Zeroize;
 
 #[cfg(unix)]
+use crate::machine_runtime::MachineConnectContext;
+#[cfg(unix)]
 use crate::session::{
     RemoteMessageReader, RemoteMessageWriter, RemoteTransport, RemoteTransportAbort,
 };
@@ -64,7 +66,7 @@ pub(crate) use machine_provider_transport::{
 };
 #[cfg(unix)]
 use machine_provider_transport::{
-    MachineStreamConnector, ProviderIo, ProviderIoGuard, ProviderIoParts,
+    MachineStreamConnector, ProviderIo, ProviderIoDeadline, ProviderIoGuard, ProviderIoParts,
 };
 
 /// Provider control frames are metadata, not terminal or browser payloads.
@@ -357,6 +359,7 @@ struct ProviderEventHubState {
 struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
+    control_deadline: Mutex<Option<ProviderIoDeadline>>,
     streams: Arc<dyn MachineStreamConnector>,
     pending: Mutex<HashMap<String, SyncSender<PendingResponse>>>,
     events: Mutex<ProviderEventHubState>,
@@ -620,6 +623,7 @@ impl ProviderClient {
         let inner = Arc::new(ProviderClientInner {
             writer: Mutex::new(writer),
             control_guard: guard.clone(),
+            control_deadline: Mutex::new(None),
             streams,
             pending: Mutex::new(HashMap::new()),
             events: Mutex::new(ProviderEventHubState::default()),
@@ -653,23 +657,67 @@ impl ProviderClient {
     }
 
     /// Opens and authenticates one transport-neutral provider generation.
+    #[cfg(test)]
     pub(crate) fn connect_authenticated_with(
         connector: Arc<dyn MachineProviderConnector>,
         client: ClientDescriptor,
     ) -> ProviderResult<(Self, HelloResult)> {
-        let (token, control, streams) = connector.connect()?.into_parts();
+        let context = MachineConnectContext::new(PROVIDER_OPEN_TIMEOUT);
+        Self::connect_authenticated_with_context(connector, client, &context)
+    }
+
+    /// Opens and authenticates a provider generation under the caller's
+    /// absolute deadline and cancellation signal.
+    pub(crate) fn connect_authenticated_with_context(
+        connector: Arc<dyn MachineProviderConnector>,
+        client: ClientDescriptor,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<(Self, HelloResult)> {
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
+        let (token, control, streams) = connector.connect(context)?.into_parts();
         let provider = Self::from_transport(control, streams)?;
-        let hello = provider.hello(token, client)?;
-        provider.negotiate_supported_client_capabilities()?;
+        provider.install_context(context)?;
+        let hello = provider.hello_with_context(token, client, context)?;
+        provider.negotiate_supported_client_capabilities_with_context(context)?;
+        provider.clear_context();
         Ok((provider, hello))
     }
 
+    fn install_context(&self, context: &MachineConnectContext) -> ProviderResult<()> {
+        let deadline =
+            self.inner.control_guard.watch_context(context).map_err(ProviderClientError::Io)?;
+        *self
+            .inner
+            .control_deadline
+            .lock()
+            .map_err(|_| ProviderClientError::StatePoisoned("control-deadline"))? = Some(deadline);
+        Ok(())
+    }
+
+    fn clear_context(&self) {
+        if let Ok(mut deadline) = self.inner.control_deadline.lock() {
+            deadline.take();
+        }
+    }
+
     /// Authenticate this control socket exactly once.
+    #[cfg(test)]
     pub(crate) fn hello(
         &self,
         token: BearerToken,
         client: ClientDescriptor,
     ) -> ProviderResult<HelloResult> {
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.hello_with_context(token, client, &context)
+    }
+
+    pub(crate) fn hello_with_context(
+        &self,
+        token: BearerToken,
+        client: ClientDescriptor,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<HelloResult> {
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         if self
             .inner
             .hello_started
@@ -681,9 +729,10 @@ impl ProviderClient {
 
         // Keep the original private and move only a temporary clone into the
         // one hello frame. Failed authentication is not retried implicitly.
-        let result = self.request_unchecked_with_metadata(
+        let result = self.request_unchecked_with_metadata_context(
             ProviderRequest::Hello(HelloParams { token: token.clone(), client }),
             PROVIDER_REQUEST_TIMEOUT,
+            context,
         );
         match result {
             Ok((hello, capabilities)) => {
@@ -706,8 +755,19 @@ impl ProviderClient {
     }
 
     pub(crate) fn snapshot(&self, known_revision: Option<u64>) -> ProviderResult<SnapshotResult> {
-        let mut snapshot =
-            self.request(ProviderRequest::Snapshot(SnapshotParams { known_revision }))?;
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.snapshot_with_context(known_revision, &context)
+    }
+
+    pub(crate) fn snapshot_with_context(
+        &self,
+        known_revision: Option<u64>,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<SnapshotResult> {
+        let mut snapshot = self.request_with_context(
+            ProviderRequest::Snapshot(SnapshotParams { known_revision }),
+            context,
+        )?;
         self.retain_negotiated_actions(&mut snapshot)?;
         Ok(snapshot)
     }
@@ -741,16 +801,30 @@ impl ProviderClient {
         }))
     }
 
+    #[cfg(test)]
     pub(crate) fn machine_lifecycle_snapshot(
         &self,
         scope_id: OpaqueId,
         known_revision: Option<u64>,
     ) -> ProviderResult<MachineLifecycleSnapshotResult> {
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.machine_lifecycle_snapshot_with_context(scope_id, known_revision, &context)
+    }
+
+    pub(crate) fn machine_lifecycle_snapshot_with_context(
+        &self,
+        scope_id: OpaqueId,
+        known_revision: Option<u64>,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<MachineLifecycleSnapshotResult> {
         self.require_capability(MACHINE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
-            scope_id,
-            known_revision,
-        }))
+        self.request_with_context(
+            ProviderRequest::MachineLifecycleSnapshot(MachineLifecycleSnapshotParams {
+                scope_id,
+                known_revision,
+            }),
+            context,
+        )
     }
 
     pub(crate) fn rename_machine(
@@ -785,6 +859,7 @@ impl ProviderClient {
         self.request(ProviderRequest::PurgeMachine(params))
     }
 
+    #[cfg(test)]
     pub(crate) fn open_machine(
         &self,
         machine_id: OpaqueId,
@@ -794,6 +869,21 @@ impl ProviderClient {
             machine_id,
             workspace_mirror_authority,
         }))
+    }
+
+    pub(crate) fn open_machine_with_context(
+        &self,
+        machine_id: OpaqueId,
+        workspace_mirror_authority: bool,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<OpenMachineResult> {
+        self.request_with_context(
+            ProviderRequest::OpenMachine(OpenMachineParams {
+                machine_id,
+                workspace_mirror_authority,
+            }),
+            context,
+        )
     }
 
     pub(crate) fn create_workspace(
@@ -809,16 +899,30 @@ impl ProviderClient {
         }))
     }
 
+    #[cfg(test)]
     pub(crate) fn workspace_snapshot(
         &self,
         machine_id: OpaqueId,
         known_revision: Option<u64>,
     ) -> ProviderResult<WorkspaceSnapshotResult> {
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.workspace_snapshot_with_context(machine_id, known_revision, &context)
+    }
+
+    pub(crate) fn workspace_snapshot_with_context(
+        &self,
+        machine_id: OpaqueId,
+        known_revision: Option<u64>,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<WorkspaceSnapshotResult> {
         self.require_capability(WORKSPACE_LIFECYCLE_CAPABILITY)?;
-        self.request(ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
-            machine_id,
-            known_revision,
-        }))
+        self.request_with_context(
+            ProviderRequest::WorkspaceSnapshot(WorkspaceSnapshotParams {
+                machine_id,
+                known_revision,
+            }),
+            context,
+        )
     }
 
     pub(crate) fn rename_workspace(
@@ -870,6 +974,7 @@ impl ProviderClient {
         }))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn close_machine(
         &self,
         connection_id: OpaqueId,
@@ -877,19 +982,42 @@ impl ProviderClient {
         self.request(ProviderRequest::CloseMachine(CloseMachineParams { connection_id }))
     }
 
+    pub(crate) fn close_machine_with_context(
+        &self,
+        connection_id: OpaqueId,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<CloseMachineResult> {
+        self.request_with_context(
+            ProviderRequest::CloseMachine(CloseMachineParams { connection_id }),
+            context,
+        )
+    }
+
     /// Register this process as a durable-notice consumer.
     ///
     /// Providers may send replayed events before the response. The control
     /// reader retains those deliveries until a local subscriber is installed.
+    #[cfg(test)]
     pub(crate) fn subscribe_notices(
         &self,
         consumer_id: OpaqueId,
     ) -> ProviderResult<SubscribeNoticesResult> {
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.subscribe_notices_with_context(consumer_id, &context)
+    }
+
+    pub(crate) fn subscribe_notices_with_context(
+        &self,
+        consumer_id: OpaqueId,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<SubscribeNoticesResult> {
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         self.require_capability(DURABLE_NOTICES_CAPABILITY)?;
         self.inner.begin_notice_subscription()?;
-        let result: SubscribeNoticesResult = match self
-            .request(ProviderRequest::SubscribeNotices(SubscribeNoticesParams { consumer_id }))
-        {
+        let result: SubscribeNoticesResult = match self.request_with_context(
+            ProviderRequest::SubscribeNotices(SubscribeNoticesParams { consumer_id }),
+            context,
+        ) {
             Ok(result) => result,
             Err(error) => {
                 self.inner.cancel_notice_subscription();
@@ -980,11 +1108,23 @@ impl ProviderClient {
     /// session transport. This function deliberately makes one connection and
     /// one handshake attempt. Callers cannot retry because the descriptor is
     /// moved in and the ticket is never returned from an error.
+    #[cfg(test)]
     pub(crate) fn consume_transport(
         &self,
         descriptor: TransportDescriptor,
     ) -> ProviderResult<RemoteTransport> {
+        let context = MachineConnectContext::new(PROVIDER_REQUEST_TIMEOUT);
+        self.consume_transport_with_context(descriptor, &context)
+    }
+
+    pub(crate) fn consume_transport_with_context(
+        &self,
+        descriptor: TransportDescriptor,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<RemoteTransport> {
+        let context = context.with_timeout(PROVIDER_REQUEST_TIMEOUT);
         self.ensure_authenticated()?;
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let provider_token = self
             .inner
             .token
@@ -994,8 +1134,9 @@ impl ProviderClient {
             .ok_or(ProviderClientError::NotAuthenticated)?;
         let TransportDescriptor::ProviderStream { ticket, expires_at: _ } = descriptor;
 
-        let ProviderIoParts { reader, mut writer, guard } = self.inner.streams.open()?.into_parts();
-        let deadline = guard.deadline(PROVIDER_REQUEST_TIMEOUT)?;
+        let ProviderIoParts { reader, mut writer, guard } =
+            self.inner.streams.open(&context)?.into_parts();
+        let deadline = guard.watch_context(&context)?;
         let mut reader = BufReader::new(reader);
         // The child learns this one-use credential only through the handshake.
         // Register it before writing so echoed or traced input is never retained
@@ -1008,15 +1149,17 @@ impl ProviderClient {
             token: provider_token,
             ticket,
         };
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         write_json_frame(&mut writer, &handshake, MAX_CONTROL_FRAME_BYTES)?;
 
-        let response = match read_bounded_frame(&mut reader, MAX_CONTROL_FRAME_BYTES)
-            .map_err(ProviderClientError::from)?
-        {
-            Some(response) => response,
-            None if deadline.timed_out() => return Err(ProviderClientError::Timeout),
-            None => return Err(disconnected_transport_error(&guard)),
+        let response = match read_bounded_frame(&mut reader, MAX_CONTROL_FRAME_BYTES) {
+            Ok(Some(response)) => response,
+            Ok(None) if deadline.timed_out() => return Err(ProviderClientError::Timeout),
+            Ok(None) => return Err(disconnected_transport_error(&guard)),
+            Err(_error) if deadline.timed_out() => return Err(ProviderClientError::Timeout),
+            Err(error) => return Err(ProviderClientError::from(error)),
         };
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let result: TransportHandshakeResult = serde_json::from_slice(&response)?;
         if !result.accepted {
             guard.close();
@@ -1049,6 +1192,15 @@ impl ProviderClient {
         self.advertises_capability(capability)
     }
 
+    pub(crate) fn supports_capability_with_context(
+        &self,
+        capability: &str,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<bool> {
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
+        self.supports_capability(capability)
+    }
+
     fn advertises_capability(&self, capability: &str) -> ProviderResult<bool> {
         let capabilities = self
             .inner
@@ -1058,7 +1210,10 @@ impl ProviderClient {
         Ok(capabilities.iter().any(|candidate| candidate == capability))
     }
 
-    fn negotiate_supported_client_capabilities(&self) -> ProviderResult<()> {
+    fn negotiate_supported_client_capabilities_with_context(
+        &self,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<()> {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
@@ -1066,10 +1221,12 @@ impl ProviderClient {
             PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
             CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
         ];
-        let result: NegotiateClientCapabilitiesResult =
-            self.request(ProviderRequest::NegotiateClientCapabilities(
-                NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
-            ))?;
+        let result: NegotiateClientCapabilitiesResult = self.request_with_context(
+            ProviderRequest::NegotiateClientCapabilities(NegotiateClientCapabilitiesParams {
+                capabilities: requested.clone(),
+            }),
+            context,
+        )?;
         if result.capabilities.iter().any(|capability| !requested.contains(capability)) {
             return Err(ProviderClientError::Protocol(
                 "provider accepted an unrequested client capability".to_string(),
@@ -1115,6 +1272,39 @@ impl ProviderClient {
     where
         T: DeserializeOwned,
     {
+        let context = MachineConnectContext::new(timeout);
+        self.request_unchecked_with_metadata_context(request, timeout, &context)
+    }
+
+    fn request_with_context<T>(
+        &self,
+        request: ProviderRequest,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<T>
+    where
+        T: DeserializeOwned,
+    {
+        self.ensure_authenticated()?;
+        let timeout = if matches!(request, ProviderRequest::OpenMachine(_)) {
+            PROVIDER_OPEN_TIMEOUT
+        } else {
+            PROVIDER_REQUEST_TIMEOUT
+        };
+        self.request_unchecked_with_metadata_context(request, timeout, context)
+            .map(|(result, _)| result)
+    }
+
+    fn request_unchecked_with_metadata_context<T>(
+        &self,
+        request: ProviderRequest,
+        timeout: Duration,
+        context: &MachineConnectContext,
+    ) -> ProviderResult<(T, Vec<String>)>
+    where
+        T: DeserializeOwned,
+    {
+        let context = context.with_timeout(timeout);
+        context.check().map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         self.ensure_live()?;
         let sequence = self.inner.next_request_id.fetch_add(1, Ordering::Relaxed);
         let id = OpaqueId::new(format!("cmux-{sequence}"))
@@ -1151,14 +1341,29 @@ impl ProviderClient {
             return Err(error);
         }
 
-        let mut frame = match receiver.recv_timeout(timeout) {
-            Ok(Ok(frame)) => frame,
-            Ok(Err(failure)) => return Err(failure.into()),
-            Err(RecvTimeoutError::Timeout) => {
+        let mut frame = loop {
+            context.check().map_err(|_error| {
                 self.remove_pending(&id_key);
-                return Err(ProviderClientError::Timeout);
+                if context.is_cancelled() {
+                    ProviderClientError::Disconnected
+                } else {
+                    ProviderClientError::Timeout
+                }
+            })?;
+            match receiver.recv_timeout(
+                context
+                    .remaining()
+                    .map_err(|_| ProviderClientError::Timeout)?
+                    .min(timeout)
+                    .min(Duration::from_millis(50)),
+            ) {
+                Ok(Ok(frame)) => break frame,
+                Ok(Err(failure)) => return Err(failure.into()),
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(ProviderClientError::Disconnected);
+                }
             }
-            Err(RecvTimeoutError::Disconnected) => return Err(ProviderClientError::Disconnected),
         };
         let decoded = serde_json::from_slice(&frame);
         frame.zeroize();
