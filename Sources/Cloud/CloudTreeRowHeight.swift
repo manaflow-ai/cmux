@@ -23,8 +23,6 @@ struct CloudTreeRowHeight {
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         case .device:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-        case .portsGroup:
-            return max(24, GlobalFontMagnification.scaledSize(style.rowHeight))
         case .placeholder(_, let placeholder) where placeholder.portStatus != nil:
             guard let presentation = placeholder.portStatus else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             let level = outlineView.level(forItem: node)
