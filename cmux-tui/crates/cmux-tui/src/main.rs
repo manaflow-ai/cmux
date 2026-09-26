@@ -2264,6 +2264,21 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
+    // has elapsed with no attached view.
+    let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
+        Arc::downgrade(&mux),
+        cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
+    ) {
+        Ok(reaper) => Some(reaper),
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: idle terminal reaper unavailable: {error}"
+            );
+            None
+        }
+    };
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2306,6 +2321,9 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
     #[cfg(unix)]
     if let Some(poller) = machine_usage_poller {
         poller.stop();

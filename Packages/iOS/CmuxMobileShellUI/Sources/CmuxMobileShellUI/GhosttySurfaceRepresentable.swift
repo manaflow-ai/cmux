@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -59,10 +60,23 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     var useLegacyTerminalSizing: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
+    /// SSH terminals: show the Files chip regardless of paths on screen; it
+    /// opens the server's file browser (via ``onArtifactFilesRequested``).
+    var sshFilesChipEnabled: Bool = false
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+
+    /// Who answers terminal queries: the Mac (mirror), the server's
+    /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
+    static func localEmulation(store: CMUXMobileShellStore, surfaceID: String) -> TerminalLocalEmulation {
+        switch store.sshServerAnswersTerminalQueries(surfaceID: surfaceID) {
+        case nil: .mirror
+        case true?: .inputOnly
+        case false?: .authoritative
+        }
+    }
 
     func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
@@ -95,10 +109,15 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
         // they keep the low-latency local authority even under verified replay.
+        // Screen-anchored and SSH (locally emulated) sessions keep the local
+        // authority; SSH output never rides a Mac's verified replay.
+        let locallyEmulated = store.surfaceIsLocallyEmulated(surfaceID)
         view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !locallyEmulated
             ? .verifiedRenderGrid
             : .legacyMirror
+        view.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
@@ -172,11 +191,17 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !store.surfaceIsLocallyEmulated(surfaceID)
             ? .verifiedRenderGrid
             : .legacyMirror
+        surfaceView.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
+        context.coordinator.setPersistentFilesChip(sshFilesChipEnabled)
+        // The SSH chip is the only way into the server's files, so it shows
+        // as soon as the terminal opens instead of waiting for a scroll.
+        surfaceView.artifactChipReveal = sshFilesChipEnabled ? .always : .onScroll
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
@@ -302,6 +327,9 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
         private var composerController: UIHostingController<TerminalComposerView>?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
+        /// The SSH Files chip: mounted for the surface's lifetime, no count.
+        var persistentFilesChip = false
+        var persistentFilesChipMounted = false
         /// Pending debounced chip unmount; cancelled whenever a positive count
         /// arrives so transient zero counts cannot flicker the chip.
         var artifactChipHideTask: Task<Void, Never>?

@@ -157,6 +157,27 @@ import Testing
         }
     }
 
+    /// SSH computers' browser tabs are not on a Mac, so the switcher's
+    /// browser section is named by the computer's kind.
+    @Test func browserSectionIsNamedByComputerKind() {
+        let terminal = MobileTerminalPreview(id: "terminal-1", name: "Shell 1")
+        func value(isSSHComputer: Bool) -> TerminalPickerMenuValue {
+            TerminalPickerMenuValue(
+                liveTerminals: [terminal],
+                snapshotRows: [],
+                selectedID: terminal.id,
+                canCreateWorkspace: true,
+                hasActiveBrowser: false,
+                supportsBrowserStream: true,
+                isSSHComputer: isSSHComputer
+            )
+        }
+        #expect(value(isSSHComputer: false).browserSectionTitle == "Mac Browsers")
+        #expect(value(isSSHComputer: true).browserSectionTitle == "Browsers")
+        // The kind is part of the menu value, so the menu rebuilds on change.
+        #expect(value(isSSHComputer: false) != value(isSSHComputer: true))
+    }
+
     private func menuValue(
         liveTerminals: [MobileTerminalPreview],
         snapshotRows: [TerminalPickerMenuRow],

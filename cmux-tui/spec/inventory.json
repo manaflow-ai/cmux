@@ -206,6 +206,7 @@
       "set-default-colors",
       "set-ratio",
       "set-split-ratio",
+      "set-terminal-idle-policy",
       "set-viewport-pane-width",
       "set-window-title",
       "split",

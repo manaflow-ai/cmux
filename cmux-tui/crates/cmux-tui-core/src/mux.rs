@@ -1,11 +1,13 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod idle_close;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 
+pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -1841,8 +1843,16 @@ struct ClientSizingState {
     next_size_order: u64,
     policies: HashMap<SurfaceId, SurfaceClientSizing>,
     terminal_authorities: HashMap<SurfaceId, TerminalGeometryAuthority>,
+    /// Per terminal runtime, the owners that a later claim displaced, most
+    /// recent last. When the current owner releases or disconnects, the most
+    /// recent displaced owner that still reports a viewport takes geometry
+    /// back, so a laptop regains its size when a phone stops viewing.
+    displaced_terminal_authorities: HashMap<SurfaceId, Vec<TerminalGeometryAuthority>>,
     terminal_runtime_by_placement: HashMap<SurfaceId, SurfaceId>,
 }
+
+/// Bound on remembered displaced owners per terminal runtime.
+const DISPLACED_TERMINAL_AUTHORITY_CAPACITY: usize = 8;
 
 impl ClientSizingState {
     fn next_size_order(&mut self) -> u64 {
@@ -1896,6 +1906,68 @@ impl ClientSizingState {
         self.terminal_authorities
             .get(&runtime)
             .is_some_and(|authority| authority.placement == surface && authority.client == client)
+    }
+
+    /// Installs `authority` as the runtime's owner and remembers the owner it
+    /// displaced. Returns the previous owner.
+    fn install_terminal_authority(
+        &mut self,
+        runtime: SurfaceId,
+        authority: TerminalGeometryAuthority,
+    ) -> Option<TerminalGeometryAuthority> {
+        let previous = self.terminal_authorities.insert(runtime, authority);
+        let displaced = self.displaced_terminal_authorities.entry(runtime).or_default();
+        displaced.retain(|entry| *entry != authority && Some(*entry) != previous);
+        if let Some(previous) = previous.filter(|previous| *previous != authority) {
+            displaced.push(previous);
+            if displaced.len() > DISPLACED_TERMINAL_AUTHORITY_CAPACITY {
+                displaced.remove(0);
+            }
+        }
+        if displaced.is_empty() {
+            self.displaced_terminal_authorities.remove(&runtime);
+        }
+        previous
+    }
+
+    /// After the runtime lost its owner, hands geometry back to the most
+    /// recently displaced owner that still has a viewport report for a
+    /// placement of this runtime. Returns that owner and its reported size.
+    fn restore_displaced_terminal_authority(
+        &mut self,
+        runtime: SurfaceId,
+    ) -> Option<(TerminalGeometryAuthority, (u16, u16))> {
+        if self.terminal_authorities.contains_key(&runtime) {
+            return None;
+        }
+        let mut displaced = self.displaced_terminal_authorities.remove(&runtime)?;
+        while let Some(candidate) = displaced.pop() {
+            let placement_is_live =
+                self.terminal_runtime_by_placement.get(&candidate.placement) == Some(&runtime);
+            let size = self
+                .surfaces
+                .get(&candidate.placement)
+                .and_then(|viewers| viewers.get(&candidate.client))
+                .copied();
+            if let (true, Some(size)) = (placement_is_live, size) {
+                self.terminal_authorities.insert(runtime, candidate);
+                if !displaced.is_empty() {
+                    self.displaced_terminal_authorities.insert(runtime, displaced);
+                }
+                return Some((candidate, size));
+            }
+        }
+        None
+    }
+
+    fn forget_displaced_terminal_authorities(
+        &mut self,
+        mut forget: impl FnMut(&TerminalGeometryAuthority) -> bool,
+    ) {
+        self.displaced_terminal_authorities.retain(|_, displaced| {
+            displaced.retain(|entry| !forget(entry));
+            !displaced.is_empty()
+        });
     }
 
     fn report_participates(&self, surface: SurfaceId, client: u64) -> bool {
@@ -2473,6 +2545,7 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    idle_close: Mutex<idle_close::IdleCloseTracker>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2881,6 +2954,7 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -8666,12 +8740,14 @@ impl Mux {
         sizing.report_order.remove(&(id, client));
         if let Some(runtime) = terminal_runtime {
             let released = sizing.owns_terminal_geometry(runtime, id, client);
+            let mut restored = None;
             if released {
                 sizing.terminal_authorities.remove(&runtime);
+                restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
             }
             drop(sizing);
             if released {
-                self.emit_client_sizing_changes([client]);
+                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
             }
             return;
         }
@@ -8736,7 +8812,19 @@ impl Mux {
             affected.insert(*surface);
             false
         });
+        let released_runtimes = sizing
+            .terminal_authorities
+            .iter()
+            .filter(|(_, authority)| authority.client == client)
+            .map(|(runtime, _)| *runtime)
+            .collect::<Vec<_>>();
         sizing.terminal_authorities.retain(|_, authority| authority.client != client);
+        sizing.forget_displaced_terminal_authorities(|authority| authority.client == client);
+        let mut restored_geometry_clients = Vec::new();
+        for runtime in released_runtimes {
+            restored_geometry_clients
+                .extend(self.restore_displaced_terminal_geometry(&mut sizing, runtime));
+        }
         let mut restored_surfaces = HashSet::new();
         for (surface, policy) in &mut sizing.policies {
             let changed = if policy.exclusive_client == Some(client) {
@@ -8770,6 +8858,7 @@ impl Mux {
                 changed_clients.extend(reporters.keys().copied());
             }
         }
+        changed_clients.extend(restored_geometry_clients);
         changed_clients.remove(&client);
         self.apply_effective_client_sizes(&sizing, affected, &attached_clients);
         drop(sizing);
@@ -8796,7 +8885,7 @@ impl Mux {
         let mut sizing = self.client_sizing.lock().unwrap();
         let authority = TerminalGeometryAuthority { placement: surface, client };
         sizing.terminal_runtime_by_placement.insert(surface, runtime);
-        let previous = sizing.terminal_authorities.insert(runtime, authority);
+        let previous = sizing.install_terminal_authority(runtime, authority);
         let changed = previous != Some(authority);
         let claimed_size =
             sizing.surfaces.get(&surface).and_then(|viewers| viewers.get(&client)).copied();
@@ -8827,6 +8916,8 @@ impl Mux {
             return None;
         }
         let released = sizing.terminal_authorities.remove(&runtime);
+        // An explicit release freezes the grid; no displaced owner returns.
+        sizing.displaced_terminal_authorities.remove(&runtime);
         drop(sizing);
         if let Some(released) = released {
             self.emit_client_sizing_changes([released.client]);
@@ -8834,6 +8925,19 @@ impl Mux {
         } else {
             Some(false)
         }
+    }
+
+    /// Re-elects the most recently displaced owner of `runtime` (see
+    /// `ClientSizingState::restore_displaced_terminal_authority`) and resizes
+    /// the terminal to its viewport. Returns the restored client.
+    fn restore_displaced_terminal_geometry(
+        &self,
+        sizing: &mut ClientSizingState,
+        runtime: SurfaceId,
+    ) -> Option<u64> {
+        let (authority, (cols, rows)) = sizing.restore_displaced_terminal_authority(runtime)?;
+        let _ = self.resize_surface(authority.placement, cols, rows);
+        Some(authority.client)
     }
 
     fn emit_client_sizing_changes(&self, clients: impl IntoIterator<Item = u64>) {
@@ -8868,8 +8972,9 @@ impl Mux {
             let owns = sizing.owns_terminal_geometry(runtime, surface, client);
             if owns {
                 sizing.terminal_authorities.remove(&runtime);
+                let restored = self.restore_displaced_terminal_geometry(&mut sizing, runtime);
                 drop(sizing);
-                self.emit_client_sizing_changes([client]);
+                self.emit_client_sizing_changes(std::iter::once(client).chain(restored));
             }
             return Some(owns);
         }
@@ -10736,8 +10841,10 @@ impl Mux {
         sizing.policies.remove(&surface);
         sizing.terminal_runtime_by_placement.remove(&surface);
         sizing.terminal_authorities.retain(|_, authority| authority.placement != surface);
+        sizing.forget_displaced_terminal_authorities(|authority| authority.placement == surface);
         drop(sizing);
         self.placement_notifications.lock().unwrap().remove(&surface);
+        self.control_clients.forget_surface_attach_epoch(surface);
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {

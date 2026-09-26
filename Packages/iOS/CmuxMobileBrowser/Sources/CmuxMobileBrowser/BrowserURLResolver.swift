@@ -259,7 +259,8 @@ public struct BrowserURLResolver: Sendable {
     /// those servers listen on plain HTTP.
     private func isLocalHost(_ input: String) -> Bool {
         let host = bareHost(of: input).lowercased()
-        if host == "localhost" || host == "::1" { return true }
+        // `0.0.0.0` is what dev servers print for "all interfaces".
+        if host == "localhost" || host == "::1" || host == "0.0.0.0" { return true }
         let octets = host.split(separator: ".", omittingEmptySubsequences: false)
         guard octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) else { return false }
         let values = octets.compactMap { Int($0) }

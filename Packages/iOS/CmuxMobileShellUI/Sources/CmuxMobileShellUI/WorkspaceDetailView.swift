@@ -66,6 +66,9 @@ struct WorkspaceDetailView: View {
 #endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
+    /// The question that dialog asks, resolved from the store when the close
+    /// is requested.
+    @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -134,6 +137,8 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
+    /// The SFTP browser an SSH terminal's Files chip opened.
+    @State var sshFilesContext: SSHFilesContext?
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -289,6 +294,7 @@ struct WorkspaceDetailView: View {
                 visibleArtifactCount = 0
             }
             .closeWorkspaceConfirmation(
+                closeConfirmation,
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
@@ -333,10 +339,12 @@ struct WorkspaceDetailView: View {
                         ?? .failure()
                 }
             }
+            .sheet(item: $sshFilesContext) { sshFilesSheet($0) }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
             .closeWorkspaceConfirmation(
+                closeConfirmation,
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
@@ -528,7 +536,11 @@ struct WorkspaceDetailView: View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
-        let canReconnect = Self.canReconnectFromTitleMenu(
+        // An SSH computer decides from its own connection: Reconnect only
+        // when the host is not connected or the shown session ended.
+        let canReconnect = sshHostID.map {
+            store.sshComputers.canReconnect(hostID: $0, surfaceID: selectedTerminal?.id.rawValue)
+        } ?? Self.canReconnectFromTitleMenu(
             effectiveConnectionStatus: effectiveConnectionStatus,
             connectionRequiresReauth: store.connectionRequiresReauth
         )
@@ -540,7 +552,7 @@ struct WorkspaceDetailView: View {
             measuredTrailingItemCount: measuredWidths.count,
             trailingItemCount: structuralTrailingItemKeys.count,
             hadTrailingCollapse: trailingToolbarCollapseDetected,
-            isEnabled: hasTitleMenuActions || canReconnect,
+            isEnabled: hasTitleMenuActions || canReconnect || sshFilesTerminalID != nil,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
             canCustomizeWorkspace: customizeWorkspace != nil,
@@ -548,6 +560,7 @@ struct WorkspaceDetailView: View {
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
             canReconnect: canReconnect,
+            canBrowseFiles: sshFilesTerminalID != nil,
             labelToken: toolbarTitleLabelToken,
             terminalTheme: store.activeTerminalTheme
         )
@@ -563,11 +576,13 @@ struct WorkspaceDetailView: View {
                     canToggleReadState: value.canToggleReadState,
                     canCloseWorkspace: value.canCloseWorkspace,
                     canReconnect: value.canReconnect,
+                    canBrowseFiles: value.canBrowseFiles,
                     presentCustomization: presentCustomizationFromMenu,
                     presentRename: presentRenameFromMenu,
                     toggleReadState: toggleWorkspaceReadStateFromMenu,
                     requestClose: requestCloseWorkspaceFromMenu,
-                    reconnect: reconnectToWorkspaceMac
+                    reconnect: reconnectToWorkspaceMac,
+                    browseFiles: browseFilesFromMenu
                 )
             },
             label: {
@@ -742,6 +757,11 @@ struct WorkspaceDetailView: View {
     }
 
     func reconnectToWorkspaceMac() {
+        if let hostID = sshHostID {
+            let surfaceID = selectedTerminal?.id.rawValue
+            Task { await store.sshComputers.reconnect(hostID: hostID, surfaceID: surfaceID) }
+            return
+        }
         Task {
             await store.reconnectToMac(
                 macDeviceID: workspace.macDeviceID,
@@ -911,19 +931,23 @@ struct WorkspaceDetailView: View {
                 // carries the picker checkmark like any picked surface.
                 selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
                 canCreateWorkspace: canCreateWorkspace,
+                canCreateTerminal: store.sshSupportsTerminalTabs(workspaceID: workspace.id),
                 hasActiveBrowser: activeBrowser != nil,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
-                supportsBrowserStream: store.supportsBrowserStream,
+                supportsBrowserStream: store.supportsBrowserStream(inWorkspace: workspace.id),
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
+                activeSimulatorStreamPanelID: activeSimulatorStream?.id,
+                sshTabLayout: store.sshTabLayout(workspaceID: workspace.id),
+                isSSHComputer: sshHostID != nil
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
                 selectMacSurface: selectMacSurfaceFromPicker,
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
+                createSSHTab: createSSHTabFromPicker,
                 openBrowser: openBrowserFromToolbar,
                 selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 selectSimulatorStream: selectSimulatorStreamFromToolbar,
@@ -1123,10 +1147,17 @@ struct WorkspaceDetailView: View {
         createWorkspace()
     }
 
-    /// Arms the close-workspace confirmation. The actual close runs only after
-    /// the user confirms, matching the workspace list's destructive-action UX.
+    /// Arms the close-workspace confirmation the store's rule asks for (the
+    /// same one the workspace list's swipe and context menu use). The close
+    /// runs only after the user confirms, or at once when the rule asks
+    /// nothing (an SSH shell).
     private func requestCloseWorkspaceFromMenu() {
         dismissTerminalKeyboardForChrome()
+        guard let confirmation = store.workspaceCloseConfirmation(id: workspace.id) else {
+            closeWorkspace?(workspace.id)
+            return
+        }
+        closeConfirmation = confirmation
         isConfirmingClose = true
     }
 
@@ -1178,13 +1209,27 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
+    /// A grouped section's action: "Split Pane" (tmux window), "New Tab" or
+    /// "Split Pane" (cmux-tui screen). Surfaces the new terminal like New
+    /// Terminal.
+    private func createSSHTabFromPicker(_ sectionID: String, _ action: MobileSSHSectionAction) {
+        dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
+        browserStore.closeBrowser(for: workspace.id.rawValue)
+        stopActiveBrowserStream()
+        stopActiveSimulatorStream()
+        store.createSSHTab(in: workspace.id, section: sectionID, action: action)
+    }
+
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // New Browser creates a real Mac browser pane and streams it, so it
         // shows the same surface as the Mac Browsers rows. The phone-local
         // WKWebView pane remains only as a fallback for Macs that cannot
         // create panels (older builds, disconnected, or creation rejected).
-        guard store.supportsBrowserStreamCreate else {
+        // SSH workspaces always use the native pane: it reaches the server's
+        // `localhost` ports through SSH forwards.
+        guard sshHostID == nil, store.supportsBrowserStreamCreate else {
             openLocalBrowserFallback()
             return
         }
@@ -1206,7 +1251,7 @@ struct WorkspaceDetailView: View {
     /// Opens (or reveals) the phone-local browser pane for this workspace. The
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
-    private func openLocalBrowserFallback() {
+    func openLocalBrowserFallback() {
         let workspaceID = workspace.id.rawValue
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
         _ = browserStore.openBrowser(for: workspaceID)
@@ -1217,10 +1262,12 @@ struct WorkspaceDetailView: View {
         store.selectedMacSurfaceID = nil
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+    func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
         if dismissKeyboard {
             dismissTerminalKeyboardForChrome()
         }
+        // A streamed tab last switched to "On iPhone" reopens there.
+        if openStreamPanelOnDeviceIfPreferred(panelID) { return }
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
@@ -1276,7 +1323,7 @@ struct WorkspaceDetailView: View {
         _ = browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
-    private func stopActiveBrowserStream() {
+    func stopActiveBrowserStream() {
         guard let stream = activeBrowserStream else { return }
         browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }

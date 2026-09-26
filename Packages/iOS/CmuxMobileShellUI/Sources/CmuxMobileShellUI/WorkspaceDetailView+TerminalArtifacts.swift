@@ -18,6 +18,9 @@ extension WorkspaceDetailView {
     let shouldAutoFocus = activeSurface == .terminal
         && store.shouldAutoFocusTerminalSurface(terminalID)
         && !store.isComposerPresented
+    // SSH terminals have no Mac artifact scan; their Files chip browses the
+    // server over SFTP instead.
+    let isSSH = isSSHTerminal(terminalID)
     GhosttySurfaceRepresentable(
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
@@ -41,14 +44,19 @@ extension WorkspaceDetailView {
         // letterbox, default cell colors) without a remount, so
         // scrollback survives a theme change.
         configThemeGeneration: store.terminalConfigThemeGeneration,
-        artifactFilesEnabled: store.supportsTerminalArtifacts,
-        terminalFolderTapEnabled: terminalFolderTapEnabled,
+        artifactFilesEnabled: !isSSH && store.supportsTerminalArtifacts,
+        terminalFolderTapEnabled: !isSSH && terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
         useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
-        sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
+        sessionArtifactCountEnabled: !isSSH && store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
+        sshFilesChipEnabled: isSSH,
         onArtifactFilesRequested: { anchor in
+            if isSSH {
+                presentSSHFiles(terminalID: terminalID)
+                return
+            }
             store.recordAppEvent(
                 .terminalArtifactGalleryOpened,
                 correlationID: terminalID

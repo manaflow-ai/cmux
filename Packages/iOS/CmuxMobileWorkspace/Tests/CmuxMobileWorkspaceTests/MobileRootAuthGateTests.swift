@@ -50,6 +50,29 @@ import Testing
         ))
     }
 
+    @Test func signedOutSSHShellBypassesSignInOnceRestoreSettles() {
+        // PRD D5: SSH needs no account, so a signed-out user who chose SSH
+        // (or has saved SSH computers) reaches the shell.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            isRestoringSession: false,
+            showsSignedOutSSHShell: true
+        ))
+        // Launch restore still owns the screen until it settles.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
+            isRestoringSession: true,
+            showsSignedOutSSHShell: true
+        ))
+        // Signed-in behavior is unchanged by the SSH flag.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            onboardingPending: true,
+            showsSignedOutSSHShell: true
+        ))
+    }
+
     @Test func signInOwnsScreenWhileSignedOut() {
         #expect(MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,

@@ -3999,6 +3999,28 @@
    },
    "additional_properties": false
   },
+  "SetTerminalIdlePolicyResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "idle_close_seconds": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "CellPixelResize": {
    "kind": "object",
    "fields": {
@@ -6818,6 +6840,69 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "set-terminal-idle-policy": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-idle-close-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     },
+     "idle_close_seconds": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "minimum": 1,
+        "maximum": 315360000
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present.",
+     "A missing or null idle_close_seconds clears the policy, so the terminal is never closed for idleness."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetTerminalIdlePolicyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The policy is stored durably with the terminal and survives owner restarts.",
+    "The owner closes the terminal, as close-terminal does, once it has had no attached view for idle_close_seconds; unattached time restarts at every attach and after an owner restart."
+   ]
   },
   "new-tab": {
    "authority": "control",

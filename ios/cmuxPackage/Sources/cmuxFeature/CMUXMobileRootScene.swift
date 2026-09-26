@@ -554,8 +554,15 @@ public struct CMUXMobileRootScene: View {
                 diagnosticLog: diagnosticLog
             ),
             browserStreamEvents: browserStreamEvents,
-            simulatorStreamStore: simulatorStreamStore
+            simulatorStreamStore: simulatorStreamStore,
+            // SSH hosts and keys are device-local and account-independent
+            // (docs/prd/ios-direct-ssh.md D5): Application Support, never
+            // cleared by sign-out.
+            sshComputers: MobileSSHComputers(
+                directory: URL.applicationSupportDirectory.appending(path: "ssh", directoryHint: .isDirectory)
+            )
         )
+        Task { await store.startSSHComputers() }
         #if os(iOS)
         // Install the cached (or baked) Mac minimum-version list before the
         // store is handed to any view, so the first stored-Mac reconnect can

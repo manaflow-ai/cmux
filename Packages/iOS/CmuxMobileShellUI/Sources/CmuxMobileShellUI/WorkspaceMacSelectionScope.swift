@@ -7,6 +7,10 @@ struct WorkspaceMacSelectionScope {
     let machineIDs: Set<String>
     let foregroundMachineIDs: Set<String>
     let workspaces: [MobileWorkspacePreview]
+    /// Computers served on this iPhone rather than through a Mac connection
+    /// (SSH computers). Always selectable, even before they list a workspace,
+    /// and creating on them never needs the foreground Mac.
+    let locallyServedMachineIDs: Set<String>
     private let displayPairedMacs: [MobilePairedMac]
     /// The LIVE foreground connection's instance tag. Stored `isActive` flags
     /// can lag promotion (written with `reloadAfterWrite: false`), so
@@ -20,6 +24,7 @@ struct WorkspaceMacSelectionScope {
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         foregroundInstanceTag: String? = nil,
+        locallyServedMachineIDs: Set<String> = [],
         aliasesFor: (String, String?) -> [String]
     ) {
         let aliasIndex = WorkspaceMacPickerAliasIndex(
@@ -33,6 +38,7 @@ struct WorkspaceMacSelectionScope {
         for mac in displayPairedMacs {
             machineIDs.insert(mac.id)
         }
+        machineIDs.formUnion(locallyServedMachineIDs)
         for item in notificationFeedItems {
             let itemPairingID = MobilePairedMac.pairingID(
                 macDeviceID: item.macDeviceID,
@@ -57,6 +63,7 @@ struct WorkspaceMacSelectionScope {
         self.machineIDs = machineIDs
         self.foregroundMachineIDs = foregroundMachineIDs
         self.workspaces = workspaces
+        self.locallyServedMachineIDs = locallyServedMachineIDs
         self.displayPairedMacs = displayPairedMacs
         self.foregroundInstanceTag = foregroundInstanceTag
     }
@@ -68,6 +75,7 @@ struct WorkspaceMacSelectionScope {
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         foregroundInstanceTag: String? = nil,
+        locallyServedMachineIDs: Set<String> = [],
         aliasesFor: (String) -> [String]
     ) {
         self.init(
@@ -77,6 +85,7 @@ struct WorkspaceMacSelectionScope {
             notificationFeedItems: notificationFeedItems,
             foregroundMacDeviceID: foregroundMacDeviceID,
             foregroundInstanceTag: foregroundInstanceTag,
+            locallyServedMachineIDs: locallyServedMachineIDs,
             aliasesFor: { deviceID, _ in aliasesFor(deviceID) }
         )
     }
@@ -108,13 +117,17 @@ struct WorkspaceMacSelectionScope {
 
     /// The exact saved app instance selected by a pairing-scoped menu entry.
     func switchTarget(for id: String) -> (macDeviceID: String, instanceTag: String?)? {
-        displayPairedMacs.first { $0.id == id }
+        // Selecting a locally served computer "switches" by connecting it;
+        // the store routes that without touching the foreground Mac.
+        if locallyServedMachineIDs.contains(id) { return (id, nil) }
+        return displayPairedMacs.first { $0.id == id }
             .map { ($0.macDeviceID, $0.instanceTag) }
     }
 
     /// Whether selecting `id` must move the foreground connection to another
     /// saved app instance. Workspace-only device entries remain local filters.
     func shouldSwitch(to id: String) -> Bool {
+        if locallyServedMachineIDs.contains(id) { return true }
         guard let target = displayPairedMacs.first(where: { $0.id == id }) else {
             return false
         }
@@ -144,8 +157,13 @@ struct WorkspaceMacSelectionScope {
     }
 
     func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
-        guard canCreateWorkspace else { return false }
         guard !switchPending else { return false }
+        // A locally served computer (SSH) creates on its own connection, so
+        // the foreground Mac's `canCreateWorkspace` does not gate it.
+        if case .machine(let id) = visibleSelection, locallyServedMachineIDs.contains(id) {
+            return true
+        }
+        guard canCreateWorkspace else { return false }
         switch visibleSelection {
         case .machine(let id):
             // Creating requires the foreground connection to BE the selected

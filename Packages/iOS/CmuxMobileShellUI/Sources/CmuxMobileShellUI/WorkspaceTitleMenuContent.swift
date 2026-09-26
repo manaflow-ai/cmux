@@ -9,11 +9,13 @@ struct WorkspaceTitleMenuContent: View {
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
     let canReconnect: Bool
+    var canBrowseFiles = false
     let presentCustomization: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
     let reconnect: () -> Void
+    var browseFiles: () -> Void = {}
 
     var body: some View {
         if canReconnect {
@@ -25,6 +27,17 @@ struct WorkspaceTitleMenuContent: View {
                     )
                 }
                 .accessibilityIdentifier("MobileWorkspaceTitleReconnectMenuItem")
+            }
+        }
+        if canBrowseFiles {
+            Section {
+                Button(action: browseFiles) {
+                    Label(
+                        L10n.string("mobile.ssh.files.menuItem", defaultValue: "Browse Files"),
+                        systemImage: "folder"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleFilesMenuItem")
             }
         }
         if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileSSH
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -30,6 +31,15 @@ struct DeviceTreeView: View {
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
+    /// Whether the Mac sections, pairing, and account-scoped reloads apply.
+    /// `false` in the signed-out SSH-only shell (PRD D5), which lists only SSH
+    /// computers.
+    var macPairingAvailable = true
+    /// The workspace list's computer filter; selecting an SSH computer here
+    /// scopes the list to it (PRD D22).
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
+    @State private var path = NavigationPath()
+    @State private var pendingSSHDeleteID: UUID?
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
@@ -55,9 +65,11 @@ struct DeviceTreeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
-                if computers.isEmpty && store.hiddenComputers.isEmpty {
+                if !macPairingAvailable {
+                    EmptyView()
+                } else if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
                     // One row per Computer, grouped under the connection
@@ -107,9 +119,41 @@ struct DeviceTreeView: View {
                         ))
                     }
                 }
+                // SSH computers sit after the route-kind sections and show
+                // even with no paired Macs (PRD D6).
+                SSHComputersSection(
+                    computers: SSHComputerRowSnapshot.snapshots(from: store.sshComputers),
+                    actions: sshSectionActions
+                )
             }
             .listStyle(.insetGrouped)
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: rowMembership)
+            .navigationDestination(for: SSHComputerEditorTarget.self) { target in
+                SSHComputerEditorView(
+                    computers: store.sshComputers,
+                    existing: target.hostID.flatMap { store.sshComputers.host(id: $0) },
+                    showsCancel: false,
+                    onFinish: { _ in
+                        if !path.isEmpty { path.removeLast() }
+                    }
+                )
+            }
+            .alert(
+                SSHCopy().deleteHostTitle,
+                isPresented: Binding(
+                    get: { pendingSSHDeleteID != nil },
+                    set: { if !$0 { pendingSSHDeleteID = nil } }
+                ),
+                presenting: pendingSSHDeleteID
+            ) { hostID in
+                Button(SSHCopy().delete, role: .destructive) {
+                    deleteSSHComputer(hostID)
+                }
+                .accessibilityIdentifier("ssh.delete.confirm")
+                Button(SSHCopy().cancel, role: .cancel) {}
+            } message: { _ in
+                Text(SSHCopy().deleteHostMessage)
+            }
             .navigationDestination(for: MacConnectionRef.self) { ref in
                 if let computer = computers.first(where: { $0.id == ref.pairingID }) {
                     MacComputerDetailView(
@@ -123,12 +167,29 @@ struct DeviceTreeView: View {
             .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if showAddDevice != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: addComputer) {
+                ToolbarItem(placement: .topBarLeading) {
+                    if showAddDevice != nil, macPairingAvailable {
+                        // Adding can mean pairing a Mac or saving an SSH
+                        // computer, so the + offers both (HIG Menus).
+                        Menu {
+                            Button(action: addComputer) {
+                                Label(SSHCopy().pairMacEllipsis, systemImage: "macbook.and.iphone")
+                            }
+                            .accessibilityIdentifier("ssh.addMenu.pairMac")
+                            Button(action: addSSHComputer) {
+                                Label(SSHCopy().addComputerEllipsis, systemImage: "terminal")
+                            }
+                            .accessibilityIdentifier("ssh.addMenu.ssh")
+                        } label: {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
+                        .accessibilityIdentifier("MobileComputersAddButton")
+                    } else {
+                        Button(action: addSSHComputer) {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel(SSHCopy().addComputer)
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }
@@ -141,6 +202,7 @@ struct DeviceTreeView: View {
             }
             .refreshable { await reload() }
             .task {
+                guard macPairingAvailable else { return }
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
                 // push subscriptions, so keeping it "live" just needs a gentle,
@@ -170,6 +232,42 @@ struct DeviceTreeView: View {
             )
         }
         .accessibilityIdentifier("MobileComputersAddRow")
+    }
+
+    private var sshSectionActions: SSHComputersSectionActions {
+        SSHComputersSectionActions(
+            select: selectSSHComputer,
+            edit: { path.append(SSHComputerEditorTarget.edit($0)) },
+            disconnect: { hostID in
+                let computers = store.sshComputers
+                Task { await computers.disconnect(hostID: hostID) }
+            },
+            requestDelete: { pendingSSHDeleteID = $0 },
+            add: addSSHComputer
+        )
+    }
+
+    private func addSSHComputer() {
+        path.append(SSHComputerEditorTarget.new)
+    }
+
+    /// PRD D22: an SSH computer opens its workspace list like a Mac. Scope the
+    /// list to it, connect (which asks any first-connect questions above
+    /// every screen), and return to the list.
+    private func selectSSHComputer(_ hostID: UUID) {
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        macSelection = .machine(deviceID)
+        let store = store
+        Task { _ = await store.switchToMac(macDeviceID: deviceID) }
+        dismissScreen()
+    }
+
+    private func deleteSSHComputer(_ hostID: UUID) {
+        let computers = store.sshComputers
+        if case .machine(let id) = macSelection, store.sshHostID(computerDeviceID: id) == hostID {
+            macSelection = .all
+        }
+        Task { try? await computers.deleteHost(id: hostID) }
     }
 
     /// Present the add-device (pairing) flow, then dismiss this screen. Shared by

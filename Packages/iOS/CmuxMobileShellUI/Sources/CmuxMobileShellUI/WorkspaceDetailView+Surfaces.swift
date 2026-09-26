@@ -172,7 +172,9 @@ extension WorkspaceDetailView {
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) },
+            serverRoute: sshBrowserRoute,
+            modePicker: onDeviceModePicker(browser),
+            addressIdentifier: sshHostID == nil ? nil : "ssh.browser.address",
             onDiagnosticEvent: { event in
                 recordLocalBrowserDiagnostic(event, surfaceID: browser.id.rawValue)
             }
@@ -204,8 +206,6 @@ extension WorkspaceDetailView {
             store.recordAppEvent(.browserReloadRequested, correlationID: surfaceID)
         case .stopRequested:
             store.recordAppEvent(.browserStopRequested, correlationID: surfaceID)
-        case .closed:
-            store.recordAppEvent(.browserClosed, correlationID: surfaceID)
         }
     }
 
@@ -227,7 +227,8 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            reconnect: { Task { await store.reconnectOrRefresh() } }
+            reconnect: { Task { await store.reconnectBrowserStream(panelID: browser.id) } },
+            modePicker: streamedModePicker(browser)
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

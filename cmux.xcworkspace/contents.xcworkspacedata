@@ -102,6 +102,9 @@
          location = "group:CmuxMobileSimulatorStream">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSSH">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef

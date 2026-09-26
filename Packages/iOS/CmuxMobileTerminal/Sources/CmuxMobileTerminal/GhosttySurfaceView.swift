@@ -32,6 +32,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var scrollPresentationAuthority: TerminalScrollPresentationAuthority = .legacyMirror
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
+    /// Who answers terminal queries for this surface. `.mirror` (a paired
+    /// Mac) drops everything the local emulator writes; SSH surfaces set
+    /// `.authoritative` (plain/tmux) or `.inputOnly` (cmux-tui).
+    public var localEmulation: TerminalLocalEmulation = .mirror
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
@@ -1100,6 +1104,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppDidEnterBackground() {
+        // Leaving the foreground is not a transient interruption: the
+        // keyboard stays down when the app returns.
+        inputSession.send(.sceneDidEnterBackground)
         // Backstop: `willResignActive` already suspended, but guarantee the
         // surface is occluded before the GPU goes away.
         suspendRendering()
@@ -2535,15 +2542,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bottomDockHostView ?? self
     }
 
+    /// Whether the Files chip waits for a scroll (a Mac's on-screen files)
+    /// or shows whenever mounted (an SSH computer's file browser).
+    public var artifactChipReveal: TerminalFilesChipReveal = .onScroll {
+        didSet {
+            guard artifactChipReveal != oldValue else { return }
+            updateArtifactChipVisibility(animated: false)
+        }
+    }
+
     private var artifactChipShouldBeVisible: Bool {
         artifactChipHost.isRequestedVisible
             // Assistive technologies cannot reasonably perform a scroll to
             // reveal the only Files control, and the host hides its
             // accessibility descendants while invisible — so the transient
             // reveal is bypassed whenever VoiceOver or Switch Control runs.
-            && (artifactChipScrollRevealed
-                || UIAccessibility.isVoiceOverRunning
-                || UIAccessibility.isSwitchControlRunning)
+            && artifactChipReveal.isVisible(
+                scrollRevealed: artifactChipScrollRevealed,
+                assistiveTechnologyRunning: UIAccessibility.isVoiceOverRunning
+                    || UIAccessibility.isSwitchControlRunning
+            )
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
@@ -2941,8 +2959,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // primary-screen scrolling (the confirmed-primary condition that
             // also suppresses the Mac scroll RPC). Alt screens and legacy
             // transports keep the row-quantized line path.
-            if pixels != 0,
-               delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true {
+            if pixels != 0, ownsLocalPrimaryScreenScroll {
                 // Entering the pixel path: drop any line-path residue so a
                 // sub-line fraction from an earlier alt gesture cannot leak
                 // into a later line-path dispatch.
@@ -3024,7 +3041,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
             }
         }
-        if dispatchLines != 0 {
+        // Locally emulated surfaces already scrolled (or sent wheel bytes)
+        // above; only a Mac mirror forwards the gesture.
+        if dispatchLines != 0, localEmulation == .mirror {
             delegate?.ghosttySurfaceView(self, didScrollLines: dispatchLines, atCol: cell.col, row: cell.row)
         }
         return (generation, appliedLocally)
@@ -3115,6 +3134,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ).deferredTapID
         }
 
+        if localEmulation != .mirror {
+            sendLocalMouseClick(col: cell.col, row: cell.row)
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             let disposition = await self.delegate?.ghosttySurfaceView(
@@ -3468,9 +3490,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if window != nil {
             isDismantled = false
             setNeedsLayout()
-            if UIApplication.shared.applicationState == .active {
+            switch UIApplication.shared.applicationState {
+            case .active:
                 inputSession.send(.sceneDidBecomeActive)
-            } else {
+            case .background:
+                inputSession.send(.sceneWillResignActive)
+                inputSession.send(.sceneDidEnterBackground)
+            default:
                 inputSession.send(.sceneWillResignActive)
             }
             #if DEBUG
@@ -6016,18 +6042,66 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func handleOutboundBytes(_ bytes: Data) {
-        // The mirror is display-only, so any bytes its libghostty writes toward a
-        // PTY are spurious: the Mac is the real terminal and already produces
-        // them. The clearest case is focus reporting — `set_focus` on
-        // background/foreground, with mode 1004 restored from the Mac, emits
-        // `ESC[O`/`ESC[I`, and forwarding those as input made the Mac type a
-        // literal "[O[I". DA/cursor-query responses to bytes in the render-grid
-        // stream are the same: the Mac already answered them. Real user input
-        // flows through `inputProxy` (`didProduceInput`), not here, so dropping
-        // these is safe.
-        #if DEBUG
-        TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
-        #endif
+        switch localEmulation {
+        case .mirror:
+            // The mirror is display-only, so any bytes its libghostty writes toward a
+            // PTY are spurious: the Mac is the real terminal and already produces
+            // them. The clearest case is focus reporting — `set_focus` on
+            // background/foreground, with mode 1004 restored from the Mac, emits
+            // `ESC[O`/`ESC[I`, and forwarding those as input made the Mac type a
+            // literal "[O[I". DA/cursor-query responses to bytes in the render-grid
+            // stream are the same: the Mac already answered them. Real user input
+            // flows through `inputProxy` (`didProduceInput`), not here, so dropping
+            // these is safe.
+            #if DEBUG
+            TerminalInputDebugLog.log("surface.outboundDropped data=\(TerminalInputDebugLog.dataSummary(bytes))")
+            #endif
+        case .authoritative:
+            // The phone is the only emulator: query replies, mouse and focus
+            // reports, and alternate-scroll arrows all belong to the PTY.
+            delegate?.ghosttySurfaceView(self, didProduceInput: bytes)
+        case .inputOnly:
+            // The server's emulator already answered every query; forwarding
+            // our replies too would hand the program duplicates.
+            let input = bytes.removingTerminalQueryReplies
+            if !input.isEmpty {
+                delegate?.ghosttySurfaceView(self, didProduceInput: input)
+            }
+        }
+    }
+
+    /// A tap on a locally emulated surface is a left click for apps that
+    /// captured the mouse; the emulator encodes it and the bytes reach the
+    /// PTY through `handleOutboundBytes`. Ordinary shells ignore it.
+    private func sendLocalMouseClick(col: Int, row: Int) {
+        guard let surface, ghostty_surface_mouse_captured(surface) else { return }
+        let scale = max(Double(window?.windowScene?.screen.scale ?? traitCollection.displayScale), 1)
+        // Same serial queue that owns every other surface mutation, so the
+        // click orders after pending output.
+        let target = SendableSurfacePointer(surface: surface)
+        _ = outputQueue.asyncPriority {
+            let surface = target.surface
+            let size = ghostty_surface_size(surface)
+            let posX = (Double(max(0, col)) + 0.5) * max(Double(size.cell_width_px) / scale, 1)
+            let posY = (Double(max(0, row)) + 0.5) * max(Double(size.cell_height_px) / scale, 1)
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        }
+    }
+
+    /// Whether native pixel scrolling may move this surface's viewport. A
+    /// Mac-mirrored surface asks the delegate (the Mac reports the active
+    /// screen); a locally emulated one checks its own emulator: primary
+    /// screen with history, and no app capturing the mouse.
+    var ownsLocalPrimaryScreenScroll: Bool {
+        guard localEmulation != .mirror else {
+            return delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true
+        }
+        guard let surface, !ghostty_surface_mouse_captured(surface) else { return false }
+        var scrollbar = ghostty_surface_scrollbar_s()
+        guard ghostty_surface_scrollbar(surface, &scrollbar) else { return false }
+        return scrollbar.total > scrollbar.len
     }
 
     func drawForWakeup() {
@@ -6367,3 +6441,8 @@ private class DisplayLinkProxy {
 }
 
 #endif
+
+/// A surface pointer handed to the serial surface queue.
+struct SendableSurfacePointer: @unchecked Sendable {
+    let surface: ghostty_surface_t
+}

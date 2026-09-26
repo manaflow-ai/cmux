@@ -22,6 +22,10 @@ struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+    #if os(iOS)
+    /// Enters the account-free SSH shell (PRD D5); `nil` hides the action.
+    @Environment(\.mobileSSHOnlyEntry) private var sshOnlyEntry
+    #endif
     @State private var email = ""
     @State private var code = ""
     @State private var emailEntryMode = EmailEntryMode.methods
@@ -150,6 +154,34 @@ struct SignInView: View {
                 if let error {
                     errorText(error)
                 }
+
+                #if os(iOS)
+                if let sshOnlyEntry {
+                    // Deliberately quieter than every sign-in option (same
+                    // caption treatment as the "or continue with email"
+                    // divider, no icon): cmux prefers people sign in, and SSH
+                    // works without an account (HIG Managing accounts).
+                    Button {
+                        sshOnlyEntry()
+                    } label: {
+                        Text(L10n.string("mobile.ssh.signIn.useSSHOnly", defaultValue: "Use with SSH only"))
+                            .font(.caption2)
+                            .foregroundStyle(Color.primary.opacity(0.45))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .allowsTightening(true)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isAuthInProgress)
+                    .accessibilityHint(L10n.string(
+                        "mobile.ssh.signIn.connectWithSSH.hint",
+                        defaultValue: "Use SSH without a cmux account."
+                    ))
+                    .accessibilityIdentifier("ssh.signIn.connectWithSSH")
+                }
+                #endif
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)

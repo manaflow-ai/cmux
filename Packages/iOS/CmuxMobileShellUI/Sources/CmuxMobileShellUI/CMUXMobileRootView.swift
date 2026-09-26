@@ -56,6 +56,11 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    /// Whether a signed-out launch shows the SSH shell (PRD D5).
+    @State private var sshOnlyPreference = MobileSSHOnlyPreference()
+    /// The workspace list's computer filter, shared through `UserDefaults`,
+    /// so a saved SSH computer can be selected from outside the list.
+    @AppStorage(WorkspaceMacSelection.storageKey) private var workspaceMacSelection: WorkspaceMacSelection = .all
     #if DEBUG
     /// One-shot latch for the UI-test auto-open-first-workspace hook.
     @State private var didAutoOpenFirstWorkspaceForUITest = false
@@ -286,6 +291,12 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        // SSH trust / identity-changed / persistence questions float above
+        // every screen, including open sheets and the terminal.
+        .sshPromptPresenter(store.sshComputers)
+        .environment(\.mobileSSHOnlyEntry, { [sshOnlyPreference] in
+            sshOnlyPreference.chooseSSHShell()
+        })
         // Outside the root sheet so its Settings page gets the action too;
         // a sheet reads the environment where `.sheet` is applied.
         .environment(
@@ -448,6 +459,11 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
+            #if os(iOS)
+            if isAuthenticated {
+                sshOnlyPreference.reset()
+            }
+            #endif
             if !isAuthenticated {
                 didFinishAuthBootstrap = false
                 startupConnectionCoordinator.reset()
@@ -579,13 +595,16 @@ struct CMUXMobileRootView: View {
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession,
-            onboardingPending: isOnboardingPending
+            onboardingPending: isOnboardingPending,
+            showsSignedOutSSHShell: showsSignedOutSSHShell
         ) {
             SignInView()
                 .transition(reduceMotion ? .opacity : .asymmetric(
                     insertion: .opacity,
                     removal: .move(edge: .leading).combined(with: .opacity)
                 ))
+        } else if !isAuthenticated {
+            signedOutSSHShell
         } else {
             switch MobileRootAuthGate.shellSurface(
                 connectionState: store.connectionState,
@@ -593,7 +612,8 @@ struct CMUXMobileRootView: View {
                 showDisconnectedNoPairedMacShell: MobileAuthenticatedShellPresentation.resolve(
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
-                    hasHiddenComputers: store.hasHiddenComputers
+                    hasHiddenComputers: store.hasHiddenComputers,
+                    hasSSHComputers: !store.sshComputers.hosts.isEmpty
                 ) == .disconnected
             ) {
             case .disconnectedNoKnownPairedMac:
@@ -631,6 +651,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    showAddSSHComputer: showAddSSHComputer,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -682,7 +703,8 @@ struct CMUXMobileRootView: View {
                 await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
-            cancel: dismissAddDeviceSheet
+            cancel: dismissAddDeviceSheet,
+            connectWithSSH: connectWithSSHAction
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -724,11 +746,26 @@ struct CMUXMobileRootView: View {
             DeviceTreeView(
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
-                showAddDevice: addComputerAction,
-                dismissAction: dismissComputers
+                showAddDevice: isAuthenticated ? addComputerAction : nil,
+                dismissAction: dismissComputers,
+                macPairingAvailable: isAuthenticated
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
+        case let .sshComputerEditor(target):
+            NavigationStack {
+                SSHComputerEditorView(
+                    computers: store.sshComputers,
+                    existing: target.hostID.flatMap { store.sshComputers.host(id: $0) },
+                    showsCancel: true,
+                    onFinish: { savedID in
+                        handleRootPresentation(.dismissSSHComputerEditor)
+                        if target == .new, let savedID {
+                            selectSSHComputerInWorkspaceList(savedID)
+                        }
+                    }
+                )
+            }
         case .child, .dismissingChild, nil:
             EmptyView()
         }
@@ -752,7 +789,7 @@ struct CMUXMobileRootView: View {
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
-            signOut: signOut,
+            signOut: isAuthenticated ? signOut : { [sshOnlyPreference] in sshOnlyPreference.chooseSignIn() },
             store: store,
             initialFocus: initialFocus,
             dismissAction: dismissRootSettings
@@ -786,6 +823,72 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
+    }
+
+    /// Whether a signed-out root shows the SSH shell instead of sign-in.
+    private var showsSignedOutSSHShell: Bool {
+        sshOnlyPreference.showsSignedOutShell(
+            hasSSHComputers: !store.sshComputers.hosts.isEmpty
+        )
+    }
+
+    /// The signed-out SSH shell (PRD D5): no Mac pairing, no account. With no
+    /// SSH computers yet it is a single "Add SSH Computer" screen; otherwise the
+    /// ordinary workspace shell scoped to SSH computers.
+    @ViewBuilder
+    private var signedOutSSHShell: some View {
+        if store.sshComputers.hosts.isEmpty {
+            SSHOnlyWelcomeView(
+                computers: store.sshComputers,
+                addComputer: showAddSSHComputer,
+                signIn: { [sshOnlyPreference] in sshOnlyPreference.chooseSignIn() }
+            )
+        } else {
+            WorkspaceShellHost(
+                store: store,
+                isRestoringStoredMac: false,
+                signOut: { [sshOnlyPreference] in sshOnlyPreference.chooseSignIn() },
+                showAddDevice: nil,
+                showPairingScanner: nil,
+                showSettings: showSettings,
+                showComputers: showComputers,
+                showAddSSHComputer: showAddSSHComputer,
+                whatsNewAudience: .signedOutSSH,
+                reconnectStoredMac: {},
+                workspaceListDidBecomeVisible: {}
+            )
+            .onAppear(perform: selectSSHComputerForSignedOutShellIfNeeded)
+        }
+    }
+
+    /// Presents the SSH computer form from the root sheet host.
+    private func showAddSSHComputer() {
+        handleRootPresentation(.presentSSHComputerEditor(.new))
+    }
+
+    /// "Connect with SSH Instead" in the pairing sheet swaps to the SSH form.
+    private var connectWithSSHAction: (() -> Void)? {
+        showAddSSHComputer
+    }
+
+    /// PRD D22: scope the workspace list to an SSH computer and connect it.
+    private func selectSSHComputerInWorkspaceList(_ hostID: UUID) {
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        workspaceMacSelection = .machine(deviceID)
+        Task { _ = await store.switchToMac(macDeviceID: deviceID) }
+    }
+
+    /// Signed out, only SSH computers exist, so an "All Computers" or stale
+    /// Mac scope would show Mac-oriented empty states. Scope to the SSH
+    /// computer used last instead (the oldest when none was opened yet).
+    private func selectSSHComputerForSignedOutShellIfNeeded() {
+        if case .machine(let id) = workspaceMacSelection,
+           let hostID = store.sshHostID(computerDeviceID: id),
+           store.sshComputers.host(id: hostID) != nil {
+            return
+        }
+        guard let host = store.sshComputers.preferredHost else { return }
+        selectSSHComputerInWorkspaceList(host.id)
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {

@@ -31,6 +31,7 @@ use crate::resource::{
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
+mod idle_policy_store;
 mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
@@ -4040,6 +4041,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
     )?;
+    idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     Ok(())
 }
 

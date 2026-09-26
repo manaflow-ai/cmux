@@ -122,6 +122,9 @@ pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
 pub const MACHINE_LISTENING_TCP_CAPABILITY: &str = "machine-listening-tcp-v1";
+/// Advertises `set-terminal-idle-policy` and the owner-side reaper that
+/// closes a terminal once it has had no attached view for its policy.
+pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -223,6 +226,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_USAGE_CAPABILITY,
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        TERMINAL_IDLE_CLOSE_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -947,6 +951,18 @@ enum Command {
         terminal_incarnation: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
+    },
+    /// Set (`idle_close_seconds`) or clear (`null`, never close) the
+    /// idle-close policy of one hosted terminal, named by exactly one of a
+    /// PTY `surface` or a stable `terminal_id`. The policy is durable and
+    /// survives owner restarts.
+    SetTerminalIdlePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default)]
+        idle_close_seconds: Option<u64>,
     },
     /// New tab in a pane (default: the active pane).
     NewTab {
@@ -3868,6 +3884,11 @@ enum DaemonHandoffReservation {
 struct ClientRegistryState {
     clients: BTreeMap<u64, ClientRecord>,
     attached_by_surface: HashMap<SurfaceId, HashSet<u64>>,
+    /// Newest attach sequence per surface. The idle-close reaper compares it
+    /// across ticks so a detach and reattach between two ticks still resets
+    /// a terminal's idle clock.
+    attach_epochs: HashMap<SurfaceId, u64>,
+    next_attach_epoch: u64,
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
     daemon_handoff: Option<DaemonHandoffReservation>,
@@ -4380,6 +4401,9 @@ impl ClientRegistry {
             record.view_leases.insert(lease.clone(), (surface, stream_id));
         }
         state.attached_by_surface.entry(surface).or_default().insert(client);
+        state.next_attach_epoch += 1;
+        let epoch = state.next_attach_epoch;
+        state.attach_epochs.insert(surface, epoch);
         Ok(lease)
     }
 
@@ -4844,6 +4868,25 @@ impl ClientRegistry {
     /// Query one surface without walking every client's retained attachments.
     pub(crate) fn attached_client_ids_for_surface(&self, surface: SurfaceId) -> HashSet<u64> {
         self.state.lock().unwrap().attached_by_surface.get(&surface).cloned().unwrap_or_default()
+    }
+
+    /// Whether any client holds an attach stream on one of `surfaces`, and
+    /// the newest attach epoch among them (0 when none was ever attached).
+    pub(crate) fn attach_observation(&self, surfaces: &[SurfaceId]) -> (bool, u64) {
+        let state = self.state.lock().unwrap();
+        let attached =
+            surfaces.iter().any(|surface| state.attached_by_surface.contains_key(surface));
+        let epoch = surfaces
+            .iter()
+            .filter_map(|surface| state.attach_epochs.get(surface).copied())
+            .max()
+            .unwrap_or(0);
+        (attached, epoch)
+    }
+
+    /// Drop the attach epoch of a surface that no longer exists.
+    pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
+        self.state.lock().unwrap().attach_epochs.remove(&surface);
     }
 }
 
@@ -11893,6 +11936,28 @@ fn handle_command_with_cancellation(
                 "terminal_revision": result.terminal_revision,
                 "registry_id": registry_id,
                 "generation": generation,
+            }))
+        }
+        Command::SetTerminalIdlePolicy { surface, terminal_id, idle_close_seconds } => {
+            let terminal_id = match (surface, terminal_id) {
+                (Some(surface), None) => {
+                    let surface = get_surface(mux, surface)?;
+                    require_pty(&surface)?;
+                    let identity = mux.resource_terminal_host_identity(&surface);
+                    identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
+                }
+                (None, Some(terminal_id)) => {
+                    let resolution = mux.resolve_terminal(&terminal_id)?;
+                    let resolution =
+                        resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+                    resolution.terminal.terminal_id
+                }
+                _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+            };
+            mux.set_terminal_idle_policy(&terminal_id, idle_close_seconds)?;
+            Ok(json!({
+                "terminal_id": terminal_id,
+                "idle_close_seconds": idle_close_seconds,
             }))
         }
         Command::NewTab { pane, cwd, cols, rows } => {
@@ -20797,6 +20862,91 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn idle_close_policy_reaps_only_unattached_terminals_past_their_deadline() {
+        const IDLE: &str = "00000000000040008000000000000031";
+        const IDLE_INCARNATION: &str = "10000000000040008000000000000031";
+        const NEVER: &str = "00000000000040008000000000000032";
+        const NEVER_INCARNATION: &str = "10000000000040008000000000000032";
+        const HOUR: Duration = Duration::from_secs(60 * 60);
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&TERMINAL_IDLE_CLOSE_CAPABILITY));
+        let workspace = mux
+            .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000003101".into()), None)
+            .unwrap();
+        // Seeded terminals project as exited placeholders (dead surfaces), so
+        // address them by stable terminal id; the surface form is covered by
+        // the live-surface handler path.
+        let idle =
+            mux.seed_running_terminal_for_test(IDLE, IDLE_INCARNATION, &workspace.key).unwrap();
+        mux.seed_running_terminal_for_test(NEVER, NEVER_INCARNATION, &workspace.key).unwrap();
+
+        let set = Command::SetTerminalIdlePolicy {
+            surface: None,
+            terminal_id: Some(IDLE.into()),
+            idle_close_seconds: Some(3_600),
+        };
+        let result = handle_command(&mux, 0, set, &test_writer()).unwrap();
+        assert_eq!(result["terminal_id"], IDLE);
+        assert_eq!(result["idle_close_seconds"], 3_600);
+        // A stable terminal id works as well, and null means never close.
+        for idle_close_seconds in [Some(60), None] {
+            let set = Command::SetTerminalIdlePolicy {
+                surface: None,
+                terminal_id: Some(NEVER.into()),
+                idle_close_seconds,
+            };
+            handle_command(&mux, 0, set, &test_writer()).unwrap();
+        }
+        assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), Some(3_600));
+        assert_eq!(mux.terminal_idle_policy(NEVER).unwrap(), None);
+        let ambiguous = Command::SetTerminalIdlePolicy {
+            surface: Some(idle),
+            terminal_id: Some(IDLE.into()),
+            idle_close_seconds: Some(60),
+        };
+        assert!(handle_command(&mux, 0, ambiguous, &test_writer()).is_err());
+
+        // An attached view keeps the terminal alive regardless of elapsed time.
+        let start = Instant::now();
+        let writer = test_writer();
+        let viewer = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(idle)).unwrap();
+        mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
+        assert!(mux.reap_idle_terminals(start).is_empty());
+        assert!(mux.reap_idle_terminals(start + 10 * HOUR).is_empty());
+
+        // The clock starts when the last view detaches.
+        mux.control_clients.remove(viewer);
+        let detached = start + 11 * HOUR;
+        assert!(mux.reap_idle_terminals(detached).is_empty());
+        assert!(mux.reap_idle_terminals(detached + HOUR - Duration::from_secs(1)).is_empty());
+
+        // A reattach between two ticks resets the clock.
+        let writer = test_writer();
+        let viewer = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(idle)).unwrap();
+        mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
+        mux.control_clients.remove(viewer);
+        let reattached = detached + HOUR;
+        assert!(mux.reap_idle_terminals(reattached).is_empty());
+        assert!(mux.reap_idle_terminals(reattached + HOUR / 2).is_empty());
+
+        assert_eq!(mux.reap_idle_terminals(reattached + HOUR), vec![IDLE.to_string()]);
+        let closed = mux.resolve_terminal(IDLE).unwrap().unwrap().terminal.lifecycle;
+        assert_eq!(closed, TerminalLifecycle::Tombstoned);
+        assert!(mux.surface(idle).is_none());
+
+        // The terminal whose policy was cleared is never reaped, and the
+        // closed terminal's policy is pruned.
+        assert!(mux.reap_idle_terminals(reattached + 1_000 * HOUR).is_empty());
+        assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), None);
+        let never = mux.resolve_terminal(NEVER).unwrap().unwrap().terminal.lifecycle;
+        assert_eq!(never, TerminalLifecycle::Running);
+        mux.close_terminal(NEVER, NEVER_INCARNATION).unwrap();
+    }
+
     #[test]
     fn client_info_is_sanitized_recallable_and_clamped_to_64_characters() {
         let mux = test_mux();
@@ -21244,6 +21394,76 @@ mod tests {
 
         assert_eq!(surface.size(), (70, 20));
         assert_eq!(mux.new_workspace(None, None).unwrap().size(), (80, 24));
+    }
+
+    #[test]
+    fn displaced_terminal_owner_reclaims_geometry_when_the_new_owner_leaves() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        assert_eq!(mux.claim_terminal_geometry(surface.id, laptop), Some(true));
+        assert_eq!(surface.size(), (120, 40));
+
+        // The phone views the terminal, then releases its viewport while
+        // keeping its stream (release-attached-view-size).
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        assert_eq!(mux.claim_terminal_geometry(surface.id, phone), Some(true));
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, laptop));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (120, 40));
+        assert!(mux.client_size_participates(surface.id, laptop));
+        mux.resize_surface_for_client(surface.id, laptop, 118, 38).unwrap();
+        assert_eq!(surface.size(), (118, 38));
+
+        // The phone claims again, then disables its sizing.
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(surface.size(), (66, 52));
+        assert_eq!(mux.set_client_size_participation(surface.id, phone, false), Some(true));
+        assert_eq!(surface.size(), (118, 38));
+        assert!(mux.client_size_participates(surface.id, laptop));
+
+        // The phone claims again, then disconnects.
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(surface.size(), (66, 52));
+        assert!(disconnect_client(&mux, phone, false));
+        assert_eq!(surface.size(), (118, 38));
+        assert!(mux.client_size_participates(surface.id, laptop));
+    }
+
+    #[test]
+    fn departed_or_frozen_owners_do_not_reclaim_terminal_geometry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let phone = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+
+        // A displaced owner that disconnected is never re-elected.
+        assert!(disconnect_client(&mux, laptop, false));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, phone));
+
+        // An explicit release freezes the grid and forgets displaced owners.
+        let laptop = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        mux.resize_surface_for_client(surface.id, laptop, 120, 40).unwrap();
+        mux.claim_terminal_geometry(surface.id, laptop).unwrap();
+        assert_eq!(surface.size(), (120, 40));
+        mux.resize_surface_for_client(surface.id, phone, 66, 52).unwrap();
+        mux.claim_terminal_geometry(surface.id, phone).unwrap();
+        assert_eq!(mux.release_terminal_geometry(surface.id), Some(true));
+        assert_eq!(surface.size(), (66, 52));
+        mux.remove_surface_size_client(surface.id, phone);
+        assert_eq!(surface.size(), (66, 52));
+        assert!(!mux.client_size_participates(surface.id, laptop));
     }
 
     #[test]
