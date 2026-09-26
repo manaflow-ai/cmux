@@ -7426,7 +7426,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                   let panel,
                   coordinator.attachGeneration == generation,
                   coordinator.webView === webView,
-                  panel.webView === webView else { return }
+                  panel.webView === webView,
+                  isCurrentPaneOwner,
+                  currentPaneDropContext()?.paneId.id == paneId.id else { return }
             let ownsWebView = updateUsingLocalInlineHosting(
                 host,
                 coordinator: coordinator,

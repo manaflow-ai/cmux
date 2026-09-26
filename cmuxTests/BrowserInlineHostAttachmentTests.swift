@@ -36,6 +36,7 @@ struct BrowserInlineHostAttachmentTests {
             isPanelFocused: false,
             portalZPriority: 0,
             paneDropZone: nil,
+            paneOwnershipOverride: true,
             searchOverlay: nil,
             designComposer: nil,
             omnibarSuggestions: nil,
@@ -49,9 +50,8 @@ struct BrowserInlineHostAttachmentTests {
         detachedRoot.addSubview(hosting)
         detachedRoot.layoutSubtreeIfNeeded()
         hosting.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
-        let host = try #require(findHost(in: hosting), "The detached representable must be mounted")
+        let host = try #require(waitForHost(in: hosting), "The detached representable must be mounted")
         #expect(host.window == nil)
         #expect(panel.webView.superview === preloadContent)
 
@@ -65,15 +65,16 @@ struct BrowserInlineHostAttachmentTests {
         visibleWindow.orderFrontRegardless()
         visibleContent.layoutSubtreeIfNeeded()
         hosting.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         // No rootView reassignment or unrelated panel change should be needed
         // to finish an attachment deferred solely for a missing window.
-        #expect(host.window === visibleWindow)
-        #expect(panel.webView.isDescendant(of: host))
-        #expect(panel.webView.window === visibleWindow)
-        #expect(abs(panel.webView.frame.width - host.bounds.width) < 1)
-        #expect(abs(panel.webView.frame.height - host.bounds.height) < 1)
+        #expect(waitUntil {
+            host.window === visibleWindow &&
+                panel.webView.isDescendant(of: host) &&
+                panel.webView.window === visibleWindow &&
+                abs(panel.webView.frame.width - host.bounds.width) < 1 &&
+                abs(panel.webView.frame.height - host.bounds.height) < 1
+        })
     }
 
     private func makeWindow(size: NSSize) -> NSWindow {
@@ -85,6 +86,30 @@ struct BrowserInlineHostAttachmentTests {
         )
         window.isReleasedWhenClosed = false
         return window
+    }
+
+    private func waitForHost(
+        in root: NSView,
+        timeout: TimeInterval = 2
+    ) -> WebViewRepresentable.HostContainerView? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let host = findHost(in: root) { return host }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return findHost(in: root)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        _ predicate: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return predicate()
     }
 
     private func findHost(in root: NSView) -> WebViewRepresentable.HostContainerView? {

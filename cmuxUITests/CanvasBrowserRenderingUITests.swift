@@ -41,11 +41,13 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
             // The moved pane overlaps the source terminal; bring the browser
             // forward so occlusion cannot masquerade as a rendering failure.
             try socketResult(method: "surface.focus", params: ["surface_id": browserID])
+            let frameBeforeMove = webView.frame
             try setFrame(surfaceID: browserID, workspaceID: workspaceID, x: 120, y: -60)
             try socketResult(
                 method: "canvas.set_viewport",
                 params: ["workspace_id": workspaceID, "x": 330, "y": 90, "zoom": 0.7]
             )
+            try waitForFrameChange(webView: webView, from: frameBeforeMove, name: "moved-and-zoomed-\(iteration)")
             try assertAligned(webView: webView, window: window, name: "moved-and-zoomed-\(iteration)")
 
             let other = try socketResult(
@@ -68,6 +70,28 @@ final class CanvasBrowserRenderingUITests: BrowserFixtureSocketTestCase {
                 "x": x, "y": y, "width": 420, "height": 300,
             ]
         )
+    }
+
+    /// Waits for accessibility geometry to reflect the socket canvas mutation.
+    private func waitForFrameChange(
+        webView: XCUIElement,
+        from previousFrame: CGRect,
+        name: String,
+        timeout: TimeInterval = 8
+    ) throws {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let frame = webView.frame
+                let changed = abs(frame.minX - previousFrame.minX) > 1 ||
+                    abs(frame.minY - previousFrame.minY) > 1 ||
+                    abs(frame.width - previousFrame.width) > 1 ||
+                    abs(frame.height - previousFrame.height) > 1
+                return frame.width > 100 && frame.height > 100 && changed
+            },
+            object: nil
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        XCTAssertEqual(result, .completed, "Canvas geometry did not update after \(name): \(webView.frame)")
     }
 
     /// Samples the fixture's edge band inside and outside the accessibility
