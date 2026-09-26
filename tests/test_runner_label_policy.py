@@ -258,6 +258,28 @@ class TrustedPoolVariable(unittest.TestCase):
         for workflow in ("ci-health-report.yml", "ci-repo-variables.yml"):
             text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}", text, workflow)
+            self.assertIn("CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}", text, workflow)
+
+
+class NightlyRunnerVariable(unittest.TestCase):
+    def test_only_a_runner_name_label_is_allowed(self) -> None:
+        # nightly.yml asks for ["<CI_SEED_TRUSTED_POOL>", "<CI_NIGHTLY_TRUSTED_RUNNER>"]: one trusted runner.
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_TRUSTED_RUNNER": "glaeda-runner-cmux15-glaeda"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_TRUSTED_RUNNER": ""}), [])
+        for label in ("glaeda-trusted-std-xcode-26.6", "glaeda-runner-", "glaeda-runner-CMUX15",
+                      'glaeda-runner-x", "self-hosted', "blacksmith-12vcpu-macos-26", "cmux15-glaeda"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_NIGHTLY_TRUSTED_RUNNER": label})],
+                    ["CI_NIGHTLY_TRUSTED_RUNNER"],
+                )
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
+
+    def test_nightly_asks_for_the_trusted_pool_and_the_runner_together(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+        self.assertIn("fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, "
+                      "vars.CI_NIGHTLY_TRUSTED_RUNNER))", text)
+        self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
 
 
 class OwnedPoolLabels(unittest.TestCase):

@@ -655,8 +655,14 @@ The trusted pool (`vars.CI_SEED_TRUSTED_POOL`,
 `glaeda-trusted-<class>-xcode-<version>`) is the owned home for main's own
 cache writers and builds: minis with no pull request runners, whose
 job-started hook admits only a push or schedule run on main. The DerivedData
-seed and the nightly app compile take it first; Blacksmith is the fallback.
-`runner_label_policy.py` refuses any other value for the variable. Signing and
+seed takes it on every main push. The nightly app compile takes one runner of
+it first, `vars.CI_NIGHTLY_TRUSTED_RUNNER` (`glaeda-runner-cmux15-glaeda`):
+runs-on asks for the pool label and that runner's own label together, so it
+never lands on cmuxs-mac-mini-6, whose dev-build worker builds team code as the
+same user. Either variable empty sends it to Blacksmith, which is also its
+fallback. `runner_label_policy.py` refuses any other shape for either
+variable. glaeda classes the job `isolated` (teamleaderleo/glaeda#1287), so it
+never holds the canonical root a seed on the same mini waits for. Signing and
 notarization are not on it: no signing run on an owned Mac has been proven,
 and the retired self-hosted fleet failed `codesign` with
 `errSecInternalComponent` (#6264).
@@ -676,7 +682,7 @@ and the retired self-hosted fleet failed `codesign` with
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
-| `nightly.yml` `build-nightly-app` | trusted owned pool (`CI_SEED_TRUSTED_POOL`) on attempt 1 of main's push and schedule runs; Blacksmith 12 vCPU otherwise, for `rc/**`, dispatches and fast dogfood, and on every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
+| `nightly.yml` `build-nightly-app` | one trusted runner (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`, cmux15) on attempt 1 of main's push and schedule runs; Blacksmith 12 vCPU otherwise, for `rc/**`, dispatches and fast dogfood, and on every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool |
 | `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish with R2 or release secrets |

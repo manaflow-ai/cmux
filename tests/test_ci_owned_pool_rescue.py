@@ -1043,6 +1043,8 @@ class Nightly(unittest.TestCase):
 
     def test_the_trusted_pool_is_an_owned_label_only_here(self):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
+        # nightly.yml asks for the pool and one runner's own label together.
+        self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
                          "glaeda-root-trusted-std-xcode-26.6")
         self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted"]}))
@@ -1509,7 +1511,8 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.path == '.github/workflows/nightly.yml' && "
                      "(github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && "
                      "github.event.workflow_run.head_branch == 'main' && "
-                     "startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-')) && "
+                     "startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && "
+                     "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-')) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)
