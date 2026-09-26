@@ -104,6 +104,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     public func importableSnapshot(
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        if isOwnPrimarySnapshot(fileURL) {
+            return .failure(.liveSnapshot(fileURL))
+        }
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return .failure(.fileNotFound(fileURL))
         }
@@ -145,6 +148,11 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             bundleIdentifier: bundleIdentifier,
             appSupportDirectory: appSupport
         )
+        if isOwnPrimarySnapshot(primaryURL) {
+            // Importing this install into itself would reopen the windows it
+            // already shows; its previous launch is `restore-session`.
+            return .failure(.liveSnapshot(primaryURL))
+        }
         let primaryError: SessionSnapshotImportError
         switch importableSnapshot(fileURL: primaryURL) {
         case .success(let imported):
@@ -172,11 +180,20 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         }
     }
 
+    private func isOwnPrimarySnapshot(_ fileURL: URL) -> Bool {
+        guard let ownPrimary = defaultSnapshotFileURL() else { return false }
+        return Self.sameFile(ownPrimary, fileURL)
+    }
+
+    private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.resolvingSymlinksInPath().path
+            == rhs.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
     public func exportSnapshot(to destination: URL, overwrite: Bool) -> Result<URL, SessionSnapshotExportError> {
         let destination = destination.standardizedFileURL
-        let ownFiles = [defaultSnapshotFileURL(), manualRestoreSnapshotFileURL()]
-            .compactMap { $0?.standardizedFileURL.resolvingSymlinksInPath().path }
-        if ownFiles.contains(destination.resolvingSymlinksInPath().path) {
+        let ownFiles = [defaultSnapshotFileURL(), manualRestoreSnapshotFileURL()].compactMap { $0 }
+        if ownFiles.contains(where: { Self.sameFile($0, destination) }) {
             return .failure(.destinationIsLiveSnapshot(destination))
         }
         if !overwrite && fileManager.fileExists(atPath: destination.path) {

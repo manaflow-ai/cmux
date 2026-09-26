@@ -322,6 +322,23 @@ If you need to reapply the last saved snapshot manually, use:
 - `⌘ ⇧ O`
 - `cmux restore-session`
 
+Each cmux install (stable, nightly, rc, staging, and tagged debug builds) keeps its own
+saved session. To bring a session from one install into another, for example after trying
+nightly and switching back to stable, run this from the install you want to open it in:
+
+```bash
+cmux restore-session --from nightly          # or stable, rc, staging, debug:<tag>
+cmux restore-session --export ~/session.json # write this install's saved session to a file
+cmux restore-session --from ~/session.json   # reopen an exported file
+```
+
+The imported session opens as additional windows next to the ones you have, like
+`cmux restore-session`; the other install's saved file is only read. Agent resume carries
+over because hook session mappings in `~/.cmuxterm/` are shared by every install. Browser
+cookies and logins are per install and do not move. A snapshot saved by a newer cmux
+(newer session format) is refused with an error; if a downgraded cmux finds one in its own
+session file, it keeps a copy next to it as `session-<bundle id>.schema-v<N>.json`.
+
 Under the hood, cmux writes a versioned snapshot under
 `~/Library/Application Support/cmux/` and agent hooks write session mappings
 under `~/.cmuxterm/`. On restore, cmux rebuilds the layout first, then runs the

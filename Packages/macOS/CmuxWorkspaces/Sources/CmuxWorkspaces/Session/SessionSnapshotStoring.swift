@@ -57,14 +57,16 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
 
     /// Reads and validates the snapshot at `fileURL` for import, reporting
     /// why it cannot be restored (missing, unreadable, not a snapshot,
-    /// newer or older schema version, no windows). Never writes.
+    /// newer or older schema version, no windows, or this install's own live
+    /// snapshot). Never writes.
     func importableSnapshot(
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>
 
     /// Reads and validates another install's snapshot for import: its
     /// primary file, falling back to its `-previous` backup like startup
-    /// restore does. Never writes either file.
+    /// restore does. Refuses this install's own bundle identifier. Never
+    /// writes either file.
     func importableSnapshot(
         bundleIdentifier: String
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>

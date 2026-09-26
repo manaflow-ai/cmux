@@ -19,6 +19,9 @@ public enum SessionSnapshotImportError: Error, Equatable, Sendable {
     case olderSchemaVersion(URL, found: Int, supported: Int)
     /// The snapshot decodes but has no windows to restore.
     case noWindows(URL)
+    /// The file is this install's own live snapshot (the one it keeps
+    /// saving); reopening it would duplicate the open windows.
+    case liveSnapshot(URL)
 
     /// The file the error refers to.
     public var fileURL: URL {
@@ -28,7 +31,8 @@ public enum SessionSnapshotImportError: Error, Equatable, Sendable {
              .notASessionSnapshot(let url),
              .newerSchemaVersion(let url, _, _),
              .olderSchemaVersion(let url, _, _),
-             .noWindows(let url):
+             .noWindows(let url),
+             .liveSnapshot(let url):
             return url
         }
     }

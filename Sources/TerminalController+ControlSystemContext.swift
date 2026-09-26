@@ -2,11 +2,13 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import CmuxFeedback
+import CmuxWorkspaces
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former
 /// `v2SystemTree` tree walk, `v2WorkspaceAction` / `v2TabAction` mutation
-/// switches, `v2ExtensionSidebarSnapshot`, `v2SessionRestorePrevious`,
+/// switches, `v2ExtensionSidebarSnapshot`, `v2SessionRestorePrevious`, the
+/// `session.import` / `session.export` session transfer,
 /// `v2SettingsOpen`, `v2FeedbackOpen`, and the DEBUG-only
 /// `v2MobileDevStackAuthConfigure`, minus the per-read `v2MainSync` hops (the
 /// coordinator already runs on the main actor inside the socket-command policy
@@ -252,6 +254,196 @@ extension TerminalController: ControlSystemContext {
             ))
         }
         return .restored
+    }
+
+    /// Imports another install's saved session (or a snapshot file) through
+    /// the same path as `session.restore_previous`: the snapshot opens as
+    /// additional windows next to the current ones, skipping workspaces and
+    /// panels that are already live. The source file is only read.
+    func controlSessionImport(source: ControlSessionImportSource) -> ControlSessionImportResolution {
+        guard let appDelegate = AppDelegate.shared else {
+            return .failed(code: "unavailable", message: "AppDelegate not available", path: nil)
+        }
+        let store = appDelegate.sessionSnapshotStore
+        let result: Result<SessionSnapshotImport<AppSessionSnapshot>, SessionSnapshotImportError>
+        switch source {
+        case .channel(let name):
+            guard let bundleIdentifier = SessionSnapshotFileLocation.bundleIdentifier(forChannel: name) else {
+                return .failed(
+                    code: "invalid_params",
+                    message: String(
+                        format: String(
+                            localized: "session.import.error.unknownChannel",
+                            defaultValue: "Unknown cmux channel \"%@\". Use stable, nightly, rc, staging, debug:<tag>, or a path to a session file."
+                        ),
+                        name
+                    ),
+                    path: nil
+                )
+            }
+            result = store.importableSnapshot(bundleIdentifier: bundleIdentifier)
+        case .file(let path):
+            result = store.importableSnapshot(fileURL: URL(fileURLWithPath: path))
+        }
+        switch result {
+        case .failure(let error):
+            return .failed(
+                code: Self.sessionImportErrorCode(error),
+                message: Self.sessionImportErrorMessage(error),
+                path: error.fileURL.path
+            )
+        case .success(let imported):
+            let windowCount = min(
+                imported.snapshot.windows.count,
+                SessionPersistencePolicy.maxWindowsPerSnapshot
+            )
+            guard appDelegate.restorePreviousSessionSnapshot(imported.snapshot, shouldActivate: false) else {
+                return .failed(
+                    code: "invalid_state",
+                    message: String(
+                        format: String(
+                            localized: "session.import.error.nothingRestored",
+                            defaultValue: "Nothing in %@ could be reopened."
+                        ),
+                        imported.fileURL.path
+                    ),
+                    path: imported.fileURL.path
+                )
+            }
+            return .restored(sourcePath: imported.fileURL.path, windowCount: windowCount)
+        }
+    }
+
+    func controlSessionExport(path: String, overwrite: Bool) -> ControlSessionExportResolution {
+        guard let appDelegate = AppDelegate.shared else {
+            return .failed(code: "unavailable", message: "AppDelegate not available", path: nil)
+        }
+        let destination = URL(fileURLWithPath: path)
+        switch appDelegate.sessionSnapshotStore.exportSnapshot(to: destination, overwrite: overwrite) {
+        case .success(let sourceURL):
+            return .exported(path: destination.standardizedFileURL.path, sourcePath: sourceURL.path)
+        case .failure(.noSnapshot):
+            return .failed(
+                code: "not_found",
+                message: String(
+                    localized: "session.export.error.noSnapshot",
+                    defaultValue: "cmux has not saved a session yet. Try again in a few seconds."
+                ),
+                path: nil
+            )
+        case .failure(.destinationExists(let url)):
+            return .failed(
+                code: "already_exists",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.destinationExists",
+                        defaultValue: "%@ already exists. Pass --force to replace it."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        case .failure(.destinationIsLiveSnapshot(let url)):
+            return .failed(
+                code: "invalid_params",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.destinationIsLive",
+                        defaultValue: "%@ is this cmux's own session file. Choose another path."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        case .failure(.writeFailed(let url)):
+            return .failed(
+                code: "invalid_state",
+                message: String(
+                    format: String(
+                        localized: "session.export.error.writeFailed",
+                        defaultValue: "Could not write %@."
+                    ),
+                    url.path
+                ),
+                path: url.path
+            )
+        }
+    }
+
+    private static func sessionImportErrorCode(_ error: SessionSnapshotImportError) -> String {
+        switch error {
+        case .fileNotFound, .noWindows:
+            return "not_found"
+        case .unreadable:
+            return "invalid_state"
+        case .notASessionSnapshot, .liveSnapshot:
+            return "invalid_params"
+        case .newerSchemaVersion, .olderSchemaVersion:
+            return "unsupported"
+        }
+    }
+
+    private static func sessionImportErrorMessage(_ error: SessionSnapshotImportError) -> String {
+        let path = error.fileURL.path
+        switch error {
+        case .fileNotFound:
+            return String(
+                format: String(
+                    localized: "session.import.error.fileNotFound",
+                    defaultValue: "No saved cmux session at %@."
+                ),
+                path
+            )
+        case .unreadable:
+            return String(
+                format: String(localized: "session.import.error.unreadable", defaultValue: "Could not read %@."),
+                path
+            )
+        case .notASessionSnapshot:
+            return String(
+                format: String(
+                    localized: "session.import.error.notASnapshot",
+                    defaultValue: "%@ is not a cmux session snapshot."
+                ),
+                path
+            )
+        case let .newerSchemaVersion(_, found, supported):
+            return String(
+                format: String(
+                    localized: "session.import.error.newerSchema",
+                    defaultValue: "%1$@ was saved by a newer cmux (session format %2$@, this cmux reads %3$@). Update cmux to import it."
+                ),
+                path,
+                String(found),
+                String(supported)
+            )
+        case let .olderSchemaVersion(_, found, supported):
+            return String(
+                format: String(
+                    localized: "session.import.error.olderSchema",
+                    defaultValue: "%1$@ uses an older session format (%2$@) that this cmux no longer reads (%3$@)."
+                ),
+                path,
+                String(found),
+                String(supported)
+            )
+        case .noWindows:
+            return String(
+                format: String(
+                    localized: "session.import.error.noWindows",
+                    defaultValue: "%@ has no windows to restore."
+                ),
+                path
+            )
+        case .liveSnapshot:
+            return String(
+                format: String(
+                    localized: "session.import.error.liveSnapshot",
+                    defaultValue: "%@ is the session this cmux is saving right now. Run cmux restore-session without --from to reopen the previous launch."
+                ),
+                path
+            )
+        }
     }
 
     func controlSettingsOpen(targetRaw: String?, requestedActivate: Bool) -> ControlSettingsOpenResolution {
