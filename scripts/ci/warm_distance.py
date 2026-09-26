@@ -277,6 +277,11 @@ def append_line(log: Path, record: Mapping[str, Any]) -> None:
             handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
 
 
+def fleet_dir(store: Path) -> Path:
+    """Root 1's store (the mini's ci directory) for any root's: the one log and model copy per mini."""
+    return store.parent if re.fullmatch(r"cmux-ci-[0-9]{1,2}", store.name) else store
+
+
 def share_model(store: Path, model_path: Path = MODEL_PATH) -> None:
     """Copy the model beside the stamps for glaeda's hook, when it changed."""
     try:
@@ -359,7 +364,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     own = pull_request_files(workspace, base) if base else None
     units: dict[str, int] = {}
     logs = Path(env.get("BUILD_LOGS") or "/nonexistent")
-    for log in sorted(logs.glob("*-build.log")) if logs.is_dir() else ():
+    found = sorted(logs.glob("*-build.log")) if logs.is_dir() else []
+    for log in found:
         for target, count in swift_units(log).items():
             units[target] = units.get(target, 0) + count
     metrics: dict[str, Any] = {}
@@ -378,7 +384,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
         "start": start, "distance": distance or None,
         "own": {**features(own[0], own[1], hot_files), "paths": own[0][:MAX_PATHS]} if own else None,
         "swift_units": units, "swift_units_total": sum(units.values()),
-        "app_rebuilt": units.get("cmux", 0) >= APP_REBUILD_UNITS if units else None,
+        # No build log: unknown. A log without SwiftCompile lines compiled no Swift at all.
+        "app_rebuilt": units.get("cmux", 0) >= APP_REBUILD_UNITS if found else None,
         "compile_outcome": env.get("COMPILE_OUTCOME"),
         "compile_seconds": number(metrics.get("compile_duration_seconds")) if compiled else None,
         "admission_seconds": number(metrics.get("total_macos_compile_admission_seconds")),
@@ -391,8 +398,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
         },
     }
     _deadline[0] = float("inf")
-    append_line(store / LOG_NAME, record)
-    share_model(store)
+    append_line(fleet_dir(store) / LOG_NAME, record)
+    share_model(fleet_dir(store))
     if own is not None and env.get("KEPT") == "true":
         stamp_pull_request(store, own[0], own[1], hot_files)
     return record
@@ -779,7 +786,8 @@ def collect(hosts: Sequence[str]) -> int:
         try:
             out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
                                   f"cat /Users/Shared/cmux-build-fleet/ci/{LOG_NAME}.1 "
-                                  f"/Users/Shared/cmux-build-fleet/ci/{LOG_NAME} 2>/dev/null"],
+                                  f"/Users/Shared/cmux-build-fleet/ci/{LOG_NAME} "
+                                  f"/Users/Shared/cmux-build-fleet/ci/cmux-ci-*/{LOG_NAME} 2>/dev/null; true"],
                                  capture_output=True, text=True, timeout=120).stdout
         except (OSError, subprocess.SubprocessError) as error:
             print(f"{host}: {error}", file=sys.stderr)

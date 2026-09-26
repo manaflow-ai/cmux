@@ -214,6 +214,9 @@ class Admission(unittest.TestCase):
             self.assertIs(stamp["pr_package_interface"], True)
             self.assertEqual(stamp["merged_onto"], base)  # keep's fields stay
             self.assertTrue((store / wd.HOOK_MODEL_NAME).is_file())
+            # Root 2's store writes to the mini's one log and model copy, beside root 1's stamp.
+            self.assertEqual(wd.fleet_dir(store / "cmux-ci-2"), store)
+            self.assertEqual(wd.fleet_dir(store), store)
             self.assertIn("start: kept", wd.summary_line(record))
 
     def test_the_command_never_fails_the_job(self):
