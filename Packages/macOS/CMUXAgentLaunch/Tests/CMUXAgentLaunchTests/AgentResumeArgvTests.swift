@@ -611,4 +611,24 @@ struct AgentResumeArgvTests {
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
     }
+
+    @Test("Only the executable position takes the wrapper token, after a bare or absolute env prefix")
+    func codexWrapperTokenOnlyReplacesTheExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let token = AgentResumeArgv.codexWrapperShellExecutableToken
+        for env in ["env", "/usr/bin/env"] {
+            #expect(
+                AgentResumeArgv.renderingCodexWrapperExecutable(
+                    parts: [env, "A=B", "codex", "resume", "SID"],
+                    quote: quote
+                ) == ["'\(env)'", "'A=B'", token, "'resume'", "'SID'"]
+            )
+        }
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["sr", "codex", "resume", "SID"],
+                quote: quote
+            ) == ["'sr'", "'codex'", "'resume'", "'SID'"]
+        )
+    }
 }

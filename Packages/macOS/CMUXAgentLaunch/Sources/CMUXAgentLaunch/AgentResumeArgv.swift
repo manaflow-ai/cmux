@@ -323,7 +323,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         // non-assignment after an `env` prefix. A nested subcommand such as
         // `sr codex resume` is not the managed executable and stays quoted.
         var executableIndex = 0
-        if parts.first == "env" {
+        if let first = parts.first, (first as NSString).lastPathComponent == "env" {
             executableIndex = 1
             while executableIndex < parts.count,
                   parts[executableIndex].contains("=") {
