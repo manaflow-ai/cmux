@@ -96,14 +96,33 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let footerPublisher: (any AgentFooterStatePublishing)?
+        private let footerLease: AgentFooterStateStore.Lease?
 
-        init(context: Unmanaged<TerminalOutputTeeContext>) {
+        init(
+            context: Unmanaged<TerminalOutputTeeContext>,
+            footerPublisher: (any AgentFooterStatePublishing)?,
+            footerLease: AgentFooterStateStore.Lease?
+        ) {
             self.context = context
+            self.footerPublisher = footerPublisher
+            self.footerLease = footerLease
         }
 
+        @MainActor
         func release() {
             context.release()
+            if let footerPublisher, let footerLease {
+                footerPublisher.release(footerLease)
+            }
         }
+    }
+
+    private let agentFooter: (any AgentFooterStatePublishing)?
+
+    @MainActor
+    init(agentFooter: (any AgentFooterStatePublishing)?) {
+        self.agentFooter = agentFooter
     }
 
     @MainActor
@@ -112,9 +131,12 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        let footerLease = agentFooter?.activate(surfaceID: surfaceID)
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
+            footerPublisher: agentFooter,
+            footerLease: footerLease,
             agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
         ))
         ghostty_surface_set_pty_tee_cb(
@@ -122,11 +144,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext)
+        return Lease(
+            context: teeContext,
+            footerPublisher: agentFooter,
+            footerLease: footerLease
+        )
     }
 
     @MainActor
     func dropSurface(surfaceID: UUID) {
+        agentFooter?.retire(surfaceID: surfaceID)
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
         TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
     }

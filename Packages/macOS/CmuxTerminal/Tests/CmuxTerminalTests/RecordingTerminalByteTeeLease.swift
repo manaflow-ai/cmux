@@ -9,6 +9,7 @@ final class RecordingTerminalByteTeeLease: TerminalByteTeeLease {
         self.recorder = recorder
     }
 
+    @MainActor
     func release() {
         recorder.record(.teeLeaseRelease)
     }

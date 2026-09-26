@@ -2,6 +2,53 @@ import CmuxTerminalCore
 import Foundation
 import os
 
+/// Composition-root-owned footer lifecycle and UI delivery bridge.
+///
+/// The state store is injected once and shared by the tee, surface lifecycle,
+/// and panel. Notifications use the surface id as their object so observers
+/// can subscribe only to the pane they render.
+final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked Sendable {
+    private let store: AgentFooterStateStore
+
+    @MainActor
+    var stateStore: AgentFooterStateStore { store }
+
+    /// Creates a publisher backed by the composition root's state store.
+    @MainActor
+    init(store: AgentFooterStateStore) {
+        self.store = store
+    }
+
+    @MainActor
+    func activate(surfaceID: UUID) -> AgentFooterStateStore.Lease {
+        store.activate(surfaceID: surfaceID)
+    }
+
+    /// Publishes a PTY snapshot through the main-actor state owner.
+    func post(state: AgentFooterState?, for lease: AgentFooterStateStore.Lease) {
+        let store = store
+        Task { @MainActor in
+            _ = store.update(state, for: lease)
+        }
+    }
+
+    @MainActor
+    func snapshot(for surfaceID: UUID) -> AgentFooterState? {
+        store.snapshot(for: surfaceID)
+    }
+
+    @MainActor
+    func retire(surfaceID: UUID) {
+        _ = store.retire(surfaceID: surfaceID)
+    }
+
+    /// Releases a tee lease after its callback context is destroyed.
+    @MainActor
+    func release(_ lease: AgentFooterStateStore.Lease) {
+        store.release(lease)
+    }
+}
+
 /// Per-surface state owned by libghostty's serialized PTY read callback.
 ///
 /// SAFETY: libghostty invokes a surface's tee callback serially on that
@@ -43,18 +90,25 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
 
     let workspaceID: UUID
     let surfaceID: UUID
+    private let footerPublisher: (any AgentFooterStatePublishing)?
+    private let footerLease: AgentFooterStateStore.Lease?
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
+    private var footerParser = AgentFooterOSCParser()
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
         workspaceID: UUID,
         surfaceID: UUID,
+        footerPublisher: (any AgentFooterStatePublishing)?,
+        footerLease: AgentFooterStateStore.Lease?,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition]
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
+        self.footerPublisher = footerPublisher
+        self.footerLease = footerLease
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID
@@ -70,6 +124,15 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        if let footerState = footerParser.consume(bytes),
+           let footerPublisher,
+           let footerLease {
+            footerPublisher.post(
+                state: footerState.isEmpty ? nil : footerState,
+                for: footerLease
+            )
+        }
+
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,

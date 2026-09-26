@@ -1,5 +1,6 @@
 import Bonsplit
 import SwiftUI
+import CmuxTerminalCore
 
 @MainActor
 struct RemoteTmuxWindowMirrorSplitView: View {
@@ -76,6 +77,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                let panel = mirror.panel(forPane: tmuxPaneId) {
                 TerminalPanelView(
                     panel: panel,
+                    agentFooterStore: panel.surface.agentFooter?.stateStore ?? AgentFooterStateStore.empty,
                     paneId: paneId,
                     isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
                     isVisibleInUI: isVisibleInUI,

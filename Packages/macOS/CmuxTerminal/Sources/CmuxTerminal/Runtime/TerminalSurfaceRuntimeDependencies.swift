@@ -24,6 +24,10 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The shared PTY output-tee installer.
     public let byteTee: any TerminalByteTeeBinding
 
+    /// The composition-root-owned pane footer publisher shared by tee,
+    /// lifecycle, and panel consumers.
+    public let agentFooter: (any AgentFooterStatePublishing)?
+
     /// The renderer-reclamation pass scheduler.
     public let rendererRealization: any TerminalRendererRealizationScheduling
 
@@ -75,6 +79,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         viewProvider: any TerminalSurfaceViewProviding,
         spawnPolicy: any TerminalSurfaceSpawnPolicyProviding,
         byteTee: any TerminalByteTeeBinding,
+        agentFooter: (any AgentFooterStatePublishing)? = nil,
         rendererRealization: any TerminalRendererRealizationScheduling,
         hibernationRecorder: any AgentHibernationRecording,
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
@@ -93,6 +98,7 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.viewProvider = viewProvider
         self.spawnPolicy = spawnPolicy
         self.byteTee = byteTee
+        self.agentFooter = agentFooter
         self.rendererRealization = rendererRealization
         self.hibernationRecorder = hibernationRecorder
         self.runtimeTeardown = runtimeTeardown

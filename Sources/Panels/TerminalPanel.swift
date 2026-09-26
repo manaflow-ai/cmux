@@ -164,6 +164,7 @@ final class TerminalPanel: Panel, ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
     }
 
     /// Create a new terminal panel with a fresh surface

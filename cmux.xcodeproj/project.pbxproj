@@ -12281,6 +12281,7 @@
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
+				C750200000000000000000A2 /* CmuxTerminalCore */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
 				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,

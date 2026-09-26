@@ -5,12 +5,14 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
+import CmuxTerminalCore
 import CmuxFoundation
 import CmuxSettings
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
+    let agentFooterStore: AgentFooterStateStore
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
@@ -35,33 +37,35 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        switch panel.agentHibernationPhase {
-        case .live:
-            terminalBody
-        case .terminating:
-            Color(nsColor: appearance.contentBackgroundColor)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id("hibernation-terminating-\(panel.id.uuidString)")
-        case .recovering(let hibernationState):
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                mode: AgentHibernationPlaceholderMode.recovering,
-                onAction: nil
-            )
-            .id("hibernation-termination-recovery-\(panel.id.uuidString)")
-        case .terminationFailed(let hibernationState):
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                mode: AgentHibernationPlaceholderMode.failed,
-                onAction: {
-                    panel.retryAgentHibernationTermination()
-                }
-            )
-            .id("hibernation-termination-failed-\(panel.id.uuidString)")
-        case .hibernated(let hibernationState):
-            hibernationBody(hibernationState)
+        Group {
+            switch panel.agentHibernationPhase {
+            case .live:
+                terminalBody
+            case .terminating:
+                Color(nsColor: appearance.contentBackgroundColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id("hibernation-terminating-\(panel.id.uuidString)")
+            case .recovering(let hibernationState):
+                AgentHibernationPlaceholderView(
+                    state: hibernationState,
+                    appearance: appearance,
+                    mode: AgentHibernationPlaceholderMode.recovering,
+                    onAction: nil
+                )
+                .id("hibernation-termination-recovery-\(panel.id.uuidString)")
+            case .terminationFailed(let hibernationState):
+                AgentHibernationPlaceholderView(
+                    state: hibernationState,
+                    appearance: appearance,
+                    mode: AgentHibernationPlaceholderMode.failed,
+                    onAction: {
+                        panel.retryAgentHibernationTermination()
+                    }
+                )
+                .id("hibernation-termination-failed-\(panel.id.uuidString)")
+            case .hibernated(let hibernationState):
+                hibernationBody(hibernationState)
+            }
         }
     }
 
@@ -129,6 +133,10 @@ struct TerminalPanelView: View {
             .reportTerminalViewportGeometryForUITest(panel: panel)
 #endif
             .layoutPriority(1)
+
+            if let agentFooter = agentFooterStore.snapshot(for: panel.id) {
+                TerminalAgentFooterView(state: agentFooter, appearance: appearance)
+            }
 
             if panel.isTextBoxActive {
                 TextBoxInputContainer(
@@ -252,6 +260,47 @@ struct TerminalPanelView: View {
         } else {
             context += "\n\(marker)"
         }
+    }
+}
+
+private struct TerminalAgentFooterView: View {
+    let state: AgentFooterState
+    let appearance: PanelAppearance
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let agent = state.agent {
+                Text(agent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+            Spacer(minLength: 4)
+            if let contextPercent = state.contextPercent {
+                ProgressView(value: Double(contextPercent), total: 100)
+                    .progressViewStyle(.linear)
+                    .frame(width: 72)
+                Text(
+                    String.localizedStringWithFormat(
+                        String(localized: "terminal.agentFooter.contextPercent", defaultValue: "%lld%%"),
+                        Int64(contextPercent)
+                    )
+                )
+                    .monospacedDigit()
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .frame(minWidth: 32, alignment: .trailing)
+            }
+        }
+        .foregroundStyle(Color(nsColor: appearance.foregroundColor).opacity(0.88))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 22)
+        .background(Color(nsColor: appearance.backgroundColor).opacity(0.94))
+        .overlay(alignment: .top) {
+            Divider().opacity(0.35)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("TerminalAgentFooter")
     }
 }
 
