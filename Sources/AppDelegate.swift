@@ -9038,15 +9038,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeWorkspaces(forManagedCloudVMID vmID: String) {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
-        var managers = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        for manager in managers {
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager) {
             let doomed = manager.tabs.filter { workspace in
                 workspace.cloudVMID?.lowercased() == target
             }
             for workspace in doomed {
+                // Stop reconnect and route retries before removing the tab. The
+                // final workspace is retained as a local anchor, so clearing
+                // only via closeWorkspace leaves the deleted VM attached.
+                workspace.disconnectRemoteConnection(clearConfiguration: true)
+                workspace.cloudVMBinding = nil
                 if manager.tabs.count > 1 {
                     manager.closeWorkspace(workspace, recordHistory: false)
                 } else {
@@ -9054,8 +9055,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // local anchor. Clear its cloud binding and panels instead
                     // of leaving a deleted VM's loading/connected surface
                     // behind when this is the only tab in the window.
-                    workspace.disconnectRemoteConnection(clearConfiguration: true)
-                    workspace.cloudVMBinding = nil
                     workspace.withClosedPanelHistorySuppressed {
                         workspace.teardownAllPanels()
                     }
