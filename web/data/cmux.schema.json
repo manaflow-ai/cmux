@@ -630,7 +630,7 @@
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
-          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
+          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme is configured. Explicit colors override only their matching values, while font and other settings are preserved. When false, cmux does not apply the adaptive palette; Ghostty uses its configured colors or fixed built-in palette. Explicit themes always take precedence, including theme = light:X,dark:Y."
         },
         "showScrollBar": {
           "type": "boolean",

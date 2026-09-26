@@ -284,7 +284,7 @@ public struct TerminalSection: View {
                 subtitle: adaptiveDefaultTheme.current
                     ? String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
+                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme is configured. Explicit colors override only their matching values, so the rest of the palette stays intact."
                     )
                     : String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",

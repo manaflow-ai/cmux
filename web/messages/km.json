@@ -1315,7 +1315,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
-          "adaptiveDefaultTheme": "នៅពេល true (លំនាំដើម) cmux ផ្តល់ក្ដារពណ៌លំនាំដើមដែលប្រែប្រួលតាមរូបរាង លុះត្រាតែបានកំណត់ស្បែក Ghostty ឬពណ៌ស្ថានីយ។ ពុម្ពអក្សរ និងការកំណត់ផ្សេងទៀតត្រូវបានរក្សាទុក។ នៅពេល false Ghostty ប្រើក្ដារពណ៌ដែលមានស្រាប់ថេររបស់វា។ ស្បែក និងពណ៌ដែលបានកំណត់ជាក់លាក់តែងតែមានអាទិភាព រួមទាំង theme = light:X,dark:Y។",
+          "adaptiveDefaultTheme": "នៅពេល true (លំនាំដើម) cmux ផ្តល់ក្ដារពណ៌លំនាំដើមដែលប្រែប្រួលតាមរូបរាង លុះត្រាតែបានកំណត់ស្បែក Ghostty។ ពណ៌ស្ថានីយដែលបានកំណត់ជាក់លាក់ជំនួសតែតម្លៃដែលត្រូវគ្នា ខណៈពុម្ពអក្សរ និងការកំណត់ផ្សេងទៀតត្រូវបានរក្សាទុក។ នៅពេល false cmux មិនអនុវត្តក្ដារពណ៌ដែលប្រែប្រួលទេ។ Ghostty ប្រើពណ៌ដែលបានកំណត់របស់វា ឬក្ដារពណ៌ដែលមានស្រាប់ថេររបស់វា។ ស្បែកដែលបានកំណត់ជាក់លាក់តែងតែមានអាទិភាព រួមទាំង theme = light:X,dark:Y។",
           "sessionContentMaxWidth": "ទទឹងអតិបរមាជាជម្រើស គិតជាពិន្ទុ សម្រាប់ខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ។ កំណត់ false ដើម្បីប្រើទទឹងផ្ទាំងទាំងមូល។",
           "sessionContentAlignment": "ទីតាំងផ្ដេកនៃខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ នៅពេលបើក sessionContentMaxWidth។",
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",

@@ -6,9 +6,9 @@ import Testing
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7161
 /// and https://github.com/manaflow-ai/cmux/issues/10199.
 ///
-/// cmux's managed default terminal theme ("Apple System Colors") applies only
-/// when enabled and the user has no authored theme or terminal colors. Other
-/// settings keep that base; explicit appearance preserves Ghostty's colors.
+/// cmux's managed default terminal theme ("Apple System Colors") applies when
+/// enabled and the user has no authored theme. Individual color settings layer
+/// over that base, while an explicit theme owns the complete palette.
 @Suite(.serialized) struct GhosttyConfigManagedDefaultAppearanceTests {
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
@@ -76,7 +76,7 @@ import Testing
         #expect(adaptiveSecond.fontFamily == "adaptive")
     }
 
-    @Test func configuredColorsSuppressManagedDefaultTheme() throws {
+    @Test func configuredColorsLayerOnManagedDefaultTheme() throws {
         try withTempConfig(
             """
             palette = 1=#ff0000
@@ -84,14 +84,14 @@ import Testing
             selection-background = #333333
             """
         ) { path in
-            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))
         }
     }
 
-    @Test func configuredIncludedColorSuppressesManagedDefaultTheme() throws {
+    @Test func configuredIncludedColorLayersOnManagedDefaultTheme() throws {
         try withTempConfigDir { dir in
             let included = dir.appendingPathComponent("appearance.conf", isDirectory: false)
             try "background = #101820\n".write(to: included, atomically: true, encoding: .utf8)
@@ -99,7 +99,7 @@ import Testing
             let main = dir.appendingPathComponent("config", isDirectory: false)
             try "config-file = appearance.conf\n".write(to: main, atomically: true, encoding: .utf8)
 
-            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [main.path],
                 adaptiveDefaultThemeEnabled: true
             ))
@@ -124,7 +124,7 @@ import Testing
         }
     }
 
-    @Test func explicitThemeWithColorOverridesSuppressesManagedDefaultTheme() throws {
+    @Test func explicitThemeWithColorOverridesStillSuppressesManagedDefaultTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\nbackground = black\n") { path in
             #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
@@ -151,10 +151,10 @@ import Testing
         }
     }
 
-    @Test func summaryReportsConfiguredColorsAsIneligibleForManagedDefault() throws {
+    @Test func summaryReportsConfiguredColorsAsEligibleForManagedDefault() throws {
         try withTempConfig("background = black\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
-            #expect(!summary.shouldApplyDefaultAppearance)
+            #expect(summary.shouldApplyDefaultAppearance)
             #expect(summary.hasConfigDirective)
             #expect(summary.hasExplicitTerminalColorDirective)
         }
@@ -297,16 +297,16 @@ import Testing
         }
     }
 
-    @Test func backgroundOverrideKeepsGhosttyBaseWhenAdaptiveDefaultIsEnabled() throws {
+    @Test func backgroundOverridePreservesManagedThemeBaseWhenAdaptiveDefaultIsEnabled() throws {
         try loadResolvedConfig(
             userConfig: "background = #000000\n",
             adaptiveDefaultThemeEnabled: true
         ) { config in
             #expect(config.theme == nil)
             #expect(config.backgroundColor.hexString() == "#000000")
-            #expect(config.foregroundColor.hexString() == "#FFFFFF")
-            #expect(config.palette[1]?.hexString() == "#CC6666")
-            #expect(config.cursorColor.hexString() == "#FFFFFF")
+            #expect(config.foregroundColor.hexString() == "#445566")
+            #expect(config.palette[1]?.hexString() == "#C0FFEE")
+            #expect(config.cursorColor.hexString() == "#778899")
         }
     }
 

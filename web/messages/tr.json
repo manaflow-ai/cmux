@@ -1315,7 +1315,7 @@
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
-          "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması veya terminal renkleri yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Yazı tipi ve diğer ayarlar korunur. false olduğunda Ghostty sabit yerleşik paletini kullanır. theme = light:X,dark:Y dahil açıkça belirtilen temalar ve renkler her zaman önceliklidir.",
+          "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Açıkça belirtilen terminal renkleri yalnızca karşılık gelen değerleri geçersiz kılar; yazı tipi ve diğer ayarlar korunur. false olduğunda cmux uyarlanabilir paleti uygulamaz; Ghostty yapılandırılmış renklerini veya sabit yerleşik paletini kullanır. Açıkça belirtilen temalar her zaman önceliklidir; buna theme = light:X,dark:Y de dahildir.",
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",

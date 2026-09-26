@@ -1197,8 +1197,8 @@ class GhosttyApp {
     }
 
     /// Loads the user's resolved Ghostty config. When enabled, cmux's managed
-    /// default appearance applies unless the config authors a theme or terminal
-    /// colors. Typography and other behavior settings keep the adaptive base.
+    /// default appearance applies unless the config authors a theme. Explicit
+    /// colors then override their corresponding managed values.
     private func loadRealUserGhosttyConfig(
         _ config: ghostty_config_t,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1220,9 +1220,13 @@ class GhosttyApp {
         loadConditionalThemeOverrideIfNeeded(config, preferredColorScheme: themeColorScheme)
         // Ghostty's own default-file load also reads the native legacy app-support
         // `config` that cmux's scan-path policy treats as stale when `config.ghostty`
-        // is non-empty. For a config without authored colors, re-assert the managed
-        // default so that skipped legacy-file colors cannot override it.
-        if shouldApplyManagedDefaultAppearance {
+        // is non-empty. Re-assert the managed default only when no explicit color
+        // was authored; otherwise this final load would overwrite the user's color
+        // while trying to protect the managed values from the stale legacy file.
+        if Self.shouldReassertManagedDefaultAppearance(
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled,
+            appearanceSummary: appearanceSummary
+        ) {
             loadCmuxDefaultAppearanceConfig(config, preferredColorScheme: preferredColorScheme)
         }
         hasUserGhosttyCommand = GhosttyConfig.loadForCmux(
@@ -1455,6 +1459,21 @@ class GhosttyApp {
             configPaths: configPaths,
             adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
         )
+    }
+
+    /// Whether the C Ghostty load path should re-assert cmux's managed palette
+    /// after Ghostty's default-file pass. A native legacy file can be read by
+    /// Ghostty even when cmux excludes it from its scan paths, so the re-assert
+    /// is needed for an otherwise unconfigured terminal. Once the user authors
+    /// any terminal color, the final managed load would overwrite that value and
+    /// must be skipped; the initial managed load remains the base for layering.
+    static func shouldReassertManagedDefaultAppearance(
+        adaptiveDefaultThemeEnabled: Bool,
+        appearanceSummary: GhosttyConfig.UserAppearanceConfigSummary
+    ) -> Bool {
+        adaptiveDefaultThemeEnabled
+            && appearanceSummary.shouldApplyDefaultAppearance
+            && !appearanceSummary.hasExplicitTerminalColorDirective
     }
 
     static func userAppearanceConfigSummary(configPaths: [String]? = nil) -> GhosttyConfig.UserAppearanceConfigSummary {

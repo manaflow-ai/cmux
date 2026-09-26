@@ -3726,13 +3726,36 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
+    func testShouldApplyManagedDefaultAppearanceLayersOverExplicitTerminalColorDirective() throws {
         try withTempConfig("background = black\n") { path in
-            XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))
         }
+    }
+
+    func testCConfigLoadDoesNotReassertManagedPaletteOverExplicitColor() {
+        var summary = GhosttyConfig.UserAppearanceConfigSummary()
+        summary.recordDirective(key: "background", value: "#000000")
+
+        XCTAssertFalse(
+            GhosttyApp.shouldReassertManagedDefaultAppearance(
+                adaptiveDefaultThemeEnabled: true,
+                appearanceSummary: summary
+            )
+        )
+    }
+
+    func testCConfigLoadReassertsManagedPaletteForUnconfiguredTerminal() {
+        let summary = GhosttyConfig.UserAppearanceConfigSummary()
+
+        XCTAssertTrue(
+            GhosttyApp.shouldReassertManagedDefaultAppearance(
+                adaptiveDefaultThemeEnabled: true,
+                appearanceSummary: summary
+            )
+        )
     }
 
     func testShouldApplyManagedDefaultAppearanceAllowsEmptyConfig() throws {
