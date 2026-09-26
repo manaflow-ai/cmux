@@ -49,6 +49,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.reopenClosedBrowserPanel`
 - `shortcuts.bindings.reopenClosedWorkspace`
+- `shortcuts.bindings.saveLayoutTemplate`
 - `shortcuts.bindings.selectWorkspaceByNumber`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
 
