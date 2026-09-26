@@ -136,6 +136,9 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var autoConnectTasks: [UUID: Task<Void, Never>] = [:]
     /// The latest queued write of a host's persisted auto-connect pause flag.
     @ObservationIgnored private var autoConnectPauseWrite: Task<Void, Never>?
+    /// Counts pause-flag changes per host so only the newest write restores
+    /// the in-memory flag.
+    @ObservationIgnored private var autoConnectPauseGeneration: [UUID: Int] = [:]
     static let replayCap = 4 * 1_024 * 1_024
 
     public init(directory: URL) {
@@ -804,6 +807,8 @@ public final class MobileSSHComputers {
         guard let index = hosts.firstIndex(where: { $0.id == hostID }),
               hosts[index].isAutoConnectPaused != paused else { return }
         hosts[index].autoConnectPaused = paused ? true : nil
+        let generation = autoConnectPauseGeneration[hostID, default: 0] + 1
+        autoConnectPauseGeneration[hostID] = generation
         let store = hostStore
         let previous = autoConnectPauseWrite
         autoConnectPauseWrite = Task {
@@ -811,6 +816,10 @@ public final class MobileSSHComputers {
             guard var stored = await store.host(id: hostID) else { return }
             stored.autoConnectPaused = paused ? true : nil
             try? await store.upsert(stored)
+            // A newer change for this host is queued behind this write; it
+            // owns the in-memory flag, and restoring this older value would
+            // undo it until that write lands.
+            guard autoConnectPauseGeneration[hostID] == generation else { return }
             // A reload that ran before this write landed read the old flag.
             if let index = hosts.firstIndex(where: { $0.id == hostID }) {
                 hosts[index].autoConnectPaused = stored.autoConnectPaused
