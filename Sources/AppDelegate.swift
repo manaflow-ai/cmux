@@ -17966,7 +17966,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let currentPid = ProcessInfo.processInfo.processIdentifier
         let environment = ProcessInfo.processInfo.environment
-        var terminatedPids: [String] = []
+        var quitRequestedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
@@ -17994,9 +17994,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     SingleInstanceConflictPolicy.allowReplacingEnvironmentKey
                 )
                 app.activate(options: [.activateAllWindows])
-                exit(0)
+                // _exit: skip atexit handlers and static teardown while
+                // Ghostty and Sentry threads are still running.
+                _exit(0)
             case .replaceExisting:
-                terminatedPids.append(String(app.processIdentifier))
+                quitRequestedPids.append(String(app.processIdentifier))
                 // Graceful quit first so the older instance saves its session;
                 // force only if it is still running after the timeout.
                 app.terminate()
@@ -18014,7 +18016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fields: [
                 "bundleIdentifier": bundleId,
                 "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
+                "quitRequestedPids": quitRequestedPids.joined(separator: ",")
             ]
         )
     }
@@ -18049,6 +18051,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    .standardizedFileURL
                    .resolvingSymlinksInPath(),
                executableURL == embeddedCLIURL {
+                return
+            }
+            // A relaunch of this same bundle is meant to replace us (its
+            // enforceSingleInstance asks us to quit gracefully); let it live.
+            if let launchedBundleURL = app.bundleURL,
+               SingleInstanceConflictPolicy.action(
+                   currentBundleURL: launchedBundleURL,
+                   existingBundleURL: Bundle.main.bundleURL,
+                   environment: [:]
+               ) == .replaceExisting {
+                StartupBreadcrumbLog.append(
+                    "singleInstance.observe.sameBundleRelaunch",
+                    fields: ["duplicatePid": String(app.processIdentifier)]
+                )
                 return
             }
 
