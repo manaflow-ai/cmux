@@ -243,7 +243,6 @@ async function prepareAttachments(values: FormDataEntryValue[]): Promise<Prepare
   }
 
   let totalSize = 0;
-  const attachments: PreparedAttachment[] = [];
 
   for (const file of files) {
     if (!allowedImageTypes.has(file.type)) {
@@ -265,13 +264,16 @@ async function prepareAttachments(values: FormDataEntryValue[]): Promise<Prepare
       };
     }
 
-    attachments.push({
+  }
+
+  const attachments = await Promise.all(
+    files.map(async (file) => ({
       content: Buffer.from(await file.arrayBuffer()),
       contentType: file.type,
       filename: sanitizeFilename(file.name),
       size: file.size,
-    });
-  }
+    })),
+  );
 
   return { attachments };
 }

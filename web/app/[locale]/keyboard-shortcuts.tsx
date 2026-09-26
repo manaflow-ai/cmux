@@ -12,13 +12,26 @@ function comboToText(combo: string[]) {
   return combo.join(" ");
 }
 
+function stableKeys<T>(items: readonly T[], keyFor: (item: T) => string) {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const baseKey = keyFor(item);
+    const occurrence = seen.get(baseKey) ?? 0;
+    seen.set(baseKey, occurrence + 1);
+    return {
+      item,
+      key: occurrence === 0 ? baseKey : `${baseKey}-${occurrence}`,
+    };
+  });
+}
+
 function KeyCombo({ combo }: { combo: string[] }) {
   return (
     <span className="inline-flex items-center">
-      {combo.map((k, idx) => (
-        <span key={`${k}-${idx}`} className="inline-flex items-center">
-          <kbd>{k}</kbd>
-          {idx < combo.length - 1 && (
+      {stableKeys(combo, (key) => key).map(({ item: key, key: itemKey }, index) => (
+        <span key={itemKey} className="inline-flex items-center">
+          <kbd>{key}</kbd>
+          {index < combo.length - 1 && (
             <span className="text-muted/30 mx-[3px] select-none font-mono text-[10px]">
               +
             </span>
@@ -40,16 +53,18 @@ function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string 
         {note && <span className="ml-2 text-[12px] text-muted/50">{note}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-3">
-        {shortcut.combos.map((combo, idx) => (
-          <span key={`${shortcut.id}-combo-${idx}`} className="inline-flex items-center">
-            {idx > 0 && (
+        {stableKeys(shortcut.combos, comboToText).map(
+          ({ item: combo, key }, index) => (
+          <span key={`${shortcut.id}-${key}`} className="inline-flex items-center">
+            {index > 0 && (
               <span className="mr-3 select-none font-mono text-[11px] text-muted/30">
                 /
               </span>
             )}
             <KeyCombo combo={combo} />
           </span>
-        ))}
+          ),
+        )}
       </div>
     </div>
   );
@@ -65,16 +80,19 @@ export function KeyboardShortcuts() {
   const filtered = useMemo(() => {
     const q = normalize(query);
     if (!q) return shortcutCategories;
-    return shortcutCategories.map((cat) => ({
-      ...cat,
-      shortcuts: cat.shortcuts.filter((shortcut) => {
+    return shortcutCategories.reduce<typeof shortcutCategories>((matchingCategories, cat) => {
+      const matchingShortcuts = cat.shortcuts.filter((shortcut) => {
         const catTitle = t(`cat.${cat.titleKey}`);
         const description = localizedShortcutText(shortcut.description, locale);
         const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : "";
         const combos = shortcut.combos.map(comboToText).join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
-      }),
-    })).filter((cat) => cat.shortcuts.length > 0);
+      });
+      if (matchingShortcuts.length > 0) {
+        matchingCategories.push({ ...cat, shortcuts: matchingShortcuts });
+      }
+      return matchingCategories;
+    }, []);
   }, [locale, query, t]);
 
   return (

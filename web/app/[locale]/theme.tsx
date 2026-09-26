@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { flushSync } from "react-dom";
+import { startTransition } from "react";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
 
 /** Flips light/dark with a view transition when the platform allows one. */
@@ -32,7 +32,7 @@ export function useThemeToggle() {
     }
 
     document.startViewTransition(() => {
-      flushSync(apply);
+      startTransition(apply);
     });
   };
 

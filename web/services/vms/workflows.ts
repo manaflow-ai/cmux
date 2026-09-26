@@ -315,9 +315,12 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
-    return rows
-      .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
-      .map(vmEntryFromRow);
+    return rows.reduce<VmEntry[]>((entries, row) => {
+      if (row.providerVmId && !isRetiredProviderRow(row)) {
+        entries.push(vmEntryFromRow(row));
+      }
+      return entries;
+    }, []);
   });
 }
 

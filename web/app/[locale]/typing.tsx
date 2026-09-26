@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDevValues } from "./components/spacing-control";
+import { reduceTypingState } from "./typing-state";
 import { codingAgents } from "@/i18n/coding-agents";
 
 function usePhrases() {
@@ -33,32 +34,37 @@ function useDemoMode() {
 export function TypingTagline() {
   const phrases = usePhrases();
   const demoMode = useDemoMode();
-  const [phraseIndex, setPhraseIndex] = useState(0);
-  const [charIndex, setCharIndex] = useState(0);
-  const [deleting, setDeleting] = useState(false);
+  const [typingState, dispatchTyping] = useReducer(reduceTypingState, {
+    phraseIndex: 0,
+    charIndex: 0,
+    deleting: false,
+  });
   const dev = useDevValues();
-  const phrase = phrases[phraseIndex];
+  const { phraseIndex, charIndex, deleting } = typingState;
+  const phrase = phrases[phraseIndex] ?? phrases[0];
   const phraseCount = phrases.length;
 
   useEffect(() => {
     if (demoMode) return;
 
     if (!deleting && charIndex === phrase.length) {
-      const timeout = setTimeout(() => setDeleting(true), 2000);
+      const timeout = setTimeout(
+        () => dispatchTyping({ type: "start-deleting" }),
+        2000,
+      );
       return () => clearTimeout(timeout);
     }
 
     if (deleting && charIndex === 0) {
       const timeout = setTimeout(() => {
-        setDeleting(false);
-        setPhraseIndex((i) => (i + 1) % phraseCount);
+        dispatchTyping({ type: "finish-deleting", phraseCount });
       }, 0);
       return () => clearTimeout(timeout);
     }
 
     const speed = deleting ? 30 : 60;
     const timeout = setTimeout(() => {
-      setCharIndex((c) => c + (deleting ? -1 : 1));
+      dispatchTyping({ type: "advance" });
     }, speed);
 
     return () => clearTimeout(timeout);

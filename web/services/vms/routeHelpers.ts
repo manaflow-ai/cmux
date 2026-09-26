@@ -1438,11 +1438,11 @@ function allowedBrowserOrigins(): Set<string> {
   if (cachedAllowedOrigins && cachedAllowedOriginsEnv === raw) return cachedAllowedOrigins;
   cachedAllowedOriginsEnv = raw;
   const configured = raw?.split(",") ?? [];
-  cachedAllowedOrigins = new Set(
-    configured
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
-  );
+  cachedAllowedOrigins = configured.reduce((origins, origin) => {
+    const trimmed = origin.trim();
+    if (trimmed.length > 0) origins.add(trimmed);
+    return origins;
+  }, new Set<string>());
   return cachedAllowedOrigins;
 }
 
