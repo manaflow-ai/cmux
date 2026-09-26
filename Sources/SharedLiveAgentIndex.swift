@@ -1514,6 +1514,7 @@ final class SharedLiveAgentIndex {
         let workspaceID: UUID
         let surfaceID: UUID
         let kind: RestorableAgentKind
+        let environment: [String: String]
     }
 
     private func nudgeForMissingAgentHooks(
@@ -1548,13 +1549,18 @@ final class SharedLiveAgentIndex {
             return HookNudgeCandidate(
                 workspaceID: panelKey.workspaceId,
                 surfaceID: panelKey.panelId,
-                kind: kind
+                kind: kind,
+                environment: ProcessInfo.processInfo.environment.merging(
+                    entry.snapshot.launchCommand?.environment ?? [:]
+                ) { _, processValue in processValue }
             )
         }
         missingHookNudgeTask?.cancel()
         missingHookNudgeTask = Task { @MainActor [weak self] in
             let missingCandidates = await Task.detached(priority: .utility) {
-                candidates.filter { !Self.hasInstalledAgentHooks(for: $0.kind) }
+                candidates.filter {
+                    !Self.hasInstalledAgentHooks(for: $0.kind, environment: $0.environment)
+                }
             }.value
             guard let self, !Task.isCancelled else { return }
             self.deliverMissingAgentHookNudges(missingCandidates)
@@ -1592,8 +1598,10 @@ final class SharedLiveAgentIndex {
     }
 
     /// Checks the same cmux-owned configuration files that hook status reports.
-    nonisolated private static func hasInstalledAgentHooks(for kind: RestorableAgentKind) -> Bool {
-        let environment = ProcessInfo.processInfo.environment
+    nonisolated static func hasInstalledAgentHooks(
+        for kind: RestorableAgentKind,
+        environment: [String: String]
+    ) -> Bool {
         let home = environment["HOME"].flatMap { value -> String? in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : NSString(string: trimmed).expandingTildeInPath
@@ -1609,7 +1617,12 @@ final class SharedLiveAgentIndex {
                 return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath, isDirectory: true)
             } ?? homeURL.appendingPathComponent(".codex", isDirectory: true)
             configuredURL = root.appendingPathComponent("hooks.json", isDirectory: false)
-            markers = ["cmux hooks codex", "hooks enqueue codex", "cmux_codex_"]
+            markers = [
+                "cmux hooks codex",
+                "hooks enqueue codex",
+                "cmux_codex_",
+                "cmux-codex-hook-"
+            ]
         case "gemini":
             configuredURL = homeURL
                 .appendingPathComponent(".gemini", isDirectory: true)

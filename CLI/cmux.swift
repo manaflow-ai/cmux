@@ -33060,7 +33060,8 @@ export default CMUXSessionRestore;
 
     private func installAgentHooks(
         _ def: AgentHookDef,
-        skipConfirmation: Bool = false
+        skipConfirmation: Bool = false,
+        allowCreateConfigDir: Bool = false
     ) throws {
         try Self.validateHookInstallDispatch(for: def)
         if def.name == "opencode" { try installOpenCodePluginHooks(def, skipConfirmation: skipConfirmation); return }
@@ -33108,14 +33109,14 @@ export default CMUXSessionRestore;
         var isConfigDirectory: ObjCBool = false
         let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
         if configPathExists, !isConfigDirectory.boolValue {
-            if def.createConfigDirIfMissing {
+            if def.createConfigDirIfMissing || allowCreateConfigDir {
                 throw CLIError(message: configDirectoryFileError)
             }
             print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
             return
         }
         if !configPathExists {
-            if def.createConfigDirIfMissing {
+            if def.createConfigDirIfMissing || allowCreateConfigDir {
                 do {
                     try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
                 } catch {
@@ -40861,7 +40862,8 @@ export default CMUXSessionRestore;
     private func installHooksForAgent(
         _ def: AgentHookDef,
         arguments: [String],
-        skipConfirmation: Bool = false
+        skipConfirmation: Bool = false,
+        allowCreateConfigDir: Bool = false
     ) throws {
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
@@ -40870,14 +40872,22 @@ export default CMUXSessionRestore;
                 try installOpenCodePlugin(projectLocal: true)
                 return
             }
-            try installAgentHooks(def, skipConfirmation: skipConfirmation)
+            try installAgentHooks(
+                def,
+                skipConfirmation: skipConfirmation,
+                allowCreateConfigDir: allowCreateConfigDir
+            )
             try installOpenCodePlugin(
                 projectLocal: false,
                 skipConfirmation: skipConfirmation
             )
             return
         }
-        try installAgentHooks(def, skipConfirmation: skipConfirmation)
+        try installAgentHooks(
+            def,
+            skipConfirmation: skipConfirmation,
+            allowCreateConfigDir: allowCreateConfigDir
+        )
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -41055,13 +41065,6 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
-        let canUseMissingConfigDir: (AgentHookDef) -> Bool = { definition in
-            definition.createConfigDirIfMissing
-                || definition.name == "opencode"
-                || definition.name == "pi"
-                || definition.name == "amp"
-                || (!isUninstall && definition.name == "rovodev")
-        }
 
         let skipConfirm = args.contains("--yes") || args.contains("-y")
         var detectedDefinitions: [AgentHookDef] = []
@@ -41069,8 +41072,6 @@ export default CMUXSessionRestore;
         if agentFilterDef == nil, !isUninstall {
             detectedDefinitions = Self.agentDefs.filter { definition in
                 Self.isBinaryOnPath(definition.binaryName)
-                    && (canUseMissingConfigDir(definition)
-                        || fm.fileExists(atPath: definition.resolvedConfigDir()))
             }
             print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
                 .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))
@@ -41109,7 +41110,8 @@ export default CMUXSessionRestore;
         for def in definitionsToProcess {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            if !canUseMissingConfigDir(def), !fm.fileExists(atPath: configDir) {
+            let setupMayCreateConfigDir = !isUninstall && (setupAllApproved || agentFilterDef != nil)
+            if !setupMayCreateConfigDir, !def.createConfigDirIfMissing, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
@@ -41139,7 +41141,8 @@ export default CMUXSessionRestore;
                 try installHooksForAgent(
                     def,
                     arguments: [],
-                    skipConfirmation: setupAllApproved
+                    skipConfirmation: setupAllApproved,
+                    allowCreateConfigDir: setupMayCreateConfigDir
                 )
             }
             count += 1
