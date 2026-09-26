@@ -20,6 +20,10 @@ enum CommandClickFileOpenRouter {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
+        if openConfiguredFileAction(workspace: workspace, filePath: filePath) {
+            return true
+        }
+
         if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
             return true
@@ -38,6 +42,52 @@ enum CommandClickFileOpenRouter {
         }
 
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
+    }
+
+    /// Returns whether the workspace has a config action claiming this path.
+    @MainActor
+    static func hasConfiguredFileHandler(workspace: Workspace, filePath: String) -> Bool {
+        configuredFileAction(workspace: workspace, filePath: filePath) != nil
+    }
+
+    /// Executes a config-registered file handler using the workspace's
+    /// window-scoped action registry and trust policy.
+    @MainActor
+    @discardableResult
+    static func openConfiguredFileAction(workspace: Workspace, filePath: String) -> Bool {
+        guard let context = configContext(for: workspace),
+              let action = context.configStore.fileAction(for: filePath) else {
+            return false
+        }
+        return CmuxConfigExecutor.executeFileAction(
+            action: action,
+            filePath: filePath,
+            commands: context.configStore.loadedCommands,
+            commandSourcePaths: context.configStore.commandSourcePaths,
+            tabManager: context.tabManager,
+            baseCwd: workspace.currentDirectory,
+            globalConfigPath: context.configStore.globalConfigPath,
+            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id)
+        )
+    }
+
+    @MainActor
+    private static func configuredFileAction(
+        workspace: Workspace,
+        filePath: String
+    ) -> CmuxResolvedConfigAction? {
+        configContext(for: workspace)?.configStore.fileAction(for: filePath)
+    }
+
+    @MainActor
+    private static func configContext(
+        for workspace: Workspace
+    ) -> (tabManager: TabManager, configStore: CmuxConfigStore)? {
+        guard let app = AppDelegate.shared else { return nil }
+        guard let context = app.mainWindowContexts.values.first(where: { context in
+            context.tabManager.workspacesById[workspace.id] === workspace
+        }), let configStore = context.cmuxConfigStore else { return nil }
+        return (context.tabManager, configStore)
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -90,7 +140,8 @@ enum CommandClickFileOpenRouter {
                 fallback?()
                 return
             }
-            guard shouldRouteInCmux(path: filePath, defaults: defaults) else {
+            guard shouldRouteInCmux(path: filePath, defaults: defaults)
+                || hasConfiguredFileHandler(workspace: resolvedWorkspace, filePath: filePath) else {
                 fallback?()
                 return
             }

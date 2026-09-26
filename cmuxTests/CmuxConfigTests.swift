@@ -50,6 +50,53 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(config.commands[0].workspace)
     }
 
+    func testDecodeFilePatternsOnCommandAction() throws {
+        let json = #"""
+        {
+          "actions": {
+            "excalidraw.preview": {
+              "type": "command",
+              "command": "cmux-excalidraw \"{file}\"",
+              "filePatterns": ["  *.excalidraw  ", "*.drawio"]
+            }
+          }
+        }
+        """#
+
+        let config = try decode(json)
+        let definition = try XCTUnwrap(config.actions["excalidraw.preview"])
+        XCTAssertEqual(definition.filePatterns, ["*.excalidraw", "*.drawio"])
+        let action = try XCTUnwrap(
+            CmuxResolvedConfigAction.fromDefinition(
+                id: "excalidraw.preview",
+                definition: definition,
+                sourcePath: "/tmp/cmux.json"
+            )
+        )
+        XCTAssertEqual(action.terminalCommand, "cmux-excalidraw \"{file}\"")
+        XCTAssertEqual(action.filePatterns, ["*.excalidraw", "*.drawio"])
+    }
+
+    func testFilePatternMatcherUsesBasenameAndIsCaseInsensitive() {
+        let matcher = CmuxFilePatternMatcher(patterns: ["*.excalidraw", "README.?d"])
+
+        XCTAssertTrue(matcher.matches(path: "/tmp/diagrams/BOARD.EXCALIDRAW"))
+        XCTAssertTrue(matcher.matches(path: "/tmp/README.md"))
+        XCTAssertFalse(matcher.matches(path: "/tmp/diagrams/BOARD.EXCALIDRAW.bak"))
+        XCTAssertFalse(matcher.matches(path: "/tmp/excalidraw/BOARD"))
+    }
+
+    func testFileActionCommandSubstitutionShellQuotesAbsolutePath() {
+        let command = CmuxFileActionCommand(
+            command: "cmux-excalidraw \"{file}\" --label {file}"
+        )
+
+        XCTAssertEqual(
+            command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
+            "cmux-excalidraw '/tmp/diagram with '\\''quote'\\''.excalidraw' --label '/tmp/diagram with '\\''quote'\\''.excalidraw'"
+        )
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {

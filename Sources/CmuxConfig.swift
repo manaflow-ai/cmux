@@ -1337,6 +1337,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var action: CmuxSurfaceTabBarButtonAction
     var confirm: Bool?
     var terminalCommandTarget: CmuxConfigTerminalCommandTarget?
+    var filePatterns: [String]?
     var actionSourcePath: String?
     var iconSourcePath: String?
     var newWorkspaceMenu: Bool?
@@ -1390,6 +1391,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.tooltip = definition.tooltip ?? next.tooltip
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
+        next.filePatterns = definition.filePatterns ?? next.filePatterns
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
         if let action = definition.action {
             next.action = action
@@ -1434,6 +1436,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             action: action,
             confirm: definition.confirm,
             terminalCommandTarget: definition.terminalCommandTarget,
+            filePatterns: definition.filePatterns,
             actionSourcePath: actionSourcePath,
             iconSourcePath: definition.icon == nil ? nil : (iconSourcePath ?? actionSourcePath),
             newWorkspaceMenu: definition.newWorkspaceMenu
@@ -1455,6 +1458,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             action: .builtIn(builtIn),
             confirm: nil,
             terminalCommandTarget: nil,
+            filePatterns: nil,
             actionSourcePath: nil,
             iconSourcePath: nil
         )
@@ -2431,6 +2435,7 @@ final class CmuxConfigStore: ObservableObject {
                     confirm: primaryDefinition.confirm ?? fallbackDefinition.confirm,
                     terminalCommandTarget: primaryDefinition.terminalCommandTarget
                         ?? fallbackDefinition.terminalCommandTarget,
+                    filePatterns: primaryDefinition.filePatterns ?? fallbackDefinition.filePatterns,
                     newWorkspaceMenu: primaryDefinition.newWorkspaceMenu
                         ?? fallbackDefinition.newWorkspaceMenu
                 ),
@@ -2664,6 +2669,7 @@ final class CmuxConfigStore: ObservableObject {
                     : .workspaceCommand(command.name),
                 confirm: command.confirm,
                 terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
+                filePatterns: nil,
                 actionSourcePath: sourcePath,
                 iconSourcePath: nil
             )
@@ -2816,6 +2822,18 @@ final class CmuxConfigStore: ObservableObject {
         actionLookup[canonicalActionID(id)]
     }
 
+    /// Returns the first configured terminal action that claims `filePath`.
+    /// Actions are already resolved in their deterministic registry order, so
+    /// the first match also gives project/local configuration precedence.
+    func fileAction(for filePath: String) -> CmuxResolvedConfigAction? {
+        loadedActions.first { action in
+            guard action.terminalCommand != nil,
+                  let filePatterns = action.filePatterns,
+                  !filePatterns.isEmpty else { return false }
+            return CmuxFilePatternMatcher(patterns: filePatterns).matches(path: filePath)
+        }
+    }
+
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
@@ -2909,6 +2927,7 @@ final class CmuxConfigStore: ObservableObject {
                 action: .workspaceCommand(command.command.name),
                 confirm: command.command.confirm,
                 terminalCommandTarget: nil,
+                filePatterns: nil,
                 actionSourcePath: command.sourcePath,
                 iconSourcePath: nil
             ),

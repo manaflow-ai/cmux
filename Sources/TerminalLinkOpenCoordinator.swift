@@ -90,10 +90,10 @@ struct TerminalLinkOpenCoordinator {
             }
 
             if !isExplicitLocalFileURL,
-               CommandClickFileOpenRouter.shouldRouteInCmux(
+               (CommandClickFileOpenRouter.shouldRouteInCmux(
                    path: reference.path,
                    defaults: defaults
-               ) {
+               ) || container?.terminalLinkHasConfiguredFileHandler(path: reference.path) == true) {
                 let fileURL = URL(fileURLWithPath: reference.path)
                 log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
@@ -125,10 +125,10 @@ struct TerminalLinkOpenCoordinator {
         if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
             rawOpenURLValue: trimmed,
             target: target
-        ), CommandClickFileOpenRouter.shouldRouteInCmux(
+        ), (CommandClickFileOpenRouter.shouldRouteInCmux(
             path: target.url.path,
             defaults: defaults
-        ) {
+        ) || container?.terminalLinkHasConfiguredFileHandler(path: target.url.path) == true) {
             return routeLocalFile(
                 target.url,
                 request: request,
@@ -162,6 +162,17 @@ struct TerminalLinkOpenCoordinator {
               let container,
               !container.terminalLinkIsRemoteTerminal(sourcePanelId) else {
             return openExternally(fileURL, reason: unavailableReason)
+        }
+
+        if container.terminalLinkHasConfiguredFileHandler(path: fileURL.path) {
+            guard container.deferTerminalFileLinkOpen(
+                sourcePanelId: sourcePanelId,
+                filePath: fileURL.path,
+                fallback: { [self] in _ = openExternally(fileURL, reason: "configured file handler fallback") }
+            ) else {
+                return openExternally(fileURL, reason: unavailableReason)
+            }
+            return true
         }
 
         if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
@@ -208,11 +219,23 @@ struct TerminalLinkOpenCoordinator {
 
             guard let currentContainer,
                   !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                  (CommandClickFileOpenRouter.shouldRouteInCmux(
                       path: fileURL.path,
                       defaults: self.defaults
-                  ) else {
+                  ) || currentContainer.terminalLinkHasConfiguredFileHandler(path: fileURL.path)) else {
                 externalFallback()
+                return
+            }
+
+            if currentContainer.terminalLinkHasConfiguredFileHandler(path: fileURL.path) {
+                guard currentContainer.deferTerminalFileLinkOpen(
+                    sourcePanelId: sourcePanelId,
+                    filePath: fileURL.path,
+                    fallback: externalFallback
+                ) else {
+                    externalFallback()
+                    return
+                }
                 return
             }
 

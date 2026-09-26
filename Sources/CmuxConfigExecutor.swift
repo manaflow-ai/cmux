@@ -142,6 +142,40 @@ struct CmuxConfigExecutor {
         }
     }
 
+    /// Executes a file handler action after substituting the absolute file
+    /// path into its command. The normal action executor remains responsible
+    /// for target selection, project trust, confirmation, and input delivery.
+    @discardableResult
+    static func executeFileAction(
+        action: CmuxResolvedConfigAction,
+        filePath: String,
+        commands: [CmuxCommandDefinition],
+        commandSourcePaths: [String: String],
+        tabManager: TabManager,
+        baseCwd: String,
+        globalConfigPath: String,
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        guard let command = action.terminalCommand else { return false }
+        let expandedPath = NSString(string: filePath).expandingTildeInPath
+        let absolutePath = URL(fileURLWithPath: expandedPath).standardizedFileURL.path
+        var fileAction = action
+        fileAction.action = .command(
+            CmuxFileActionCommand(command: command).substituting(filePath: absolutePath)
+        )
+        return execute(
+            action: fileAction,
+            commands: commands,
+            commandSourcePaths: commandSourcePaths,
+            tabManager: tabManager,
+            baseCwd: baseCwd,
+            globalConfigPath: globalConfigPath,
+            presentingWindow: presentingWindow,
+            onExecuted: onExecuted
+        )
+    }
+
     @discardableResult
     static func prepareShellInputIfAuthorized(
         _ rawCommand: String,
