@@ -216,8 +216,10 @@ them (section 5).
    job gets a fresh VM and an Aqua login session. A shared mini cannot give
    it either. (The isolated Tart pool that once offered this was retired on
    2026-09-25; see `ci-runners.md`.)
-4. **Nightly app compile** - nightlies run on Blacksmith until Glaeda routing
-   (glaeda#1174) sends every job std > light > Blacksmith > GitHub-hosted.
+4. **Nightly app compile** - `build-nightly-app` takes the trusted runner on cmux15
+   (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`) first on main's push and schedule runs, with
+   Blacksmith as the fallback through ci-owned-pool-rescue.yml
+   (`docs/ci-runners.md`). Signing and notarization stay on Blacksmith.
 5. **`release-build`, signing, notarization, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 
