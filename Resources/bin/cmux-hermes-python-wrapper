@@ -24,19 +24,9 @@ cmux_hermes_resolve_real_python() {
         return 0
     fi
 
-    # The Node TUI is a direct child of Hermes's Python launcher. `comm` gives
-    # the launcher's exact interpreter without parsing a command line or
-    # assuming a particular Hermes installation layout.
-    launcher_pid="$(/bin/ps -p "$PPID" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
-    if [[ "$launcher_pid" =~ ^[1-9][0-9]*$ ]]; then
-        candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
-        candidate="${candidate#"${candidate%%[![:space:]]*}"}"
-        candidate="${candidate%"${candidate##*[![:space:]]}"}"
-        if cmux_hermes_accept_python "$candidate"; then
-            return 0
-        fi
-    fi
-
+    # Prefer Hermes's environment-local interpreter. On macOS, `ps comm`
+    # resolves symlinked venv Python launchers to the base interpreter, which
+    # does not include Hermes's site-packages.
     if [[ -n "${HERMES_PYTHON_SRC_ROOT:-}" ]]; then
         for candidate in \
             "$HERMES_PYTHON_SRC_ROOT/venv/bin/python" \
@@ -47,6 +37,20 @@ cmux_hermes_resolve_real_python() {
                 return 0
             fi
         done
+    fi
+
+    # The Node TUI is a direct child of Hermes's Python launcher. `comm` gives
+    # the launcher's exact interpreter without parsing a command line or
+    # assuming a particular Hermes installation layout. Keep this as a
+    # fallback for installations without a discoverable source root.
+    launcher_pid="$(/bin/ps -p "$PPID" -o ppid= 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+    if [[ "$launcher_pid" =~ ^[1-9][0-9]*$ ]]; then
+        candidate="$(/bin/ps -ww -p "$launcher_pid" -o comm= 2>/dev/null || true)"
+        candidate="${candidate#"${candidate%%[![:space:]]*}"}"
+        candidate="${candidate%"${candidate##*[![:space:]]}"}"
+        if cmux_hermes_accept_python "$candidate"; then
+            return 0
+        fi
     fi
 
     cmux_hermes_accept_python "python3"

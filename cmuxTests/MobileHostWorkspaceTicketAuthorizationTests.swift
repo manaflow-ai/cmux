@@ -71,6 +71,70 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
+    // `MobileHostPublicStatusCache` is process-wide, and the app host installs a
+    // `UserDefaults.didChangeNotification` observer (`AppDelegate`.`installMobileHostSettingsObserver`)
+    // that re-syncs the mobile host on a main-actor task after *any* defaults
+    // write anywhere in the process. With pairing off, that sync runs
+    // `MobileHostIrxRuntime.prepareForStop()`, which calls
+    // `MobileHostPublicStatusCache.removeAll()`. So a fixture publication parked
+    // in that cache does not survive an `await`: every suspension in this test
+    // is a window for another suite's defaults write to empty it. This test
+    // therefore reads the cache and resolves the ticket subject within a single
+    // main-actor turn instead of driving the async mint entry point.
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() throws {
+        let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        let route = try irohRoute()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+        }
+
+        // An Iroh ticket must not be minted against the legacy per-install
+        // identity before the v2 installation identity has been published.
+        MobileHostPublicStatusCache.update(routes: [route])
+        MobileHostPublicStatusCache.updateV2DeviceID(nil)
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try MobileHostService.attachTicketSubject(
+                publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
+                routeID: nil,
+                routeKind: nil,
+                target: .physicalDevice
+            )
+        }
+
+        // Once it is published, the mint takes BOTH halves — the dialable
+        // routes and the Mac identity — from that same publication.
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let published = MobileHostPublicStatusCache.publishedStatus()
+        #expect(published.routes.contains(route))
+        #expect(published.v2DeviceID == deviceID)
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: published,
+            routeID: nil,
+            routeKind: nil,
+            target: .physicalDevice
+        )
+        #expect(subject.deviceID == deviceID)
+        #expect(subject.routes.allSatisfy { $0.kind == .iroh })
+
+        // ...and that identity reaches the phone through the v2 pairing URL.
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: subject.routes,
+            ttl: 60,
+            macDeviceID: subject.deviceID
+        )
+        #expect(ticket.macDeviceID == deviceID)
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let url = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
+        #expect(decoded.macDeviceID == deviceID)
+    }
+
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
@@ -340,8 +404,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        defer {
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+            if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+               case let .peer(identity, pathHints) = route.endpoint {
+                MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+            }
+        }
         MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {

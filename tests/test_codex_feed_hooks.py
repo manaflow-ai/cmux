@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from claude_teams_test_utils import resolve_cmux_cli
 
@@ -2194,6 +2195,32 @@ def test_feed_completion_preserves_full_text(cli_path: str, root: Path) -> None:
             raise AssertionError(f"{source} lost the full completion text or line breaks")
 
 
+def test_computer_use_pretool_preserves_surface_scope(cli_path: str, root: Path) -> None:
+    # Exercise the built CLI's wire event, rather than constructing a Swift
+    # WorkstreamEvent which silently fills in the field the real hook omitted.
+    for source in ("codex", "claude"):
+        with patch.dict(os.environ, {
+            "PATH": os.defpath,
+            "HOME": str(root),
+            "CODEX_HOME": str(root / "codex"),
+            "CMUX_AGENT_HOOK_STATE_DIR": str(root / "hooks"),
+        }, clear=True):
+            stdout, frame = run_feed_hook(
+                cli_path, root / f"cua-{source}.sock",
+                {"session_id": "synthetic-cua-session",
+                 "hook_event_name": "PreToolUse",
+                 "tool_name": "mcp__cmux_cua__get_app_state",
+                 "tool_input": {"app": "com.example.synthetic"}},
+                None, source=source,
+            )
+        event = frame["params"]["event"]
+        assert stdout == {}, "Telemetry must not answer an approval request"
+        assert event.get("workspace_id") == FAKE_WORKSPACE_ID
+        assert event.get("surface_id") == FAKE_SURFACE_ID, (
+            f"{source}: first-use hook lost its terminal surface: {event.get('surface_id')!r}"
+        )
+
+
 def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, root: Path) -> None:
     event_payloads = {
         "PostToolUse": {
@@ -4040,6 +4067,7 @@ def main() -> int:
             test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_computer_use_pretool_preserves_surface_scope(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)

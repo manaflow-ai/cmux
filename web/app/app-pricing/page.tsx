@@ -1,7 +1,7 @@
 import { cache, Suspense } from "react";
 import { headers } from "next/headers";
 import { connection } from "next/server";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import {
   FREE_PLAN_ID,
@@ -99,7 +99,30 @@ async function PersonalizedPricing({
   );
 }
 
+/**
+ * Personalization only. A Hexclave or billing outage must leave the pricing
+ * page intact, so any failure renders the signed-out plan state.
+ */
 async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
+  try {
+    return await readPlanSnapshot();
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("App pricing personalization failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return {
+      authenticated: false,
+      developmentPro: false,
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+      email: null,
+    };
+  }
+}
+
+async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
   if (!isStackConfigured()) {
     return {
       authenticated: false,

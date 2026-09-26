@@ -66,15 +66,25 @@ struct DeferredAgentResumeIndexFallbackTests {
         #expect(workspace.surfaceResumeBindingsByPanelId[panelId]?.autoResume == true)
     }
 
-    @Test("An index that has not caught up with a fresh hook record does not make its binding stale")
-    func missingIndexEntryIsUnknownNotStale() throws {
+    @Test("A pending restore keeps its binding until the ownership decision completes")
+    func pendingRestoreMissingIndexEntryIsNotStale() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
         let binding = agentHookBinding(checkpoint: "fbce5061-b13a-4c00-8000-000000000002")
         #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
 
-        // The scan finished before the hook wrote this session: no entry at all.
+        workspace.deferredAgentResumeRestoresByPanelId[panelId] = DeferredAgentResumeRestore(
+            stablePanelID: panelId,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            workingDirectory: "/tmp",
+            resumeWorkingDirectory: "/tmp"
+        )
+
+        // A staged restore has not launched a process yet. Its pending owner
+        // protects the binding even when the completed process scan is empty.
         #expect(
             !workspace.isStaleAgentHookBinding(
                 binding,
@@ -82,6 +92,13 @@ struct DeferredAgentResumeIndexFallbackTests {
                 restorableAgentIndex: .empty
             )
         )
+
+        workspace.deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
+        #expect(workspace.isStaleAgentHookBinding(
+            binding,
+            panelId: panelId,
+            restorableAgentIndex: .empty
+        ))
     }
 
     @Test("An index entry for the session with no live process still marks the binding stale")

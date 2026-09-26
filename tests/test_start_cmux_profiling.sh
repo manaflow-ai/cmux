@@ -182,7 +182,8 @@ if [ "${1:-}" = "xctrace" ] && [ "${2:-}" = "record" ]; then
 fi
 
 if [ "${1:-}" = "xctrace" ] && [ "${2:-}" = "export" ]; then
-  sleep 5
+  # Only the TOC-timeout case asks for a slow export.
+  sleep "${FAKE_XCTRACE_EXPORT_SECONDS:-0}"
   exit 0
 fi
 
@@ -191,7 +192,7 @@ EOF
 chmod +x "$fake_bin/xcrun"
 
 timeout_out="$TMP_DIR/timeout-out"
-HOME="$TMP_DIR" PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 "$SCRIPT" \
+HOME="$TMP_DIR" PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 FAKE_XCTRACE_EXPORT_SECONDS=5 "$SCRIPT" \
   --test-ps-file "$ps_file" \
   --channel dev \
   --tag dog \
@@ -238,6 +239,19 @@ if grep -Fq "$TMP_DIR/cmux DEV dog.app" "$timeout_out/summary.md" ||
   exit 1
 fi
 
+# A timeout that is not a whole number of seconds is refused up front; inside the
+# timeout helpers' arithmetic it would abort the command it was meant to time.
+for bad_timeout in abc 1.5 5s; do
+  for timeout_var in CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS CMUX_PROFILE_TOC_TIMEOUT_SECONDS; do
+    rc=0
+    bad_err="$(env "$timeout_var=$bad_timeout" "$SCRIPT" --list-targets --test-ps-file "$ps_file" 2>&1 >/dev/null)" || rc=$?
+    if [ "$rc" -ne 2 ] || [[ "$bad_err" != *"$timeout_var must be a whole number of seconds"* ]]; then
+      echo "FAIL: $timeout_var=$bad_timeout must be rejected with exit 2, got $rc: $bad_err" >&2
+      exit 1
+    fi
+  done
+done
+
 failing_system_profiler="$TMP_DIR/failing-system-profiler"
 cat > "$failing_system_profiler" <<'EOF'
 #!/usr/bin/env bash
@@ -245,7 +259,8 @@ exit 9
 EOF
 chmod +x "$failing_system_profiler"
 display_failed_out="$TMP_DIR/display-failed-out"
-PATH="$fake_bin:$PATH" CMUX_PROFILE_SYSTEM_PROFILER="$failing_system_profiler" "$SCRIPT" \
+# The 1 s export outlives several 0.1 s polls, then succeeds inside the timeout.
+PATH="$fake_bin:$PATH" CMUX_PROFILE_SYSTEM_PROFILER="$failing_system_profiler" FAKE_XCTRACE_EXPORT_SECONDS=1 "$SCRIPT" \
   --test-ps-file "$ps_file" \
   --channel dev \
   --tag dog \

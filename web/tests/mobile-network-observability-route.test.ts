@@ -63,6 +63,12 @@ describe("iOS mobile network observability route", () => {
         failure: "timedOut",
         transport: "iroh",
         client_channel: "nightly",
+        event_code: "transportDialFailed",
+        event_code_raw: 27,
+        event_surface: 8,
+        event_a: 1,
+        event_b: 2,
+        event_c: 7,
       }),
     ]));
 
@@ -77,6 +83,12 @@ describe("iOS mobile network observability route", () => {
       failure: "timedOut",
       transport: "iroh",
       clientChannel: "nightly",
+      eventCode: "transportDialFailed",
+      eventCodeRaw: 27,
+      eventSurface: 8,
+      eventA: 1,
+      eventB: 2,
+      eventC: 7,
     });
     expect(flushTimeouts).toEqual([1_000]);
   });
@@ -96,6 +108,172 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
+  test("accepts Iroh path lifecycle events for route selection evidence", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_event",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "selected",
+        path: "private_network",
+        transport: "iroh",
+        event_code: "transportPathEvent",
+        event_code_raw: 55,
+        event_surface: 8,
+        event_a: 3,
+        event_b: 3,
+        event_c: 23,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      operation: "selected",
+      path: "private_network",
+      transport: "iroh",
+      eventCode: "transportPathEvent",
+      eventCodeRaw: 55,
+      eventSurface: 8,
+      eventA: 3,
+      eventB: 3,
+      eventC: 23,
+    });
+  });
+
+  test("distinguishes an initial Iroh path snapshot from a native selection change", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_event",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "snapshot", path: "relay", transport: "iroh",
+        event_code: "selectedPathChanged", event_code_raw: 40,
+        event_surface: 8, event_a: 2, event_c: 23, platform: "ios",
+      },
+    }]));
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({ operation: "snapshot", path: "relay" });
+  });
+
+  test.each([
+    ["raw event code", { event_code_raw: 40 }],
+    ["lifecycle operation", { operation: "opened" }],
+    ["path class", { path: "relay" }],
+    ["missing operation slot", { event_a: undefined }],
+    ["missing path slot", { event_b: undefined }],
+    ["snapshot raw code", { event_code: "selectedPathChanged", operation: "snapshot" }],
+    ["snapshot operation", { event_code: "selectedPathChanged", event_code_raw: 40 }],
+    ["snapshot path slot", { event_code: "selectedPathChanged", event_code_raw: 40, operation: "snapshot", event_a: 2 }],
+    ["lag marker with a known path", { operation: "lagged", event_a: 4 }],
+  ] as const)("rejects an Iroh event with inconsistent %s", async (_, overrides) => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_event",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "selected", path: "private_network", transport: "iroh",
+        event_code: "transportPathEvent", event_code_raw: 55,
+        event_a: 3, event_b: 3, event_c: 23, platform: "ios",
+        ...overrides,
+      },
+    }]));
+    expect(response.status).toBe(400);
+    expect(emitted).toEqual([]);
+  });
+
+  test.each([
+    ["opened", 1, "direct", 1],
+    ["closed", 2, "relay", 2],
+    ["selected", 3, "loopback", 4],
+    ["lagged", 4, "unknown", 0],
+  ] as const)("accepts consistent Iroh %s events", async (operation, operationCode, path, pathCode) => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_event",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation, path, transport: "iroh",
+        event_code: "transportPathEvent", event_code_raw: 55,
+        event_a: operationCode, event_b: pathCode, event_c: 23, platform: "ios",
+      },
+    }]));
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({ operation, path });
+  });
+
+  test("accepts task model discovery failures for Axiom root-cause spans", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_discovery",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        outcome: "failure",
+        duration_ms: 850,
+        model_count: 0,
+        failure: "hostUnreachable",
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      outcome: "failure",
+      durationMs: 850,
+      modelCount: 0,
+      failure: "hostUnreachable",
+    });
+  });
+
+  test("accepts task model retry decisions and rejects unknown stop reasons", async () => {
+    const retry = {
+      event: "ios_task_model_discovery",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list", phase: "retry_scheduled", outcome: "failure",
+        duration_ms: 0, model_count: 0, failure: "timedOut",
+        attempt: 8, retry_delay_ms: 15_000, correlation_id: 42,
+      },
+    };
+    const stopped = {
+      ...retry,
+      properties: {
+        operation: "model_list", phase: "retry_stopped", outcome: "failure",
+        duration_ms: 0, model_count: 0, failure: "authorizationFailed",
+        stop_reason: "authorizationRequired",
+      },
+    };
+    const response = await POST(outcomeRequest([retry, stopped]));
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch).toMatchObject([
+      { discoveryPhase: "retry_scheduled", attempt: 8, retryDelayMs: 15_000, correlationId: 42 },
+      { discoveryPhase: "retry_stopped", stopReason: "authorizationRequired" },
+    ]);
+    const invalid = await POST(outcomeRequest([{
+      ...stopped, properties: { ...stopped.properties, stop_reason: "private error text" },
+    }]));
+    expect(invalid.status).toBe(400);
+  });
+
+  test("accepts task model result metadata", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_result",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        provider: "codex",
+        source: "discovered",
+        effort_count: 6,
+        correlation_id: 42,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      provider: "codex",
+      source: "discovered",
+      effortCount: 6,
+      correlationId: 42,
+    });
+  });
+
   test("accepts a terminal latency window with bounded percentile fields", async () => {
     const response = await POST(outcomeRequest([terminalWindow()]));
 
@@ -107,6 +285,52 @@ describe("iOS mobile network observability route", () => {
       inputToVisibleP95Ms: 86,
       renderP99Ms: 12,
     });
+  });
+
+  test("accepts per-hop stage histograms and pacer counters when present", async () => {
+    const event = terminalWindow();
+    const properties = event.properties as Record<string, unknown>;
+    const counts = JSON.stringify([0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    Object.assign(properties, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      uplink_histogram: counts,
+      uplink_p50_ms: 128,
+      uplink_p95_ms: 128,
+      uplink_p99_ms: 128,
+      pacer_period_histogram: counts,
+      pacer_sample_count: 3,
+      pacer_emitted_count: 33,
+      pacer_coalesced_count: 48,
+      pacer_shed_count: 1,
+      pacer_period_max_ms: 135,
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      histograms: { uplink: counts, pacer_period: counts },
+      stageMetrics: { uplink_p95_ms: 128, pacer_coalesced_count: 48, pacer_period_max_ms: 135 },
+    });
+  });
+
+  test("rejects a malformed per-hop stage histogram", async () => {
+    const event = terminalWindow();
+    const counts = JSON.stringify(Array(17).fill(0));
+    Object.assign(event.properties as Record<string, unknown>, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      downlink_histogram: "[1,2]",
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_outcome" });
   });
 
   test("accepts a terminal anomaly as a failure signal", async () => {
@@ -125,6 +349,28 @@ describe("iOS mobile network observability route", () => {
     expect(emitted[0]?.batch[0]).toMatchObject({ stage: "input_to_output", durationMs: 1_250 });
   });
 
+  test("accepts a bounded terminal trace correlation", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "terminal_trace",
+        outcome: "success",
+        duration_ms: 12_300,
+        trace_id: "0000000000001234",
+        operation: "replay",
+        terminal_phase: "applied",
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "terminal_trace",
+      traceId: "0000000000001234",
+      operation: "replay",
+      terminalPhase: "applied",
+      durationMs: 12_300,
+    });
+  });
+
   test("rejects a mismatched stable event code and name", async () => {
     const response = await POST(outcomeRequest([
       outcome({ phase: "transport_dial", outcome: "bogus", duration_ms: 10 }),
@@ -138,6 +384,24 @@ describe("iOS mobile network observability route", () => {
   test("rejects unknown properties instead of accepting user content", async () => {
     const response = await POST(outcomeRequest([
       outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10, message: "secret" }),
+    ]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toHaveLength(0);
+  });
+
+  test("rejects unbounded diagnostic payload slots", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "transport_dial", outcome: "failure", duration_ms: 10, event_a: -1 }),
+    ]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toHaveLength(0);
+  });
+
+  test("rejects unknown diagnostic event vocabulary", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "transport_dial", outcome: "failure", duration_ms: 10, event_code: "user_supplied" }),
     ]));
 
     expect(response.status).toBe(400);
@@ -213,6 +477,26 @@ describe("iOS mobile network observability route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, accepted: 1 });
     expect(emitted).toHaveLength(1);
+  });
+
+  test("accepts an initial-connect outcome with its population and attempt id", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "initial_connect",
+        population: "cold_open",
+        attempt_id: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+        terminal_ready: true,
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "initial_connect",
+      population: "cold_open",
+      attemptId: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+      terminalReady: true,
+    });
   });
 
   test("fails closed when deployed rate limiting is unconfigured", async () => {

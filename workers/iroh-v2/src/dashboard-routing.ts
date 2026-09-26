@@ -2,7 +2,7 @@ import type { StackAuthority } from "./auth";
 import { encodeResponse, errorResponse, httpFailure, inputRequestId, parseInput, readBoundedBody } from "./boundary";
 import { DashboardOpenSchema } from "./contracts/common";
 import { DASHBOARD_AUTHORITY_HEADER, issueDashboardTicket, verifyDashboardTicket } from "./dashboard-auth";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError } from "./errors";
 
 interface Dependencies {
   environment: string; projectId: string; keys: Readonly<Record<string, string>>;
@@ -18,11 +18,14 @@ interface Dependencies {
 export async function routeDashboard(request: Request, services: Dependencies): Promise<Response> {
   let requestId = "unidentified", approvedOrigin: string | null = null;
   const cors = (response: Response): Response => {
-    if (!approvedOrigin) return response;
-    response.headers.set("access-control-allow-origin", approvedOrigin);
-    response.headers.set("vary", "Origin");
-    response.headers.set("cache-control", "no-store");
-    return response;
+    // Stub responses have immutable headers. Preserve the WebSocket upgrade
+    // itself; browser socket admission is already bound to the checked Origin.
+    if (!approvedOrigin || response.status === 101) return response;
+    const result = new Response(response.body, response);
+    result.headers.set("access-control-allow-origin", approvedOrigin);
+    result.headers.set("vary", "Origin");
+    result.headers.set("cache-control", "no-store");
+    return result;
   };
   try {
     const url = new URL(request.url), origin = request.headers.get("origin");
@@ -66,7 +69,7 @@ export async function routeDashboard(request: Request, services: Dependencies): 
     return cors(await services.dispatchTeam(claims.authority.teamId, forwarded));
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
-    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...failureDiagnostics(error) });
     return cors(httpFailure(error, requestId));
   }
 }

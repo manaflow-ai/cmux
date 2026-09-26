@@ -1,3 +1,4 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
@@ -24,6 +25,8 @@ import {
 } from "./types";
 
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
+import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
+import { createLastUsedWriter } from "./lastUsedWriter";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -42,20 +45,55 @@ export function routeTokenHash(token: string): string {
 }
 
 const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
+// cloud_vms.id is a uuid; coderouter_route_tokens.vm_id is text. Compare the
+// two only through a validated parameter, never column to column.
+const CLOUD_VM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const API_KEY_PATTERN = /^crk_[A-Za-z0-9_-]{40,}$/;
 const API_KEY_LIFETIME_LABEL = "api key";
 // `last_used_at` is display metadata. Keep it fresh enough for the control
 // plane without turning every authenticated request into a Postgres write.
 // The usage ledger remains per-request and is the source of truth for billing.
-const API_KEY_USAGE_WRITE_INTERVAL_MS = 60_000;
-const API_KEY_USAGE_STATE_CLEANUP_THRESHOLD = 2_048;
+const LAST_USED_WRITE_INTERVAL_MS = 60_000;
 
-const pendingApiKeyUsageWrites = new Map<string, {
-  readonly teamId: string;
-  readonly promise: Promise<void>;
-}>();
-const lastApiKeyUsageWriteAt = new Map<string, number>();
-let lastApiKeyUsageFailureReportedAt = 0;
+const apiKeyLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterApiKeys)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterApiKeys.id, id),
+        isNull(coderouterApiKeys.revokedAt),
+        or(isNull(coderouterApiKeys.lastUsedAt), lte(coderouterApiKeys.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("api_key_usage", "api_key_last_used"),
+});
+
+const routeTokenLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterRouteTokens)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterRouteTokens.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterRouteTokens.id, id),
+        or(isNull(coderouterRouteTokens.lastUsedAt), lte(coderouterRouteTokens.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("route_token_usage", "route_token_last_used"),
+});
+
+/** Resolves when this process's deferred route-token `last_used_at` writes for the team have settled. */
+export function routeTokenLastUsedWritesSettled(teamId: string): Promise<void> {
+  return routeTokenLastUsed.settled(teamId);
+}
 
 export type RouteTokenPrincipal = {
   readonly teamId: string;
@@ -81,6 +119,31 @@ export async function issueRouteToken(
     tokenHash: routeTokenHash(token),
     label,
     vmId: options?.vmId ?? null,
+    expiresAt,
+  });
+  return { token, expiresAt };
+}
+
+/** Issue a signed, VM-bound token. The hash is still persisted so revocation
+ * remains immediate during key rotation and VM teardown. */
+export async function issueVmAuthorizationToken(
+  teamId: string,
+  stackUserId: string,
+  vmId: string,
+): Promise<{ token: string; expiresAt: Date }> {
+  const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  const token = await signVmAuthorization({
+    vmId,
+    teamId,
+    ownerId: stackUserId,
+    expiresAt,
+  });
+  await cloudDb().insert(coderouterRouteTokens).values({
+    teamId,
+    stackUserId,
+    tokenHash: routeTokenHash(token),
+    label: "vm-signed",
+    vmId,
     expiresAt,
   });
   return { token, expiresAt };
@@ -171,30 +234,63 @@ export async function authenticateRouteToken(
   token: string,
   now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
-  if (!ROUTE_TOKEN_PATTERN.test(token)) return null;
-  const [row] = await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ lastUsedAt: now })
+  if (!ROUTE_TOKEN_PATTERN.test(token)) {
+    const claims = await verifyVmAuthorization(token, now);
+    return claims ? await authenticateVmAuthorization(token, claims, now) : null;
+  }
+  // Authentication is a read-only lookup. Every model request passes here,
+  // and a per-request UPDATE made concurrent requests on one token queue on
+  // its row lock. The display timestamp is written later, rate-limited.
+  const [tokenRow] = await cloudDb()
+    .select({
+      id: coderouterRouteTokens.id,
+      teamId: coderouterRouteTokens.teamId,
+      stackUserId: coderouterRouteTokens.stackUserId,
+      vmId: coderouterRouteTokens.vmId,
+    })
+    .from(coderouterRouteTokens)
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       isNotNull(coderouterRouteTokens.stackUserId),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .returning({
-      teamId: coderouterRouteTokens.teamId,
-      stackUserId: coderouterRouteTokens.stackUserId,
-      vmId: coderouterRouteTokens.vmId,
-    });
-  if (!row) return null;
+    .limit(1);
+  if (!tokenRow) return null;
+  routeTokenLastUsed.schedule(tokenRow.id, tokenRow.teamId, now);
+  const row = { teamId: tokenRow.teamId, stackUserId: tokenRow.stackUserId, vmId: tokenRow.vmId };
   if (row.vmId === null) return row;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.vmId)) return null;
+  if (!CLOUD_VM_ID_PATTERN.test(row.vmId)) return null;
   const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
     .from(cloudVms)
     .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
-    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId),
-      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
+    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId), sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
   return vm ? { ...row, poolId: vm.poolId } : null;
+}
+
+/** Claims must come from verifyVmAuthorization. One read enforces immediate
+ * revocation, token/VM/owner binding, current pool and live VM ownership. */
+async function authenticateVmAuthorization(
+  token: string,
+  claims: VmAuthorizationClaims,
+  now = new Date(),
+): Promise<RouteTokenPrincipal | null> {
+  if (!CLOUD_VM_ID_PATTERN.test(claims.vm_id)) return null;
+  const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(coderouterRouteTokens)
+    .innerJoin(cloudVms, eq(cloudVms.id, claims.vm_id))
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(
+      eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      eq(coderouterRouteTokens.teamId, claims.team_id),
+      eq(coderouterRouteTokens.stackUserId, claims.owner_id),
+      eq(coderouterRouteTokens.vmId, claims.vm_id),
+      gt(coderouterRouteTokens.expiresAt, now),
+      isNull(coderouterRouteTokens.revokedAt),
+      eq(cloudVms.ownerTeamId, claims.team_id),
+      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`,
+    )).limit(1);
+  return row ? { teamId: claims.team_id, stackUserId: claims.owner_id, vmId: claims.vm_id, poolId: row.poolId } : null;
 }
 
 export type CoderouterApiKeySummary = {
@@ -255,11 +351,7 @@ export async function createApiKey(
 }
 
 export async function listApiKeys(teamId: string): Promise<readonly CoderouterApiKeySummary[]> {
-  await Promise.all(
-    [...pendingApiKeyUsageWrites.values()]
-      .filter((pending) => pending.teamId === teamId)
-      .map((pending) => pending.promise),
-  );
+  await apiKeyLastUsed.settled(teamId);
   const rows = await cloudDb()
     .select({
       id: coderouterApiKeys.id,
@@ -304,76 +396,23 @@ export async function authenticateApiKey(
   if (!row) return null;
   // Authentication stays a read-only lookup. A best-effort metadata write is
   // deferred so a slow Postgres update cannot add latency to model requests.
-  scheduleApiKeyUsageWrite(row.id, row.teamId, now);
+  apiKeyLastUsed.schedule(row.id, row.teamId, now);
   return { teamId: row.teamId, stackUserId: row.stackUserId, vmId: null, apiKeyId: row.id };
 }
 
-function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
-  if (pendingApiKeyUsageWrites.has(id)) return;
-  const nowMs = now.getTime();
-  const lastWriteMs = lastApiKeyUsageWriteAt.get(id);
-  if (lastWriteMs !== undefined && nowMs - lastWriteMs < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
-
-  // API keys can be created and used by short-lived clients. Remove old
-  // entries opportunistically so this process does not retain every key ever
-  // seen. The insertion order is the write order, so stale entries are first.
-  if (lastApiKeyUsageWriteAt.size >= API_KEY_USAGE_STATE_CLEANUP_THRESHOLD) {
-    for (const [trackedId, trackedAt] of lastApiKeyUsageWriteAt) {
-      if (nowMs - trackedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) break;
-      lastApiKeyUsageWriteAt.delete(trackedId);
-    }
-  }
-  // Refresh insertion order so cleanup treats this as the newest entry.
-  lastApiKeyUsageWriteAt.delete(id);
-  lastApiKeyUsageWriteAt.set(id, nowMs);
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
-  pendingApiKeyUsageWrites.set(id, { teamId, promise });
-  const nowIso = now.toISOString();
-  queueMicrotask(() => {
-    void Promise.resolve()
-      .then(() => cloudDb()
-        .update(coderouterApiKeys)
-        // Multiple web instances can write this row. Never move the display
-        // timestamp backwards when their deferred jobs finish out of order.
-        .set({
-          lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
-        })
-        .where(and(
-          eq(coderouterApiKeys.id, id),
-          isNull(coderouterApiKeys.revokedAt),
-          or(
-            isNull(coderouterApiKeys.lastUsedAt),
-            lte(coderouterApiKeys.lastUsedAt, new Date(nowMs - API_KEY_USAGE_WRITE_INTERVAL_MS)),
-          ),
-        )))
-      .then(() => undefined)
-      .catch(() => {
-        // A failed best-effort write must not suppress the next retry for a
-        // full interval.
-        lastApiKeyUsageWriteAt.delete(id);
-        reportApiKeyUsageWriteFailure();
-      })
-      .finally(() => {
-        resolve();
-        pendingApiKeyUsageWrites.delete(id);
-      });
-  });
-}
-
-function reportApiKeyUsageWriteFailure(): void {
-  const now = Date.now();
-  if (now - lastApiKeyUsageFailureReportedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
-  lastApiKeyUsageFailureReportedAt = now;
+function reportLastUsedWriteFailure(
+  failure: "api_key_usage" | "route_token_usage",
+  operation: string,
+): void {
   // Keep repository authentication independent from the telemetry module's
   // analytics dependency. Failure reporting is best-effort and never joins
   // the request's critical path.
   void import("./observability")
     .then(({ reportCoderouterFailure }) => {
       reportCoderouterFailure(
-        "api_key_usage",
-        new Error("coderouter API key usage metadata write failed"),
-        { operation: "api_key_last_used" },
+        failure,
+        new Error("coderouter last-used metadata write failed"),
+        { operation },
       );
     })
     .catch(() => undefined);
@@ -421,6 +460,7 @@ export async function revokeRouteToken(
 }
 
 export async function deleteAccount(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly teamId: string;
   readonly stackUserId?: string;
   readonly accountId: string;
@@ -435,7 +475,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
-        nativeAccess(input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined),
+        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -609,6 +649,25 @@ export async function listEncryptedCredentials(
     .then((rows) => rows.map(encryptedCredentialRow));
 }
 
+/** Whether `access` may manage the team's native account: it exists in the
+ * team and is shared or the caller's own private account. */
+export async function nativeAccountAccessible(
+  teamId: string,
+  accountId: string,
+  access: CoderouterAccountAccess,
+): Promise<boolean> {
+  const [row] = await cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      eq(coderouterAccounts.teamId, teamId),
+      nativeAccess(access),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
@@ -637,6 +696,7 @@ export async function encryptedCredentialForAccount(
 }
 
 export async function insertAccountWithCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly createdBy?: string;
   readonly visibility?: "private" | "team";
   readonly credential: CodeRouterCredential;
@@ -675,11 +735,13 @@ export async function insertAccountWithCredential(input: {
       .returning({ id: coderouterAccounts.id });
     if (!inserted) return false;
     await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    await grantVmImportedAccount(tx, input.encrypted.teamId, inserted.id, "native", input.access);
     return true;
   });
 }
 
 export async function replaceAccountCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
   readonly expectedRevision: number;
@@ -714,6 +776,7 @@ export async function replaceAccountCredential(input: {
       })
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
+        nativeAccess(input.access),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
         eq(coderouterAccounts.vaultRevision, input.expectedRevision),
       ))
@@ -809,6 +872,7 @@ export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
   providerAccountId: string,
+  access?: CoderouterAccountAccess,
 ): Promise<{ id: string; state: string; vaultRevision: number; visibility: "private" | "team"; createdBy: string | null } | null> {
   const [row] = await cloudDb()
     .select({
@@ -823,6 +887,7 @@ export async function findAccountByProviderIdentity(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.providerAccountId, providerAccountId),
+      nativeAccess(access),
     ))
     .limit(1);
   return row ?? null;
@@ -856,9 +921,9 @@ export async function bindCodexOwnerIdentity(input: {
   return row !== undefined;
 }
 
-export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential, access?: CoderouterAccountAccess): Promise<void> {
   await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
-    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId), nativeAccess(access)));
 }
 
 export type RoutedAccount = {
@@ -1285,13 +1350,18 @@ export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
   signal?: AbortSignal,
+  failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
+  const cooldownUntilIso = new Date(Date.now() + bounded).toISOString();
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      cooldownUntil: new Date(Date.now() + bounded),
-      lastFailureCode: "rate_limited",
+      // A late provider error must never shorten a longer cooldown already
+      // recorded by another request. Keep the database value authoritative so
+      // every web instance avoids a capacity-hit account consistently.
+      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
+      lastFailureCode: failureCode,
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));

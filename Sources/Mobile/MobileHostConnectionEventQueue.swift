@@ -37,6 +37,10 @@ enum MobileHostEventTopicPolicy {
             // Simulator frames are whole-screen snapshots; a later frame fully
             // supersedes an earlier one for the same panel.
             return coalesceKey != nil
+        case DeviceWorkspaceLayoutHost.eventTopic:
+            // A different topic/workspace cannot replace this snapshot. The
+            // viewer has no gap recovery signal, so layout changes stay lossless.
+            return false
         case "terminal.bytes", "terminal.updated", "workspace.updated":
             return true
         default:
@@ -45,12 +49,25 @@ enum MobileHostEventTopicPolicy {
     }
 }
 
+/// Delivery lane of one queued event. Every lane has its own drain, so a
+/// stalled write on one lane never delays events queued on another.
+///
+/// `.shared` is the ordered events path (independent events stream or the
+/// control stream). `.surface` carries one terminal's render-grid frames on
+/// its own QUIC stream once the client negotiated surface event lanes.
+enum MobileHostEventLane: Hashable, Sendable {
+    case shared
+    case surface(String)
+}
+
 /// Outcome of one synchronous admission attempt on a connection's event queue.
 struct MobileHostEventEnqueueResult: Sendable {
     /// The event was appended to the queue.
     let admitted: Bool
-    /// The caller must start the (single) drain task for this connection.
+    /// The caller must start the drain task for ``drainLane``.
     let startDrain: Bool
+    /// The lane whose drain the caller must start when ``startDrain`` is set.
+    var drainLane: MobileHostEventLane = .shared
     /// Surfaces whose queued render-grid frames were shed; the caller must ask
     /// the producer for a full-frame resync of each.
     let renderGridResyncSurfaceIDs: Set<String>
@@ -99,7 +116,23 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         let coalesceKey: String?
         let frame: Data
         let stateSeq: UInt64?
+        var lane: MobileHostEventLane = .shared
+        /// Stream generation of a surface lane. A new generation means a new
+        /// QUIC stream, so the render-grid chain must re-base on it.
+        var laneGeneration: UInt64 = 0
     }
+
+    /// The stream a surface's render-grid chain was last admitted on. Frames
+    /// on two different streams can arrive in either order, so a delta may
+    /// only follow a frame that travelled the same route.
+    private enum RenderGridRoute: Equatable {
+        case shared
+        case surface(generation: UInt64)
+    }
+
+    /// Consecutive failures after which a surface stops using its own lane
+    /// and rides the shared lane until surface lanes are renegotiated.
+    static let maximumSurfaceLaneFailureCount = 3
 
     static let defaultMaximumEventCount = 256
     static let defaultMaximumByteCount =
@@ -112,8 +145,19 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private var subscribedTopics: Set<String> = []
     private var queuedEvents: [QueuedEvent] = []
     private var queuedByteCount = 0
-    private var drainActive = false
+    /// Lanes with a running drain. At most one drain per lane.
+    private var drainingLanes: Set<MobileHostEventLane> = []
     private var isClosed = false
+    /// Maximum concurrently assigned surface lanes; 0 disables surface lanes.
+    private var surfaceLaneLimit = 0
+    /// Assigned surface lanes and their last-use tick (for LRU reassignment).
+    private var surfaceLaneLastUse: [String: UInt64] = [:]
+    private var surfaceLaneUseTick: UInt64 = 0
+    private var surfaceLaneGenerations: [String: UInt64] = [:]
+    private var surfaceLaneFailureCounts: [String: Int] = [:]
+    private var sharedLanePinnedSurfaceIDs: Set<String> = []
+    private var queuedCountByLane: [MobileHostEventLane: Int] = [:]
+    private var lastRenderGridRouteBySurfaceID: [String: RenderGridRoute] = [:]
     /// Surfaces whose delta chain was broken by a shed frame. Only a
     /// full-frame render-grid event readmits the surface; deltas are refused so
     /// the client can never apply a delta whose predecessor was dropped.
@@ -184,7 +228,30 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             lock.unlock()
             return .rejected
         }
+        let (lane, laneGeneration) = laneLocked(topic: topic, coalesceKey: coalesceKey)
         var resyncSurfaceIDs = Set<String>()
+        if isRenderGrid, let coalesceKey, !isFullRenderGridFrame {
+            let route: RenderGridRoute = lane == .shared
+                ? .shared
+                : .surface(generation: laneGeneration)
+            if let previousRoute = lastRenderGridRouteBySurfaceID[coalesceKey],
+               previousRoute != route {
+                // This delta builds on a frame that travelled another stream,
+                // which may still be in flight behind it. Re-base the chain
+                // with a full frame on the new route instead.
+                poisonedRenderGridSurfaceIDs.insert(coalesceKey)
+                lock.unlock()
+                return MobileHostEventEnqueueResult(
+                    admitted: false,
+                    startDrain: false,
+                    renderGridResyncSurfaceIDs: [coalesceKey],
+                    depthAfterEnqueue: nil,
+                    shedEventCount: 0,
+                    shedByteCount: 0,
+                    simulatorFrameShedPanelIDs: []
+                )
+            }
+        }
         var shedSummary = MobileHostEventShedSummary()
         if !hasRoomLocked(for: frame) {
             shedSummary = shedDroppableEventsLocked(for: frame, resyncSurfaceIDs: &resyncSurfaceIDs)
@@ -234,23 +301,29 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 topic: topic,
                 coalesceKey: coalesceKey,
                 frame: frame,
-                stateSeq: stateSeq
+                stateSeq: stateSeq,
+                lane: lane,
+                laneGeneration: laneGeneration
             )
         )
         queuedByteCount += frame.count
+        queuedCountByLane[lane, default: 0] += 1
         let depthAfterEnqueue = queuedEvents.count
+        if isRenderGrid, let coalesceKey {
+            lastRenderGridRouteBySurfaceID[coalesceKey] = lane == .shared
+                ? .shared
+                : .surface(generation: laneGeneration)
+        }
         if isRenderGrid, isFullRenderGridFrame, let coalesceKey {
             poisonedRenderGridSurfaceIDs.remove(coalesceKey)
             resyncAfterDrainSurfaceIDs.remove(coalesceKey)
         }
-        let startDrain = !drainActive
-        if startDrain {
-            drainActive = true
-        }
+        let startDrain = drainingLanes.insert(lane).inserted
         lock.unlock()
         return MobileHostEventEnqueueResult(
             admitted: true,
             startDrain: startDrain,
+            drainLane: lane,
             renderGridResyncSurfaceIDs: resyncSurfaceIDs,
             depthAfterEnqueue: depthAfterEnqueue,
             shedEventCount: shedSummary.eventCount,
@@ -259,44 +332,193 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         )
     }
 
-    func dequeue() -> QueuedEvent? {
+    /// Removes the oldest event queued on `lane`. Events on other lanes keep
+    /// their global order for shedding.
+    func dequeue(lane: MobileHostEventLane = .shared) -> QueuedEvent? {
         lock.lock()
         defer { lock.unlock() }
-        guard !queuedEvents.isEmpty else { return nil }
-        let event = queuedEvents.removeFirst()
+        guard queuedCountByLane[lane, default: 0] > 0,
+              let index = queuedEvents.firstIndex(where: { $0.lane == lane }) else {
+            return nil
+        }
+        let event = queuedEvents.remove(at: index)
         queuedByteCount -= event.frame.count
+        decrementLaneCountLocked(lane)
         return event
     }
 
-    /// Called by the drain loop after `dequeue` returned nil. Returns true when
-    /// events raced in and the loop must keep draining; otherwise the drain is
-    /// marked finished so the next enqueue can claim a fresh one.
-    func finishDrain() -> Bool {
+    /// Called by a lane's drain loop after `dequeue` returned nil. Returns
+    /// true when events raced in and the loop must keep draining; otherwise
+    /// the drain is marked finished so the next enqueue can claim a fresh one.
+    func finishDrain(lane: MobileHostEventLane = .shared) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        if queuedEvents.isEmpty || isClosed {
-            drainActive = false
+        if queuedCountByLane[lane, default: 0] == 0 || isClosed {
+            drainingLanes.remove(lane)
             return false
         }
         return true
     }
 
-    /// Marks the drain inactive after an abnormal exit (close, lane
+    /// Marks the lane's drain inactive after an abnormal exit (close, lane
     /// negotiation, failed delivery) so a later enqueue can claim a fresh one.
-    func abandonDrain() {
+    func abandonDrain(lane: MobileHostEventLane = .shared) {
         lock.lock()
-        drainActive = false
+        drainingLanes.remove(lane)
         lock.unlock()
     }
 
-    /// Claims the drain when events are pending and none is running (used when
-    /// independent-lane negotiation finishes and delivery may resume).
+    /// Claims the shared lane's drain when events are pending and none is
+    /// running (used when independent-lane negotiation finishes).
     func claimDrain() -> Bool {
+        claimDrains().contains(.shared)
+    }
+
+    /// Claims every lane with pending events and no running drain. The caller
+    /// must start one drain per returned lane.
+    func claimDrains() -> [MobileHostEventLane] {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed, !drainActive, !queuedEvents.isEmpty else { return false }
-        drainActive = true
-        return true
+        guard !isClosed else { return [] }
+        var claimed: [MobileHostEventLane] = []
+        for (lane, count) in queuedCountByLane where count > 0 {
+            if drainingLanes.insert(lane).inserted {
+                claimed.append(lane)
+            }
+        }
+        return claimed
+    }
+
+    // MARK: Surface lanes
+
+    /// Routes future render-grid frames onto per-surface lanes, at most
+    /// `limit` at once. Surfaces beyond the limit ride the shared lane.
+    func enableSurfaceLanes(limit: Int) {
+        lock.lock()
+        surfaceLaneLimit = max(0, limit)
+        sharedLanePinnedSurfaceIDs.removeAll()
+        surfaceLaneFailureCounts.removeAll()
+        lock.unlock()
+    }
+
+    var surfaceLanesEnabled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceLaneLimit > 0
+    }
+
+    /// Returns every future event to the shared lane. Frames still queued for
+    /// a surface lane are dropped (that lane is no longer drained) and their
+    /// surfaces are poisoned; the caller must request a full resync for each
+    /// returned surface.
+    func disableSurfaceLanes() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard surfaceLaneLimit > 0 else { return [] }
+        surfaceLaneLimit = 0
+        surfaceLaneLastUse.removeAll()
+        var resync = Set<String>()
+        var droppedByteCount = 0
+        queuedEvents.removeAll { event in
+            guard case .surface(let surfaceID) = event.lane else { return false }
+            resync.insert(surfaceID)
+            droppedByteCount += event.frame.count
+            return true
+        }
+        queuedByteCount -= droppedByteCount
+        for lane in queuedCountByLane.keys where lane != .shared {
+            queuedCountByLane.removeValue(forKey: lane)
+        }
+        poisonedRenderGridSurfaceIDs.formUnion(resync)
+        return resync
+    }
+
+    /// Records that a surface lane stream failed or stalled. Frames written
+    /// to it may be lost, so the surface's queued frames are dropped, its
+    /// chain is poisoned, and the next stream gets a new generation. Returns
+    /// the surfaces that need a full-frame resync. A stale `generation`
+    /// (already retired) changes nothing.
+    func retireSurfaceLane(surfaceID: String, generation: UInt64) -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed, surfaceLaneGenerations[surfaceID, default: 0] == generation else {
+            return []
+        }
+        surfaceLaneGenerations[surfaceID] = generation &+ 1
+        surfaceLaneLastUse.removeValue(forKey: surfaceID)
+        let failures = surfaceLaneFailureCounts[surfaceID, default: 0] + 1
+        surfaceLaneFailureCounts[surfaceID] = failures
+        if failures >= Self.maximumSurfaceLaneFailureCount {
+            sharedLanePinnedSurfaceIDs.insert(surfaceID)
+        }
+        var droppedByteCount = 0
+        queuedEvents.removeAll { event in
+            guard event.topic == MobileHostEventTopicPolicy.renderGridTopic,
+                  event.coalesceKey == surfaceID else { return false }
+            droppedByteCount += event.frame.count
+            decrementLaneCountLocked(event.lane)
+            return true
+        }
+        queuedByteCount -= droppedByteCount
+        poisonedRenderGridSurfaceIDs.insert(surfaceID)
+        return [surfaceID]
+    }
+
+    /// Clears a surface's consecutive-failure count after a delivered frame.
+    func noteSurfaceLaneDelivered(surfaceID: String) {
+        lock.lock()
+        if surfaceLaneFailureCounts[surfaceID] != nil {
+            surfaceLaneFailureCounts.removeValue(forKey: surfaceID)
+        }
+        lock.unlock()
+    }
+
+    /// Current generation of a surface's lane stream.
+    func surfaceLaneGeneration(surfaceID: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceLaneGenerations[surfaceID, default: 0]
+    }
+
+    private func laneLocked(
+        topic: String,
+        coalesceKey: String?
+    ) -> (MobileHostEventLane, UInt64) {
+        guard surfaceLaneLimit > 0,
+              topic == MobileHostEventTopicPolicy.renderGridTopic,
+              let surfaceID = coalesceKey,
+              !sharedLanePinnedSurfaceIDs.contains(surfaceID) else {
+            return (.shared, 0)
+        }
+        surfaceLaneUseTick &+= 1
+        if surfaceLaneLastUse[surfaceID] == nil {
+            if surfaceLaneLastUse.count >= surfaceLaneLimit {
+                // Reassign the least recently used idle lane; a lane with
+                // queued or in-flight frames keeps its surface.
+                let idle = surfaceLaneLastUse.filter { entry in
+                    let lane = MobileHostEventLane.surface(entry.key)
+                    return queuedCountByLane[lane, default: 0] == 0
+                        && !drainingLanes.contains(lane)
+                }
+                guard let victim = idle.min(by: { $0.value < $1.value })?.key else {
+                    return (.shared, 0)
+                }
+                surfaceLaneLastUse.removeValue(forKey: victim)
+                // The victim's next frame opens a new stream.
+                surfaceLaneGenerations[victim, default: 0] &+= 1
+            }
+        }
+        surfaceLaneLastUse[surfaceID] = surfaceLaneUseTick
+        return (.surface(surfaceID), surfaceLaneGenerations[surfaceID, default: 0])
+    }
+
+    private func decrementLaneCountLocked(_ lane: MobileHostEventLane) {
+        let remaining = queuedCountByLane[lane, default: 0] - 1
+        if remaining > 0 {
+            queuedCountByLane[lane] = remaining
+        } else {
+            queuedCountByLane.removeValue(forKey: lane)
+        }
     }
 
     /// Poisoned surfaces whose full-frame resync should be re-requested now
@@ -342,6 +564,10 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         resyncAfterDrainSurfaceIDs.removeAll()
         simulatorFrameReplayAfterDrainPanelIDs.removeAll()
         subscribedTopics.removeAll()
+        queuedCountByLane.removeAll()
+        surfaceLaneLimit = 0
+        surfaceLaneLastUse.removeAll()
+        lastRenderGridRouteBySurfaceID.removeAll()
         lock.unlock()
     }
 
@@ -367,6 +593,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             }
             queuedEvents.remove(at: index)
             queuedByteCount -= event.frame.count
+            decrementLaneCountLocked(event.lane)
             summary.record(event)
             if event.topic == MobileHostEventTopicPolicy.renderGridTopic,
                let surfaceID = event.coalesceKey,
@@ -389,6 +616,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             }
             summary.record(event)
             cascadeByteCount += event.frame.count
+            decrementLaneCountLocked(event.lane)
             return true
         }
         queuedByteCount -= cascadeByteCount

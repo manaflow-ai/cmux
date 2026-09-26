@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Otkrivena konfiguracija harnessa",
+    "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
+    "selectProvider": "Odaberi {provider}",
+    "foundPath": "Pronađen {path}",
+    "foundCommand": "Pronađena naredba {command}",
+    "installed": "Provajder je instaliran",
+    "missing": "Provajder nije instaliran",
+    "install": "Instaliraj pomoću: {command}",
+    "benefitPi": "Sažimanje, memorija i rutiranje provajdera",
+    "benefitOpenagent": "Paralelni specijalisti i oporavak za OpenCode",
+    "benefitClaude": "Timovi i provjera za Claude Code",
+    "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Postavljanje Cloud VM-a nije završeno",
+      "reason": "Postavljanje gosta za Cloud VM nije završeno.",
+      "message": "cmux nije mogao završiti postavljanje Cloud VM-a.",
+      "action": "Pokušajte ponovo. Ako se problem nastavi, obratite se podršci."
+    },
+    "createCleanupPending": {
+      "title": "Čišćenje Cloud VM-a na čekanju",
+      "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
+      "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -23,6 +48,11 @@
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     },
+    "displayName": {
+      "title": "Nevažeći naziv mašine",
+      "message": "Naziv mašine mora biti ispisiv tekst od najviše {maxLength} znakova.",
+      "action": "Koristite kraći naziv bez kontrolnih znakova ili ga ostavite praznim da biste ga obrisali."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
@@ -35,8 +65,7 @@
     "memoryUnavailable": {
       "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -81,6 +111,7 @@
   "authError": {
     "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
     "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"
@@ -318,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
       "team": "tim",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobilni uređaji"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,30 +394,84 @@
         "loading": "Učitavanje…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+    "mobileDevices": {
+      "title": "Mobilni uređaji",
+      "description": "Upravljajte pristupom povezanim računarima, telefonima i tabletima.",
+      "team": "Tim",
+      "teamSwitchError": "Tim nije moguće promijeniti. Pokušajte ponovo.",
+      "loading": "Učitavanje uređaja…",
+      "empty": "Nema registrovanih uređaja za ovaj tim.",
+      "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",
+      "retry": "Pokušaj ponovo",
+      "mutationError": "Promjena uređaja nije završena.",
+      "revoke": "Opozovi pristup",
+      "deviceId": "Uređaj",
+      "revision": "Revizija",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktivan",
+      "revoked": "Opozvan",
+      "relaySettings": "Postavke releja",
+      "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
+      "saveRelaySettings": "Sačuvaj postavke releja",
+      "eyebrow": "oblak / uređaji",
+      "scopeActive": "Prikazan je ovaj tim",
+      "emptyTitle": "Još nema povezanih uređaja",
+      "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
+      "revoking": "Opozivanje pristupa…",
+      "registeredDevices": "Registrirani uređaji",
+      "activeDevices": "Aktivni uređaji",
+      "directoryRevision": "Revizija direktorija",
+      "savingRelaySettings": "Spremanje…"
     },
     "coderouterAccounts": {
+      "transferAction": "Prenesi",
+      "transferringAction": "Prenos…",
+      "transferDialogTitle": "Prenesi račun u drugi tim",
+      "transferChooseBody": "Odaberite tim koji treba primiti {account}. Trenutno pripada timu {source}.",
+      "transferDestinationLabel": "Odredišni tim",
+      "continueAction": "Nastavi",
+      "backAction": "Nazad",
+      "transferConfirmTitle": "Prenijeti {account}?",
+      "transferConfirmBody": "{account} prelazi iz tima {source} u tim {destination}. Cloud mašine i članovi tima {source} odmah ga prestaju koristiti. U timu {destination} zadržava trenutnu postavku dijeljenja.",
+      "transferConfirmAction": "Prenesi račun",
+      "transferSuccess": "{account} je premješten u {destination}.",
+      "transferError": "Prenos ovog računa nije uspio. Pokušajte ponovo.",
+      "transferForbiddenError": "Više ne možete premještati račune u taj tim.",
+      "transferNotFoundError": "Ovaj račun više nije u ovom timu. Osvježite da vidite gdje se nalazi.",
+      "transferConflictError": "Račun se promijenio tokom prenosa. Osvježite i pokušajte ponovo.",
+      "transferUnavailableError": "Prenosi su privremeno nedostupni ili se račun osvježava. Pokušajte ponovo za trenutak.",
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
       "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
       "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
-      "cancelAction": "Otkaži"
+      "cancelAction": "Otkaži",
+      "apiKeysTitle": "API ključevi",
+      "apiKeysDescription": "Kreirajte dugotrajne ključeve za skripte i agente. Tajna vrijednost prikazuje se jednom.",
+      "apiKeysCount": "{count, plural, one {# ključ} other {# ključeva}}",
+      "apiKeysLoading": "Učitavanje API ključeva…",
+      "apiKeysLoadError": "API ključevi se ne mogu učitati. Pokušajte ponovo uskoro.",
+      "apiKeysRetry": "Pokušaj ponovo",
+      "apiKeysEmptyBody": "Još nema API ključeva. Kreirajte ga za autentifikaciju CodeRouter klijenta.",
+      "apiKeyPrefixColumn": "Ključ",
+      "apiKeyStatusColumn": "Stanje",
+      "apiKeySecretTitle": "Kopirajte ovaj ključ sada",
+      "apiKeySecretBody": "Ova tajna vrijednost se više neće prikazati.",
+      "apiKeyCopy": "Kopiraj API ključ",
+      "apiKeyCopied": "Kopirano",
+      "apiKeyCreatedAt": "kreiran {at}",
+      "apiKeyLastUsed": "posljednji put korišten {at}",
+      "apiKeyRevoked": "Opozvan",
+      "apiKeyLabelPlaceholder": "Na primjer, CI ili produkcija",
+      "createApiKeyAction": "Kreiraj API ključ",
+      "creatingApiKeyAction": "Kreiranje",
+      "apiKeyCreateError": "API ključ se ne može kreirati.",
+      "revokeApiKeyAction": "Opozovi",
+      "revokingApiKeyAction": "Opozivanje",
+      "apiKeyRevokeError": "API ključ se ne može opozvati.",
+      "revokeApiKeyConfirmTitle": "Opozvati ovaj API ključ?",
+      "apiKeyUsageDetail": "posljednjih 30 dana: {completions} završetaka · {tokens} tokena ({input} ulaz / {output} izlaz) · API ekvivalent {value}",
+      "apiKeyUsageUnavailable": "Upotreba nije dostupna",
+      "revokeApiKeyConfirmBody": "Klijenti koji koriste ovaj ključ odmah će izgubiti autentifikaciju."
     }
   },
   "community": {
@@ -1202,6 +1287,12 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
+        "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
+        "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
+        "packs": {
+          "description": "Lokalne datoteke ili direktoriji cmux paketa koji se učitavaju prije ove konfiguracije. Direktoriji upućuju na cmux.pack.json. Koristite tekstualnu putanju ili objekt s poljem path.",
+          "path": "Putanja lokalne datoteke ili direktorija, relativna u odnosu na ovu konfiguracijsku datoteku ako nije apsolutna."
+        },
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
@@ -1213,6 +1304,7 @@
         "app": {
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
@@ -1335,7 +1427,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen. New Cloud Workspace koristi mašinu posljednjeg odabranog Cloud workspacea, zatim prvu mašinu na desnoj bočnoj traci; New Cloud Machine namjerno kreira mašinu.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Jednostavne komande",
       "simpleCommandsDesc": "Jednostavna komanda pokreće shell komandu u trenutno fokusiranom terminalu:",
@@ -1388,6 +1480,7 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
@@ -3980,5 +4073,15 @@
     "organization": "Organizacija",
     "personalAccount": "lični račun",
     "switchAccountButton": "Koristi drugi račun"
+  },
+  "MobileRelease106": {
+    "title": "Novosti u verziji 1.0.6",
+    "releaseLabel": "1.0.6 · Septembar 2026",
+    "connectionTitle": "Ažurirane veze s Mac računarima",
+    "connectionDetail": "Ovo ažuriranje koristi novu uslugu povezivanja i Iroh prijenos. Starije Mac verzije treba ažurirati da bi se povezale.",
+    "updateTitle": "Ažurirajte cmux na Mac računaru",
+    "updateDetail": "Potreban je cmux {stableVersion} ili noviji, ili NIGHTLY {nightlyVersion} ili noviji. Omogućite iOS uparivanje u Postavke > Mobilni uređaji na svakom Mac računaru.",
+    "rollbackTitle": "Trebate zadržati stariju Mac verziju?",
+    "rollbackDetail": "Koristite cmux BETA 1.0.5 ({rollbackBuild}) iz TestFlight > Prethodne verzije dok je dostupna. Odaberite upravo tu verziju jer novije koriste noviju uslugu povezivanja."
   }
 }

@@ -12,6 +12,26 @@ import Testing
 /// Pure-projection coverage for the irx-backed Settings Networking snapshot
 /// (`MobileHostIrxRuntime+SettingsControl`).
 struct MobileHostIrxSettingsMappingTests {
+    @Test func forgetRecoveryRestartsOnceAndWaitsForRestoredEnrollment() {
+        let identity = V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "mac",
+            environment: "test", projectID: "project", teamID: "team", userID: "owner")
+        let active = V2CachedState(identity: identity)
+        var forgotten = active
+        forgotten.authorityRevoked = true
+        forgotten.authorityRevocationRecoverable = true
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .restart)
+        // A replacement restores this state before its signed enrollment. It
+        // must survive every connecting/backoff publication to finish recovery.
+        for status in [V2ControlSnapshot.Status.connecting, .backingOff] {
+            #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: status) == .awaitRecovery)
+        }
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: forgotten, status: .stopped) == .stop)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: forgotten, current: active, status: .ready) == .none)
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .stopped) == .restart)
+        forgotten.authorityRevocationRecoverable = false
+        #expect(MobileHostIrxRuntime.revocationAction(previous: active, current: forgotten, status: .ready) == .stop)
+    }
+
     private let homeRelay = "https://use4.relay.cmux.dev./"
     private let fleet = [
         "https://use4.relay.cmux.dev/",
@@ -148,6 +168,36 @@ struct MobileHostIrxSettingsMappingTests {
         )
         #expect(snapshot.runtimeStatus == .degraded)
         #expect(snapshot.failureDescription != nil)
+    }
+
+    @MainActor @Test func relayFailureReachesSettingsAndClearsWhenReady() async {
+        let message = "Relay connection to relay.example.test failed: UnknownIssuer."
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(message))
+        let snapshot = await runtime.irohSettingsSnapshot()
+        #expect(snapshot.failureDescription == message)
+        #expect(runtime.settingsPhase == .failed)
+        let updated = "Relay connection to relay.example.test failed: HostnameMismatch."
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(updated))
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.activating)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.failed)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.active)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == nil)
+    }
+
+    @MainActor @Test func unrelatedErrorsCannotExposeRawCredentialsInSettings() async {
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed("UnknownIssuer"))
+        runtime.setSettingsPhase(.failed, error: NSError(domain: "example", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "https://user:secret@relay.example/path?token=secret",
+        ]))
+        #expect(runtime.relayFailureDescription == nil)
+        let snapshot = await runtime.irohSettingsSnapshot()
+        #expect(snapshot.failureDescription?.contains("secret") == false)
+        #expect(snapshot.failureDescription?.contains("UnknownIssuer") == false)
     }
 
     @Test func unsupportedMutationsThrowExplicitly() async {

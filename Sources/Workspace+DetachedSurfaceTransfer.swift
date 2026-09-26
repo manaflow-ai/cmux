@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxWorkspaces

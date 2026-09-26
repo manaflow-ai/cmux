@@ -4,6 +4,8 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileRPC
+import CmuxPhonePush
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -33,9 +35,11 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// `@Environment` instead of `AuthManager.shared`.
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
-    private let auth: MobileAuthComposition
+    private let macListAuthState: MobileMacListAuthState
+    let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let analyticsClientID: String?
     private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
@@ -47,8 +51,7 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     private let connectionMethodStore: MobileConnectionMethodStore
     /// The one-time Auto-Connect migration eligibility and acknowledgement.
     private let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -115,8 +118,7 @@ public struct CMUXMobileRootScene: View {
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
     ///   - featureFlags: The live PostHog-backed mobile feature flags.
-    ///   - connectionMethodStore: The shared Auto-Connect vs Tailscale choice
-    ///     used by both connection routing and Settings.
+    ///   - connectionMethodStore: The legacy onboarding and migration choice.
     ///   - autoConnectMigrationStore: The versioned, one-time migration
     ///     eligibility and acknowledgement injected into the root view.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
@@ -137,9 +139,11 @@ public struct CMUXMobileRootScene: View {
     ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
@@ -158,9 +162,11 @@ public struct CMUXMobileRootScene: View {
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
@@ -195,16 +201,20 @@ public struct CMUXMobileRootScene: View {
     /// Creates the root scene (non-iOS: no push).
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
@@ -354,7 +364,9 @@ public struct CMUXMobileRootScene: View {
             // window and the ToastCenter environment.
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
+            .environment(macListAuthState)
             .analytics(analytics)
+            .analyticsClientID(analyticsClientID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -379,8 +391,12 @@ public struct CMUXMobileRootScene: View {
             AgentFeedFullTextPreviewView(
                 failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
             )
+        } else if ProcessInfo.processInfo.environment["CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE"] == "1" {
+            ComputerPickerPersistencePreviewView()
         } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.pushTabNavigationPreviewEnabled {
+            PushTabNavigationPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.whatsNewPreviewEnabled {
@@ -435,6 +451,42 @@ public struct CMUXMobileRootScene: View {
     }
 
     @MainActor
+    private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
+        let accessGroup = auth.keychainAccessGroup
+        return MobilePhonePushKeyExchangeHooks(
+            makeDescriptor: {
+                let key = try PhonePushKeyMaterial.current(
+                    bundleID: bundleID,
+                    accessGroup: accessGroup
+                )
+                return MobilePhonePushPublicKeyDescriptor(
+                    installationID: key.installationID,
+                    keyID: key.keyID,
+                    publicKey: key.publicKeyData
+                )
+            },
+            iosBuildID: { bundleID },
+            pinPeerDescriptor: { descriptor, context in
+                let tuple = PhonePushDeviceTuple(
+                    accountID: context.accountID,
+                    teamID: context.teamID,
+                    iosBuildID: context.iosBuildID,
+                    iosInstallationID: context.iosInstallationID,
+                    macDeviceID: context.macDeviceID,
+                    macInstanceTag: context.macInstanceTag,
+                    macBuildID: context.macBuildID
+                )
+                PhonePushPeerKeyStore().pin(
+                    descriptor.publicKey,
+                    keyID: descriptor.keyID,
+                    for: tuple
+                )
+            }
+        )
+    }
+
+    @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil
@@ -479,15 +531,16 @@ public struct CMUXMobileRootScene: View {
         #endif
         let store = CMUXMobileShellStore(
             runtime: runtime,
+            macListAuthState: macListAuthState,
             pairedMacStore: backedUpPairedMacStore,
-            connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: nil,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
+            phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             hiddenMacStore: hiddenMacStore,

@@ -1,10 +1,13 @@
 import { z } from "zod";
 import type { StackAuthority, VerifiedAuthority } from "./auth";
-import { decodeJSON, errorResponse, httpFailure, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
+import { decodeJSON, errorResponse, httpFailure, inputOperation, inputRequestId, parseInput, parseSocketSetup, readBoundedBody, INPUT_BYTES } from "./boundary";
 import { identifier, timestamp } from "./contracts/common";
 import { SocketSetupSchema, type SocketSetup } from "./contracts/requests";
+import { STORAGE_SCHEMA_VERSION, STORAGE_WRITE_SCHEMA_VERSION } from "./storage/migrations";
+import { HealthSchema } from "./health";
+import { CONTROL_PLANE_RULES, sourceRevision } from "./rules";
 import { API_TICKET_SECONDS, canonicalJSON, decodeBase64URL, encodeBase64URL, verifyTicket } from "./crypto";
-import { OperationError } from "./errors";
+import { failureDiagnostics, OperationError } from "./errors";
 
 export const SETUP_HEADER = "x-cmux-v2-setup";
 const INTERNAL_HEADER = "x-cmux-v2-verified-authority";
@@ -24,6 +27,8 @@ export interface RoutingDependencies {
   chargeOpen: (userId: string) => Promise<void>;
   dispatchTeam: (teamId: string, request: Request) => Promise<Response>;
   observe?: (event: { event: string; [key: string]: unknown }) => void;
+  /** Git revision the deploy script published as `CMUX_SOURCE_REVISION`; reported by the health route. */
+  sourceRevision?: string | undefined;
 }
 
 const aliases: Readonly<Record<string, string>> = {
@@ -36,12 +41,18 @@ const aliases: Readonly<Record<string, string>> = {
 /** Public requests never control the private headers passed through the DO binding. */
 export async function routeControl(request: Request, dependencies: RoutingDependencies): Promise<Response> {
   let requestId = "unidentified";
+  // Where a failure happened, for telemetry only: route kind, the stage
+  // reached and the requested operation, never request contents.
+  let route = "unknown", stage = "parse", operationName = "none";
   try {
     const url = new URL(request.url);
     const socket = url.pathname === "/v2/control/socket";
     const session = url.pathname === "/v2/control/session";
     const operation = url.pathname === "/v2/requests" || Object.hasOwn(aliases, url.pathname);
-    if ((!socket && !session && !operation) || url.search) throw new OperationError("unsupported_method", 404);
+    const health = url.pathname === "/v2/health";
+    if ((!socket && !session && !operation && !health) || url.search) throw new OperationError("unsupported_method", 404);
+    route = socket ? "socket" : session ? "session" : operation ? "request" : health ? "health" : "unknown";
+    if (health) return healthResponse(request, dependencies);
     if (request.method !== (socket ? "GET" : "POST")) throw new OperationError("unsupported_method", 405);
     if (socket && request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
     if (!socket && request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
@@ -58,7 +69,10 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
         throw new OperationError("invalid_request", 400);
       }
     }
+    if (operation) operationName = inputOperation(input);
+    stage = "authenticate";
     const authorization = await authenticate(request.headers.get("authorization"), setup, dependencies);
+    stage = "charge";
     if (!operation) await dependencies.chargeOpen(authorization.authority.userId);
     // A fresh Request deliberately copies no caller headers, cookies or credentials.
     const headers = new Headers({
@@ -72,12 +86,29 @@ export async function routeControl(request: Request, dependencies: RoutingDepend
       method: socket ? "GET" : "POST", headers,
       ...(socket ? {} : { body: JSON.stringify({ setup, ...(operation ? { input } : {}) }) }),
     });
+    stage = "dispatch";
     return await dependencies.dispatchTeam(setup.device.identity.teamId, forwarded);
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
-    dependencies.observe?.({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
+    dependencies.observe?.({ event: "iroh.control.failure", requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
+      route, stage, operation: operationName, ...failureDiagnostics(error) });
     return httpFailure(error, requestId);
   }
+}
+
+/**
+ * What is deployed, without authentication: the environment, the published
+ * source revision and the rules the Worker implements. Reads no storage and
+ * touches no Durable Object, so it is safe to poll from CI and the deploy check.
+ */
+function healthResponse(request: Request, dependencies: RoutingDependencies): Response {
+  if (request.method !== "GET") throw new OperationError("unsupported_method", 405);
+  const body = HealthSchema.parse({
+    schemaId: "health.v1", environment: dependencies.environment,
+    sourceRevision: sourceRevision(dependencies.sourceRevision), rules: [...CONTROL_PLANE_RULES],
+    storage: { maxSchemaVersion: STORAGE_SCHEMA_VERSION, writeSchemaVersion: STORAGE_WRITE_SCHEMA_VERSION },
+  });
+  return new Response(JSON.stringify(body), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
 }
 
 function readSetup(request: Request): SocketSetup {

@@ -21,24 +21,6 @@ internal import CMUXDebugLog
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
 public final class TerminalSurface: Identifiable, ObservableObject {
-    /// The live find-in-terminal session state for one surface.
-    public final class SearchState: ObservableObject {
-        /// The current search needle.
-        @Published public var needle: String
-        /// The 1-based index of the selected match, if known.
-        @Published public var selected: UInt?
-
-        /// The total number of matches, if known.
-        @Published public var total: UInt?
-
-        /// Creates search state with an initial needle.
-        public init(needle: String = "") {
-            self.needle = needle
-            self.selected = nil
-            self.total = nil
-        }
-    }
-
     static let committedTextInputChunkByteLimit = 96
 
     /// `ESC[?7l`, disable DECAWM (autowrap). Injected around a mirror
@@ -51,6 +33,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
+    public typealias TextSendResult = CmuxTerminalCore.TextSendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
@@ -92,6 +75,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
+    let terminalWork: TerminalSurfaceWorkDiagnostics
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
     /// Current renderer health; the direct callback below is the observation seam for hosts.
     public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
@@ -201,16 +185,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The tmux bootstrap command captured for respawn, if any.
     public let tmuxStartCommand: String?
 
-    /// Text written to the surface immediately after the first spawn, if any.
+    /// Startup text retained until the shell reports readiness.
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
+    var startupInputGate = TerminalStartupInputGate()
     /// When true, a deferred restore was cancelled before its first runtime.
-    /// This suppresses the construction-time startup payload while retaining
-    /// the configured values for persistence/debug inspection.
+    /// Suppresses the payload while retaining its persistence/debug configuration.
     var suppressConfiguredInitialInput = false
-    /// The command to use when a deferred restore is cancelled, if it needs to
-    /// keep a transport attach alive without running the resume payload.
-    var startupRestoreAdmissionFallbackCommand: String?
     var startupRestoreAdmissionCommandOverride: String?
     var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]
@@ -348,6 +329,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?
@@ -626,6 +608,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
+        self.terminalWork = dependencies.terminalWork
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.

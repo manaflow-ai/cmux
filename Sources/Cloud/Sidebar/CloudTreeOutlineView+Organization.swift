@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 extension CloudTreeOutlineView.Coordinator {
@@ -61,7 +62,13 @@ extension CloudTreeOutlineView.Coordinator {
         guard ownershipRejection(info: info, item: item) == nil else { return false }
         defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
-        return organize(drop.action, nodeID: drop.sourceID)
+        switch drop.operation {
+        case .organization(let action):
+            return organize(action, nodeID: drop.sourceID)
+        case .machine(let id, let move):
+            guard let actions = machineOrdering(for: info, nodeID: drop.sourceID) else { return false }
+            return moveMachine(id, move: move, using: actions)
+        }
     }
 
     /// Tree reordering stays sibling-only, but hovering a foreign workspace
@@ -95,10 +102,14 @@ extension CloudTreeOutlineView.Coordinator {
         let point = outlineView.convert(info.draggingLocation, from: nil)
         // Native indices refer to the frozen, displayed tree. Fresh catalog
         // membership is checked by organize, never substituted into this index.
-        return CloudSidebarOrganizationDrop(
+        guard let drop = CloudSidebarOrganizationDrop(
             sourceID: id, nodes: nodes, state: organization.state,
             proposedItem: item as? CloudTreeNode, proposedChildIndex: index,
             dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY
-        )
+        ) else { return nil }
+        if case .machine(let machineID, let move) = drop.operation {
+            guard machineOrdering(for: info, nodeID: id)?.canMove(machineID, move) == true else { return nil }
+        }
+        return drop
     }
 }

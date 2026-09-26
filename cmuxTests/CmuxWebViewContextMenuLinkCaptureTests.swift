@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Testing
 import WebKit
 
@@ -152,7 +153,8 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         _ = NSApplication.shared
         let webView = CmuxWebView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600),
-            configuration: WKWebViewConfiguration()
+            configuration: WKWebViewConfiguration(),
+            host: CmuxWebViewAppHost()
         )
         #expect(webView.isFlipped)
 
@@ -174,7 +176,8 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         _ = NSApplication.shared
         let webView = CmuxWebView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600),
-            configuration: WKWebViewConfiguration()
+            configuration: WKWebViewConfiguration(),
+            host: CmuxWebViewAppHost()
         )
 
         let loadDelegate = ContextMenuLinkTestNavigationDelegate()
