@@ -65,6 +65,35 @@ struct ControlWorkspaceReorderTargetTests {
         #expect(call.dryRun == dryRun)
     }
 
+    // #13499: a refused placement is an error that still names the row, its
+    // window, and the slot it stayed in, so a caller can undo its paint.
+    @Test(arguments: [true, false])
+    func refusedPlacementReportsRejectedWithPlan(dryRun: Bool) throws {
+        let context = FakeWorkspaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let windowID = UUID()
+        let workspaceRef = coordinator.ensureRef(kind: .workspace, uuid: workspaceID)
+        context.reorderResolution = .rejected(
+            windowID: windowID,
+            plan: ControlWorkspaceReorderPlanItem(workspaceID: workspaceID, fromIndex: 1, toIndex: 1)
+        )
+        let result = coordinator.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
+            "workspace_id": .string(workspaceRef), "index": .int(0), "dry_run": .bool(dryRun)
+        ]))
+        guard case .err(let code, _, let data) = result, case .object(let object)? = data else {
+            Issue.record("A refused placement must fail with data")
+            return
+        }
+        #expect(code == "rejected")
+        #expect(object["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(object["window_id"] == .string(windowID.uuidString))
+        #expect(object["from_index"] == .int(1))
+        #expect(object["to_index"] == .int(1))
+        #expect(object["requested_index"] == .int(0))
+        #expect(object["dry_run"] == .bool(dryRun))
+        #expect(try #require(context.reorderCall).index == 0)
+    }
     private func summary(id: UUID) -> ControlWorkspaceSummary {
         ControlWorkspaceSummary(
             id: id,

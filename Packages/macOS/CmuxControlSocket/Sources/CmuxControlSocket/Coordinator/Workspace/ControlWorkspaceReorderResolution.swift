@@ -9,4 +9,8 @@ public enum ControlWorkspaceReorderResolution: Sendable, Equatable {
     /// A plan was built (and applied unless dry-run). Carries the owning window
     /// id (may be absent) and the single plan item.
     case resolved(windowID: UUID?, plan: ControlWorkspaceReorderPlanItem)
+    /// The target was valid, but the pin-tier or group-section clamp turned
+    /// the requested slot into "stay put" (for example, a grouped member
+    /// dropped above its group's anchor). Nothing was applied.
+    case rejected(windowID: UUID?, plan: ControlWorkspaceReorderPlanItem)
 }

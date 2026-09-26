@@ -51,6 +51,10 @@ extension TerminalController {
             relayOwnerUnavailable: String(
                 localized: "socket.workspace.list.relayOwnerUnavailable",
                 defaultValue: "Relay owner workspace is not active"
+            ),
+            reorderRejected: String(
+                localized: "socket.workspace.reorder.rejected",
+                defaultValue: "Workspace reorder placement was refused"
             )
         )
     }

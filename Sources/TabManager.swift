@@ -2057,6 +2057,14 @@ class TabManager: ObservableObject {
         workspaceReordering.workspaceReorderPlan(tabId: tabId, before: beforeId, after: afterId)
     }
 
+    func isRefusedWorkspacePlacement(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+        workspaceReordering.isRefusedWorkspacePlacement(tabId: tabId, toIndex: targetIndex)
+    }
+
+    func isRefusedWorkspacePlacement(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
+        workspaceReordering.isRefusedWorkspacePlacement(tabId: tabId, before: beforeId, after: afterId)
+    }
+
     func workspaceBatchReorderPlan(
         orderedWorkspaceIds: [UUID]
     ) -> Result<[WorkspaceReorderPlanItem], WorkspaceBatchReorderError> {

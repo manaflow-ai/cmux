@@ -37,9 +37,13 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     /// The scoped denial returned when an authenticated relay owner is stale.
     public let relayOwnerUnavailable: String
 
+    /// `socket.workspace.reorder.rejected`.
+    public let reorderRejected: String
+
     /// Creates the localized workspace strings.
     ///
     /// - Parameters:
+    ///   - reorderRejected: The refused-placement message.
     ///   - closeProtected: The `workspace.close` protected-pin message.
     ///   - closeFailed: The `workspace.close` local-teardown failure message.
     ///   - reorderManyMissingOrder: The missing-order message.
@@ -64,8 +68,10 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         reorderTargetRequired: String,
         reorderManyTabManagerUnavailable: String,
         tabManagerUnavailable: String = "TabManager not available",
-        relayOwnerUnavailable: String
+        relayOwnerUnavailable: String,
+        reorderRejected: String = "Workspace reorder placement was refused"
     ) {
+        self.reorderRejected = reorderRejected
         self.closeProtected = closeProtected
         self.closeFailed = closeFailed
         self.reorderManyMissingOrder = reorderManyMissingOrder

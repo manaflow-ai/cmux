@@ -196,16 +196,46 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// The before/after-relative reorder plan, or `nil` when unknown.
     public func workspaceReorderPlan(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> WorkspaceReorderPlanItem? {
+        guard let targetIndex = relativeReorderTargetIndex(tabId: tabId, before: beforeId, after: afterId) else {
+            return nil
+        }
+        return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+    }
+
+    /// Whether a single-workspace placement is refused: the caller asked for
+    /// an in-range slot other than the current one, but the pin-tier or
+    /// group-section clamp resolves the plan to staying put (for example,
+    /// dropping a grouped member above its group's anchor, #13499).
+    /// `reorderWorkspace` still returns true for such a request. Clamping an
+    /// out-of-range index, or a clamp that still moves the row, is not a
+    /// refusal.
+    public func isRefusedWorkspacePlacement(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+        guard model.tabs.indices.contains(targetIndex) else { return false }
+        guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex),
+              plan.fromIndex == plan.toIndex else {
+            return false
+        }
+        return targetIndex != plan.fromIndex
+    }
+
+    /// The before/after-relative form of `isRefusedWorkspacePlacement`.
+    public func isRefusedWorkspacePlacement(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
+        guard let targetIndex = relativeReorderTargetIndex(tabId: tabId, before: beforeId, after: afterId) else {
+            return false
+        }
+        return isRefusedWorkspacePlacement(tabId: tabId, toIndex: targetIndex)
+    }
+
+    /// The unclamped target index a before/after request asks for.
+    private func relativeReorderTargetIndex(tabId: UUID, before beforeId: UUID?, after afterId: UUID?) -> Int? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if let beforeId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == beforeId }) else { return nil }
-            let targetIndex = currentIndex < idx ? idx - 1 : idx
-            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+            return currentIndex < idx ? idx - 1 : idx
         }
         if let afterId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
-            let targetIndex = currentIndex < idx ? idx : idx + 1
-            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
+            return currentIndex < idx ? idx : idx + 1
         }
         return nil
     }

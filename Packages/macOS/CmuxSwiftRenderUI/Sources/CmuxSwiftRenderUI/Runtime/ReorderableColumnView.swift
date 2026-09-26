@@ -1,62 +1,6 @@
 import Observation
 import SwiftUI
 
-/// Per-drag state for ``ReorderableColumnView``, `@Observable` so invalidation
-/// is exactly as fine-grained as the reads:
-///
-/// - `translation` changes on every pointer frame and is read ONLY by the
-///   dragged row's offset, so tracking re-renders one row and animates nothing.
-/// - `targetIndex` / `draggedId` are discrete: they change when the dragged
-///   row's center crosses a neighbor's center (or on lift/drop), and every
-///   mutation happens inside an explicit `withAnimation(spring)`. Rows shift
-///   with one spring per crossing instead of a spring restarted 60×/s.
-///
-/// This is the first-principles jank fix: continuous state is isolated and
-/// unanimated; discrete state is shared and spring-animated.
-@MainActor
-@Observable
-private final class ReorderDragModel {
-    @ObservationIgnored var feedback: ReorderDragFeedback?
-    var draggedId: String?
-    var sourceIndex = 0
-    var targetIndex = 0
-    var translation: CGFloat = 0
-    var draggedHeight: CGFloat = 0
-    /// True between drop commit and settle completion: the shadow/scale lift
-    /// eases out with the settle spring instead of vanishing on mouse-up.
-    var isSettling = false
-    /// The leading indent of the projected drop slot (Arc-style X preview):
-    /// while dragging toward a group the row slides to the member indent,
-    /// dragging out it slides back. `nil` = no evidence, keep current X.
-    var projectedIndent: CGFloat?
-    /// The last drop's row and projected indent, kept after the drag ends so
-    /// the X preview holds until the authoritative data lands (the row's own
-    /// indent prop then matches the projection and the offset becomes zero).
-    var settledId: String?
-    var settledIndent: CGFloat?
-    /// True while an Escape-cancelled drag springs home; gesture events are
-    /// ignored until the settle completes.
-    var isCancelling = false
-    /// Local Escape key monitor, alive only while a drag is in flight.
-    @ObservationIgnored var escapeMonitor: Any?
-    /// Which neighbor's nesting the ambiguous boundary slot resolved to
-    /// ("above" or "below"), chosen by the pointer's X position.
-    var boundarySide = "above"
-    /// The dragged row's indent at lift, the X reference for boundary choice.
-    var liftIndent: CGFloat = 0
-
-    /// Block mode: grabbing a block head (a `fixed` row with a `block` prop)
-    /// drags the whole run of rows sharing that block value as one unit.
-    var isBlockDrag = false
-    /// Rows moving with the drag in block mode (head + members).
-    var blockRows: Set<String> = []
-    /// Frozen at lift: each row's index in the coarse item list, where the
-    /// dragged block (and every other block) is one item.
-    var coarseIndexByRow: [String: Int] = [:]
-    var coarseSource = 0
-    var coarseTarget = 0
-}
-
 /// A vertically reorderable column of scene rows with Arc-style drag feedback:
 /// the grabbed row lifts (scale + shadow) and tracks the pointer same-frame,
 /// the other rows spring aside exactly once per slot crossing, and the drop
@@ -72,7 +16,6 @@ struct ReorderableColumnView: View {
     @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
     @State private var model = ReorderDragModel()
-    @State private var localOrder: [String]?
     // Deliberately NOT @State: slot heights change EVERY FRAME during the
     // accordion fold, and observing them would re-render the whole column
     // per frame. Geometry is only read at gesture time.
@@ -146,7 +89,17 @@ struct ReorderableColumnView: View {
                !children.contains(draggedId) {
                 cancelDrag()
             }
-            if model.draggedId == nil || model.isSettling { localOrder = nil }
+            if model.draggedId == nil || model.isSettling { model.localOrder = nil }
+        }
+        // Explicit same-membership reconciliation for custom optimistic state.
+        // A live gesture keeps its frozen order until settlement finishes.
+        .onChange(of: node.props["resetVersion"]) { _, _ in
+            if model.draggedId == nil || model.isSettling {
+                model.localOrder = nil
+                model.settledId = nil
+                model.settledIndent = nil
+                model.projectedIndent = nil
+            }
         }
         // Suppress hover washes on every row but the dragged one while a
         // drag is in flight (see SceneBoxStyle).
@@ -157,7 +110,7 @@ struct ReorderableColumnView: View {
             model.draggedId = nil
             model.isSettling = false
             model.isCancelling = false
-            localOrder = nil
+            model.localOrder = nil
         }
     }
 
@@ -165,7 +118,7 @@ struct ReorderableColumnView: View {
     /// optimistic order; otherwise the scene's authoritative order. A
     /// contextMenu child attached to the list itself is never a row.
     private var displayOrder: [String] {
-        (localOrder ?? node.children).filter { store?.node($0)?.type != "contextMenu" }
+        (model.localOrder ?? node.children).filter { store?.node($0)?.type != "contextMenu" }
     }
 
     private func dragGesture(childId: String) -> some Gesture {
@@ -178,8 +131,8 @@ struct ReorderableColumnView: View {
                     // Freeze the visual order for the whole gesture: a live
                     // data update mid-drag must not reshuffle rows under the
                     // pointer. onChange(node.children) reconciles after drop.
-                    if localOrder == nil {
-                        localOrder = order
+                    if model.localOrder == nil {
+                        model.localOrder = order
                     }
                     // Lift: shadow springs in; nothing else moves yet.
                     withAnimation(Self.liftSpring) {
@@ -326,11 +279,7 @@ struct ReorderableColumnView: View {
             model.projectedIndent = nil
             model.isSettling = true
         } completion: {
-            model.draggedId = nil
-            model.isSettling = false
-            model.isBlockDrag = false
-            model.blockRows = []
-            model.isCancelling = false
+            model.finishSettlement()
         }
     }
 
@@ -367,7 +316,7 @@ struct ReorderableColumnView: View {
         commit.disablesAnimations = true
         withTransaction(commit) {
             if newOrder != order {
-                localOrder = newOrder
+                model.localOrder = newOrder
             }
             model.sourceIndex = target
             model.targetIndex = target
@@ -383,12 +332,9 @@ struct ReorderableColumnView: View {
             model.translation = 0
             model.isSettling = true
         } completion: {
-            model.draggedId = nil
-            model.isSettling = false
-            model.isBlockDrag = false
-            model.blockRows = []
+            model.finishSettlement()
         }
-        // Hold the X preview past the settle: the offset formula
+        // Hold the X preview through the settle: the offset formula
         // (projected - own indent prop) self-zeroes when the authoritative
         // data updates the row's indent, so there is never a horizontal jump.
         model.settledId = childId

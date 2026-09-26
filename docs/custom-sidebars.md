@@ -159,7 +159,7 @@ Rules of the runtime:
   drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
   shows the full pattern including cross-group drag via
   `workspace.group.add`/`workspace.group.remove`.
-- `Reorderable({ items, key, onMove, onDragChange, spacing }, template)` is the drag-to-reorder list:
+- `Reorderable({ items, key, onMove, onDragChange, spacing, resetVersion }, template)` is the drag-to-reorder list:
   the grabbed row lifts and follows the pointer, the other rows spring aside
   live, and the drop calls `onMove(id, index, extra)` (dispatch
   `workspace.reorder` there to persist). `index` is the zero-based flat row
@@ -167,6 +167,17 @@ Rules of the runtime:
   between nesting levels, the pointer's horizontal position chooses which
   neighboring row's nesting to adopt. It is not a vertical drop direction.
   `extra.block` is true when moving a block header with its members.
+- The renderer's optimistic order and nesting preview last only through the
+  drop animation. Afterwards, `items` controls the arrangement, including when
+  a refused move leaves the supplied items unchanged. Accepted changes that
+  arrive later animate from the current items order.
+- Optional `resetVersion` is a scalar or reactive accessor. Change its value
+  to discard the renderer's preview without changing keys or membership:
+  `resetVersion: () => resetTick()`. During a live drag, reconciliation waits
+  until settlement so rows do not move under the pointer. If your sidebar
+  also holds an optimistic items override, clear that override as well; this
+  option resets renderer state, not your JavaScript signals. `cmux(...)` is
+  fire-and-forget and does not return the socket response to JavaScript.
 - Optional `onDragChange(state)` reports the projected drop during a drag:
   `{ id, index, side, block }`, using the same meanings as `onMove`. It fires
   on lift and when the projected intent changes, not on every pointer frame.

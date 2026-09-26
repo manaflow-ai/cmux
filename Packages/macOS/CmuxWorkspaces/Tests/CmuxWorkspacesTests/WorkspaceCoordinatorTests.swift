@@ -178,6 +178,68 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
     }
 
+    // #13499: a placement the clamp turns into "stay put" is a refusal, and
+    // `reorderWorkspace` still returns true for it, so callers must ask.
+
+    @Test
+    func groupedMemberAboveAnchorIsRefusedPlacement() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+        let order = [group.anchorWorkspaceId, child1.id, child2.id, outside.id]
+        #expect(model.tabs.map(\.id) == order)
+
+        #expect(reorder.isRefusedWorkspacePlacement(tabId: child1.id, toIndex: 0))
+        #expect(reorder.isRefusedWorkspacePlacement(
+            tabId: child1.id,
+            before: group.anchorWorkspaceId
+        ))
+        // A clamp that still moves the row is not a refusal.
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: child2.id, toIndex: 0))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: child1.id, toIndex: 2))
+        #expect(model.tabs.map(\.id) == order)
+    }
+
+    @Test
+    func unpinnedAbovePinnedTierIsRefusedPlacement() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let pinned = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinned, plain1, plain2]
+
+        #expect(reorder.isRefusedWorkspacePlacement(tabId: plain1.id, toIndex: 0))
+        #expect(reorder.isRefusedWorkspacePlacement(tabId: plain1.id, before: pinned.id))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: plain2.id, toIndex: 0))
+    }
+
+    @Test
+    func stayingPutOrOutOfRangeIndexIsNotRefusedPlacement() {
+        let (model, host, _, reorder) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        model.tabs = [a, b]
+
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: b.id, toIndex: 1))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: b.id, toIndex: 99))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, toIndex: -5))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, after: b.id))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: UUID(), toIndex: 0))
+        a.isPinned = true
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: b.id, toIndex: -5))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, toIndex: 99))
+    }
+
     @Test
     func batchReorderRejectsUnknownAndDuplicateIds() {
         let (model, host, _, reorder) = makeWorld()

@@ -427,3 +427,16 @@ such as:
 
 The automation engine uses this bounded chain to stop a rule from triggering
 itself or participating in a cycle. Other event consumers may ignore the field.
+
+### Refused workspace reorder placements
+
+`workspace.reorder` returns an error with code `rejected` when an in-range
+placement would cross a pin or group boundary and clamp the workspace back
+to its current index. For example, moving a group's first member above its
+anchor is refused. The same error is returned for `dry_run: true`.
+
+Error data includes `workspace_id`, `workspace_ref`, `window_id`, `window_ref`,
+`from_index`, `to_index`, and `dry_run`. Index requests also include
+`requested_index`. An unchanged request for the current position, an
+out-of-range index, or a clamp that still moves the row retains its successful
+response. Consumers should reconcile optimistic presentation after refusal.
