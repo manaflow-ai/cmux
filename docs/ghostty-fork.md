@@ -12,6 +12,42 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Prompt teardown of SIGHUP-ignoring launchers and VT replay rows
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/232
+- Commits:
+  - `f48511fda` (test: bound teardown for SIGHUP-ignoring launchers)
+  - `9b048945d` (fix(termio): escalate SIGHUP-ignoring launchers promptly)
+  - `680a5fe93` (fix(termio): validate Darwin process records before escalation)
+  - `d0f5c6ba4` (fix: preserve trailing rows for VT replay)
+  - `ceec3ea35` (test(termio): verify SIGTERM reaches SIGHUP-ignoring leaders)
+  - `f058563ab` (fix(termio): honor SIGTERM grace after ignored SIGHUP)
+  - `7bdc11eca` (fix: start teardown grace at signal delivery)
+  - `aed0ba6c4` (fix(formatter): preserve valid trailing row mapping)
+- Merged fork commit: `2decb9c145273b11d7d92c468c98405f73991f0f`
+- File: `src/termio/Exec.zig`
+- Summary: macOS `/usr/bin/login` ignores SIGHUP while it hands a new PTY to
+  its shell. Teardown now detects that disposition and escalates only that
+  process group to SIGTERM immediately, then SIGKILL after a short bound. The
+  SIGTERM grace starts after successful delivery, and the foreground shell group
+  keeps the existing 12-second SIGHUP grace used by shutdown hooks. VT replay
+  preserves only the physical blank rows needed before restoring cursor state.
+- Verification: the test-only Darwin run failed because the leader observed no
+  SIGTERM (`36151084089`); the corrected hosted macOS run passed the targeted
+  test (`36152536501`). The test is skipped on non-Darwin targets because the
+  process-disposition query is macOS-specific. The disposition query
+  zero-initializes and size-checks the Darwin process record before reading its
+  signal mask.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2decb9c145273b11d7d92c468c98405f73991f0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `ce1a74a4867a3884c7213ad151b14f7d6c4ac7f58de0f96af81a3c4356c91d1a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: preserve the per-process-group phase and do not collapse the
+  launcher and foreground groups back into one shared deadline. Doing so
+  reintroduces the startup close stall or cuts off shell shutdown hooks.
+
+### Historical Cloud restore replay trailing rows
+
 ### CJK fallback ideograph sizing
 
 - Branch: `issue-4978-cjk-spacing`
@@ -44,17 +80,11 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `0068ece733`, the CJK fallback sizing fix
-on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
-the full two-cell terminal span, so Hangul glyphs selected through CoreText
-fallback do not leave a gap before the next terminal cell. The previous pin
-`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
-Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
-from PR #227 was merged. That replay fix preserves physical blank rows until
-cursor/state restoration completes, so a restored Cloud grid cannot regain
-stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
-changes while adding the localhost-port punctuation fix and owned POSIX
-environment snapshots for embedded hosts.
+The submodule pinned by this branch is `2decb9c145`, the merged Ghostty PR #232
+containing prompt teardown, SIGTERM grace, and VT replay fixes. The base SHA
+preserves cmux's Cloud loopback link-detection changes while adding the
+localhost-port punctuation fix and owned POSIX environment snapshots for
+embedded hosts.
 
 The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
 `3869e81a0` into the Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
