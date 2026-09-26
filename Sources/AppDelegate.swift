@@ -3907,6 +3907,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleScreenChangeReconcileWhenIdle()
         }
         flushPendingStartupNavigationURLRequests()
+        // Restored scrollback now lives only in memory under the restored panel
+        // ids; write it back as checkpoints so a second crash keeps it.
+        sessionScrollbackCheckpointCoordinator?.seed(sessionScrollbackCheckpointRestoredSeeds())
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -4347,7 +4350,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     }
                 },
                 persist: { batch in
-                    queue.async { store.apply(batch) }
+                    queue.async {
+                        store.applyMarkingFailuresPending(batch, activity: .shared)
+                    }
                 }
             )
         )
@@ -5219,7 +5224,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: createdAt,
-            windows: windows
+            windows: windows,
+            scrollbackCapturedAt: includeScrollback ? createdAt : nil
         )
         return (snapshot, didRemoveCrashDiagnosticData)
     }

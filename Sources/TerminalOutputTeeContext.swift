@@ -1,4 +1,3 @@
-import CmuxFoundation
 import CmuxTerminalCore
 import Foundation
 import os
@@ -45,7 +44,7 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     let workspaceID: UUID
     let surfaceID: UUID
     /// Set on every PTY read; cleared by the scrollback checkpoint that captures this surface.
-    let scrollbackCheckpointActivity: AtomicBooleanGate
+    let scrollbackCheckpointFlags: TerminalScrollbackOutputFlags
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
     private var detectors: [DetectorBinding]
@@ -55,11 +54,11 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
         workspaceID: UUID,
         surfaceID: UUID,
         agentDefinitions: [CmuxTaskManagerCodingAgentDefinition],
-        scrollbackCheckpointActivity: AtomicBooleanGate
+        scrollbackCheckpointFlags: TerminalScrollbackOutputFlags
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
-        self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
+        self.scrollbackCheckpointFlags = scrollbackCheckpointFlags
         self.notificationHandler = PromptTurnNotificationHandler(
             workspaceID: workspaceID,
             surfaceID: surfaceID

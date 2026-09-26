@@ -14,16 +14,23 @@ import os
 // - They run at most every `SessionScrollbackCheckpointPolicy.interval`, only
 //   after the user has stopped typing for `typingQuietPeriod`.
 // - They capture only terminals that produced PTY output since their last
-//   checkpoint. The signal is one relaxed atomic load per PTY read on the
+//   checkpoint. The signal is two relaxed atomic loads per PTY read on the
 //   Ghostty IO thread (`TerminalScrollbackCheckpointActivity`).
-// - At most `maxCapturesPerCheckpoint` terminals are captured per checkpoint,
-//   one per main-queue turn, stopping early when typing resumes or the
-//   main-thread budget is spent. The rest stay pending for the next checkpoint.
-// - Truncation, encoding and file I/O happen off the main thread, one file per
-//   terminal, so an unchanged terminal costs nothing and nothing is cached in
-//   memory between checkpoints.
+// - The main thread does only Ghostty's VT export into a temp file. Reading,
+//   CRLF normalization, the line tail, truncation, encoding and the write all
+//   run on a utility queue.
+// - At most `maxCapturesPerCheckpoint` exports per checkpoint, one per
+//   main-queue turn, stopping early when typing resumes or the exports used
+//   `mainThreadCaptureBudget`. A terminal whose export alone exceeded the
+//   budget, or failed, waits `slowCaptureBackoff` before it is exported again.
+//   The export itself is Ghostty formatting that terminal's whole scrollback
+//   under its renderer lock, so one export is the unit that cannot be split.
+// - One file per terminal, so an unchanged terminal costs nothing and nothing
+//   is cached in memory between checkpoints.
+// - After a restore, the restored scrollback is written back as checkpoints
+//   for the new panels, so a second crash does not lose it.
 // - Restore merges checkpoints into the startup snapshot only after an unclean
-//   exit, and a checkpoint only replaces snapshot scrollback that is older.
+//   exit, and a checkpoint never overrides a newer scrollback-bearing save.
 
 /// Scheduling, idle gating and change-detection decisions for scrollback checkpoints.
 enum SessionScrollbackCheckpointPolicy {
@@ -33,12 +40,16 @@ enum SessionScrollbackCheckpointPolicy {
     static let typingQuietPeriod: TimeInterval = 5
     /// Upper bound on Ghostty VT exports per checkpoint.
     static let maxCapturesPerCheckpoint = 3
-    /// No further capture is started in a checkpoint once captures have used this much main-thread time.
+    /// No further export is started in a checkpoint once exports have used this much main-thread time.
     static let mainThreadCaptureBudget: TimeInterval = 0.05
+    /// A terminal whose export exceeded `mainThreadCaptureBudget`, or failed, is skipped this long.
+    static let slowCaptureBackoff: TimeInterval = 600
 
-    /// Checkpoints follow session restore: when restore is disabled there is nothing to restore into.
+    /// Checkpoints follow session restore: when restore is disabled there is nothing to restore
+    /// into, and automated test runs must not write into the real application support directory.
     static func isEnabled(environment: [String: String]) -> Bool {
         environment["CMUX_DISABLE_SESSION_RESTORE"] != "1"
+            && !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment)
     }
 
     static func isTypingQuiet(secondsSinceTyping: TimeInterval?) -> Bool {
@@ -74,6 +85,8 @@ enum SessionScrollbackCheckpointPolicy {
     static func plan(
         candidates: [Candidate],
         lastCapturedAt: [UUID: TimeInterval],
+        deferredUntil: [UUID: TimeInterval] = [:],
+        now: TimeInterval = 0,
         maxCaptures: Int = SessionScrollbackCheckpointPolicy.maxCapturesPerCheckpoint
     ) -> Plan {
         var removals = Set<UUID>()
@@ -81,7 +94,8 @@ enum SessionScrollbackCheckpointPolicy {
         for candidate in candidates {
             if !candidate.isEligible {
                 removals.insert(candidate.panelId)
-            } else if candidate.hasPendingOutput == true {
+            } else if candidate.hasPendingOutput == true,
+                      (deferredUntil[candidate.panelId] ?? -.infinity) <= now {
                 pending.append(candidate.panelId)
             }
         }
@@ -99,48 +113,72 @@ enum SessionScrollbackCheckpointPolicy {
     }
 }
 
-/// Per-surface "output since last checkpoint" flags, set from the Ghostty PTY tee.
+/// Per-runtime output flags, set from the Ghostty PTY tee.
+final class TerminalScrollbackOutputFlags: Sendable {
+    /// Output since the last capture began.
+    let pending = AtomicBooleanGate(true)
+    /// Output since the checkpoint planned this terminal's capture.
+    let recent = AtomicBooleanGate(false)
+}
+
+/// Per-surface "output since last checkpoint" flags.
 final class TerminalScrollbackCheckpointActivity: @unchecked Sendable {
     static let shared = TerminalScrollbackCheckpointActivity()
 
-    private let gates = OSAllocatedUnfairLock(initialState: [UUID: AtomicBooleanGate]())
+    private let flags = OSAllocatedUnfairLock(initialState: [UUID: TerminalScrollbackOutputFlags]())
 
     /// Registers a new runtime for `surfaceID`. A new runtime starts pending so it is captured once.
-    func register(surfaceID: UUID) -> AtomicBooleanGate {
-        let gate = AtomicBooleanGate(true)
-        gates.withLock { $0[surfaceID] = gate }
-        return gate
+    func register(surfaceID: UUID) -> TerminalScrollbackOutputFlags {
+        let created = TerminalScrollbackOutputFlags()
+        flags.withLock { $0[surfaceID] = created }
+        return created
     }
 
-    /// Removes `gate` unless a newer runtime for the surface already replaced it.
-    func unregister(surfaceID: UUID, gate: AtomicBooleanGate) {
-        gates.withLock { state in
-            if state[surfaceID] === gate {
+    /// Removes `registration` unless a newer runtime for the surface already replaced it.
+    func unregister(surfaceID: UUID, registration: TerminalScrollbackOutputFlags) {
+        flags.withLock { state in
+            if state[surfaceID] === registration {
                 state.removeValue(forKey: surfaceID)
             }
         }
     }
 
-    /// Called on the PTY read thread for every output chunk. Stores only on the idle-to-pending transition.
+    /// Called on the PTY read thread for every output chunk. Stores only on clear-to-set transitions.
     @inline(__always)
-    static func recordOutput(_ gate: AtomicBooleanGate) {
-        if !gate.loadRelaxed() {
-            gate.storeRelease(true)
+    static func recordOutput(_ flags: TerminalScrollbackOutputFlags) {
+        if !flags.pending.loadRelaxed() {
+            flags.pending.storeRelease(true)
+        }
+        if !flags.recent.loadRelaxed() {
+            flags.recent.storeRelease(true)
         }
     }
 
+    private func registration(_ surfaceID: UUID) -> TerminalScrollbackOutputFlags? {
+        flags.withLock { $0[surfaceID] }
+    }
+
     func hasPendingOutput(surfaceID: UUID) -> Bool? {
-        gates.withLock { $0[surfaceID] }?.loadAcquire()
+        registration(surfaceID)?.pending.loadAcquire()
     }
 
-    /// Clears the flag before a capture, so output that races the capture marks the terminal again.
-    func beginCapture(surfaceID: UUID) {
-        gates.withLock { $0[surfaceID] }?.storeRelease(false)
+    /// Marks the start of the settle window, at least one main-queue turn before the capture.
+    func clearRecentOutput(surfaceID: UUID) {
+        registration(surfaceID)?.recent.storeRelease(false)
     }
 
-    /// Restores the flag after a failed capture.
+    /// Clears the pending flag before a capture, so output that races the capture marks the
+    /// terminal again. Returns whether output arrived since `clearRecentOutput`: the PTY tee runs
+    /// before Ghostty parses those bytes, so they may be missing from this capture.
+    func beginCapture(surfaceID: UUID) -> Bool {
+        guard let registration = registration(surfaceID) else { return false }
+        registration.pending.storeRelease(false)
+        return registration.recent.loadAcquire()
+    }
+
+    /// Leaves the terminal for the next checkpoint (failed capture, write, or unsettled output).
     func markPending(surfaceID: UUID) {
-        gates.withLock { $0[surfaceID] }?.storeRelease(true)
+        registration(surfaceID)?.pending.storeRelease(true)
     }
 }
 
@@ -157,15 +195,18 @@ struct SessionScrollbackCheckpointRecord: Codable, Equatable, Sendable {
 
 struct SessionScrollbackCheckpointCapture: Sendable {
     let panelId: UUID
+    let surfaceId: UUID
     let capturedAt: TimeInterval
-    /// Untruncated capture; normalized off the main thread.
-    let scrollback: String
+    /// Produces the captured text off the main thread (reads and trims Ghostty's
+    /// export file); nil when the capture failed.
+    let finish: @Sendable () -> String?
 }
 
 struct SessionScrollbackCheckpointWriteBatch: Sendable {
     var captures: [SessionScrollbackCheckpointCapture]
     var removals: Set<UUID>
-    var livePanelIds: Set<UUID>
+    /// Every live terminal; files for other panels are pruned. Nil skips pruning.
+    var livePanelIds: Set<UUID>?
 }
 
 /// One JSON file per terminal next to the primary session snapshot.
@@ -189,8 +230,14 @@ struct SessionScrollbackCheckpointStore: Sendable {
     }
 
     /// Writes captures, deletes removals and prunes files of panels that no longer exist.
-    func apply(_ batch: SessionScrollbackCheckpointWriteBatch, fileManager: FileManager = .default) {
+    /// Returns the surfaces whose capture could not be persisted.
+    @discardableResult
+    func apply(
+        _ batch: SessionScrollbackCheckpointWriteBatch,
+        fileManager: FileManager = .default
+    ) -> Set<UUID> {
         var removals = batch.removals
+        var failedSurfaceIds = Set<UUID>()
         if !batch.captures.isEmpty {
             try? fileManager.createDirectory(
                 at: directoryURL,
@@ -200,7 +247,11 @@ struct SessionScrollbackCheckpointStore: Sendable {
         }
         let encoder = JSONEncoder()
         for capture in batch.captures {
-            guard let scrollback = SessionPersistencePolicy.truncatedScrollback(capture.scrollback),
+            guard let captured = capture.finish() else {
+                failedSurfaceIds.insert(capture.surfaceId)
+                continue
+            }
+            guard let scrollback = SessionPersistencePolicy.truncatedScrollback(captured),
                   scrollback.contains(where: { !$0.isWhitespace }) else {
                 // An empty terminal restores empty, like the quit path.
                 removals.insert(capture.panelId)
@@ -212,13 +263,29 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 capturedAt: capture.capturedAt,
                 scrollback: scrollback
             )
-            guard let data = try? encoder.encode(record) else { continue }
-            try? data.write(to: fileURL(panelId: capture.panelId), options: .atomic)
+            do {
+                try encoder.encode(record).write(to: fileURL(panelId: capture.panelId), options: .atomic)
+            } catch {
+                failedSurfaceIds.insert(capture.surfaceId)
+            }
         }
         for panelId in removals {
             try? fileManager.removeItem(at: fileURL(panelId: panelId))
         }
-        prune(keeping: batch.livePanelIds, fileManager: fileManager)
+        if let livePanelIds = batch.livePanelIds {
+            prune(keeping: livePanelIds, fileManager: fileManager)
+        }
+        return failedSurfaceIds
+    }
+
+    /// Applies `batch` and leaves every failed capture pending for the next checkpoint.
+    func applyMarkingFailuresPending(
+        _ batch: SessionScrollbackCheckpointWriteBatch,
+        activity: TerminalScrollbackCheckpointActivity
+    ) {
+        for surfaceId in apply(batch) {
+            activity.markPending(surfaceID: surfaceId)
+        }
     }
 
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
@@ -260,15 +327,29 @@ struct SessionScrollbackCheckpointStore: Sendable {
 }
 
 enum SessionScrollbackCheckpointMerge {
-    /// The newest of the snapshot's own scrollback and the checkpoint wins.
+    /// Chooses between the snapshot's own scrollback and a checkpoint.
+    ///
+    /// A snapshot saved with scrollback (quit, power-off, update relaunch) records
+    /// `scrollbackCapturedAt`; when that is at least as new as the checkpoint, the
+    /// snapshot wins even with no scrollback, because it omitted it on purpose
+    /// (running command, cleared terminal). The 8 s autosave never captures
+    /// scrollback and leaves the marker nil, so its snapshot is treated as having
+    /// no scrollback evidence. Legacy snapshots without the marker keep their own
+    /// non-empty scrollback when they are newer.
     static func resolvedScrollback(
         snapshotScrollback: String?,
         snapshotCreatedAt: TimeInterval,
+        snapshotScrollbackCapturedAt: TimeInterval?,
         checkpoint: SessionScrollbackCheckpointRecord?
     ) -> String? {
         guard let checkpoint else { return snapshotScrollback }
-        guard let snapshotScrollback, !snapshotScrollback.isEmpty else { return checkpoint.scrollback }
-        return checkpoint.capturedAt > snapshotCreatedAt ? checkpoint.scrollback : snapshotScrollback
+        if let scrollbackCapturedAt = snapshotScrollbackCapturedAt {
+            return scrollbackCapturedAt >= checkpoint.capturedAt ? snapshotScrollback : checkpoint.scrollback
+        }
+        if let snapshotScrollback, !snapshotScrollback.isEmpty, snapshotCreatedAt >= checkpoint.capturedAt {
+            return snapshotScrollback
+        }
+        return checkpoint.scrollback
     }
 
     static func terminalPanelIds(in snapshot: AppSessionSnapshot) -> Set<UUID> {
@@ -293,6 +374,7 @@ enum SessionScrollbackCheckpointMerge {
         into snapshot: AppSessionSnapshot
     ) -> AppSessionSnapshot {
         let createdAt = snapshot.createdAt
+        let scrollbackCapturedAt = snapshot.scrollbackCapturedAt
         func merge(_ panels: inout [SessionPanelSnapshot]) {
             for index in panels.indices {
                 guard panels[index].terminal != nil,
@@ -300,6 +382,7 @@ enum SessionScrollbackCheckpointMerge {
                 panels[index].terminal?.scrollback = resolvedScrollback(
                     snapshotScrollback: panels[index].terminal?.scrollback,
                     snapshotCreatedAt: createdAt,
+                    snapshotScrollbackCapturedAt: scrollbackCapturedAt,
                     checkpoint: record
                 )
             }
@@ -332,8 +415,15 @@ final class SessionScrollbackCheckpointCoordinator {
         let panelId: UUID
         let surfaceId: UUID
         let isEligible: Bool
-        /// Synchronous capture of the terminal's scrollback (a Ghostty VT export); nil on failure.
-        let capture: () -> String?
+        /// Main-thread half of the capture (Ghostty's VT export). Returns the
+        /// off-main half that reads and trims the export, or nil on failure.
+        let beginCapture: () -> (@Sendable () -> String?)?
+    }
+
+    struct Seed {
+        let panelId: UUID
+        let surfaceId: UUID
+        let scrollback: String
     }
 
     struct Environment {
@@ -345,7 +435,7 @@ final class SessionScrollbackCheckpointCoordinator {
         var canCheckpoint: () -> Bool
         var secondsSinceTyping: () -> TimeInterval?
         var candidates: () -> [Candidate]
-        /// Defers the next capture to a later main-queue turn.
+        /// Defers work to a later main-queue turn.
         var scheduleNextCapture: (@escaping @MainActor () -> Void) -> Void
         /// Hands the batch to background I/O.
         var persist: (SessionScrollbackCheckpointWriteBatch) -> Void
@@ -355,6 +445,7 @@ final class SessionScrollbackCheckpointCoordinator {
     private let activity: TerminalScrollbackCheckpointActivity
     private var lastCheckpointAt: TimeInterval
     private var lastCapturedAt: [UUID: TimeInterval] = [:]
+    private var deferredUntil: [UUID: TimeInterval] = [:]
     private(set) var isCheckpointInFlight = false
 
     init(
@@ -365,6 +456,26 @@ final class SessionScrollbackCheckpointCoordinator {
         self.activity = activity
         // The first checkpoint waits a full interval after launch.
         self.lastCheckpointAt = environment.uptime()
+    }
+
+    /// Writes already-known scrollback (a just-restored session) as checkpoints
+    /// without a VT export, so a crash before the next checkpoint keeps it.
+    func seed(_ seeds: [Seed]) {
+        guard !seeds.isEmpty else { return }
+        let capturedAt = environment.wallClock()
+        environment.persist(SessionScrollbackCheckpointWriteBatch(
+            captures: seeds.map { seed in
+                let scrollback = seed.scrollback
+                return SessionScrollbackCheckpointCapture(
+                    panelId: seed.panelId,
+                    surfaceId: seed.surfaceId,
+                    capturedAt: capturedAt,
+                    finish: { scrollback }
+                )
+            },
+            removals: [],
+            livePanelIds: nil
+        ))
     }
 
     /// Cheap unless a checkpoint is due; safe to call from the 8 s autosave timer.
@@ -391,43 +502,42 @@ final class SessionScrollbackCheckpointCoordinator {
                     hasPendingOutput: activity.hasPendingOutput(surfaceID: $0.surfaceId)
                 )
             },
-            lastCapturedAt: lastCapturedAt
+            lastCapturedAt: lastCapturedAt,
+            deferredUntil: deferredUntil,
+            now: now
         )
         lastCapturedAt = lastCapturedAt.filter { plan.livePanelIds.contains($0.key) }
+        deferredUntil = deferredUntil.filter { plan.livePanelIds.contains($0.key) && $0.value > now }
 
+        let planned = plan.captures.compactMap { candidatesById[$0] }
+        for candidate in planned {
+            activity.clearRecentOutput(surfaceID: candidate.surfaceId)
+        }
         isCheckpointInFlight = true
-        captureNext(
-            remaining: plan.captures.compactMap { candidatesById[$0] }[...],
-            captured: [],
-            capturedSurfaceIds: [],
-            spent: 0,
-            plan: plan
-        )
+        // Start one main-queue turn later so output teed before the settle
+        // window opened has a chance to reach Ghostty's parser.
+        environment.scheduleNextCapture { [weak self] in
+            self?.captureNext(remaining: planned[...], captured: [], spent: 0, plan: plan)
+        }
         return true
     }
 
     private func captureNext(
         remaining: ArraySlice<Candidate>,
         captured: [SessionScrollbackCheckpointCapture],
-        capturedSurfaceIds: [UUID],
         spent: TimeInterval,
         plan: SessionScrollbackCheckpointPolicy.Plan
     ) {
-        guard environment.canCheckpoint() else {
-            // Quit and restore write their own snapshot; drop this checkpoint
-            // and leave the dropped captures pending for the next one.
-            for surfaceId in capturedSurfaceIds {
-                activity.markPending(surfaceID: surfaceId)
-            }
-            isCheckpointInFlight = false
-            return
-        }
         guard let candidate = remaining.first,
+              environment.canCheckpoint(),
               spent < SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget,
               SessionScrollbackCheckpointPolicy.isTypingQuiet(
                   secondsSinceTyping: environment.secondsSinceTyping()
               ) else {
-            // Unstarted captures keep their pending flag for the next checkpoint.
+            // Captures already exported are persisted even when quit or restore
+            // interrupted the checkpoint (a later scrollback save still wins, and
+            // this cleans up their export files). Unstarted captures keep their
+            // pending flag for the next checkpoint.
             environment.persist(SessionScrollbackCheckpointWriteBatch(
                 captures: captured,
                 removals: plan.removals,
@@ -438,30 +548,34 @@ final class SessionScrollbackCheckpointCoordinator {
         }
 
         let start = environment.uptime()
-        activity.beginCapture(surfaceID: candidate.surfaceId)
+        let outputSincePlan = activity.beginCapture(surfaceID: candidate.surfaceId)
+        let finish = candidate.beginCapture()
+        let duration = max(0, environment.uptime() - start)
         var captured = captured
-        var capturedSurfaceIds = capturedSurfaceIds
-        if let scrollback = candidate.capture() {
+        if let finish {
             captured.append(SessionScrollbackCheckpointCapture(
                 panelId: candidate.panelId,
+                surfaceId: candidate.surfaceId,
                 capturedAt: environment.wallClock(),
-                scrollback: scrollback
+                finish: finish
             ))
-            capturedSurfaceIds.append(candidate.surfaceId)
             lastCapturedAt[candidate.panelId] = start
+            if outputSincePlan {
+                // Bytes flagged just before the capture may not have been parsed
+                // into it; capture this terminal again next time.
+                activity.markPending(surfaceID: candidate.surfaceId)
+            }
         } else {
             activity.markPending(surfaceID: candidate.surfaceId)
+            deferredUntil[candidate.panelId] = start + SessionScrollbackCheckpointPolicy.slowCaptureBackoff
         }
-        let spent = spent + max(0, environment.uptime() - start)
+        if duration > SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget {
+            deferredUntil[candidate.panelId] = start + SessionScrollbackCheckpointPolicy.slowCaptureBackoff
+        }
+        let spent = spent + duration
         let rest = remaining.dropFirst()
         environment.scheduleNextCapture { [weak self] in
-            self?.captureNext(
-                remaining: rest,
-                captured: captured,
-                capturedSurfaceIds: capturedSurfaceIds,
-                spent: spent,
-                plan: plan
-            )
+            self?.captureNext(remaining: rest, captured: captured, spent: spent, plan: plan)
         }
     }
 }

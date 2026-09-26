@@ -1822,6 +1822,10 @@ struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var windows: [SessionWindowSnapshot]
+    /// Set when this save captured terminal scrollback (quit, power-off, update
+    /// relaunch); nil for the 8 s autosave. Lets crash restore tell a deliberately
+    /// empty scrollback from one that was never captured. Additive; older files decode as nil.
+    var scrollbackCapturedAt: TimeInterval? = nil
 }
 
 extension AppSessionSnapshot: SessionSnapshotRepresenting {

@@ -10,7 +10,7 @@ let cmuxTerminalOutputTeeCallback: @convention(c) (
     let count = Int(length)
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
-        TerminalScrollbackCheckpointActivity.recordOutput(context.scrollbackCheckpointActivity)
+        TerminalScrollbackCheckpointActivity.recordOutput(context.scrollbackCheckpointFlags)
         MobileTerminalByteTee.shared.append(surfaceID: context.surfaceID, bytes: buffer)
         TerminalPredictionCenter.shared.consumeOutput(
             surfaceID: context.surfaceID,

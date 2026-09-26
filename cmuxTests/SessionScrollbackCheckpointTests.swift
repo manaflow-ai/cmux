@@ -1,4 +1,3 @@
-import CmuxFoundation
 import Foundation
 import Testing
 
@@ -24,6 +23,13 @@ struct SessionScrollbackCheckpointPolicyTests {
     @Test func checkpointIsDueOnlyAfterInterval() {
         #expect(!SessionScrollbackCheckpointPolicy.isCheckpointDue(now: 100, lastCheckpointAt: 50, interval: 60))
         #expect(SessionScrollbackCheckpointPolicy.isCheckpointDue(now: 110, lastCheckpointAt: 50, interval: 60))
+    }
+
+    @Test func disabledWithSessionRestoreAndUnderAutomatedTests() {
+        #expect(SessionScrollbackCheckpointPolicy.isEnabled(environment: [:]))
+        #expect(!SessionScrollbackCheckpointPolicy.isEnabled(environment: ["CMUX_DISABLE_SESSION_RESTORE": "1"]))
+        #expect(!SessionScrollbackCheckpointPolicy.isEnabled(environment: ["CMUX_UI_TEST_MODE": "1"]))
+        #expect(!SessionScrollbackCheckpointPolicy.isEnabled(environment: ["XCTestConfigurationFilePath": "/tmp/x"]))
     }
 
     @Test func planCapturesOnlyEligibleTerminalsWithNewOutput() {
@@ -60,6 +66,19 @@ struct SessionScrollbackCheckpointPolicyTests {
 
         #expect(plan.captures == [never, old])
     }
+
+    @Test func planSkipsTerminalsInBackoff() {
+        let slow = UUID()
+        let candidates = [
+            SessionScrollbackCheckpointPolicy.Candidate(panelId: slow, isEligible: true, hasPendingOutput: true),
+        ]
+        #expect(SessionScrollbackCheckpointPolicy.plan(
+            candidates: candidates, lastCapturedAt: [:], deferredUntil: [slow: 200], now: 100
+        ).captures.isEmpty)
+        #expect(SessionScrollbackCheckpointPolicy.plan(
+            candidates: candidates, lastCapturedAt: [:], deferredUntil: [slow: 200], now: 200
+        ).captures == [slow])
+    }
 }
 
 @Suite("Terminal output activity for scrollback checkpoints")
@@ -69,14 +88,16 @@ struct TerminalScrollbackCheckpointActivityTests {
         let surface = UUID()
         #expect(activity.hasPendingOutput(surfaceID: surface) == nil)
 
-        let gate = activity.register(surfaceID: surface)
+        let flags = activity.register(surfaceID: surface)
         #expect(activity.hasPendingOutput(surfaceID: surface) == true)
 
-        activity.beginCapture(surfaceID: surface)
+        activity.clearRecentOutput(surfaceID: surface)
+        #expect(activity.beginCapture(surfaceID: surface) == false)
         #expect(activity.hasPendingOutput(surfaceID: surface) == false)
 
-        TerminalScrollbackCheckpointActivity.recordOutput(gate)
+        TerminalScrollbackCheckpointActivity.recordOutput(flags)
         #expect(activity.hasPendingOutput(surfaceID: surface) == true)
+        #expect(activity.beginCapture(surfaceID: surface) == true)
     }
 
     @Test func releasingAnOlderRuntimeKeepsTheNewerRegistration() {
@@ -84,12 +105,12 @@ struct TerminalScrollbackCheckpointActivityTests {
         let surface = UUID()
         let old = activity.register(surfaceID: surface)
         let current = activity.register(surfaceID: surface)
-        activity.beginCapture(surfaceID: surface)
+        _ = activity.beginCapture(surfaceID: surface)
 
-        activity.unregister(surfaceID: surface, gate: old)
+        activity.unregister(surfaceID: surface, registration: old)
         #expect(activity.hasPendingOutput(surfaceID: surface) == false)
 
-        activity.unregister(surfaceID: surface, gate: current)
+        activity.unregister(surfaceID: surface, registration: current)
         #expect(activity.hasPendingOutput(surfaceID: surface) == nil)
     }
 }
@@ -108,24 +129,31 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         var batches: [SessionScrollbackCheckpointWriteBatch] = []
         var captureCost: TimeInterval = 0.001
         var onCapture: ((UUID) -> Void)?
+        /// Runs before each deferred main-queue turn, standing in for the PTY read thread.
+        var beforeMainTurn: (() -> Void)?
         let activity = TerminalScrollbackCheckpointActivity()
-        var gates: [UUID: AtomicBooleanGate] = [:]
+        var flags: [UUID: TerminalScrollbackOutputFlags] = [:]
 
         func addTerminal(eligible: Bool = true, text: String? = "output") -> UUID {
             let panelId = UUID()
-            gates[panelId] = activity.register(surfaceID: panelId)
+            flags[panelId] = activity.register(surfaceID: panelId)
             candidates.append(.init(
                 panelId: panelId,
                 surfaceId: panelId,
                 isEligible: eligible,
-                capture: { [unowned self] in
+                beginCapture: { [unowned self] in
                     self.captureCounts[panelId, default: 0] += 1
                     self.uptime += self.captureCost
                     self.onCapture?(panelId)
-                    return text
+                    guard let text else { return nil }
+                    return { text }
                 }
             ))
             return panelId
+        }
+
+        func output(_ panelId: UUID) {
+            TerminalScrollbackCheckpointActivity.recordOutput(flags[panelId]!)
         }
 
         func makeCoordinator() -> SessionScrollbackCheckpointCoordinator {
@@ -136,11 +164,19 @@ struct SessionScrollbackCheckpointCoordinatorTests {
                     canCheckpoint: { [unowned self] in self.canCheckpoint },
                     secondsSinceTyping: { [unowned self] in self.secondsSinceTyping },
                     candidates: { [unowned self] in self.candidates },
-                    scheduleNextCapture: { $0() },
+                    scheduleNextCapture: { [unowned self] work in
+                        self.beforeMainTurn?()
+                        work()
+                    },
                     persist: { [unowned self] in self.batches.append($0) }
                 ),
                 activity: activity
             )
+        }
+
+        func advanceToNextCheckpoint() {
+            uptime += SessionScrollbackCheckpointPolicy.interval
+            wallClock += SessionScrollbackCheckpointPolicy.interval
         }
     }
 
@@ -150,7 +186,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         let coordinator = harness.makeCoordinator()
 
         #expect(!coordinator.tickIfDue())
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         harness.secondsSinceTyping = 1
         #expect(!coordinator.tickIfDue())
         harness.canCheckpoint = false
@@ -167,20 +203,40 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         let second = harness.addTerminal(text: "two")
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         let initial = try #require(harness.batches.last)
         #expect(Set(initial.captures.map(\.panelId)) == [first, second])
         #expect(initial.captures.allSatisfy { $0.capturedAt == harness.wallClock })
 
-        TerminalScrollbackCheckpointActivity.recordOutput(try #require(harness.gates[second]))
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.output(second)
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         let next = try #require(harness.batches.last)
         #expect(next.captures.map(\.panelId) == [second])
-        #expect(next.captures.first?.scrollback == "two")
+        #expect(next.captures.first?.finish() == "two")
         #expect(harness.captureCounts[first] == 1)
         #expect(harness.captureCounts[second] == 2)
+    }
+
+    @Test func outputJustBeforeCaptureKeepsTerminalPendingForOneMoreCheckpoint() throws {
+        let harness = Harness()
+        let panel = harness.addTerminal()
+        let coordinator = harness.makeCoordinator()
+        // Bytes teed after the checkpoint planned the capture may still be
+        // waiting for Ghostty's parser when the export runs.
+        harness.beforeMainTurn = { harness.output(panel) }
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[panel] == 1)
+        #expect(harness.activity.hasPendingOutput(surfaceID: panel) == true)
+
+        harness.beforeMainTurn = nil
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[panel] == 2)
+        #expect(harness.activity.hasPendingOutput(surfaceID: panel) == false)
     }
 
     @Test func ineligibleTerminalIsRemovedNotCaptured() throws {
@@ -188,7 +244,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         let running = harness.addTerminal(eligible: false)
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         let batch = try #require(harness.batches.last)
         #expect(batch.captures.isEmpty)
@@ -203,7 +259,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.onCapture = { _ in harness.secondsSinceTyping = 0 }
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         let batch = try #require(harness.batches.last)
         #expect(batch.captures.count == 1)
@@ -222,41 +278,84 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         }
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(try #require(harness.batches.last).captures.count
             == SessionScrollbackCheckpointPolicy.maxCapturesPerCheckpoint)
 
-        harness.captureCost = SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.captureCost = SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget * 1.5
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(try #require(harness.batches.last).captures.count == 1)
     }
 
-    @Test func checkpointInterruptedByQuitOrRestoreKeepsCapturesPending() {
+    @Test func slowExportBacksOffThatTerminal() throws {
+        let harness = Harness()
+        let slow = harness.addTerminal()
+        let coordinator = harness.makeCoordinator()
+        harness.captureCost = SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget * 2
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[slow] == 1)
+
+        harness.captureCost = 0.001
+        harness.output(slow)
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[slow] == 1)
+
+        harness.uptime += SessionScrollbackCheckpointPolicy.slowCaptureBackoff
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[slow] == 2)
+    }
+
+    @Test func checkpointInterruptedByQuitOrRestorePersistsExportedCapturesOnly() throws {
         let harness = Harness()
         let panels = (0..<2).map { _ in harness.addTerminal() }
         harness.onCapture = { _ in harness.canCheckpoint = false }
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(harness.batches.isEmpty)
         #expect(!coordinator.isCheckpointInFlight)
-        for panel in panels {
+        let batch = try #require(harness.batches.last)
+        #expect(batch.captures.count == 1)
+        let captured = try #require(batch.captures.first?.panelId)
+        for panel in panels where panel != captured {
+            #expect(harness.captureCounts[panel] == nil)
             #expect(harness.activity.hasPendingOutput(surfaceID: panel) == true)
         }
     }
 
-    @Test func failedCaptureStaysPending() throws {
+    @Test func failedExportStaysPendingAndBacksOff() throws {
         let harness = Harness()
         let panel = harness.addTerminal(text: nil)
         let coordinator = harness.makeCoordinator()
 
-        harness.uptime += SessionScrollbackCheckpointPolicy.interval
+        harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(try #require(harness.batches.last).captures.isEmpty)
         #expect(harness.activity.hasPendingOutput(surfaceID: panel) == true)
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.captureCounts[panel] == 1)
+    }
+
+    @Test func seedWritesRestoredScrollbackWithoutExport() throws {
+        let harness = Harness()
+        let panel = harness.addTerminal()
+        let coordinator = harness.makeCoordinator()
+
+        coordinator.seed([.init(panelId: panel, surfaceId: panel, scrollback: "restored\n")])
+
+        let batch = try #require(harness.batches.last)
+        #expect(batch.captures.map(\.panelId) == [panel])
+        #expect(batch.captures.first?.finish() == "restored\n")
+        #expect(batch.captures.first?.capturedAt == harness.wallClock)
+        #expect(batch.livePanelIds == nil)
+        #expect(harness.captureCounts[panel] == nil)
     }
 }
 
@@ -272,6 +371,19 @@ struct SessionScrollbackCheckpointStoreTests {
 
     private func cleanUp(_ store: SessionScrollbackCheckpointStore) {
         try? FileManager.default.removeItem(at: store.directoryURL.deletingLastPathComponent())
+    }
+
+    private func capture(
+        _ panelId: UUID,
+        at capturedAt: TimeInterval,
+        _ text: String?
+    ) -> SessionScrollbackCheckpointCapture {
+        SessionScrollbackCheckpointCapture(
+            panelId: panelId,
+            surfaceId: panelId,
+            capturedAt: capturedAt,
+            finish: { text }
+        )
     }
 
     @Test func checkpointDirectorySitsNextToPrimarySnapshot() {
@@ -293,9 +405,9 @@ struct SessionScrollbackCheckpointStoreTests {
         )
         store.apply(.init(
             captures: [
-                .init(panelId: kept, capturedAt: 10, scrollback: oversized),
-                .init(panelId: cleared, capturedAt: 10, scrollback: "old"),
-                .init(panelId: closed, capturedAt: 10, scrollback: "closed"),
+                capture(kept, at: 10, oversized),
+                capture(cleared, at: 10, "old"),
+                capture(closed, at: 10, "closed"),
             ],
             removals: [],
             livePanelIds: [kept, cleared, closed]
@@ -305,7 +417,7 @@ struct SessionScrollbackCheckpointStoreTests {
             == SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
 
         store.apply(.init(
-            captures: [.init(panelId: cleared, capturedAt: 20, scrollback: "  \n")],
+            captures: [capture(cleared, at: 20, "  \n")],
             removals: [],
             livePanelIds: [kept, cleared]
         ))
@@ -313,22 +425,61 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(Set(records.keys) == [kept])
     }
 
-    @Test func restoreFillsMissingScrollbackFromCheckpoint() throws {
+    @Test func seedBatchDoesNotPruneOtherCheckpoints() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let existing = UUID()
+        let seeded = UUID()
+        store.apply(.init(captures: [capture(existing, at: 10, "a")], removals: [], livePanelIds: [existing]))
+        store.apply(.init(captures: [capture(seeded, at: 20, "b")], removals: [], livePanelIds: nil))
+
+        #expect(Set(store.loadRecords(panelIds: [existing, seeded]).keys) == [existing, seeded])
+    }
+
+    @Test func failedCaptureOrWriteIsMarkedPendingAgain() throws {
+        let activity = TerminalScrollbackCheckpointActivity()
+        let failedExport = UUID()
+        let failedWrite = UUID()
+        for surface in [failedExport, failedWrite] {
+            _ = activity.register(surfaceID: surface)
+            _ = activity.beginCapture(surfaceID: surface)
+        }
+        // A regular file where the checkpoint directory should be makes every write fail.
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-checkpoint-blocker-\(UUID().uuidString)")
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let store = SessionScrollbackCheckpointStore(directoryURL: blocker)
+
+        store.applyMarkingFailuresPending(
+            .init(
+                captures: [capture(failedExport, at: 1, nil), capture(failedWrite, at: 1, "text")],
+                removals: [],
+                livePanelIds: nil
+            ),
+            activity: activity
+        )
+
+        #expect(activity.hasPendingOutput(surfaceID: failedExport) == true)
+        #expect(activity.hasPendingOutput(surfaceID: failedWrite) == true)
+    }
+
+    @Test func crashRestoreAfterAutosaveFillsScrollbackFromCheckpoint() throws {
         let store = makeStore()
         defer { cleanUp(store) }
         let panel = UUID()
         let dockPanel = UUID()
         store.apply(.init(
-            captures: [
-                .init(panelId: panel, capturedAt: 100, scrollback: "checkpointed\n"),
-                .init(panelId: dockPanel, capturedAt: 100, scrollback: "dock\n"),
-            ],
+            captures: [capture(panel, at: 100, "checkpointed\n"), capture(dockPanel, at: 100, "dock\n")],
             removals: [],
             livePanelIds: [panel, dockPanel]
         ))
 
+        // The production crash path: the last primary save is an 8 s autosave,
+        // newer than the checkpoint, with no scrollback and no capture marker.
         let merged = store.merging(into: Self.snapshot(
             createdAt: 200,
+            scrollbackCapturedAt: nil,
             panels: [(panel, nil)],
             dockPanels: [(dockPanel, nil)]
         ))
@@ -338,6 +489,29 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(merged.windows.first?.dock?.panels.first?.terminal?.scrollback == "dock\n")
     }
 
+    @Test func newerScrollbackSaveWinsEvenWhenItOmittedScrollback() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let omitted = UUID()
+        let kept = UUID()
+        store.apply(.init(
+            captures: [capture(omitted, at: 100, "stale\n"), capture(kept, at: 100, "stale\n")],
+            removals: [],
+            livePanelIds: [omitted, kept]
+        ))
+
+        // A power-off save after the checkpoint deliberately left one terminal empty.
+        let merged = store.merging(into: Self.snapshot(
+            createdAt: 150,
+            scrollbackCapturedAt: 150,
+            panels: [(omitted, nil), (kept, "quit\n")]
+        ))
+
+        let panels = try #require(merged.windows.first?.tabManager.workspaces.first?.panels)
+        #expect(panels[0].terminal?.scrollback == nil)
+        #expect(panels[1].terminal?.scrollback == "quit\n")
+    }
+
     @Test func restorePicksTheNewestScrollback() {
         let checkpoint = SessionScrollbackCheckpointRecord(
             version: SessionScrollbackCheckpointRecord.currentVersion,
@@ -345,17 +519,27 @@ struct SessionScrollbackCheckpointStoreTests {
             capturedAt: 100,
             scrollback: "checkpoint"
         )
+        func resolve(_ scrollback: String?, createdAt: TimeInterval, capturedAt: TimeInterval?) -> String? {
+            SessionScrollbackCheckpointMerge.resolvedScrollback(
+                snapshotScrollback: scrollback,
+                snapshotCreatedAt: createdAt,
+                snapshotScrollbackCapturedAt: capturedAt,
+                checkpoint: checkpoint
+            )
+        }
+        // Scrollback-bearing saves: newest wins, including a deliberate nil.
+        #expect(resolve("quit", createdAt: 200, capturedAt: 200) == "quit")
+        #expect(resolve(nil, createdAt: 200, capturedAt: 200) == nil)
+        #expect(resolve("quit", createdAt: 50, capturedAt: 50) == "checkpoint")
+        // Autosave (no marker, no scrollback): the checkpoint wins.
+        #expect(resolve(nil, createdAt: 200, capturedAt: nil) == "checkpoint")
+        // Legacy snapshot with its own newer scrollback keeps it.
+        #expect(resolve("legacy", createdAt: 200, capturedAt: nil) == "legacy")
         #expect(SessionScrollbackCheckpointMerge.resolvedScrollback(
-            snapshotScrollback: "quit", snapshotCreatedAt: 200, checkpoint: checkpoint
-        ) == "quit")
-        #expect(SessionScrollbackCheckpointMerge.resolvedScrollback(
-            snapshotScrollback: "quit", snapshotCreatedAt: 50, checkpoint: checkpoint
-        ) == "checkpoint")
-        #expect(SessionScrollbackCheckpointMerge.resolvedScrollback(
-            snapshotScrollback: nil, snapshotCreatedAt: 200, checkpoint: checkpoint
-        ) == "checkpoint")
-        #expect(SessionScrollbackCheckpointMerge.resolvedScrollback(
-            snapshotScrollback: "quit", snapshotCreatedAt: 200, checkpoint: nil
+            snapshotScrollback: "quit",
+            snapshotCreatedAt: 200,
+            snapshotScrollbackCapturedAt: 200,
+            checkpoint: nil
         ) == "quit")
     }
 
@@ -363,18 +547,14 @@ struct SessionScrollbackCheckpointStoreTests {
         let store = makeStore()
         defer { cleanUp(store) }
         let panel = UUID()
-        store.apply(.init(
-            captures: [.init(panelId: panel, capturedAt: 100, scrollback: "first\n")],
-            removals: [],
-            livePanelIds: [panel]
-        ))
-        store.apply(.init(
-            captures: [.init(panelId: panel, capturedAt: 160, scrollback: "second\n")],
-            removals: [],
-            livePanelIds: [panel]
-        ))
+        store.apply(.init(captures: [capture(panel, at: 100, "first\n")], removals: [], livePanelIds: [panel]))
+        store.apply(.init(captures: [capture(panel, at: 160, "second\n")], removals: [], livePanelIds: [panel]))
 
-        let merged = store.merging(into: Self.snapshot(createdAt: 170, panels: [(panel, nil)]))
+        let merged = store.merging(into: Self.snapshot(
+            createdAt: 170,
+            scrollbackCapturedAt: nil,
+            panels: [(panel, nil)]
+        ))
         #expect(merged.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
             == "second\n")
     }
@@ -383,10 +563,9 @@ struct SessionScrollbackCheckpointStoreTests {
         let store = makeStore()
         defer { cleanUp(store) }
         let panel = UUID()
-        let other = UUID()
         let record = SessionScrollbackCheckpointRecord(
             version: SessionScrollbackCheckpointRecord.currentVersion,
-            panelId: other,
+            panelId: UUID(),
             capturedAt: 1,
             scrollback: "wrong"
         )
@@ -396,8 +575,23 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(store.loadRecords(panelIds: [panel]).isEmpty)
     }
 
+    @Test func scrollbackCaptureMarkerRoundTripsAndDefaultsToNil() throws {
+        let marked = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [],
+            scrollbackCapturedAt: 10
+        )
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: JSONEncoder().encode(marked))
+        #expect(decoded.scrollbackCapturedAt == 10)
+
+        let legacy = Data(#"{"version":1,"createdAt":5,"windows":[]}"#.utf8)
+        #expect(try JSONDecoder().decode(AppSessionSnapshot.self, from: legacy).scrollbackCapturedAt == nil)
+    }
+
     private static func snapshot(
         createdAt: TimeInterval,
+        scrollbackCapturedAt: TimeInterval?,
         panels: [(UUID, String?)],
         dockPanels: [(UUID, String?)] = []
     ) -> AppSessionSnapshot {
@@ -439,7 +633,8 @@ struct SessionScrollbackCheckpointStoreTests {
                     sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
                     dock: dock
                 ),
-            ]
+            ],
+            scrollbackCapturedAt: scrollbackCapturedAt
         )
     }
 
