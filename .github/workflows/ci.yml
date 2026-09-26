@@ -1335,12 +1335,30 @@ jobs:
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
+  # Keep one complete unit-test run on the OS version whose Foundation
+  # behavior differs from the macOS 26 default. This lane is intentionally
+  # unconditional for CI events so a path router cannot hide an OS regression.
+  macos-15-unit-tests:
+    name: macOS 15 unit tests
+    needs:
+      - changes
+      - static-preflight
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-macos-unit-suite.yml
+    with:
+      ref: ${{ github.sha }}
+      skip_unit_tests: false
+      skip_ui_tests: true
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+
   tests:
     name: tests
     needs:
       - changes
       - linux-preflight
       - macos
+      - macos-15-unit-tests
       - web
     if: ${{ always() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1377,6 +1395,10 @@ jobs:
               )
               sys.exit(1)
           macos_result = needs["macos"]["result"]
+          macos_15_result = needs["macos-15-unit-tests"]["result"]
+          if macos_15_result != "success":
+              print(f"macOS 15 unit tests did not pass: {macos_15_result}", file=sys.stderr)
+              sys.exit(1)
           full_suite = outputs.get("full_suite")
           compile_admitted = outputs.get("compile_admitted")
           # The package-test lane is routed independently of compile admission
@@ -1411,6 +1433,7 @@ jobs:
           print(f"changes.swift_packages={outputs.get('swift_packages')}")
           print(f"linux-preflight={preflight['result']}")
           print(f"macos={macos_result}")
+          print(f"macos-15-unit-tests={macos_15_result}")
           print(f"web={web_result}")
           PY
 
@@ -1564,6 +1587,7 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
+      - macos-15-unit-tests
       - tests
     if: ${{ always() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

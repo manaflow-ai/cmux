@@ -1186,6 +1186,9 @@ check_no_self_hosted_fleet_runners() {
   # exempt: it evaluates solely where the repository owner is not manaflow-ai.
   # Workflow text only; a variable holding macos-26 is still refused.
   local fork_branch="github\\.repository_owner != 'manaflow-ai' && 'macos-26'"
+  # Pull requests from a fork into manaflow-ai may select a hosted macOS
+  # label explicitly before any repository runner variable.
+  local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && 'macos-(15|26)'"
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -1234,13 +1237,18 @@ check_no_self_hosted_fleet_runners() {
   done
 
   probe="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}"
-  if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
+  if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$fork_pr_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
     echo "FAIL: fleet-runner guard self-test refused the hosted fork branch: $probe"
+    exit 1
+  fi
+  probe="runs-on: \${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}"
+  if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$fork_pr_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    echo "FAIL: fleet-runner guard self-test refused the explicit hosted fork branch: $probe"
     exit 1
   fi
   for probe in "runs-on: \${{ github.repository_owner == 'manaflow-ai' && 'macos-26' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-6vcpu-macos-15' || 'macos-26' }}"; do
-    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$fork_pr_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test let macos-26 through outside the fork branch: $probe"
       exit 1
     fi
@@ -1270,7 +1278,7 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$fork_pr_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
     # (see selfhosted above).
@@ -1829,10 +1837,14 @@ strip_background_lane_expr() {
   # macos-15 for the jobs that need that image).
   awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" \
       -v f="github.repository_owner != 'manaflow-ai' && 'macos-15' || " \
-      -v g="github.repository_owner != 'manaflow-ai' && 'macos-26' || " '{
+      -v g="github.repository_owner != 'manaflow-ai' && 'macos-26' || " \
+      -v h="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-15' || " \
+      -v j="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || " '{
     while ((i = index($0, e)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(e))
     while ((i = index($0, f)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(f))
     while ((i = index($0, g)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(g))
+    while ((i = index($0, h)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(h))
+    while ((i = index($0, j)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(j))
     print
   }'
 }
