@@ -90,7 +90,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
-             .moveWorkspaceUp, .moveWorkspaceDown,
+             .moveWorkspaceUp, .moveWorkspaceDown, .moveWorkspaceToTop,
              .selectWorkspaceByNumber,
              .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus,

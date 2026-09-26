@@ -11,8 +11,202 @@ import Testing
 /// Inline `type: "workspace"` config actions: decoding, resolution defaults,
 /// plus-button menu auto-append, trust disclosure, and executor behavior.
 struct CmuxConfigWorkspaceActionTests {
+    @MainActor
+    @Test(arguments: [false, true], [false, true])
+    func backgroundCommandRunsWithoutCreatingATerminal(browserOnly: Bool, tabBarButton: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-action-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("result")
+        let config = try decode("""
+        {
+          "actions": {
+            "quiet": {
+              "type": "command", "title": "Quiet command", "target": "background",
+              "command": "printf '%s' \\\"$CMUX_WORKSPACE_ID\\\" > result"
+            }
+          }
+        }
+        """)
+        let definition = try #require(config.actions["quiet"])
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "quiet", definition: definition, sourcePath: nil
+        ))
+        let manager = TabManager(initialWorkingDirectory: directory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        if browserOnly {
+            let terminalID = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.bonsplitController.focusedPaneId)
+            _ = try #require(workspace.newBrowserSurface(inPane: pane, focus: true))
+            #expect(workspace.closePanel(terminalID, force: true))
+            #expect(workspace.panels.values.allSatisfy { $0.panelType == .browser })
+        }
+        let panels = Set(workspace.panels.keys)
+        let focusedPanel = workspace.focusedPanelId
+
+        if tabBarButton {
+            let button = CmuxSurfaceTabBarButton(
+                id: "quiet", action: try #require(definition.action),
+                terminalCommandTarget: definition.terminalCommandTarget
+            )
+            workspace.applySurfaceTabBarButtons(
+                [button], sourcePath: nil,
+                globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestCustomAction: "quiet",
+                inPane: try #require(workspace.bonsplitController.focusedPaneId)
+            )
+        } else {
+            var didDispatch = false
+            #expect(CmuxConfigExecutor.execute(
+                action: action,
+                commands: [],
+                commandSourcePaths: [:],
+                tabManager: manager,
+                baseCwd: directory.path,
+                globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+                onExecuted: { didDispatch = true }
+            ))
+            // Group menu callers must restore temporary selection before execution yields.
+            #expect(didDispatch)
+        }
+
+        // A bounded test-only wait observes the shell's filesystem side effect.
+        let markerDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < markerDeadline {
+            if (try? String(contentsOf: marker, encoding: .utf8)) == workspace.id.uuidString { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(try String(contentsOf: marker, encoding: .utf8) == workspace.id.uuidString)
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+        #expect(Set(workspace.panels.keys) == panels)
+        #expect(workspace.focusedPanelId == focusedPanel)
+    }
+
+    @MainActor
+    @Test func backgroundCommandUsesRequestedTerminalDirectoryBeforePwdReport() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-cwd-\(UUID().uuidString)", isDirectory: true)
+        let fallbackDirectory = root.appendingPathComponent("fallback", isDirectory: true)
+        let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallbackDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let marker = requestedDirectory.appendingPathComponent("result")
+        let physicalRequestedDirectory = canonicalPath(requestedDirectory.path)
+        let config = try decode("""
+        {
+          "actions": {
+            "quiet": {
+              "type": "command", "target": "background",
+              "command": "printf '%s' \\\"$(pwd -P)\\\" > result"
+            }
+          }
+        }
+        """)
+        let definition = try #require(config.actions["quiet"])
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "quiet", definition: definition, sourcePath: nil
+        ))
+        let manager = TabManager(initialWorkingDirectory: fallbackDirectory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminal = try #require(workspace.newTerminalSurface(
+            inPane: pane,
+            focus: true,
+            workingDirectory: requestedDirectory.path,
+            autoRefreshMetadata: false
+        ))
+        #expect(workspace.focusedPanelId == terminal.id)
+        #expect(terminal.requestedWorkingDirectory == requestedDirectory.path)
+        workspace.panelDirectories.removeValue(forKey: terminal.id)
+        workspace.currentDirectory = fallbackDirectory.path
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: fallbackDirectory.path,
+            globalConfigPath: root.appendingPathComponent("cmux.json").path
+        ))
+
+        let markerDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < markerDeadline {
+            if let contents = try? String(contentsOf: marker, encoding: .utf8),
+               canonicalPath(contents) == physicalRequestedDirectory {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let actualDirectory = try String(contentsOf: marker, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(canonicalPath(actualDirectory) == physicalRequestedDirectory)
+    }
+
+    @MainActor
+    @Test(arguments: [false, true])
+    func backgroundCommandDoesNotUseRemotePanelDirectory(browserOnly: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-remote-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let marker = directory.appendingPathComponent("result")
+        let manager = TabManager(initialWorkingDirectory: directory.path)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            for panel in workspace.panels.values { panel.close() }
+            manager.tabs = []
+        }
+        if browserOnly {
+            let terminalID = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.bonsplitController.focusedPaneId)
+            _ = try #require(workspace.newBrowserSurface(inPane: pane, focus: true))
+            #expect(workspace.closePanel(terminalID, force: true))
+        }
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "background-test", isBase: false)
+        // A remote path can also exist on this Mac; existence does not establish ownership.
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: directory.path)
+        #expect(!workspace.allowsLocalDirectoryFallback(panelId: panelID))
+        let quotedMarker = "'" + marker.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        #expect(CmuxConfigExecutor.executeCommand(
+            "/bin/pwd -P > " + quotedMarker,
+            target: .background,
+            workspace: workspace,
+            baseCwd: directory.path,
+            confirm: false,
+            actionID: "remote-cwd",
+            configSourcePath: nil,
+            globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+            displayTitle: nil,
+            icon: nil,
+            iconSourcePath: nil,
+            presentingWindow: nil
+        ))
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            if let contents = try? String(contentsOf: marker, encoding: .utf8), !contents.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let actualDirectory = try String(contentsOf: marker, encoding: .utf8)
+        #expect(canonicalPath(actualDirectory) == canonicalPath(FileManager.default.homeDirectoryForCurrentUser.path))
+    }
+
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
+    }
+
+    private func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path.trimmingCharacters(in: .whitespacesAndNewlines))
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
     }
 
     private func workspaceAction(

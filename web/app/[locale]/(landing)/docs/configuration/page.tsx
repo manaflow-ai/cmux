@@ -141,6 +141,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
   // "shortcuts": {
   //   "bindings": {
+  //     "moveWorkspaceToTop": "ctrl+opt+cmd+up",
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "toggleFileEditorWordWrap": "opt+z",

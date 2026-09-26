@@ -179,6 +179,7 @@ extension ShortcutAction {
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .moveWorkspaceUp: return ShortcutStroke(key: "[", command: true, option: true, control: true)
+        case .moveWorkspaceToTop: return nil
         case .moveWorkspaceDown: return ShortcutStroke(key: "]", command: true, option: true, control: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)

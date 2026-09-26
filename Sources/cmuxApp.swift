@@ -1444,12 +1444,6 @@ struct cmuxApp: App {
         manager.clearCustomTitle(tabId: workspace.id)
     }
 
-    private func moveSelectedWorkspaceToTop(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
-        manager.selectWorkspace(workspace)
-    }
-
     private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
         guard let workspace = manager.selectedWorkspace else { return }
         _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
@@ -1549,7 +1543,7 @@ struct cmuxApp: App {
         .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            moveSelectedWorkspaceToTop(in: manager)
+            _ = manager.moveSelectedWorkspaceToTop()
         }
         .disabled(workspace == nil || workspaceIndex == 0)
 

@@ -130,7 +130,7 @@ enum KeyboardShortcutSettings {
         case prevSidebarTab
         case nextSidebarTabInGroup
         case prevSidebarTabInGroup
-        case moveWorkspaceUp, moveWorkspaceDown
+        case moveWorkspaceUp, moveWorkspaceDown, moveWorkspaceToTop
         case focusHistoryBack
         case focusHistoryForward
         case focusHistoryLast
@@ -290,6 +290,7 @@ enum KeyboardShortcutSettings {
             case .nextSidebarTabInGroup: return String(localized: "shortcut.nextWorkspaceInGroup.label", defaultValue: "Next Workspace in Group")
             case .prevSidebarTabInGroup: return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
             case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+            case .moveWorkspaceToTop: return String(localized: "shortcut.moveWorkspaceToTop.label", defaultValue: "Move Workspace to Top")
             case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
@@ -641,6 +642,7 @@ enum KeyboardShortcutSettings {
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .moveWorkspaceUp: return StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
+            case .moveWorkspaceToTop: return .unbound
             case .moveWorkspaceDown: return StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)

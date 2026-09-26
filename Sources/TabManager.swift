@@ -185,6 +185,7 @@ class TabManager: ObservableObject {
     /// Stable identifier of the owning macOS window. Used only for opt-in title
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
+    let backgroundCommandRunner = CmuxBackgroundCommandRunner()
     private(set) var isFinalizedForWindowClose = false
     private var recoverableMainWindowRouteOwnerRegistration:
         RecoverableMainWindowRouteOwnerRegistration?
