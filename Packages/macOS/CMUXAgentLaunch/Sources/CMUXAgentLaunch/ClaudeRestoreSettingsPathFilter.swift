@@ -14,18 +14,25 @@ import Foundation
 ///
 /// Inline JSON values, an empty value, a dangling `--settings`, and anything
 /// after a `--` boundary are left untouched. The path check mirrors the
-/// wrapper's merge loader: trim, then expand only a leading `~`.
+/// wrapper's merge loader: trim, then expand only a leading `~`. A relative
+/// path is checked against the restore working directory, where the restored
+/// Claude resolves it, rather than the planner's own current directory.
 struct ClaudeRestoreSettingsPathFilter {
     private static let settingsOption = "--settings"
     private static let settingsAssignmentPrefix = "--settings="
 
     private let isReadableFile: (String) -> Bool
+    private let workingDirectory: String?
 
     /// Creates a filter backed by a readable-file lookup.
     ///
-    /// - Parameter isReadableFile: Returns whether a path is a readable regular file.
-    init(isReadableFile: @escaping (String) -> Bool) {
+    /// - Parameters:
+    ///   - isReadableFile: Returns whether a path is a readable regular file.
+    ///   - workingDirectory: The directory the restored process starts in, used
+    ///     to resolve relative settings paths. `nil` leaves them as given.
+    init(isReadableFile: @escaping (String) -> Bool, workingDirectory: String? = nil) {
         self.isReadableFile = isReadableFile
+        self.workingDirectory = workingDirectory
     }
 
     /// Returns `arguments` without any `--settings` whose file is not readable.
@@ -71,6 +78,10 @@ struct ClaudeRestoreSettingsPathFilter {
         guard let first = trimmed.first, first != "{", first != "[" else {
             return true
         }
-        return isReadableFile((trimmed as NSString).expandingTildeInPath)
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        if !expanded.hasPrefix("/"), let workingDirectory {
+            return isReadableFile((workingDirectory as NSString).appendingPathComponent(expanded))
+        }
+        return isReadableFile(expanded)
     }
 }

@@ -45,6 +45,17 @@ struct SubrouterClaudeResumeRoutingTests {
         #expect(router.capturedEnvironment(in: nil).isEmpty)
     }
 
+    @Test("A legacy proxy record routes at restore without persisting a synthesized marker pair")
+    func legacyProxyRecordIsNotPersistedAsAttested() {
+        let legacy = [
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:31415/v1",
+            "CLAUDE_CONFIG_DIR": "/Users/me/.subrouter/codex/claude-proxy/3fa7ce27b6c3bad79bd47d1a",
+        ]
+        #expect(router.capturedEnvironment(in: legacy).isEmpty)
+        #expect(router.provesRoutedLaunch(launcher: nil, environment: legacy))
+        #expect(router.launcherExecutable(in: legacy) == "sr")
+    }
+
     @Test("Provenance is scoped to plain claude launches")
     func provenanceIsScopedToPlainClaudeLaunches() {
         #expect(router.provesRoutedLaunch(launcher: nil, environment: provenEnvironment(marker)))

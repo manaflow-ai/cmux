@@ -121,8 +121,15 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
 
     /// Returns the agreeing marker pair for a durable launch record, or an empty
     /// environment when the launch is not proven.
+    ///
+    /// Only a wrapper-attested pair is persisted. A legacy proxy record is
+    /// recognized again at restore time from its own captured config directory,
+    /// so capture never synthesizes attestation the wrapper did not provide.
     public func capturedEnvironment(in environment: [String: String]?) -> [String: String] {
-        guard let marker = capturedLaunchBoundMarker(in: environment) else { return [:] }
+        guard let marker = capturedMarker(in: environment),
+              canonicalMarker(environment?[Self.launchBoundEnvironmentKey]) == marker else {
+            return [:]
+        }
         return [
             Self.environmentKey: marker,
             Self.launchBoundEnvironmentKey: marker,

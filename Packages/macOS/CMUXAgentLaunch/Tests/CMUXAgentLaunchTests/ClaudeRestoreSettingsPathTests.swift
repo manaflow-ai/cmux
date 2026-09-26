@@ -79,6 +79,25 @@ struct ClaudeRestoreSettingsPathTests {
         #expect(invocation.arguments == ["claude", "--resume", sessionID, "--settings", "~/claude-settings.json"])
     }
 
+    @Test("A relative --settings path is checked against the restore working directory")
+    func relativeSettingsPathResolvesAgainstRestoreDirectory() throws {
+        let invocation = try #require(plan(
+            mode: .resumeAgent,
+            arguments: ["/opt/homebrew/bin/claude", "--settings", ".claude/settings.json"],
+            readable: ["/work/project/.claude/settings.json"],
+            workingDirectory: "/work/project"
+        ))
+        #expect(invocation.arguments == ["claude", "--resume", sessionID, "--settings", ".claude/settings.json"])
+
+        let elsewhere = try #require(plan(
+            mode: .resumeAgent,
+            arguments: ["/opt/homebrew/bin/claude", "--settings", ".claude/settings.json"],
+            readable: ["/work/project/.claude/settings.json"],
+            workingDirectory: "/work/other"
+        ))
+        #expect(elsewhere.arguments == ["claude", "--resume", sessionID])
+    }
+
     @Test("A direct plan replays the recorded argv untouched")
     func directPlanIsNotFiltered() throws {
         let invocation = try #require(AgentRestorePlanner(
@@ -104,7 +123,8 @@ struct ClaudeRestoreSettingsPathTests {
     private func plan(
         mode: AgentRestoreRequestMode,
         arguments: [String],
-        readable: Set<String>
+        readable: Set<String>,
+        workingDirectory: String? = nil
     ) -> AgentRestoreInvocation? {
         AgentRestorePlanner(
             isExecutableFile: { _ in false },
@@ -115,7 +135,7 @@ struct ClaudeRestoreSettingsPathTests {
                 kind: "claude",
                 checkpointID: sessionID,
                 source: "agent-hook",
-                workingDirectory: nil,
+                workingDirectory: workingDirectory,
                 environment: [:],
                 launchCommand: AgentLaunchCommand(
                     executablePath: "/opt/homebrew/bin/claude",

@@ -111,8 +111,10 @@ public struct AgentRestorePlanner: Sendable {
 
         var routedArguments = sanitizedArguments
         if kind == "claude", request.mode != .direct {
-            routedArguments = ClaudeRestoreSettingsPathFilter(isReadableFile: isReadableFile)
-                .removingUnreadableSettingsPaths(from: routedArguments)
+            routedArguments = ClaudeRestoreSettingsPathFilter(
+                isReadableFile: isReadableFile,
+                workingDirectory: workingDirectory
+            ).removingUnreadableSettingsPaths(from: routedArguments)
             guard !routedArguments.isEmpty else { return nil }
         }
         let hermesProfilePin: HermesAgentResumeProfilePin?
