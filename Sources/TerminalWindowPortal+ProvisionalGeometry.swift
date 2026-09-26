@@ -60,8 +60,13 @@ extension WindowTerminalPortal {
         let anchorFrameInWindow = entry.anchorView.flatMap { anchor -> NSRect? in
             anchor.window === window ? effectiveAnchorFrameInWindow(for: anchor) : nil
         }
+        let baseFrameInHost: NSRect = {
+            guard let previous = entry.provisionalGeometry,
+                  previous.transactionID == transactionID else { return hostedView.frame }
+            return previous.baseFrameInHost
+        }()
         entry.provisionalGeometry = ProvisionalPaneGeometry(
-            baseFrameInHost: entry.provisionalGeometry?.baseFrameInHost ?? hostedView.frame,
+            baseFrameInHost: baseFrameInHost,
             frameInHost: frameInHost,
             anchorFrameInWindow: anchorFrameInWindow,
             transactionID: transactionID
@@ -225,8 +230,14 @@ extension TerminalWindowPortalRegistry {
         return hosted.portal.provisionalPaneGeometry(forHostedId: hosted.hostedId)
     }
 
-    static func provisionalBaseFrameInWindow(for hostedView: GhosttySurfaceScrollView) -> NSRect? {
-        guard let hosted = hostedPortal(for: hostedView) else { return nil }
+    /// Reuses a pre-split frame only when reprojecting the same split node.
+    static func provisionalBaseFrameInWindow(
+        for hostedView: GhosttySurfaceScrollView,
+        transactionID: UUID
+    ) -> NSRect? {
+        guard let hosted = hostedPortal(for: hostedView),
+              hosted.portal.provisionalPaneGeometry(forHostedId: hosted.hostedId)?.transactionID == transactionID
+        else { return nil }
         return hosted.portal.provisionalBaseFrameInWindow(forHostedId: hosted.hostedId)
     }
 

@@ -101,6 +101,7 @@ extension KeyboardShortcutSettings.Action {
              .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize,
              .resetWorkspaceTerminalFontSize,
+             .splitRootRight, .splitRootDown,
              .toggleCanvasLayout,
              .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset,

@@ -8797,6 +8797,79 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ).panel
     }
 
+    /// Creates a terminal pane beside the workspace's complete Bonsplit tree.
+    ///
+    /// The focused panel supplies terminal inheritance such as the working
+    /// directory, while the new pane is inserted at the root so its column or
+    /// row spans the whole workspace.
+    @discardableResult
+    func newTerminalRootSplit(
+        direction: SplitDirection,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        newTerminalRootSplitOutcome(direction: direction, focus: focus).panel
+    }
+
+    /// Creates a terminal beside the workspace's complete pane tree, or routes
+    /// the equivalent full-window split to the remote owner.
+    @discardableResult
+    func newTerminalRootSplitOutcome(
+        direction: SplitDirection,
+        focus: Bool = true
+    ) -> TerminalPanelCreationOutcome {
+        guard layoutMode != .canvas,
+              direction == .right || direction == .down,
+              let sourcePanelId = focusedPanelId else {
+            return .failed
+        }
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+        func restoreSplitZoomIfNeeded() {
+            if let zoomedPaneId {
+                _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+            }
+        }
+        if isRemoteTmuxMirror {
+            let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id,
+                panelId: sourcePanelId,
+                vertical: direction == .down,
+                focusIntent: focus ? .focusCreatedPane : .preserveActivePane,
+                fullWindow: true
+            ) ?? false
+            if !routed {
+                restoreSplitZoomIfNeeded()
+            }
+            return routed ? .routedToRemote : .failed
+        }
+        if let source = cloudTerminalSourcePlacement(forPanel: sourcePanelId) {
+            restoreSplitZoomIfNeeded()
+            return rejectCloudTerminalCreation(source: source, panelID: sourcePanelId)
+        }
+        guard let panel = newTerminalSplitLocal(
+            from: sourcePanelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            focus: focus,
+            workingDirectory: nil,
+            initialCommand: nil,
+            initialInput: nil,
+            tmuxStartCommand: nil,
+            startupEnvironment: [:],
+            initialDividerPosition: nil,
+            remotePTYSessionID: nil,
+            suppressWorkspaceRemoteStartupCommand: false,
+            allowTextBoxFocusDefault: true,
+            rootSplit: true
+        ) else {
+            restoreSplitZoomIfNeeded()
+            return .failed
+        }
+        return .created(panel)
+    }
+
     /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
     /// but distinguishes a split routed to the remote tmux mirror from a genuine
     /// failure, so socket/CLI handlers can report the routed request as accepted.
@@ -8875,7 +8948,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        rootSplit: Bool = false
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -8885,18 +8959,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "transport=\(splitTransport) stage=start elapsedMs=0.00"
         )
 #endif
-        // Find the pane containing the source panel
-        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-        var sourcePaneId: PaneID?
-        for paneId in bonsplitController.allPaneIds {
-            let tabs = bonsplitController.tabs(inPane: paneId)
-            if tabs.contains(where: { $0.id == sourceTabId }) {
-                sourcePaneId = paneId
-                break
-            }
-        }
-
-        guard let paneId = sourcePaneId else { return nil }
+        // Root splits inherit from the focused panel but target the complete
+        // tree. Ordinary splits continue to target the panel's leaf pane.
+        // The root split targets the complete tree, but event metadata and
+        // inherited terminal configuration still belong to the pane containing
+        // the focused source panel.
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -9001,7 +9069,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Create the split with the new tab already present in the new pane.
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
+        let newPaneId: PaneID?
+        if rootSplit {
+            newPaneId = bonsplitController.splitRoot(
+                orientation: orientation,
+                withTab: newTab,
+                insertFirst: insertFirst
+            )
+        } else {
+            newPaneId = bonsplitController.splitPane(
+                paneId,
+                orientation: orientation,
+                withTab: newTab,
+                insertFirst: insertFirst
+            )
+        }
+        guard let newPaneId else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)

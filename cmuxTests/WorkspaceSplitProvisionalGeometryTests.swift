@@ -18,6 +18,129 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSplitProvisionalGeometryTests {
+    @Test(arguments: [SplitDirection.right, .down])
+    func rootSplitAddsASiblingToTheExistingTree(direction: SplitDirection) throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let firstSplit = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId,
+            orientation: .vertical,
+            focus: false
+        ))
+        _ = try #require(fixture.workspace.newTerminalSplit(
+            from: firstSplit.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        let rootSplit = try #require(fixture.workspace.newTerminalRootSplit(
+            direction: direction,
+            focus: false
+        ))
+
+        guard case .split(let root) = fixture.workspace.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected a root split")
+            return
+        }
+        guard case .split = root.first,
+              case .pane(let newPane) = root.second else {
+            Issue.record("Expected the existing tree to remain the first root child")
+            return
+        }
+        #expect(root.orientation == direction.orientation.rawValue)
+        let rootPanel = try #require(fixture.workspace.terminalPanel(for: rootSplit.id))
+        let rootSurfaceID = try #require(fixture.workspace.surfaceIdFromPanelId(rootPanel.id))
+        #expect(newPane.tabs.contains { $0.id == rootSurfaceID.uuid.uuidString })
+    }
+
+    @Test(arguments: [SplitDirection.right, .down])
+    func consecutiveRootSplitsPreserveEarlierCompression(direction: SplitDirection) throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: direction, focus: false))
+        let afterFirst = fixture.sourceFrameInWindow()
+
+        // No run-loop turn: the first split's anchor still has its old frame.
+        let nextDirection: SplitDirection = direction == .right ? .down : .right
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: nextDirection, focus: false))
+        let afterSecond = fixture.sourceFrameInWindow()
+
+        if direction == .right {
+            #expect(abs(afterSecond.width - afterFirst.width) < 1)
+            #expect(afterSecond.height < afterFirst.height * 0.7)
+        } else {
+            #expect(abs(afterSecond.height - afterFirst.height) <= 1)
+            #expect(afterSecond.width < afterFirst.width * 0.7)
+        }
+    }
+
+    @Test func rootSplitUsesWorkspaceBoundsWhenOnlyTheTrailingPaneHasAPresentedTerminal() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let before = fixture.sourceFrameInWindow()
+        let sibling = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId, orientation: .horizontal, focus: false
+        ))
+        TerminalWindowPortalRegistry.detach(hostedView: fixture.hosted)
+        let divider = fixture.workspace.bonsplitController.configuration.appearance.dividerThickness
+        let halfWidth = (before.width - divider) / 2
+        let anchor = NSView(frame: NSRect(
+            x: before.minX + halfWidth + divider, y: before.minY,
+            width: halfWidth, height: before.height
+        ))
+        fixture.window.contentView?.addSubview(anchor)
+        sibling.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: sibling.hostedView, to: anchor, visibleInUI: true)
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: sibling.hostedView)
+            anchor.removeFromSuperview()
+        }
+        try #require(TerminalWindowPortalRegistry.isPresented(sibling.hostedView))
+
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: .right, focus: false))
+
+        let after = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        #expect(after.maxX <= before.midX + 1)
+        #expect(after.width > 24)
+    }
+
+    @Test(arguments: [SplitDirection.right, .down])
+    func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree(direction: SplitDirection) throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let firstSplit = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId,
+            orientation: .vertical,
+            focus: false
+        ))
+        let sibling = try #require(fixture.workspace.terminalPanel(for: firstSplit.id))
+        let siblingAnchor = NSView(frame: fixture.anchor.frame)
+        fixture.window.contentView?.addSubview(siblingAnchor)
+        sibling.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: sibling.hostedView, to: siblingAnchor, visibleInUI: true)
+        try #require(TerminalWindowPortalRegistry.isPresented(sibling.hostedView))
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: sibling.hostedView)
+            siblingAnchor.removeFromSuperview()
+        }
+
+        let beforeSource = fixture.sourceFrameInWindow()
+        let beforeSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        let oldTreeFrame = beforeSource.union(beforeSibling)
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: direction, focus: false))
+
+        let newPaneRegion = Fixture.newPaneRegion(of: oldTreeFrame, direction: direction)
+        let afterSource = fixture.sourceFrameInWindow()
+        let afterSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        #expect(!afterSource.intersects(newPaneRegion))
+        #expect(!afterSibling.intersects(newPaneRegion))
+        if direction == .right {
+            #expect(afterSibling.width < beforeSibling.width * 0.7)
+        } else {
+            #expect(afterSibling.height < beforeSibling.height * 0.7)
+        }
+    }
+
     @Test(arguments: [SplitDirection.down, .up, .right, .left])
     func splitMovesSourceTerminalOutOfTheNewPaneInTheSameTransaction(direction: SplitDirection) throws {
         let fixture = try Fixture()
@@ -113,6 +236,15 @@ struct WorkspaceSplitProvisionalGeometryTests {
             window.contentView?.addSubview(anchor)
 
             let workspace = testWorkspace.workspace
+            let configuration = workspace.bonsplitController.configuration
+            let tabBarHeight = configuration.tabBarVisibility.showsTabBar(tabCount: 1)
+                ? configuration.appearance.tabBarHeight : 0
+            let anchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+            workspace.bonsplitController.setContainerFrame(CGRect(
+                x: anchorFrameInWindow.minX, y: anchorFrameInWindow.minY,
+                width: anchorFrameInWindow.width,
+                height: anchorFrameInWindow.height + tabBarHeight
+            ))
             sourcePanelId = try #require(workspace.focusedPanelId)
             let panel = try #require(workspace.terminalPanel(for: sourcePanelId))
             hosted = panel.hostedView

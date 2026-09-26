@@ -81,6 +81,10 @@ extension ContentView {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.terminalSplitRootRight":
+            return .splitRootRight
+        case "palette.terminalSplitRootDown":
+            return .splitRootDown
         case "palette.findInDirectory":
             return .findInDirectory
         case "palette.terminalFind":

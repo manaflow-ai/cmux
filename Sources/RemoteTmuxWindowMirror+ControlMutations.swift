@@ -135,7 +135,8 @@ extension RemoteTmuxWindowMirror {
         focusIntent: RemoteTmuxSplitFocusIntent,
         insertBefore: Bool,
         shellCommand: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        fullWindow: Bool = false
     ) -> Bool {
         let command: String
         if let shellCommand {
@@ -145,7 +146,8 @@ extension RemoteTmuxWindowMirror {
                 paneID: tmuxPaneID,
                 insertBefore: insertBefore,
                 shellCommand: shellCommand,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                fullWindow: fullWindow
             ) else {
                 return false
             }
@@ -155,7 +157,8 @@ extension RemoteTmuxWindowMirror {
                 vertical: vertical,
                 windowID: windowId,
                 paneID: tmuxPaneID,
-                insertBefore: insertBefore
+                insertBefore: insertBefore,
+                fullWindow: fullWindow
             )
         }
         guard focusIntent == .focusCreatedPane else {
