@@ -1379,6 +1379,32 @@
         }
       }
     },
+    "remote": {
+      "x-cmux-scopes": ["global"],
+      "title": "remote",
+      "descriptionKey": "schemaDescriptions.remote.description",
+      "description": "SSH settings for cmux-managed remote workspaces.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sshServerAliveInterval": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 20,
+          "descriptionKey": "schemaDescriptions.remote.sshServerAliveInterval",
+          "description": "Seconds between SSH keepalive probes for remote workspaces."
+        },
+        "sshServerAliveCountMax": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 2,
+          "descriptionKey": "schemaDescriptions.remote.sshServerAliveCountMax",
+          "description": "Unanswered SSH keepalive probes tolerated before cmux considers the connection lost."
+        }
+      }
+    },
     "automation": {
       "x-cmux-scopes": ["global"],
       "title": "automation",

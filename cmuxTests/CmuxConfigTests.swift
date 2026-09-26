@@ -32,6 +32,33 @@ final class CmuxConfigDecodingTests: XCTestCase {
         )
     }
 
+    func testDecodeRemoteSSHKeepaliveSettings() throws {
+        let config = try decode("""
+        {
+          "remote": {
+            "sshServerAliveInterval": 60,
+            "sshServerAliveCountMax": 5
+          }
+        }
+        """)
+        XCTAssertEqual(config.remote?.sshServerAliveInterval, 60)
+        XCTAssertEqual(config.remote?.sshServerAliveCountMax, 5)
+    }
+
+    func testDecodeRemoteSSHKeepaliveSettingsUsesDefaultsForOmittedValues() throws {
+        let config = try decode("""
+        { "remote": { "sshServerAliveInterval": 45 } }
+        """)
+        XCTAssertEqual(config.remote?.sshServerAliveInterval, 45)
+        XCTAssertEqual(config.remote?.sshServerAliveCountMax, 2)
+    }
+
+    func testDecodeRemoteSSHKeepaliveSettingsRejectsOutOfRangeValues() {
+        XCTAssertThrowsError(try decode("""
+        { "remote": { "sshServerAliveCountMax": 0 } }
+        """))
+    }
+
     // MARK: Simple commands
 
     func testDecodeSimpleCommand() throws {

@@ -1,5 +1,7 @@
 import Testing
 import CmuxCore
+import CmuxFoundation
+import Foundation
 
 @Suite("WorkspaceRemoteConfiguration SSH batch command composition")
 struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
@@ -10,6 +12,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             "ControlPath=/tmp/cmux-ssh-%C",
             "StrictHostKeyChecking=accept-new",
         ],
+        keepaliveSettings: SSHKeepaliveSettings? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
         relayPort: Int? = nil
@@ -19,6 +22,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             port: 2222,
             identityFile: "/Users/test/.ssh/id_ed25519",
             sshOptions: sshOptions,
+            sshKeepaliveSettings: keepaliveSettings,
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: nil,
@@ -45,6 +49,50 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         "-o", "ControlPath=/tmp/cmux-ssh-%C",
         "-o", "StrictHostKeyChecking=accept-new",
     ]
+
+    @Test("Global keepalive defaults reach transports without becoming saved overrides")
+    func configuredKeepalivesStayOutOfSnapshots() throws {
+        let settings = try SSHKeepaliveSettings(sshServerAliveInterval: 60, sshServerAliveCountMax: 5)
+        let original = configuration(sshOptions: ["ServerAliveCountMax=8"], keepaliveSettings: settings)
+        let copies = [original, original.scopedToOwnerWorkspace(UUID()),
+                      original.withSSHControlMasterLeaseGeneration(UUID()),
+                      original.withDaemonWebSocketEndpoint(nil)]
+        for copy in copies {
+            let arguments = copy.daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+            #expect(arguments.contains(["-o", "ServerAliveInterval=60"]))
+            #expect(arguments.contains(["-o", "ServerAliveCountMax=8"]))
+            #expect(!arguments.contains(["-o", "ServerAliveCountMax=5"]))
+            let snapshot = try #require(copy.sessionSnapshot())
+            #expect(snapshot.sshOptions == ["ServerAliveCountMax=8"])
+            let restored = configuration(sshOptions: snapshot.sshOptions,
+                keepaliveSettings: try SSHKeepaliveSettings(sshServerAliveInterval: 90))
+            #expect(restored.sshOptions == ["ServerAliveCountMax=8", "ServerAliveInterval=90"])
+            let reset = configuration(sshOptions: snapshot.sshOptions)
+            #expect(reset.daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+                .contains(["-o", "ServerAliveInterval=20"]))
+        }
+    }
+
+    @Test("Global JSON settings validate values and preserve explicit option spellings")
+    func keepaliveConfigurationDecoding() throws {
+        let data = Data("""
+        {
+          "remote": { "sshServerAliveInterval": 60 }
+        }
+        """.utf8)
+        let settings = try #require(try SSHKeepaliveSettings.decodeConfiguration(data))
+        #expect(settings.sshServerAliveInterval == 60)
+        #expect(settings.sshServerAliveCountMax == 2)
+        #expect(settings.optionArguments(for: [" serveraliveinterval  90 ", "SERVERALIVECOUNTMAX=7"]).isEmpty)
+        #expect(try SSHKeepaliveSettings.decodeConfiguration(Data("{}".utf8)) == nil)
+        #expect(try SSHKeepaliveSettings.decodeConfiguration(Data(#"{"remote":{}}"#.utf8)) == .default)
+        #expect(throws: (any Error).self) {
+            try SSHKeepaliveSettings.decodeConfiguration(Data(#"{"remote":{"sshServerAliveInterval":0}}"#.utf8))
+        }
+        #expect(throws: (any Error).self) {
+            try SSHKeepaliveSettings.decodeConfiguration(Data(#"{"remote":{"sshServerAliveCountMax":101}}"#.utf8))
+        }
+    }
 
     @Test("daemonTransportArguments without a persistent slot")
     func daemonTransportArgumentsWithoutSlot() {
@@ -109,6 +157,22 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 expectedCommand,
             ]
         )
+    }
+
+    @Test("configured keepalives take precedence over batch defaults")
+    func configuredKeepalivesTakePrecedence() {
+        let arguments = configuration(
+            sshOptions: [
+                "ServerAliveInterval=60",
+                "ServerAliveCountMax=5",
+                "StrictHostKeyChecking=accept-new",
+            ]
+        ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+
+        #expect(arguments.contains(["-o", "ServerAliveInterval=60"]))
+        #expect(arguments.contains(["-o", "ServerAliveCountMax=5"]))
+        #expect(!arguments.contains(["-o", "ServerAliveInterval=20"]))
+        #expect(!arguments.contains(["-o", "ServerAliveCountMax=2"]))
     }
 
     /// The stdio daemon transport appends its own positional remote command,

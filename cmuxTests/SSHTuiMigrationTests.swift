@@ -13,10 +13,10 @@ import Testing
 
 @Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
-    private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
+    private func configuration(options: [String] = [], keepaliveSettings: SSHKeepaliveSettings? = nil, command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
-            sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            sshOptions: options, sshKeepaliveSettings: keepaliveSettings, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: command,
             preserveAfterTerminalExit: true
         )
@@ -115,6 +115,27 @@ struct SSHTuiMigrationTests {
         #expect(restored.relayPort == nil)
         #expect(restored.foregroundAuthToken == nil)
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
+    }
+
+    @Test("Restored SSH sessions use current defaults without changing session identity")
+    func restoreRefreshesKeepaliveDefaults() throws {
+        let snapshot = try #require(configuration(options: ["ServerAliveCountMax=8"]).sessionSnapshot())
+        let first = try #require(snapshot.workspaceConfiguration(
+            sshKeepaliveSettings: try SSHKeepaliveSettings(sshServerAliveInterval: 60)))
+        let saved = try #require(first.sessionSnapshot())
+        #expect(saved.sshOptions == ["ServerAliveCountMax=8"])
+        let restored = try #require(saved.workspaceConfiguration(
+            sshKeepaliveSettings: try SSHKeepaliveSettings(sshServerAliveInterval: 90)))
+        #expect(restored.sshOptions == ["ServerAliveCountMax=8", "ServerAliveInterval=90"])
+        let reset = try #require(saved.workspaceConfiguration())
+        #expect(reset.sshOptions == ["ServerAliveCountMax=8"])
+        let firstConnection = SSHTuiConnection(configuration: first)
+        let restoredConnection = SSHTuiConnection(configuration: restored)
+        #expect(firstConnection.id == restoredConnection.id)
+        #expect(firstConnection.id == SSHTuiConnection(configuration: reset).id)
+        #expect(restoredConnection.authenticationArguments.contains("ServerAliveInterval=90"))
+        #expect(restoredConnection.arguments(stateDirectory: "/tmp/fixture", deviceName: "fixture")
+            .contains("ServerAliveInterval=90"))
     }
 
     @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
@@ -259,7 +280,8 @@ struct SSHTuiMigrationTests {
             catalog.endProjections(panelID: panelID, reason: .replaced)
             workspace.teardownAllPanels()
         }
-        let config = configuration()
+        let settings = try SSHKeepaliveSettings(sshServerAliveInterval: 60, sshServerAliveCountMax: 5)
+        let config = configuration(keepaliveSettings: settings)
         workspace.remoteConfiguration = config
         let resource = SurfaceResourceID(machine: .init(rawValue: SSHTuiConnection(configuration: config).id),
                                          kind: .terminal, key: "fork-test-" + UUID().uuidString)
@@ -277,6 +299,9 @@ struct SSHTuiMigrationTests {
         let launch = try #require(workspace.forkAgentWorkspaceLaunch(fromPanelId: panelID, snapshot: snapshot))
         let forkConfiguration = try #require(launch.remoteConfiguration)
         #expect(SSHTuiConnection(configuration: forkConfiguration).id == resource.machine.rawValue)
+        #expect(forkConfiguration.sshKeepaliveSettings == settings)
+        #expect(forkConfiguration.sshOptions.contains("ServerAliveInterval=60"))
+        #expect(forkConfiguration.sessionSnapshot()?.sshOptions == [])
         #expect(forkConfiguration.configuredRemoteCommand == snapshot.forkCommand)
         #expect(launch.initialTerminalCommand == nil)
         #expect(launch.initialTerminalInput.isEmpty)

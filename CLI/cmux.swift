@@ -12278,6 +12278,13 @@ struct CMUXCLI {
         )
     }
 
+    private func globalRemoteSSHKeepaliveSettings() -> SSHKeepaliveSettings? {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux/cmux.json")
+        guard let data = try? Data(contentsOf: path) else { return nil }
+        return try? SSHKeepaliveSettings.decodeConfiguration(JSONCParser.preprocess(data: data))
+    }
+
     private func resolvedSSHAgentForwarding(
         sshOptions: [String],
         override: Bool?
@@ -12749,12 +12756,7 @@ struct CMUXCLI {
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveInterval") {
-            parts += ["-o", "ServerAliveInterval=20"]
-        }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveCountMax") {
-            parts += ["-o", "ServerAliveCountMax=2"]
-        }
+        parts += (globalRemoteSSHKeepaliveSettings() ?? .default).optionArguments(for: effectiveSSHOptions)
         if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
             parts += ["-o", "SetEnv COLORTERM=truecolor"]
         }

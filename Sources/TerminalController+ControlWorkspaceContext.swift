@@ -651,6 +651,7 @@ extension TerminalController: ControlWorkspaceContext {
             port: sshPort,
             identityFile: identityFile?.isEmpty == true ? nil : identityFile,
             sshOptions: sshOptions,
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings(),
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID?.isEmpty == true ? nil : relayID,

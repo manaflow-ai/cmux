@@ -73,9 +73,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var remote: SSHKeepaliveSettings?
 
     private enum CodingKeys: String, CodingKey {
-        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, remote
     }
 
     init(
@@ -88,7 +89,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        remote: SSHKeepaliveSettings? = nil
     ) {
         self.packs = packs
         self.actions = actions
@@ -100,6 +102,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.remote = remote
     }
 
     init(from decoder: Decoder) throws {
@@ -153,6 +156,7 @@ struct CmuxConfigFile: Codable, Sendable {
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
         )
+        remote = try container.decodeIfPresent(SSHKeepaliveSettings.self, forKey: .remote)
     }
 
     private static func normalizedActions(
@@ -1959,6 +1963,12 @@ final class CmuxConfigStore: ObservableObject {
             .store(in: &trackingCancellables)
 
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+    }
+
+    /// Read global transport defaults before window contexts exist during restore.
+    static func loadGlobalSSHKeepaliveSettings() -> SSHKeepaliveSettings? {
+        guard let data = FileManager.default.contents(atPath: defaultGlobalConfigPath()) else { return nil }
+        return try? SSHKeepaliveSettings.decodeConfiguration(JSONCParser.preprocess(data: data))
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {

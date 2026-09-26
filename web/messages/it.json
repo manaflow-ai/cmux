@@ -1304,6 +1304,11 @@
           "workspaceAutoNaming": "Denominazione automatica opzionale di workspace e schede tramite IA dal contenuto delle conversazioni dell'agente. Se attivata, cmux riassume le sessioni degli agenti supportati in titoli brevi usando il binario di ciascun agente; le rinomine manuali hanno sempre la precedenza.",
           "autoNamingAgent": "Quale agente genera i nomi automatici per ogni sessione. «auto» (predefinito) nomina ogni sessione con il proprio agente; qualsiasi slug di agente (claude, codex, grok, opencode, pi, omp, …) sostituisce la denominazione per tutte le sessioni, anche quelle di altri agenti. Gli agenti non utilizzabili o non installati ricorrono all'agente della sessione, così la denominazione non si interrompe mai."
         },
+        "remote": {
+          "description": "Impostazioni SSH per gli spazi di lavoro remoti gestiti da cmux.",
+          "sshServerAliveInterval": "Secondi tra le verifiche di mantenimento della connessione SSH per gli spazi di lavoro remoti.",
+          "sshServerAliveCountMax": "Numero di verifiche di mantenimento della connessione SSH senza risposta tollerate prima che cmux consideri persa la connessione."
+        },
         "app": {
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",

@@ -48,6 +48,7 @@ const sectionOrder = [
   "ui",
   "commands",
   "agentChat",
+  "remote",
   "browser",
   "markdown",
   "fileEditor",
@@ -137,6 +138,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "agentChat": {
   //   "url": "http://127.0.0.1:7739",
   //   "startCommand": "cmux-chat"
+  // },
+
+  // "remote": {
+  //   "sshServerAliveInterval": 60,
+  //   "sshServerAliveCountMax": 5
   // },
 
   // "shortcuts": {

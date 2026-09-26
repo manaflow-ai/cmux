@@ -2672,7 +2672,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             useIPv6: false,
             forwardAgent: false,
             compressionEnabled: false,
-            sshOptions: []
+            sshOptions: ["ServerAliveInterval=60", "ServerAliveCountMax=5"]
         )
 
         var invocations: [(executable: String, arguments: [String])] = []
@@ -2711,6 +2711,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
 
         XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+        for invocation in invocations {
+            XCTAssertTrue(invocation.arguments.contains("ServerAliveInterval=60"))
+            XCTAssertTrue(invocation.arguments.contains("ServerAliveCountMax=5"))
+            XCTAssertFalse(invocation.arguments.contains("ServerAliveInterval=20"))
+            XCTAssertFalse(invocation.arguments.contains("ServerAliveCountMax=2"))
+        }
     }
 
     func testDetectsForegroundSSHSessionForTTY() {

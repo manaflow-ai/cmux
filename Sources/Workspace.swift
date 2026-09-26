@@ -269,7 +269,8 @@ extension Workspace {
         panelShellActivityStates.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings()
         )
         if let restoredRemoteConfiguration {
             let shouldAutoConnect = sessionRestorePolicy.shouldAutoConnectRestoredRemote(
@@ -6977,8 +6978,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // once. Nothing is retained or dialed before the refusal.
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         if let managedCloudVMID = configuration.managedCloudVMID,
-           !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !CloudMachinesFeature.offMainIsEnabled() {
+            !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !CloudMachinesFeature.offMainIsEnabled() {
             return suspendCloudRemoteConfiguration(configuration)
         }
         if configuration.routesThroughSSHTui {
@@ -13224,12 +13225,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
         guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
         let forkedSSHOptions = remoteConfiguration
-            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
+            .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.explicitSSHOptions) }
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
             preserveSSHOptions: true,
-            agentSocketPath: remoteConfiguration?.agentSocketPath
+            agentSocketPath: remoteConfiguration?.agentSocketPath,
+            sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings()
         ) ?? remoteConfiguration
     }
 

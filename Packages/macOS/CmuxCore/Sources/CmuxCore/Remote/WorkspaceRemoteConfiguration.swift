@@ -26,8 +26,14 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let port: Int?
     /// Explicit identity file path, when configured.
     public let identityFile: String?
-    /// `-o` SSH options applied to every spawned SSH process.
-    public let sshOptions: [String]
+    /// Explicit SSH options retained across session saves and restores.
+    public let explicitSSHOptions: [String]
+    /// Global defaults captured for this connection, never persisted as explicit options.
+    public let sshKeepaliveSettings: SSHKeepaliveSettings?
+    /// Effective `-o` options applied to every spawned SSH process.
+    public var sshOptions: [String] {
+        sshKeepaliveSettings?.appendingMissingOptions(to: explicitSSHOptions) ?? explicitSSHOptions
+    }
     /// Deterministic local proxy port override (docker regression test hook).
     public let localProxyPort: Int?
     /// CLI relay port for remote `cmux` command forwarding.
@@ -75,6 +81,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
+        sshKeepaliveSettings: SSHKeepaliveSettings? = nil,
         localProxyPort: Int?,
         relayPort: Int?,
         relayID: String?,
@@ -98,7 +105,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
-        self.sshOptions = sshOptions
+        self.explicitSSHOptions = sshOptions
+        self.sshKeepaliveSettings = sshKeepaliveSettings
         self.localProxyPort = localProxyPort
         self.relayPort = relayPort
         self.relayID = relayID
@@ -128,6 +136,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
+        sshKeepaliveSettings: SSHKeepaliveSettings? = nil,
         localProxyPort: Int?,
         relayPort: Int?,
         relayID: String?,
@@ -152,6 +161,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -181,7 +191,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             lhs.destination == rhs.destination &&
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
-            lhs.sshOptions == rhs.sshOptions &&
+            lhs.explicitSSHOptions == rhs.explicitSSHOptions &&
+            lhs.sshKeepaliveSettings == rhs.sshKeepaliveSettings &&
             lhs.localProxyPort == rhs.localProxyPort &&
             lhs.relayPort == rhs.relayPort &&
             lhs.relayID == rhs.relayID &&
@@ -375,7 +386,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             destination: destination,
             port: port,
             identityFile: identityFile,
-            sshOptions: sshOptions,
+            sshOptions: explicitSSHOptions,
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -410,7 +422,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             destination: destination,
             port: port,
             identityFile: identityFile,
-            sshOptions: sshOptions,
+            sshOptions: explicitSSHOptions,
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -440,7 +453,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             destination: destination,
             port: port,
             identityFile: identityFile,
-            sshOptions: sshOptions,
+            sshOptions: explicitSSHOptions,
+            sshKeepaliveSettings: sshKeepaliveSettings,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -525,7 +539,7 @@ extension WorkspaceRemoteConfiguration {
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
-            sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
+            sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(explicitSSHOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: retainsRelayNamespace ? relayPort : nil,

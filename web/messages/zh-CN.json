@@ -1304,6 +1304,11 @@
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
           "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
         },
+        "remote": {
+          "description": "cmux 管理的远程工作区的 SSH 设置。",
+          "sshServerAliveInterval": "远程工作区 SSH 保活探测之间的间隔（秒）。",
+          "sshServerAliveCountMax": "cmux 判断连接已断开前允许的未响应 SSH 保活探测次数。"
+        },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",

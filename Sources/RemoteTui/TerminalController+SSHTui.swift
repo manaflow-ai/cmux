@@ -24,7 +24,8 @@ extension TerminalController {
         let configuration = WorkspaceRemoteConfiguration(
             terminalProfile: profile,
             destination: host.destination, port: host.port, identityFile: host.identityFile,
-            sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            sshOptions: options, sshKeepaliveSettings: CmuxConfigStore.loadGlobalSSHKeepaliveSettings(),
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: configuredCommand,
             agentSocketPath: params["ssh_auth_sock"] as? String, preserveAfterTerminalExit: true
         )

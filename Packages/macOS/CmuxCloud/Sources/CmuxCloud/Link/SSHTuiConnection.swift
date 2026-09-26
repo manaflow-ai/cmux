@@ -18,7 +18,7 @@ public struct SSHTuiConnection: Sendable {
     public var id: String { "ssh:" + identityDigest }
     public var identityDigest: String {
         let resolver = SSHAgentSocketResolver(environment: [:])
-        let persistentOptions = configuration.sshOptions.filter {
+        let persistentOptions = configuration.explicitSSHOptions.filter {
             !["controlmaster", "controlpersist", "controlpath"].contains(resolver.optionKey($0) ?? "")
         }
         let components = [configuration.destination, configuration.port.map(String.init) ?? "",
