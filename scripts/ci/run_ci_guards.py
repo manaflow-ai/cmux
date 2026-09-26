@@ -15,6 +15,14 @@ below). setup-bun and setup-python expect `bun` and `python3` on PATH.
 A full run on a clean tree writes a pass stamp for HEAD, which the agent merge
 guard (cmuxterm-hq tools/agent-guards) accepts in place of the CI check:
   ${XDG_CACHE_HOME:-~/.cache}/cmux-guards/pass/<sha>
+
+`--step NAME` runs only the named steps (a stateful group also runs the steps
+before them), in seconds. `--root DIR` runs another checkout's ci-guards.yml
+and tests with this runner, and `--results FILE` writes each step's outcome as
+JSON; guard_attribution.py uses the three to find the commit that first fails
+a step. `--json PATH` writes the full plan and every step's result, which
+scripts/ci/merge_main.py uses to tell a failure the branch inherited from main
+from one it introduced.
 """
 
 from __future__ import annotations
@@ -173,7 +181,9 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
     jobs = workflow["jobs"]
     units: list[Unit] = []
     for job_name in GUARD_JOBS:
-        job = jobs[job_name]
+        job = jobs.get(job_name)
+        if job is None:  # an older checkout (--root) that predates this guard job
+            continue
         matrix = (job.get("strategy") or {}).get("matrix") or {}
         groups = matrix.get("group")
         if isinstance(groups, str):
@@ -297,6 +307,10 @@ def run_steps(
             step_env.update(step.env)
             cwd = ROOT / step.working_directory if step.working_directory else ROOT
             if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
+                if not (ROOT / PORTABLE_SUBSTITUTES[step.name]).exists():
+                    # An older checkout (--root) that predates the substitute.
+                    results.append(StepResult(unit, step, None, 0.0, ""))
+                    continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
             returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
             results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output))
@@ -338,6 +352,19 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
                 pass
         out.seek(0)
         return returncode, out.read()
+
+
+def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
+    """Only the named steps. A stateful group keeps its earlier steps too: they
+    hand state (a bun install, GITHUB_ENV) to the ones asked for."""
+    selected: list[Unit] = []
+    for unit in units:
+        indexes = [i for i, step in enumerate(unit.steps) if step.name in names]
+        if not indexes:
+            continue
+        steps = unit.steps[: indexes[-1] + 1] if is_stateful(unit) else [unit.steps[i] for i in indexes]
+        selected.append(dataclasses.replace(unit, steps=steps))
+    return selected
 
 
 def git(*args: str) -> str:
@@ -391,7 +418,37 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
     return stamp
 
 
+def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
+                  results: list[StepResult], seconds: float) -> None:
+    body = {
+        "root": str(ROOT),
+        "head": head_sha,
+        "base": base_sha,
+        "seconds": round(seconds, 1),
+        "units": [{"label": unit.label, "job": unit.job, "group": unit.group, "stateful": is_stateful(unit)}
+                  for unit in units],
+        # Every step the plan held, run or not: a step missing from "steps"
+        # but planned was not reached (an earlier step of its stateful group
+        # failed); one missing from both does not exist in this checkout.
+        "planned": [{"unit": unit.label, "name": step.name} for unit in units for step in unit.steps],
+        "steps": [
+            {
+                "unit": r.unit.label,
+                "job": r.unit.job,
+                "group": r.unit.group,
+                "name": r.step.name,
+                "status": "skipped" if r.ok is None else ("pass" if r.ok else "fail"),
+                "seconds": round(r.seconds, 2),
+                "output_tail": "\n".join(r.output.rstrip().splitlines()[-40:]) if r.ok is False else "",
+            }
+            for r in results
+        ],
+    }
+    Path(path).write_text(json.dumps(body, indent=2) + "\n")
+
+
 def main(argv: list[str]) -> int:
+    global ROOT, WORKFLOW
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--group", action="append", default=[], help="run these matrix groups or jobs instead of the fast set")
     parser.add_argument("--all", action="store_true", help="run every guard group, not only the fast set")
@@ -400,14 +457,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--no-stamp", action="store_true")
     parser.add_argument("--keep-going", action="store_true", help="keep running a sequential group after a failed step")
     parser.add_argument("--verbose", action="store_true", help="print every step's output")
+    parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
+    parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
+    parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
+    parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
     args = parser.parse_args(argv)
+    if args.root:
+        ROOT = Path(args.root).resolve()
+        WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 
     workflow = load_yaml(WORKFLOW)
     step_names = {
-        str(s.get("name")) for job in GUARD_JOBS for s in workflow["jobs"][job]["steps"]
+        str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
     stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
-    if stale:
+    # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
+    if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
         return 2
 
@@ -423,7 +488,21 @@ def main(argv: list[str]) -> int:
         units = [u for u in units if u.group in wanted or u.job in wanted]
         if not units:
             print(f"no guard group matches {sorted(wanted)}", file=sys.stderr)
+            if args.json_path:
+                # An empty plan is an answer for a caller comparing checkouts:
+                # this one has none of those groups.
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 2
+    if args.step:
+        units = select_steps(units, set(args.step))
+        if not units:
+            # Exit 3: the checkout has no such step (it predates the test).
+            print(f"no guard step named {sorted(args.step)}", file=sys.stderr)
+            if args.json_path:
+                # An empty plan tells a caller comparing checkouts that this
+                # one has none of those steps.
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
+            return 3
 
     if args.list:
         for unit in units:
@@ -479,11 +558,19 @@ def main(argv: list[str]) -> int:
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
+    if args.results:
+        outcome: dict[str, bool] = {}
+        for result in results:
+            if result.ok is not None:
+                outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
+        Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
     print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
+    if args.json_path:
+        write_results(args.json_path, head_sha, base_sha, units, results, seconds)
     if failed:
         print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
-    if args.no_stamp or args.group:
+    if args.no_stamp or args.group or args.step or args.root:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
         print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")
