@@ -34,6 +34,12 @@ import Observation
 public final class DefaultsValueModel<Value: SettingCodable> {
     /// The most recently observed value. SwiftUI views read this synchronously.
     public private(set) var current: Value
+    /// Whether the suite holds an explicit value for the key rather than
+    /// falling back to its default. Updated optimistically by ``set(_:)`` and
+    /// ``reset()``, then reconciled with storage as store events arrive, so
+    /// views can resolve layered defaults without reading `UserDefaults` in
+    /// `body`.
+    public private(set) var hasStoredValue: Bool
     private(set) var revision = 0
 
     private let store: UserDefaultsSettingsStore
@@ -95,6 +101,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         let resolvedInitialValue = initialValue ?? key.defaultValue
         self.initialStoreValue = resolvedInitialValue
         self.current = resolvedInitialValue
+        self.hasStoredValue = store.initialHasStoredValue(for: key)
     }
 
     /// Starts the settings change stream for the retained model.
@@ -123,6 +130,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     @discardableResult
     public func set(_ value: Value) -> UserDefaultsSettingsMutationSource {
         let source = recordPendingStoreEcho(value)
+        hasStoredValue = true
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value] in
             guard await store.set(value, for: key, source: source) != nil else {
@@ -150,6 +158,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         afterCommit: @escaping @MainActor @Sendable () -> Void
     ) -> UserDefaultsSettingsMutationSource {
         let source = recordPendingStoreEcho(value)
+        hasStoredValue = true
         updateCurrent(value)
         Task { @MainActor [self, store, key, source, value, afterCommit] in
             guard await store.set(value, for: key, source: source) != nil else {
@@ -169,6 +178,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     /// method does not write to ``store``.
     public func acceptCommittedValue(_ value: Value) {
         clearPendingStoreEchoes()
+        hasStoredValue = store.initialHasStoredValue(for: key)
         updateCurrent(value)
     }
 
@@ -178,6 +188,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     public func reset() -> UserDefaultsSettingsMutationSource {
         let defaultValue = key.defaultValue
         let source = recordPendingStoreEcho(defaultValue)
+        hasStoredValue = false
         updateCurrent(defaultValue)
         Task { @MainActor [self, store, key, source] in
             guard await store.reset(key, source: source) != nil else {
@@ -190,6 +201,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     }
 
     private func acceptObservedValue(_ event: UserDefaultsSettingsValueEvent<Value>) {
+        defer { reconcileStoredPresenceIfSettled() }
         let isInitialStoreEvent = !hasObservedInitialStoreEvent
         hasObservedInitialStoreEvent = true
 
@@ -289,7 +301,19 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
         markLocalEchoesConsumed(through: source.sequence)
         pendingStoreEchoes.removeFirst(matchingIndex + 1)
+        reconcileStoredPresenceIfSettled()
         updateCurrent(committedValue)
+    }
+
+    /// Re-reads explicit-value presence from storage once no local write is in
+    /// flight; while one is, the optimistic presence from ``set(_:)`` or
+    /// ``reset()`` stands.
+    private func reconcileStoredPresenceIfSettled() {
+        guard pendingStoreEchoes.isEmpty else { return }
+        let stored = store.initialHasStoredValue(for: key)
+        if stored != hasStoredValue {
+            hasStoredValue = stored
+        }
     }
 
     private func clearPendingStoreEchoes() {

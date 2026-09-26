@@ -1214,6 +1214,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "density": {
+          "type": "string",
+          "enum": ["full", "compact", "quiet"],
+          "default": "full",
+          "descriptionKey": "schemaDescriptions.sidebar.density",
+          "description": "Default level of workspace detail in the sidebar. full shows every detail; compact hides the latest log line and limits notification previews to two lines; quiet shows only the title row plus unread and agent activity indicators. Detail settings you set explicitly, such as sidebar.showPorts, override the density. hideAllDetails still hides everything."
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,

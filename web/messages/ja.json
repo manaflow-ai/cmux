@@ -2561,6 +2561,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
+          "density": "サイドバーに表示するワークスペース詳細の既定レベル。full はすべての詳細を表示し、compact は最新ログ行を隠して通知プレビューを 2 行に制限し、quiet はタイトル行と未読・エージェント実行中の表示だけを残します。sidebar.showPorts など個別に設定した詳細設定は density より優先されます。hideAllDetails は引き続きすべてを隠します。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {

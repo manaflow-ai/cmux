@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
+          "density": "侧边栏中工作区详细信息的默认级别。full 显示全部详细信息；compact 隐藏最新日志行，并将通知预览限制为两行；quiet 只显示标题行以及未读和代理活动指示。你显式设置的详细信息选项（例如 sidebar.showPorts）优先于 density。hideAllDetails 仍会隐藏全部内容。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {

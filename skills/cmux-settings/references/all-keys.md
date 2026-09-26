@@ -94,6 +94,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `sidebar.density` | `"full"` or `"compact"` or `"quiet"` | `"full"` | Default level of workspace detail in the sidebar. full shows every detail; compact hides the latest log line and limits notification previews to two lines; quiet shows only the title row plus unread and agent activity indicators. Detail settings you set explicitly, such as sidebar.showPorts, override the density. hideAllDetails still hides everything. |
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |

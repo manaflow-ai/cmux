@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
+          "density": "Kenar çubuğundaki çalışma alanı ayrıntılarının varsayılan düzeyi. full tüm ayrıntıları gösterir; compact son günlük satırını gizler ve bildirim önizlemelerini iki satırla sınırlar; quiet yalnızca başlık satırını ve okunmamış ile ajan etkinliği göstergelerini gösterir. sidebar.showPorts gibi açıkça ayarladığınız ayrıntı ayarları yoğunluğun önüne geçer. hideAllDetails yine her şeyi gizler.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {

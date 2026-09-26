@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
+          "density": "Nivel predeterminado de detalle de los espacios de trabajo en la barra lateral. full muestra todos los detalles; compact oculta la última línea de registro y limita las vistas previas de notificaciones a dos líneas; quiet muestra solo la fila del título y los indicadores de no leído y de actividad de agentes. Los ajustes de detalle que definas explícitamente, como sidebar.showPorts, tienen prioridad sobre la densidad. hideAllDetails sigue ocultándolo todo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {

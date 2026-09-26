@@ -1349,6 +1349,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
+          "density": "Domyślny poziom szczegółów obszarów roboczych na pasku bocznym. full pokazuje wszystkie szczegóły; compact ukrywa ostatni wiersz dziennika i ogranicza podglądy powiadomień do dwóch wierszy; quiet pokazuje tylko wiersz tytułu oraz wskaźniki nieprzeczytanych i aktywności agentów. Jawnie ustawione opcje szczegółów, np. sidebar.showPorts, mają pierwszeństwo przed gęstością. hideAllDetails nadal ukrywa wszystko.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
+          "density": "Standardumfang der Arbeitsbereichsdetails in der Seitenleiste. full zeigt alle Details; compact blendet die letzte Logzeile aus und begrenzt Benachrichtigungsvorschauen auf zwei Zeilen; quiet zeigt nur die Titelzeile sowie Ungelesen- und Agentenaktivitätsanzeigen. Explizit gesetzte Detaileinstellungen wie sidebar.showPorts haben Vorrang vor der Dichte. hideAllDetails blendet weiterhin alles aus.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

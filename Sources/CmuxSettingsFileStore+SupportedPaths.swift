@@ -75,6 +75,7 @@ extension CmuxSettingsFileStore {
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
         "notifications.agentIdleReminder",
+        "sidebar.density",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
