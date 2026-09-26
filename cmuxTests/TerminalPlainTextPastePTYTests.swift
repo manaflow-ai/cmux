@@ -19,6 +19,7 @@ extension TerminalPlainTextPasteStartupTests {
             let fixture = try PlainPastePTYFixture(optimized: optimized)
             defer { fixture.close() }
             try await fixture.waitUntilReady()
+            try await fixture.warmPasteboardAccess()
             for trial in 0..<6 {
                 let text = "paste-\(trial) 日本語 🦀 e\u{301}\nsecond\tline\n"
                 NSPasteboard.general.clearContents()
@@ -51,7 +52,6 @@ extension TerminalPlainTextPasteStartupTests {
                 let receipt = try await fixture.receipt(trial: trial)
                 let bytes = try #require(receipt["hex"] as? String)
                 let expected = Data(("\u{1b}[200~" + text + "\u{1b}[201~").utf8)
-                print("PASTE_PTY_DIAGNOSTIC optimized=\(optimized) trial=\(trial) sent_at=\(started) received=\(bytes.count / 2) \(fixture.diagnostics)")
                 #expect(bytes == expected.map { String($0, radix: 16).leftPaddedByte }.joined())
                 let received = try #require(receipt["received_at"] as? Double)
                 print("PASTE_PTY optimized=\(optimized) trial=\(trial) entry=\(trial % 3) duration_ms=\((received - started) * 1000) bytes=\(expected.count)")
