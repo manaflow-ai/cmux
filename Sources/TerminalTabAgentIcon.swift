@@ -50,4 +50,28 @@ extension Workspace {
         guard tab.iconAsset != asset else { return }
         bonsplitController.updateTab(tabID, iconAsset: .some(asset))
     }
+
+    /// Projects hook lifecycle activity onto Bonsplit's native tab spinner.
+    /// The spinner is reserved for an actively running agent; needs-input and
+    /// idle states use the attention projection instead.
+    func syncTerminalTabAgentLoading(forPanelId panelId: UUID) {
+        guard panels[panelId] is TerminalPanel,
+              let tabID = surfaceIdFromPanelId(panelId),
+              let tab = bonsplitController.tab(tabID) else { return }
+        let isLoading = agentHibernationLifecycleState(panelId: panelId, fallback: nil) == .running
+        guard tab.isLoading != isLoading else { return }
+        bonsplitController.updateTab(tabID, isLoading: isLoading)
+    }
+}
+
+extension DockSplitStore {
+    /// Projects hook lifecycle activity onto Bonsplit's native tab spinner.
+    func syncTerminalTabAgentLoading(forPanelId panelId: UUID) {
+        guard panels[panelId] is TerminalPanel,
+              let tabID = surfaceId(forPanelId: panelId),
+              let tab = bonsplitController.tab(tabID) else { return }
+        let isLoading = agentHibernationLifecycleState(panelId: panelId, fallback: nil) == .running
+        guard tab.isLoading != isLoading else { return }
+        bonsplitController.updateTab(tabID, isLoading: isLoading)
+    }
 }

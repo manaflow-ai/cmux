@@ -355,6 +355,61 @@ import Testing
         }
     }
 
+    /// Grok's own summary title is authoritative and must reach the visible
+    /// pane even when cmux auto-naming is disabled.
+    @Test func grokNativeTitleSyncAppliesToRawPanelTitleWithAutoNamingDisabled() async throws {
+        try await withAutoNamingSettingAsync(false) {
+            try await withManagerAsync { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                let title = "Fix Broken Magic Mouse Desktop Gestures"
+
+                let envelope = try await callAsync(method: "surface.sync_grok_native_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "title": title
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["applied"] as? Bool == true)
+                #expect(workspace.panelTitles[panelId] == title)
+                let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+                #expect(workspace.bonsplitController.tab(tabId)?.title == title)
+            }
+        }
+    }
+
+    @Test func grokNativeTitleReplacesOldAutoNameAndSurvivesOSCTitles() async throws {
+        try await withManagerAsync { _, workspace in
+            let panelId = try #require(workspace.focusedPanelId)
+            workspace.setPanelCustomTitle(panelId: panelId, title: "Old LLM rewrite", source: .auto)
+            let title = "Fix Broken Magic Mouse Desktop Gestures"
+            let envelope = try await callAsync(method: "surface.sync_grok_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "title": title
+            ])
+            let result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["applied"] as? Bool == true)
+            workspace.updatePanelTitle(panelId: panelId, title: "Grok | Working")
+            let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+            #expect(workspace.bonsplitController.tab(tabId)?.title == title)
+        }
+    }
+
+    @Test func grokNativeTitlePreservesUserPanelName() async throws {
+        try await withManagerAsync { _, workspace in
+            let panelId = try #require(workspace.focusedPanelId)
+            workspace.setPanelCustomTitle(panelId: panelId, title: "My pane", source: .user)
+            _ = try await callAsync(method: "surface.sync_grok_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "Grok generated title"
+            ])
+            let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+            #expect(workspace.bonsplitController.tab(tabId)?.title == "My pane")
+        }
+    }
+
     @Test func codexNativeTitleSyncRefreshesWindowTitleAndPublishesWorkspaceChange() async throws {
         try await withManagerAsync { manager, workspace in
             let panelId = try #require(workspace.focusedPanelId)

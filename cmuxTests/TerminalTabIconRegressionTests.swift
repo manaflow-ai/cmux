@@ -108,6 +108,29 @@ struct TerminalTabIconRegressionTests {
         }
     }
 
+    /// Hook lifecycle state drives Bonsplit's native tab spinner, so Grok and
+    /// other hook-based agents get the same running/idle pane affordance.
+    @MainActor
+    @Test func runningAgentLifecycleMarksTerminalTabLoading() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let key = "grok.lifecycle-tab-loading"
+
+        workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .running)
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .needsInput)
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+
+        workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .idle)
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+
+        workspace.setAgentLifecycle(key: key, panelId: panel.id, lifecycle: .running)
+        #expect(workspace.clearAgentLifecycle(key: key, panelId: panel.id))
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == false)
+    }
+
     @MainActor
     private func expectNoAgentMark(
         workspace: Workspace,

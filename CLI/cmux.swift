@@ -33984,6 +33984,17 @@ export default CMUXSessionRestore;
             return
         }
 
+        if def.name == "grok", subcommand == "sync-native-title" {
+            runGrokNativeTitleSyncHook(
+                commandArgs: hookArgs,
+                client: client,
+                telemetry: telemetry,
+                env: env
+            )
+            print("OK")
+            return
+        }
+
         if subcommand == "auto-name", autoNamingSource(for: def) != nil {
             // Detached re-invocation spawned from the codex Stop hook (see
             // spawnDetachedAgentAutoName): runs the full naming pass without
@@ -35578,6 +35589,19 @@ export default CMUXSessionRestore;
                 }
             }
 
+            if def.name == "grok", !relayOrigin, !suppressVisibleMutations, !sessionId.isEmpty {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
+
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -36570,6 +36594,19 @@ export default CMUXSessionRestore;
                 )
             }
 
+            if def.name == "grok", !relayOrigin, !suppressVisibleMutations, !sessionId.isEmpty {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
+
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
@@ -36741,6 +36778,22 @@ export default CMUXSessionRestore;
                 env: env
             )
 #endif
+            if def.name == "grok", !relayOrigin, !sessionId.isEmpty,
+               !shouldSuppressNestedAgentVisibleMutations(
+                   currentAgentPID: liveAgentPID(localAgentPID(mapped: mapped)),
+                   env: env
+               ) {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: notificationCwd,
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
             if def.name == "grok",
                let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
                 if isGrokInternalSessionNotification(notificationMessage) {

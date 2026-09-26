@@ -499936,61 +499936,61 @@
         }
       }
     },
-    "socket.surfaceSyncCodexNativeTitle.asyncDispatchRequired": {
+    "socket.surfaceSyncNativeTitle.asyncDispatchRequired": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title requires asynchronous socket dispatch"
+            "value": "%@ requires asynchronous socket dispatch"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title には非同期ソケットディスパッチが必要です"
+            "value": "%@ には非同期ソケットディスパッチが必要です"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title erfordert asynchrone Socket-Verarbeitung"
+            "value": "%@ erfordert asynchrone Socket-Verarbeitung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title nécessite un traitement asynchrone des commandes du socket"
+            "value": "%@ nécessite un traitement asynchrone des commandes du socket"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب surface.sync_codex_native_title معالجة غير متزامنة لأوامر المقبس"
+            "value": "يتطلب %@ معالجة غير متزامنة لأوامر المقبس"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title requiere el procesamiento asíncrono de comandos del socket"
+            "value": "%@ requiere el procesamiento asíncrono de comandos del socket"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title 需要非同步通訊端派送"
+            "value": "%@ 需要非同步通訊端派送"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title 需要异步套接字分发"
+            "value": "%@ 需要异步套接字分发"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "surface.sync_codex_native_title에는 비동기 소켓 디스패치가 필요합니다"
+            "value": "%@에는 비동기 소켓 디스패치가 필요합니다"
           }
         }
       }
