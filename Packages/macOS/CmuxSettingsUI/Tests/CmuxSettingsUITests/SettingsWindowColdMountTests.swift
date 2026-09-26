@@ -128,6 +128,18 @@ import Testing
         #expect(!model.isMounted(.workspaceColors))
         #expect(shortcutControls != accountControls, "pane did not switch: \(shortcutControls) controls")
         #expect(shortcutControls < 100, "inactive sections are in the hierarchy: \(shortcutControls) controls")
+
+        // Returning to a section mounted on an earlier visit rebuilds its
+        // pane, so the scroll still waits for that content to appear.
+        for section in [SettingsSectionID.account, .keyboardShortcuts] {
+            NotificationCenter.default.post(
+                name: SettingsWindowRoot.navigationRequestName,
+                object: nil,
+                userInfo: ["target": section.rawValue]
+            )
+            #expect(model.deferredScroll?.section == section)
+            await Self.wait(for: model) { model.deferredScroll == nil }
+        }
     }
 
     @Test func navigatingToAnUnmountedSectionMountsItOnDemand() async {

@@ -63,6 +63,10 @@ public struct SettingsWindowRoot: View {
     /// lands. The restore navigation posts one hop after the first pass, and
     /// the stored selection still names the last-viewed pane until then.
     @State private var pendingInitialSection: SettingsSectionID?
+    /// The slot whose content last appeared, i.e. the pane on screen. A
+    /// section that was mounted before is rebuilt when it becomes active
+    /// again, so its rows only exist once this matches.
+    @State var shownPaneSection: SettingsSectionID?
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0
     @State private var searchText: String = ""
@@ -554,7 +558,11 @@ public struct SettingsWindowRoot: View {
             generation: navigationGeneration
         )
         mountModel.pin(scrollTarget)
-        guard mountModel.ensureMounted(target) else {
+        // A pane that is not on screen yet (unmounted, or mounted on an
+        // earlier visit) scrolls from its content's `onAppear`, once its
+        // row ids exist again.
+        let wasMounted = mountModel.ensureMounted(target)
+        guard wasMounted, SettingsSectionMountModel.hostSection(for: target) == shownPaneSection else {
             mountModel.deferScroll(scrollTarget)
             return
         }
