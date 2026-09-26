@@ -167,7 +167,7 @@ import UIKit
             "\u{1B}]111\u{1B}\\").utf8
     )
 
-    #expect(await view.processOutputAndWaitWithTestDeadline(resetWhileReversed))
+    try #require(await view.processOutputAndWaitWithTestDeadline(resetWhileReversed))
     let frame = try exportThemeFrame(from: view)
 
     #expect(frame.terminalBackground?.lowercased() == rawConfig.foreground.lowercased())
@@ -186,7 +186,7 @@ import UIKit
     )
     defer { mirror.prepareForDismantle() }
 
-    #expect(await mirror.processOutputAndWaitWithTestDeadline(frame.vtPatchBytes()))
+    try #require(await mirror.processOutputAndWaitWithTestDeadline(frame.vtPatchBytes()))
     let mirroredFrame = try exportThemeFrame(from: mirror, surfaceID: "reverse-reset-mirror")
     #expect(mirroredFrame.terminalTheme?.palette[200].lowercased() == "#abcdef")
     #expect(mirroredFrame.terminalConfigTheme?.palette[200].lowercased() == rawConfig.palette[200].lowercased())
@@ -203,7 +203,7 @@ import UIKit
     semanticConfig.cursorColorSemantic = .foreground
     view.terminalConfigTheme = semanticConfig
 
-    #expect(
+    try #require(
         await view.processOutputAndWaitWithTestDeadline(
             Data("\u{1B}]112\u{1B}\\".utf8),
             terminalConfigTheme: semanticConfig
@@ -247,7 +247,7 @@ import UIKit
     )
     defer { view.prepareForDismantle() }
 
-    #expect(await view.processOutputAndWaitWithTestDeadline(Data("\u{1B}[1mX".utf8)))
+    try #require(await view.processOutputAndWaitWithTestDeadline(Data("\u{1B}[1mX".utf8)))
     let frame = try exportThemeFrame(from: view, surfaceID: "local-optional-color-reset")
     let matchingStyle = frame.styles.first(where: { $0.bold })
     let boldStyle = try #require(matchingStyle)

@@ -8,9 +8,9 @@ extension GhosttySurfaceView {
     /// Applies output with the display link stopped. The link runs the output
     /// apply watchdog, which fails an apply after two seconds and replaces the
     /// surface, and a simulator running the suite in parallel can take that
-    /// long to apply one chunk. An apply still pending after 30 seconds fails
-    /// here instead. Nothing a test calls restarts the link on a view without
-    /// a window.
+    /// long to apply one chunk. After 30 seconds this fails the apply, and any
+    /// other pending surface operation, instead. The callers' views have no
+    /// window, and nothing they call afterward restarts the link.
     func processOutputAndWaitWithTestDeadline(
         _ data: Data,
         terminalConfigTheme: TerminalTheme? = nil
