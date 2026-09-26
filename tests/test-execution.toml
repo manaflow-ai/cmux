@@ -7,6 +7,10 @@
 version = 1
 
 [[test]]
+path = "tests/test_hardened_runtime_entitlements.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]

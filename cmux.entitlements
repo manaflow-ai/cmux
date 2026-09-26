@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>com.apple.security.cs.disable-library-validation</key>
-	<true/>
-	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-	<true/>
+	<!-- JavaScriptCore compiles custom-sidebar programs and syntax highlighting
+	     in the app process (including re-executed sidebar render workers).
+	     Keep MAP_JIT support; unrestricted executable memory and library
+	     validation opt-outs are unnecessary. See docs/hardened-runtime-audit.md. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.developer.web-browser.public-key-credential</key>
