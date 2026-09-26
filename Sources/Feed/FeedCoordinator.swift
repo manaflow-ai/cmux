@@ -594,7 +594,9 @@ extension FeedCoordinator {
     /// badge lit until the last one concludes.
     ///
     /// - Parameter resolved: the target resolved off the main actor before UI
-    ///   mutation, since hook-session lookup may read from disk.
+    ///   mutation, since hook-session lookup may read from disk. The surface
+    ///   identity is resolved again on the main actor so a move between those
+    ///   phases cannot apply attention to the stale workspace.
     /// - Parameter tabManager: the window-local manager that owns a workspace
     ///   target or the window containing a Dock target.
     /// - Returns: the target to conclude once the decision ends, or `nil` if
@@ -614,7 +616,8 @@ extension FeedCoordinator {
         }
         #endif
 
-        guard let resolved else {
+        guard let resolved,
+              let liveResolved = liveNotificationTarget(for: event, resolved: resolved) else {
             #if DEBUG
             cmuxDebugLog(
                 "feed.attention.skip reason=unresolved-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(event.workspaceId ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
@@ -625,12 +628,12 @@ extension FeedCoordinator {
 
         let owner: ControlSidebarPanelOwner
         let panelId: UUID?
-        if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: resolved.ownerId) {
-            guard let resolvedPanelId = resolved.surfaceId ?? dock.focusedPanelId,
+        if let dock = AppDelegate.shared?.existingWindowDock(forWindowId: liveResolved.ownerId) {
+            guard let resolvedPanelId = liveResolved.surfaceId ?? dock.focusedPanelId,
                   dock.containsPanel(resolvedPanelId) else {
                 #if DEBUG
                 cmuxDebugLog(
-                    "feed.attention.skip reason=missing-dock-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(resolved.ownerId.uuidString) surface=\(resolved.surfaceId?.uuidString ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                    "feed.attention.skip reason=missing-dock-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(liveResolved.ownerId.uuidString) surface=\(liveResolved.surfaceId?.uuidString ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
                 )
                 #endif
                 return nil
@@ -638,11 +641,12 @@ extension FeedCoordinator {
             owner = .dock(dock)
             panelId = resolvedPanelId
         } else {
-            guard let tabManager,
-                  let tab = tabManager.tabs.first(where: { $0.id == resolved.ownerId }) else {
+            let liveTabManager = AppDelegate.shared?.tabManagerFor(tabId: liveResolved.ownerId) ?? tabManager
+            guard let liveTabManager,
+                  let tab = liveTabManager.tabs.first(where: { $0.id == liveResolved.ownerId }) else {
                 #if DEBUG
                 cmuxDebugLog(
-                    "feed.attention.skip reason=missing-owner session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(resolved.ownerId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                    "feed.attention.skip reason=missing-owner session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(liveResolved.ownerId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
                 )
                 #endif
                 return nil
@@ -652,24 +656,24 @@ extension FeedCoordinator {
             // Window-owned Docks have no workspace mute state and continue
             // through the separate branch above.
             guard !tab.isMuted else { return nil }
-            if let surfaceId = resolved.surfaceId,
+            if let surfaceId = liveResolved.surfaceId,
                let target = tab.surfaceOwnershipTarget(for: surfaceId) {
                 owner = .workspace(tab)
                 panelId = target.containerPanelID
-            } else if let surfaceId = resolved.surfaceId,
+            } else if let surfaceId = liveResolved.surfaceId,
                       let dock = tab._dockSplit,
                       dock.containsPanel(surfaceId) {
                 owner = .dock(dock)
                 panelId = surfaceId
             } else {
                 owner = .workspace(tab)
-                panelId = resolved.surfaceId == nil ? tab.focusedPanelId : nil
+                panelId = liveResolved.surfaceId == nil ? tab.focusedPanelId : nil
             }
         }
-        guard resolved.surfaceId == nil || panelId != nil else {
+        guard liveResolved.surfaceId == nil || panelId != nil else {
             #if DEBUG
             cmuxDebugLog(
-                "feed.attention.skip reason=missing-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(resolved.ownerId.uuidString) surface=\(resolved.surfaceId?.uuidString ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+                "feed.attention.skip reason=missing-surface session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) owner=\(liveResolved.ownerId.uuidString) surface=\(liveResolved.surfaceId?.uuidString ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
             )
             #endif
             return nil
