@@ -2575,6 +2575,26 @@ class TerminalController {
                     )
                 }
             }
+            if request.method == "browser.type" || request.method == "browser.fill" {
+                guard !Thread.isMainThread else {
+                    return v2Error(
+                        id: request.id.map(\.foundationObject),
+                        code: "invalid_dispatch",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        )
+                    )
+                }
+                if let response = (CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    v2BrowserTextInputResponseSync(
+                        request: request,
+                        replaceSelection: request.method == "browser.fill"
+                    )
+                }) {
+                    return response
+                }
+            }
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
                 return v2Error(
                     id: request.id.map(\.foundationObject),
@@ -6501,6 +6521,7 @@ class TerminalController {
         let timeout = Double(timeoutMs) / 1000.0
         let waitScript = """
         (() => {
+          \(v2BrowserControl.elementQueryPrelude)
           const __cmuxEvaluate = () => {
             try {
               return !!(\(conditionScript));
@@ -6604,7 +6625,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserResolveSelector(_ rawSelector: String, surfaceId: UUID) -> String? {
+    nonisolated func v2BrowserResolveSelector(_ rawSelector: String, surfaceId: UUID) -> String? {
         let trimmed = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -6621,7 +6642,7 @@ class TerminalController {
         return trimmed
     }
 
-    private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
+    nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
         v2MainSync { v2BrowserFrameSelectorBySurface[surfaceId] }
     }
 
@@ -7633,9 +7654,11 @@ class TerminalController {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let script = scriptBuilder(v2JSONLiteral(selector))
+            let script = v2BrowserControl.scriptWithElementQueryHelpers(
+                scriptBuilder(v2JSONLiteral(selector))
+            )
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
-            let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
+            let selectorCondition = "__cmuxQuery(\(v2JSONLiteral(selector))) !== null"
 
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
@@ -7756,6 +7779,7 @@ class TerminalController {
 
             let script = """
             (() => {
+              \(v2BrowserControl.elementQueryPrelude)
               const __interactiveOnly = \(interactiveLiteral);
               const __includeCursor = \(cursorLiteral);
               const __compact = \(compactLiteral);
@@ -7806,7 +7830,7 @@ class TerminalController {
                 if (aria) return aria;
                 const labelledBy = __normalize(el.getAttribute('aria-labelledby') || '');
                 if (labelledBy) {
-                  const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  const text = labelledBy.split(/\\s+/).map((id) => el.getRootNode().getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
                 if (el.labels && el.labels.length) {
@@ -7826,38 +7850,9 @@ class TerminalController {
                 return '';
               };
 
-              const __cssPath = (el) => {
-                if (!el || el.nodeType !== 1) return null;
-                if (el.id) return '#' + CSS.escape(el.id);
-                const parts = [];
-                let cur = el;
-                while (cur && cur.nodeType === 1) {
-                  let part = String(cur.tagName || '').toLowerCase();
-                  if (!part) break;
-                  if (cur.id) {
-                    part += '#' + CSS.escape(cur.id);
-                    parts.unshift(part);
-                    break;
-                  }
-                  const tag = part;
-                  const parent = cur.parentElement;
-                  if (parent) {
-                    const siblings = Array.from(parent.children).filter((n) => String(n.tagName || '').toLowerCase() === tag);
-                    if (siblings.length > 1) {
-                      const index = siblings.indexOf(cur) + 1;
-                      part += `:nth-of-type(${index})`;
-                    }
-                  }
-                  parts.unshift(part);
-                  cur = cur.parentElement;
-                  if (parts.length >= 6) break;
-                }
-                return parts.join(' > ');
-              };
-
               const __root = (() => {
                 if (__scopeSelector) {
-                  return document.querySelector(__scopeSelector) || document.body || document.documentElement;
+                  return __cmuxQuery(__scopeSelector) || document.body || document.documentElement;
                 }
                 return document.body || document.documentElement;
               })();
@@ -7880,7 +7875,7 @@ class TerminalController {
                   }
                 }
 
-                const selector = __cssPath(el);
+                const selector = __cmuxCssPath(el);
                 if (!selector || __seen.has(selector)) return;
                 __seen.add(selector);
                 __entries.push({
@@ -7895,9 +7890,24 @@ class TerminalController {
                 if (!node || depth > __maxDepth || node.nodeType !== 1) return;
                 const el = node;
                 __appendEntry(el, depth, null);
-                for (const child of Array.from(el.children || [])) {
-                  __walk(child, depth + 1);
+                for (const child of Array.from(el.children || [])) __walk(child, depth + 1);
+                if (el.shadowRoot) {
+                  for (const child of Array.from(el.shadowRoot.children || [])) __walk(child, depth + 1);
                 }
+              };
+
+              const __allElements = (root) => {
+                const result = [];
+                const visit = (node) => {
+                  if (!node || node.nodeType !== 1) return;
+                  result.push(node);
+                  for (const child of Array.from(node.children || [])) visit(child);
+                  if (node.shadowRoot) {
+                    for (const child of Array.from(node.shadowRoot.children || [])) visit(child);
+                  }
+                };
+                if (root && root.nodeType === 1) visit(root);
+                return result;
               };
 
               if (__root) {
@@ -7905,7 +7915,7 @@ class TerminalController {
               }
 
               if (__includeCursor && __root) {
-                const all = Array.from(__root.querySelectorAll('*'));
+                const all = __allElements(__root);
                 for (const el of all) {
                   if (!__isVisible(el)) continue;
                   const style = getComputedStyle(el);
@@ -8097,7 +8107,7 @@ class TerminalController {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let literal = v2JSONLiteral(selector)
-            conditionScript = "document.querySelector(\(literal)) !== null"
+            conditionScript = "__cmuxQuery(\(literal)) !== null"
         } else {
             conditionScript = conditionScriptBase
         }
@@ -8137,7 +8147,7 @@ class TerminalController {
             """
             (() => {
               \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -8153,7 +8163,7 @@ class TerminalController {
             """
             (() => {
               \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (el.disabled) return { ok: false, error: 'disabled' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -8172,7 +8182,7 @@ class TerminalController {
             """
             (() => {
               \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
               __cmuxHover(el);
@@ -8186,7 +8196,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "focus") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (typeof el.focus === 'function') el.focus();
               return { ok: true };
@@ -8273,7 +8283,7 @@ class TerminalController {
             let textLiteral = v2JSONLiteral(text)
             return """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (typeof el.focus === 'function') el.focus();
               const chunk = String(\(textLiteral));
@@ -8313,7 +8323,7 @@ class TerminalController {
             let textLiteral = v2JSONLiteral(text)
             return """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (typeof el.focus === 'function') el.focus();
               const newValue = String(\(textLiteral));
@@ -8446,7 +8456,7 @@ class TerminalController {
             """
             (() => {
               \(Self.browserInputHelpers)
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('checked' in el)) return { ok: false, error: 'not_checkable' };
               if (el.disabled) return { ok: false, error: 'disabled' };
@@ -8469,7 +8479,7 @@ class TerminalController {
             let valueLiteral = v2JSONLiteral(selectedValue)
             return """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('value' in el)) return { ok: false, error: 'not_select' };
               const newValue = String(\(valueLiteral));
@@ -8499,7 +8509,8 @@ class TerminalController {
                 let selectorLiteral = v2JSONLiteral(selector)
                 script = """
                 (() => {
-                  const el = document.querySelector(\(selectorLiteral));
+                  \(v2BrowserControl.elementQueryPrelude)
+                  const el = __cmuxQuery(\(selectorLiteral));
                   if (!el) return { ok: false, error: 'not_found' };
                   if (typeof el.scrollBy === 'function') {
                     el.scrollBy({ left: \(dx), top: \(dy), behavior: 'instant' });
@@ -8550,7 +8561,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "scroll_into_view") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
               return { ok: true };
@@ -8642,7 +8653,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "get.text") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               return { ok: true, value: String(el.innerText || el.textContent || '') };
             })()
@@ -8654,7 +8665,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "get.html") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               return { ok: true, value: String(el.outerHTML || '') };
             })()
@@ -8666,7 +8677,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "get.value") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const value = ('value' in el) ? el.value : (el.textContent || '');
               return { ok: true, value: String(value || '') };
@@ -8683,7 +8694,7 @@ class TerminalController {
             let attrLiteral = v2JSONLiteral(attr)
             return """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               return { ok: true, value: el.getAttribute(String(\(attrLiteral))) };
             })()
@@ -8713,7 +8724,12 @@ class TerminalController {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let selectorLiteral = v2JSONLiteral(selector)
-            let script = "document.querySelectorAll(\(selectorLiteral)).length"
+            let script = """
+            (() => {
+              \(v2BrowserControl.elementQueryPrelude)
+              return __cmuxQueryAll(\(selectorLiteral)).length;
+            })()
+            """
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -8734,7 +8750,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "get.box") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const r = el.getBoundingClientRect();
               return { ok: true, value: { x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, left: r.left, right: r.right, bottom: r.bottom } };
@@ -8750,7 +8766,7 @@ class TerminalController {
                 let propLiteral = v2JSONLiteral(property)
                 return """
                 (() => {
-                  const el = document.querySelector(\(selectorLiteral));
+                  const el = __cmuxQuery(\(selectorLiteral));
                   if (!el) return { ok: false, error: 'not_found' };
                   const style = getComputedStyle(el);
                   return { ok: true, value: style.getPropertyValue(String(\(propLiteral))) };
@@ -8759,7 +8775,7 @@ class TerminalController {
             }
             return """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const style = getComputedStyle(el);
               return { ok: true, value: {
@@ -8780,7 +8796,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "is.visible") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const style = getComputedStyle(el);
               const rect = el.getBoundingClientRect();
@@ -8795,7 +8811,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "is.enabled") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const enabled = !el.disabled;
               return { ok: true, value: !!enabled };
@@ -8808,7 +8824,7 @@ class TerminalController {
         v2BrowserSelectorAction(params: params, actionName: "is.checked") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const checked = ('checked' in el) ? !!el.checked : false;
               return { ok: true, value: checked };
@@ -9643,7 +9659,8 @@ class TerminalController {
             let selectorLiteral = v2JSONLiteral(selector)
             let script = """
             (() => {
-              const frame = document.querySelector(\(selectorLiteral));
+              \(v2BrowserControl.elementQueryPrelude)
+              const frame = __cmuxQuery(\(selectorLiteral));
               if (!frame) return { ok: false, error: 'not_found' };
               if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
               try {
@@ -10979,7 +10996,7 @@ class TerminalController {
         return v2BrowserSelectorAction(params: params, actionName: "highlight") { selectorLiteral in
             """
             (() => {
-              const el = document.querySelector(\(selectorLiteral));
+              const el = __cmuxQuery(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               const prev = el.style.outline;
               const prevOffset = el.style.outlineOffset;

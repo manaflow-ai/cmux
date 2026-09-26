@@ -98,6 +98,15 @@ extension TerminalController {
                             action: action
                         )
                     }
+                    if authorizedRequest.method == "browser.type"
+                        || authorizedRequest.method == "browser.fill" {
+                        if let response = await self.v2BrowserTextInputResponse(
+                            request: authorizedRequest,
+                            replaceSelection: authorizedRequest.method == "browser.fill"
+                        ) {
+                            return response
+                        }
+                    }
                     if authorizedRequest.method == "surface.sync_codex_native_title" {
                         return await self.v2MainAsync {
                             self.v2Result(
