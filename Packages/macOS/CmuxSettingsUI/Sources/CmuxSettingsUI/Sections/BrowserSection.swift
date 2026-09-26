@@ -210,7 +210,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.theme"),
                 String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: browserThemeSubtitle(theme.current),
+                subtitle: String(localized: "settings.browser.theme.subtitle", defaultValue: "Sets the color scheme for pages that support light and dark modes. System follows the app appearance."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
@@ -747,14 +747,6 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .accessibilityIdentifier("SettingsBrowserImportSection")
-    }
-
-    private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
-        if mode == .system {
-            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
-        }
-        let name = themeDisplayName(mode)
-        return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
     }
 
     private func themeDisplayName(_ mode: BrowserThemeMode) -> String {

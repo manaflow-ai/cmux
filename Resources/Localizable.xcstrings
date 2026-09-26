@@ -165372,65 +165372,6 @@
         }
       }
     },
-    "customSidebarRenderer.inProcess.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renders as native SwiftUI inside cmux with hover, focus, and typing. A faulty sidebar shares the app process."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内でネイティブ SwiftUI として描画し、ホバー・フォーカス・入力に対応します。サイドバーに問題があるとアプリプロセスに影響します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 cmux 内以原生 SwiftUI 渲染，支持悬停、聚焦和输入。有问题的侧边栏会与应用共用同一进程。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird als natives SwiftUI in cmux mit Hover, Fokus und Eingabe gerendert. Eine fehlerhafte Seitenleiste teilt sich den App-Prozess."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’affiche sous forme de SwiftUI native dans cmux avec survol, ciblage et saisie. Une barre latérale défectueuse partage le processus de l’application."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتم تقديمه كـ SwiftUI أصلي داخل cmux مع ميزات التحويم والتركيز والكتابة. الشريط الجانبي المعيب يشارك نفس عملية التطبيق."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se procesa como SwiftUI nativo dentro de cmux con soporte para pasar el cursor, enfocar y escribir. Una barra lateral defectuosa comparte el proceso de la aplicación."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 cmux 內轉譯為原生 SwiftUI，支援懸停、聚焦與輸入。有問題的側邊欄會共用應用程式程序。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마우스 호버, 포커스, 타이핑을 지원하며 cmux 내부에서 네이티브 SwiftUI로 렌더링됩니다. 결함이 있는 사이드바는 앱 프로세스를 공유합니다."
-          }
-        }
-      }
-    },
     "customSidebarRenderer.inProcess.name": {
       "extractionState": "manual",
       "localizations": {
@@ -165486,65 +165427,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "앱 내부(전체 입력)"
-          }
-        }
-      }
-    },
-    "customSidebarRenderer.remote.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Renders in a crash-isolated helper process. Clicks only: no hover, focus, or typing."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラッシュから隔離されたヘルパープロセスで描画します。クリックのみ対応で、ホバー・フォーカス・入力はできません。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在崩溃隔离的辅助进程中渲染。仅支持点击：不支持悬停、聚焦或输入。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird in einem absturzisolierten Hilfsprozess gerendert. Nur Klicks: kein Hover, Fokus oder Eingabe."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’affiche dans un processus d’assistance isolé des plantages. Clics uniquement : pas de survol, ciblage ni saisie."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتم تقديمه في عملية مساعدة معزولة ضد التعطل. النقرات فقط: لا تحويم أو تركيز أو كتابة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se procesa en un proceso secundario aislado de fallos. Solo clics: sin soporte para pasar el cursor, enfocar ni escribir."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在當機隔離的輔助程序中轉譯。僅支援點擊：不支援懸停、聚焦或輸入。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "충돌로부터 격리된 도우미 프로세스에서 렌더링됩니다. 클릭만 지원하며 호버, 포커스, 타이핑은 지원하지 않습니다."
           }
         }
       }
@@ -293810,131 +293692,6 @@
         }
       }
     },
-    "settings.app.confirmQuit.subtitleDirtyOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اعرض تأكيدًا فقط عندما تحتاج مساحة عمل إلى تأكيد الإغلاق."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži potvrdu samo kada workspace zahtijeva potvrdu zatvaranja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis kun en bekræftelse, når et workspace kræver bekræftelse ved lukning."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeige nur dann eine Bestätigung, wenn ein Workspace eine Schließbestätigung benötigt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a confirmation only when a workspace needs close confirmation."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar una confirmación solo cuando un espacio de trabajo requiera confirmación al cerrar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher une confirmation uniquement lorsqu’un workspace nécessite une confirmation de fermeture."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra una conferma solo quando un workspace richiede conferma di chiusura."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閉じる確認が必要なワークスペースがある場合のみ確認を表示します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញការបញ្ជាក់តែនៅពេល workspace ត្រូវការការបញ្ជាក់ពេលបិទ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "닫기 확인이 필요한 워크스페이스가 있을 때만 확인을 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis bare en bekreftelse når et workspace krever bekreftelse ved lukking."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuj potwierdzenie tylko wtedy, gdy workspace wymaga potwierdzenia zamknięcia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostre uma confirmação apenas quando um workspace precisar de confirmação de fechamento."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подтверждение только тогда, когда workspace требует подтверждения закрытия."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงการยืนยันเฉพาะเมื่อ workspace ต้องยืนยันก่อนปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yalnızca bir workspace kapatma onayı gerektirdiğinde onay göster."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підтвердження лише тоді, коли workspace потребує підтвердження закриття."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仅当工作区需要关闭确认时显示确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "僅在工作區需要關閉確認時顯示確認。"
-          }
-        }
-      }
-    },
     "settings.app.defaultTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -295072,6 +294829,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "檔案拖放"
+          }
+        }
+      }
+    },
+    "settings.app.fileDrop.defaultBehavior.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets what happens when files are dragged onto a terminal or editor. Hold Shift while dragging to use the other option."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, was passiert, wenn Dateien auf ein Terminal oder einen Editor gezogen werden. Bei gedrückter Umschalttaste während des Ziehens gilt die jeweils andere Option."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit ce qui se passe lorsque des fichiers sont glissés sur un terminal ou un éditeur. Si la touche Maj est maintenue pendant le glissement, l’autre option s’applique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد ما يحدث عند سحب الملفات إلى طرفية أو محرر. يؤدي الضغط مع الاستمرار على مفتاح Shift أثناء السحب إلى استخدام الخيار الآخر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define qué ocurre al arrastrar archivos a una terminal o un editor. Si se mantiene pulsada la tecla Mayúsculas al arrastrar, se usa la otra opción."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定將檔案拖移到終端機或編輯器上時的行為。拖移時按住 Shift 鍵可改用另一個選項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置将文件拖到终端或编辑器上时的行为。拖动时按住 Shift 键可改用另一个选项。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 터미널이나 편집기로 드래그할 때의 동작을 설정합니다. 드래그하는 동안 Shift 키를 누르고 있으면 다른 옵션이 사용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをターミナルやエディタにドラッグしたときの動作を設定します。ドラッグ中に Shift キーを押したままにすると、もう一方のオプションが使われます。"
           }
         }
       }
@@ -298893,6 +298709,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.app.newWorkspacePlacement.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets where new workspaces appear in the sidebar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, wo neue Arbeitsbereiche in der Seitenleiste erscheinen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit l’emplacement des nouveaux espaces de travail dans la barre latérale."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد موضع ظهور مساحات العمل الجديدة في الشريط الجانبي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define dónde aparecen los nuevos espacios de trabajo en la barra lateral."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定新工作區在側邊欄中出現的位置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置新工作区在侧边栏中出现的位置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간이 사이드바에 표시되는 위치를 설정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースをサイドバーのどこに表示するかを設定します。"
           }
         }
       }
@@ -303416,6 +303291,65 @@
         }
       }
     },
+    "settings.app.sidebarBranchLayout.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets whether the branches in a workspace row share one line or each use their own line."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, ob die Branches im Eintrag eines Arbeitsbereichs gemeinsam in einer Zeile stehen oder jeweils eine eigene Zeile erhalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit si les branches de la ligne d’un espace de travail s’affichent sur une même ligne ou chacune sur sa propre ligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد ما إذا كانت الفروع في صف مساحة العمل تظهر في سطر واحد أو يظهر كل منها في سطر خاص به."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define si las ramas de la fila de un espacio de trabajo comparten una sola línea o cada una ocupa su propia línea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定工作區列中的分支要共用一行，還是各自獨立一行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置工作区行中的分支是共用一行，还是各占一行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 행의 브랜치를 한 줄에 함께 표시할지, 각각 별도의 줄에 표시할지 설정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース行のブランチを 1 行にまとめて表示するか、それぞれ別の行に表示するかを設定します。"
+          }
+        }
+      }
+    },
     "settings.app.sidebarBranchLayout.inline": {
       "extractionState": "manual",
       "localizations": {
@@ -303531,244 +303465,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "行內"
-          }
-        }
-      }
-    },
-    "settings.app.sidebarBranchLayout.subtitleInline": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سطري: جميع الفروع تشترك في سطر واحد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "U redu: sve grane dijele jednu liniju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inline: alle grene deler én linje."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einzeilig: Alle Branches teilen sich eine Zeile."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inline: all branches share one line."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En línea: todas las ramas comparten una sola línea."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En ligne : toutes les branches partagent une seule ligne."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In linea: tutti i branch condividono una riga."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インライン: すべてのブランチが1行に表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "인라인: 모든 브랜치가 한 줄에 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Innebygd: alle grener deler én linje."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "W linii: wszystkie gałęzie w jednym wierszu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Em Linha: todas as branches compartilham uma linha."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В строку: все ветки в одной строке."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แบบอินไลน์: สาขาทั้งหมดแสดงในบรรทัดเดียว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Satır İçi: tüm dallar tek satırı paylaşır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В рядок: усі гілки в одному рядку."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "单行：所有分支共享一行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行內：所有分支共用一行。"
-          }
-        }
-      }
-    },
-    "settings.app.sidebarBranchLayout.subtitleVertical": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عمودي: كل فرع يظهر في سطر خاص به."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertikalno: svaka grana se pojavljuje u svom redu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lodret: hver gren vises på sin egen linje."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertikal: Jeder Branch erscheint in einer eigenen Zeile."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertical: each branch appears on its own line."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertical: cada rama aparece en su propia línea."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertical : chaque branche apparaît sur sa propre ligne."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verticale: ogni branch appare sulla propria riga."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "縦: 各ブランチがそれぞれの行に表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "세로: 각 브랜치가 별도의 줄에 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertikal: hver gren vises på sin egen linje."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pionowo: każda gałąź w osobnym wierszu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vertical: cada branch aparece em sua própria linha."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вертикально: каждая ветка на отдельной строке."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แบบแนวตั้ง: แต่ละสาขาแสดงในบรรทัดของตัวเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dikey: her dal kendi satırında görünür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вертикально: кожна гілка на окремому рядку."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "垂直：每个分支独占一行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "垂直：每個分支獨立一行。"
           }
         }
       }
@@ -304966,240 +304662,61 @@
         }
       }
     },
-    "settings.app.warnBeforeQuit.subtitleOff": {
+    "settings.app.warnBeforeQuit.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Q ينهي فورًا بدون تأكيد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q odmah zatvara bez potvrde."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q afslutter øjeblikkeligt uden bekræftelse."
+            "value": "Sets when cmux asks for confirmation before quitting with Command-Q. Dirty Only asks only when a workspace would ask before closing."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Q beendet sofort ohne Bestätigung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q quits immediately without confirmation."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q sale inmediatamente sin confirmación."
+            "value": "Legt fest, wann cmux vor dem Beenden mit Befehl-Q eine Bestätigung verlangt. „Nur bei Bedarf“ fragt nur dann nach, wenn ein Arbeitsbereich vor dem Schließen nachfragen würde."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Q quitte immédiatement sans confirmation."
+            "value": "Définit quand cmux demande une confirmation avant de quitter avec Commande + Q. « Si nécessaire » ne la demande que si un espace de travail en demanderait une avant sa fermeture."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q esce immediatamente senza conferma."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Qで確認なしにすぐ終了します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q를 누르면 확인 없이 즉시 종료됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q avslutter umiddelbart uten bekreftelse."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q zamyka natychmiast bez potwierdzenia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q encerra imediatamente sem confirmação."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q завершает приложение немедленно без подтверждения."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q ออกทันทีโดยไม่มีการยืนยัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q onay olmadan hemen çıkar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q закриває програму негайно без підтвердження."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q 直接退出，无需确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q 會立即結束，不顯示確認提示。"
-          }
-        }
-      }
-    },
-    "settings.app.warnBeforeQuit.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض تأكيد قبل الإنهاء بـ Cmd+Q."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži potvrdu prije zatvaranja sa Cmd+Q."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis en bekræftelse, før du afslutter med Cmd+Q."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Beenden mit Cmd+Q eine Bestätigung anzeigen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a confirmation before quitting with Cmd+Q."
+            "value": "يحدد متى يطلب cmux التأكيد قبل الإنهاء باستخدام Command-Q. يطلب خيار «عند الحاجة فقط» التأكيد فقط عندما تطلبه مساحة عمل قبل إغلاقها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar una confirmación antes de salir con Cmd+Q."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher une confirmation avant de quitter avec Cmd+Q."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra una conferma prima di uscire con Cmd+Q."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Qで終了する前に確認を表示します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q로 종료하기 전에 확인 대화상자를 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis en bekreftelse før avslutning med Cmd+Q."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż potwierdzenie przed zamknięciem za pomocą Cmd+Q."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar uma confirmação antes de encerrar com Cmd+Q."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать подтверждение перед выходом по Cmd+Q."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงการยืนยันก่อนออกด้วย Cmd+Q"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cmd+Q ile çıkmadan önce onay göster."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підтвердження перед виходом через Cmd+Q."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用 Cmd+Q 退出前显示确认对话框。"
+            "value": "Define cuándo cmux pide confirmación antes de salir con Comando + Q. «Solo si hace falta» solo la pide cuando un espacio de trabajo la pediría antes de cerrarse."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 Cmd+Q 結束前顯示確認提示。"
+            "value": "設定 cmux 在使用 Command + Q 結束前何時要求確認。「僅在需要時」只有在某個工作區關閉前會要求確認時，才會詢問。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置使用 Command + Q 退出 cmux 前何时要求确认。选择“仅在需要时”后，只有当某个工作区在关闭前会要求确认时才会询问。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-Q로 종료하기 전에 cmux가 언제 확인을 요청할지 설정합니다. ‘필요 시에만’은 작업 공간이 닫기 전에 확인을 요청하는 경우에만 확인을 요청합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command + Q で終了する前に cmux が確認を求めるタイミングを設定します。「必要時のみ」では、ワークスペースが閉じる前に確認を求める場合にのみ確認します。"
           }
         }
       }
@@ -306414,6 +305931,65 @@
         }
       }
     },
+    "settings.automation.autoNamingAgent.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic lets each session's own agent name it. A supported agent names every session and needs its command-line tool on the PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei „Automatisch“ benennt jede Sitzung ihr eigener Agent. Ein unterstützter Agent benennt jede Sitzung und benötigt sein Befehlszeilentool im PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Automatique » laisse l’agent de chaque session la nommer. Un agent pris en charge nomme toutes les sessions et nécessite que son outil en ligne de commande soit dans le PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح خيار «تلقائي» لوكيل كل جلسة تسميتها بنفسه. أما الوكيل المدعوم فيسمّي كل الجلسات، ويجب أن تكون أداة سطر الأوامر الخاصة به في PATH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Automático» permite que el agente de cada sesión le ponga nombre. Un agente compatible pone nombre a todas las sesiones y necesita su herramienta de línea de comandos en el PATH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動」會讓各工作階段自己的代理為其命名。支援的代理會為所有工作階段命名，且其命令列工具必須位於 PATH 中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“自动”会让各会话自己的代理为其命名。受支持的代理会为所有会话命名，并且需要其命令行工具位于 PATH 中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘자동’은 각 세션의 에이전트가 해당 세션의 이름을 직접 지정하도록 합니다. 지원되는 에이전트는 모든 세션의 이름을 지정하며, 해당 명령줄 도구가 PATH에 있어야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動」では、各セッションのエージェントがそのセッションに名前を付けます。対応エージェントはすべてのセッションに名前を付けます。これには、そのエージェントのコマンドラインツールが PATH に含まれている必要があります。"
+          }
+        }
+      }
+    },
     "settings.automation.autoNamingAgent.auto": {
       "extractionState": "manual",
       "localizations": {
@@ -306535,124 +306111,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動"
-          }
-        }
-      }
-    },
-    "settings.automation.autoNamingAgent.requirement.auto": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Each session is named by its own agent."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各セッションはそのセッション自身のエージェントによって命名されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每个会话由其自身的代理命名。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jede Sitzung wird von ihrem eigenen Agenten benannt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chaque session est nommée par son propre agent."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتم تسمية كل جلسة بواسطة العميل الخاص بها."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cada sesión es nombrada por su propio agente."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每個工作階段皆由其專屬代理程式命名。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각 세션은 자체 에이전트에 의해 이름이 지정됩니다."
-          }
-        }
-      }
-    },
-    "settings.automation.autoNamingAgent.requirement.supported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ names every session. Requires its CLI on your PATH; if it can't produce a name, existing names are left unchanged."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ がすべてのセッションを命名します。PATH にその CLI が必要です。名前を生成できない場合、既存の名前はそのまま保持されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 为每个会话命名。需要其 CLI 在 PATH 中；如果无法生成名称，现有名称保持不变。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ benennt jede Sitzung. Erfordert das zugehörige CLI in Ihrem PATH; wenn kein Name generiert werden kann, bleiben bestehende Namen unverändert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nomme chaque session. Nécessite sa CLI dans votre PATH ; s'il ne peut pas produire de nom, les noms existants restent inchangés."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقوم %@ بتسمية كل جلسة. يتطلب وجود واجهة خط الأوامر (CLI) الخاصة به في PATH الخاص بك؛ وإذا لم يتمكن من إنشاء اسم، تظل الأسماء الحالية دون تغيير."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nombra cada sesión. Requiere su CLI en tu PATH; si no puede generar un nombre, los nombres existentes no se modificarán."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 會命名每個工作階段。需要在您的 PATH 中有其 CLI；如果無法產生名稱，現有名稱將保持不變。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@이(가) 모든 세션의 이름을 지정합니다. PATH에 해당 CLI가 있어야 합니다. 이름을 생성할 수 없는 경우 기존 이름은 변경되지 않은 상태로 유지됩니다."
           }
         }
       }
@@ -309915,121 +309373,120 @@
         }
       }
     },
-    "settings.automation.socketMode.note": {
+    "settings.automation.socketMode.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحكم بالوصول إلى مقبس Unix المحلي للتحكم البرمجي. اختر الوضع الذي يتناسب مع نموذج التهديد الخاص بك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontroliše pristup lokalnoj Unix utičnici za programsku kontrolu. Odaberite režim koji odgovara vašem modelu prijetnji."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styrer adgangen til den lokale Unix-socket til programmatisk kontrol. Vælg en tilstand, der passer til din trusselsmodel."
+            "value": "Sets which local processes can send commands to cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Steuert den Zugriff auf den lokalen Unix-Socket für programmatische Steuerung. Wählen Sie einen Modus, der Ihrem Bedrohungsmodell entspricht."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controla el acceso al socket Unix local para control programático. Elige un modo que coincida con tu modelo de amenazas."
+            "value": "Legt fest, welche lokalen Prozesse Befehle an cmux senden können."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrôle l'accès au socket Unix local pour le contrôle programmatique. Choisissez un mode adapté à votre modèle de menace."
+            "value": "Définit quels processus locaux peuvent envoyer des commandes à cmux."
           }
         },
-        "it": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controlla l'accesso al socket Unix locale per il controllo programmatico. Scegli una modalità adeguata al tuo modello di rischio."
+            "value": "يحدد العمليات المحلية التي يمكنها إرسال الأوامر إلى cmux."
           }
         },
-        "ja": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "プログラムによる制御のためのローカルUnix socketへのアクセスを制御します。脅威モデルに合ったモードを選択してください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로그래밍 방식 제어를 위한 로컬 Unix 소켓 접근을 제어합니다. 보안 모델에 맞는 모드를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Styrer tilgang til den lokale Unix-socketen for programmatisk kontroll. Velg en modus som passer til din trusselmodell."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kontroluje dostęp do lokalnego gniazda Unix do programowego sterowania. Wybierz tryb odpowiadający Twojemu modelowi zagrożeń."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Controla o acesso ao socket Unix local para controle programático. Escolha um modo que corresponda ao seu modelo de ameaça."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Управляет доступом к локальному Unix-сокету для программного управления. Выберите режим, соответствующий вашей модели угроз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ควบคุมการเข้าถึงซ็อกเก็ต Unix ในเครื่องสำหรับการควบคุมแบบโปรแกรม เลือกโหมดที่ตรงกับรูปแบบภัยคุกคามของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Programatik kontrol için yerel Unix soketine erişimi kontrol eder. Tehdit modelinize uyan bir mod seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Керує доступом до локального Unix-сокета для програмного контролю. Виберіть режим відповідно до вашої моделі загроз."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "控制本地 Unix 套接字的访问权限，用于程序化控制。请选择与您的安全需求匹配的模式。"
+            "value": "Define qué procesos locales pueden enviar comandos a cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制本機 Unix Socket 的程式化控制存取。選擇符合您安全需求的模式。"
+            "value": "設定哪些本機程序可以傳送指令給 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置哪些本地进程可以向 cmux 发送命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux에 명령을 보낼 수 있는 로컬 프로세스를 설정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にコマンドを送信できるローカルプロセスを設定します。"
+          }
+        }
+      }
+    },
+    "settings.automation.socketMode.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off turns command access off. cmux processes only accepts commands from processes started in cmux terminals. Automation mode also accepts other apps running as this Mac user. Password mode requires a password. Full open access accepts any local process without a password and is unsafe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aus“ deaktiviert den Befehlszugriff. „Nur cmux-Prozesse“ nimmt nur Befehle von Prozessen an, die in cmux-Terminals gestartet wurden. „Automatisierungsmodus“ nimmt zusätzlich Befehle anderer Apps an, die unter diesem Mac-Benutzer laufen. „Passwortmodus“ erfordert ein Passwort. „Vollständiger offener Zugriff“ nimmt Befehle jedes lokalen Prozesses ohne Passwort an und ist unsicher."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Désactivé » coupe l’accès aux commandes. « Processus cmux uniquement » n’accepte que les commandes des processus lancés dans les terminaux cmux. « Mode automatisation » accepte aussi les autres apps exécutées par cet utilisateur du Mac. « Mode mot de passe » exige un mot de passe. « Accès ouvert complet » accepte n’importe quel processus local sans mot de passe et n’est pas sûr."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي خيار «إيقاف» إلى تعطيل الوصول إلى الأوامر. يقبل خيار «عمليات cmux فقط» الأوامر من العمليات التي بدأت في طرفيات cmux فقط. ويقبل «وضع الأتمتة» أيضًا التطبيقات الأخرى التي تعمل باسم مستخدم Mac هذا. ويتطلب «وضع كلمة المرور» كلمة مرور. أما «وصول مفتوح كامل» فيقبل أي عملية محلية دون كلمة مرور، وهو غير آمن."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Desactivado» deshabilita el acceso a comandos. «Solo procesos de cmux» solo acepta comandos de procesos iniciados en terminales de cmux. «Modo de automatización» también acepta otras apps que se ejecutan con este usuario del Mac. «Modo de contraseña» requiere una contraseña. «Acceso abierto completo» acepta cualquier proceso local sin contraseña y no es seguro."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「關閉」會停用指令存取。「僅限 cmux 程序」只接受在 cmux 終端機中啟動的程序所傳送的指令。「自動化模式」也接受以此 Mac 使用者身分執行的其他 App。「密碼模式」需要密碼。「完全開放存取」不需密碼即接受任何本機程序，且不安全。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“关闭”会停用命令访问。“仅限 cmux 进程”只接受在 cmux 终端中启动的进程发送的命令。“自动化模式”还接受以此 Mac 用户身份运行的其他应用。“密码模式”需要密码。“完全开放访问”无需密码即接受任何本地进程，且不安全。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘끔’은 명령 접근을 끕니다. ‘cmux 프로세스만’은 cmux 터미널에서 시작된 프로세스의 명령만 허용합니다. ‘자동화 모드’는 이 Mac 사용자로 실행 중인 다른 앱도 허용합니다. ‘비밀번호 모드’는 비밀번호가 필요합니다. ‘전체 개방 접근’은 비밀번호 없이 모든 로컬 프로세스를 허용하며 안전하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「オフ」ではコマンドによるアクセスを無効にします。「cmux プロセスのみ」では、cmux ターミナルで起動したプロセスからのコマンドだけを受け付けます。「自動化モード」では、この Mac ユーザーとして実行されている他のアプリも受け付けます。「パスワードモード」ではパスワードが必要です。「完全オープンアクセス」では、パスワードなしですべてのローカルプロセスを受け付けます。この設定は安全ではありません。"
           }
         }
       }
@@ -313315,6 +312772,65 @@
         }
       }
     },
+    "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, wie sich die Checkliste eines Arbeitsbereichs beim Klicken öffnet: in einem Popover oder ausgeklappt unter der Zeile."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit comment la liste de contrôle d’un espace de travail s’ouvre au clic : dans une fenêtre contextuelle ou dépliée sous la ligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد طريقة فتح قائمة التحقق الخاصة بمساحة العمل عند النقر عليها: في نافذة منبثقة أو موسّعةً أسفل الصف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define cómo se abre la lista de verificación de un espacio de trabajo al hacer clic: en un popover o desplegada bajo la fila."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定按一下工作區檢查清單時的開啟方式：在彈出視窗中開啟，或在該列下方展開。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置点按工作区清单时的打开方式：在浮层中打开，或在该行下方展开。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 체크리스트를 클릭했을 때 팝오버로 열지, 행 아래에 펼쳐서 표시할지 설정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのチェックリストをクリックしたときに、ポップオーバーで開くか、行の下に展開するかを設定します。"
+          }
+        }
+      }
+    },
     "settings.betaFeatures.workspaceTodosChecklistStyle.inline": {
       "extractionState": "manual",
       "localizations": {
@@ -313429,124 +312945,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "팝오버"
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clicking a row's checklist summary expands the items inline under the row."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行のチェックリスト概要をクリックすると、行の下に項目がインライン展開されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点击行内的清单摘要，会在该行下方内联展开清单项。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Klicken auf die Checklisten-Zusammenfassung einer Zeile klappt die Einträge inline unter der Zeile auf."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cliquer sur le résumé de la liste de contrôle d’une ligne développe les éléments de manière intégrée sous la ligne."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يؤدي النقر فوق ملخص قائمة التحقق الخاص بالصف إلى توسيع العناصر بشكل مضمن أسفل الصف."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hacer clic en el resumen de la lista de verificación de una fila expande los elementos en línea debajo de la fila."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按一下列的檢查清單摘要可在該列下方展開行內項目。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "행의 체크리스트 요약을 클릭하면 해당 행 아래에 항목들이 인라인으로 확장됩니다."
-          }
-        }
-      }
-    },
-    "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clicking a row's checklist summary opens an anchored popover."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行のチェックリスト概要をクリックすると、アンカー付きのポップオーバーが開きます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点击行内的清单摘要，会打开一个锚定的浮层。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Klicken auf die Checklisten-Zusammenfassung einer Zeile öffnet ein verankertes Popover."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cliquer sur le résumé de la liste de contrôle d’une ligne ouvre une fenêtre contextuelle ancrée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يؤدي النقر فوق ملخص قائمة التحقق الخاص بالصف إلى فتح نافذة منبثقة مثبتة."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hacer clic en el resumen de la lista de verificación de una fila abre un popover anclado."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按一下列的檢查清單摘要可開啟錨定的彈出視窗。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "행의 체크리스트 요약을 클릭하면 고정된 팝오버가 열립니다."
           }
         }
       }
@@ -322365,240 +321763,61 @@
         }
       }
     },
-    "settings.browser.theme.subtitleForced": {
+    "settings.browser.theme.subtitle": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ يفرض نظام الألوان هذا للصفحات المتوافقة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nameće tu shemu boja za kompatibilne stranice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ tvinger det farveskema for kompatible sider."
+            "value": "Sets the color scheme for pages that support light and dark modes. System follows the app appearance."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ erzwingt dieses Farbschema für kompatible Seiten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ forces that color scheme for compatible pages."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ fuerza ese esquema de colores para las páginas compatibles."
+            "value": "Legt das Farbschema für Seiten fest, die einen hellen und einen dunklen Modus unterstützen. „System“ folgt dem Erscheinungsbild der App."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ impose ce jeu de couleurs aux pages compatibles."
+            "value": "Définit le jeu de couleurs des pages qui prennent en charge les modes clair et sombre. « Système » suit l’apparence de l’app."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ impone quello schema di colori per le pagine compatibili."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@は対応ページにそのカラースキームを強制します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@은(는) 호환 페이지에 해당 색상 구성표를 강제 적용합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ tvinger det fargeskjemaet for kompatible sider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wymusza ten schemat kolorów dla zgodnych stron."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ força esse esquema de cores para páginas compatíveis."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ принудительно применяет эту цветовую схему для совместимых страниц."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ บังคับใช้โทนสีนั้นสำหรับหน้าที่รองรับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ uyumlu sayfalar için bu renk şemasını zorlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ примусово встановлює цю кольорову схему для сумісних сторінок."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 为兼容页面强制使用该配色方案。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 會為相容的頁面強制套用該色彩配置。"
-          }
-        }
-      }
-    },
-    "settings.browser.theme.subtitleSystem": {
-      "extractionState": "manual",
-      "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "النظام يتبع مظهر التطبيق و macOS."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistemski prati izgled aplikacije i macOS."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System følger app- og macOS-udseende."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System folgt der App- und macOS-Darstellung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System follows app and macOS appearance."
+            "value": "يحدد نظام الألوان للصفحات التي تدعم الوضعين الفاتح والداكن. يتبع خيار «النظام» مظهر التطبيق."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema sigue la apariencia de la app y macOS."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Système suit l'apparence de l'app et de macOS."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema segue l'aspetto dell'app e di macOS."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システムはアプリとmacOSの外観に従います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템은 앱 및 macOS 외관을 따릅니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "System følger app- og macOS-utseende."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Systemowy podąża za wyglądem aplikacji i macOS."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistema segue a aparência do app e do macOS."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системная тема следует за оформлением приложения и macOS."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ระบบจะตามธีมแอปและรูปลักษณ์ macOS"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sistem, uygulama ve macOS görünümünü takip eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Системна слідує за програмою та зовнішнім виглядом macOS."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "系统跟随应用和 macOS 外观。"
+            "value": "Define la combinación de colores de las páginas compatibles con los modos claro y oscuro. «Sistema» sigue el aspecto de la app."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「系統」會跟隨 App 和 macOS 外觀。"
+            "value": "為支援淺色與深色模式的網頁設定配色。「系統」會跟隨 App 外觀。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为支持浅色和深色模式的网页设置配色方案。“系统”会跟随应用外观。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이트 모드와 다크 모드를 지원하는 페이지의 색상 구성을 설정합니다. ‘시스템’은 앱 외관을 따릅니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライトモードとダークモードに対応したページの配色を設定します。「システム」はアプリの外観に従います。"
           }
         }
       }
@@ -325266,6 +324485,65 @@
         }
       }
     },
+    "settings.customSidebars.renderer.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isolated process keeps a faulty sidebar from crashing cmux but accepts clicks only. In-app also accepts hover, focus, and typing."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Isolierter Prozess“ verhindert, dass eine fehlerhafte Seitenleiste cmux zum Absturz bringt, unterstützt aber nur Klicks. „In-App“ unterstützt zusätzlich Hover, Fokus und Texteingabe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Processus isolé » empêche une barre latérale défectueuse de faire planter cmux, mais n’accepte que les clics. « Dans l’application » prend aussi en charge le survol, le focus et la saisie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمنع خيار «عملية معزولة» الشريط الجانبي المعيب من التسبب في تعطّل cmux، لكنه لا يقبل سوى النقرات. أما خيار «داخل التطبيق» فيقبل أيضًا تمرير المؤشر فوق العناصر والتركيز والكتابة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Proceso aislado» evita que una barra lateral defectuosa haga que cmux se cierre inesperadamente, pero solo admite clics. «En la aplicación» también admite pasar el puntero por encima, enfocar y escribir."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「隔離程序」可避免有問題的側邊欄導致 cmux 當機，但只支援點擊。「應用程式內」還支援懸停、聚焦和輸入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“隔离进程”可防止有问题的侧边栏导致 cmux 崩溃，但只支持点击。“应用内”还支持悬停、聚焦和输入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘격리된 프로세스’는 결함이 있는 사이드바로 인해 cmux가 비정상적으로 종료되는 것을 방지하지만 클릭만 지원합니다. ‘앱 내부’는 호버, 포커스, 타이핑도 지원합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「分離プロセス」は、問題のあるサイドバーによって cmux がクラッシュするのを防ぎますが、クリックしか受け付けません。「アプリ内」では、ホバー、フォーカス、入力も受け付けます。"
+          }
+        }
+      }
+    },
     "settings.error.alert.dismiss": {
       "localizations": {
         "en": {
@@ -327300,6 +326578,65 @@
         }
       }
     },
+    "settings.mobile.artifactFolderAccess.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, wie tief iPhone und iPad in einem Ordner navigieren können, der in einem Chat erwähnt oder in einem Terminal angezeigt wird. „Eine Ebene“ zeigt nur die Objekte, die sich direkt darin befinden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définit jusqu’où l’iPhone et l’iPad peuvent parcourir un dossier mentionné dans une discussion ou affiché dans un terminal. « Un niveau » n’affiche que les éléments situés directement dans ce dossier."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد مدى عمق تصفح iPhone وiPad داخل مجلد مذكور في دردشة أو معروض في طرفية. يعرض خيار «مستوى واحد» العناصر الموجودة مباشرةً داخله فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Define hasta dónde pueden explorar el iPhone y el iPad una carpeta mencionada en un chat o mostrada en una terminal. «Un nivel» solo muestra los elementos que están directamente dentro de ella."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 iPhone 和 iPad 在聊天中提及或終端機中顯示的資料夾內可瀏覽的深度。「單一層級」只會顯示直接位於該資料夾內的項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 iPhone 和 iPad 在对话中提及或终端中显示的文件夹内可浏览的深度。“一层”只显示直接位于该文件夹中的项目。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅에서 언급되거나 터미널에 표시된 폴더를 iPhone 및 iPad에서 어느 깊이까지 탐색할 수 있는지 설정합니다. ‘한 수준’은 폴더 바로 안에 있는 항목만 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットで言及されたフォルダやターミナルに表示されたフォルダを、iPhone と iPad からどの階層まで参照できるかを設定します。「1 階層」では、そのフォルダの直下にある項目のみが表示されます。"
+          }
+        }
+      }
+    },
     "settings.mobile.artifactFolderAccess.oneLevel": {
       "extractionState": "manual",
       "localizations": {
@@ -327355,124 +326692,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "한 수준"
-          }
-        }
-      }
-    },
-    "settings.mobile.artifactFolderAccess.subtitleOneLevel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limits iOS to immediate children of referenced or visible folders."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS からのアクセスを、参照された、または表示中のフォルダの直下の項目に制限します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将 iOS 限制在被引用或可见文件夹的直接子项范围内。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beschränkt iOS auf direkte Unterelemente von referenzierten oder sichtbaren Ordnern."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limite iOS aux enfants immédiats des dossiers référencés ou visibles."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقيد نظام iOS بالمجلدات الفرعية المباشرة للمجلدات المشار إليها أو المرئية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Limita iOS a los elementos secundarios inmediatos de las carpetas a las que se hace referencia o que son visibles."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "限制 iOS 僅能存取被參照或可見資料夾的直接子項目。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS를 참조되거나 표시된 폴더의 바로 하위 항목으로만 제한합니다."
-          }
-        }
-      }
-    },
-    "settings.mobile.artifactFolderAccess.subtitleSubtree": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "チャットで参照された、またはターミナルに表示されたフォルダ内のすべての項目を iOS から参照できるようにします。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允许 iOS 浏览对话中引用或终端中可见的文件夹内的任意项目。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ermöglicht iOS das Durchsuchen aller Elemente in einem Ordner, auf den im Chat verwiesen wird oder der in einem Terminal sichtbar ist."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permet à iOS de parcourir n’importe quel élément d’un dossier référencé par chat ou visible dans un terminal."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتيح لنظام iOS تصفح أي عنصر داخل مجلد تمت الإشارة إليه بواسطة الدردشة أو يظهر في طرفية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permite a iOS examinar cualquier elemento dentro de una carpeta a la que se haga referencia en el chat o que sea visible en una terminal."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允許 iOS 瀏覽由聊天參照或在終端機中可見之資料夾內的所有項目。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iOS가 채팅에서 참조되거나 터미널에 표시된 폴더 내부의 모든 항목을 탐색할 수 있도록 허용합니다."
           }
         }
       }
@@ -468704,125 +467923,6 @@
         }
       }
     },
-    "workspace.placement.afterCurrent.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إدراج مساحات العمل الجديدة مباشرة بعد مساحة العمل النشطة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Umetnite nove radne prostore odmah nakon aktivnog radnog prostora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indsæt nye arbejdsområder direkte efter det aktive arbejdsområde."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Arbeitsbereiche direkt nach dem aktiven Arbeitsbereich einfügen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insert new workspaces directly after the active workspace."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insertar nuevos espacios de trabajo justo después del espacio de trabajo activo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insérer les nouveaux espaces de travail juste après l'espace de travail actif."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inserisci le nuove aree di lavoro subito dopo quella attiva."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクティブなワークスペースの直後に新しいワークスペースを挿入します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "활성 작업 공간 바로 다음에 새 작업 공간을 삽입합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sett inn nye arbeidsområder rett etter det aktive arbeidsområdet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wstaw nowe przestrzenie robocze bezpośrednio po aktywnej."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inserir novas áreas de trabalho diretamente após a área de trabalho ativa."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставлять новые рабочие пространства сразу после активного."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แทรกเวิร์กสเปซใหม่หลังเวิร์กสเปซที่ใช้งานอยู่โดยตรง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni çalışma alanlarını etkin çalışma alanının hemen sonrasına ekle."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставляти нові робочі області одразу після активної."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在活动工作区之后插入新工作区。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將新工作區插入目前使用中工作區的後方。"
-          }
-        }
-      }
-    },
     "workspace.placement.end": {
       "extractionState": "manual",
       "localizations": {
@@ -468942,125 +468042,6 @@
         }
       }
     },
-    "workspace.placement.end.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إلحاق مساحات العمل الجديدة في أسفل القائمة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodajte nove radne prostore na kraj liste."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilføj nye arbejdsområder nederst på listen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Arbeitsbereiche am Ende der Liste anfügen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Append new workspaces to the bottom of the list."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agregar nuevos espacios de trabajo al final de la lista."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajouter les nouveaux espaces de travail en bas de la liste."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aggiungi le nuove aree di lavoro in fondo alla lista."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいワークスペースをリストの末尾に追加します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "목록 하단에 새 작업 공간을 추가합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Legg til nye arbeidsområder nederst i listen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dodaj nowe przestrzenie robocze na dole listy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adicionar novas áreas de trabalho ao final da lista."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавлять новые рабочие пространства в конец списка."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เพิ่มเวิร์กสเปซใหม่ที่ด้านล่างของรายการ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni çalışma alanlarını listenin sonuna ekle."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Додавати нові робочі області в кінець списку."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将新工作区添加到列表底部。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將新工作區附加到列表底部。"
-          }
-        }
-      }
-    },
     "workspace.placement.top": {
       "extractionState": "manual",
       "localizations": {
@@ -469176,125 +468157,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "最上方"
-          }
-        }
-      }
-    },
-    "workspace.placement.top.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إدراج مساحات العمل الجديدة في أعلى القائمة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Umetnite nove radne prostore na vrh liste."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indsæt nye arbejdsområder øverst på listen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Arbeitsbereiche oben in der Liste einfügen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insert new workspaces at the top of the list."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insertar nuevos espacios de trabajo al inicio de la lista."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Insérer les nouveaux espaces de travail en haut de la liste."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inserisci le nuove aree di lavoro in cima alla lista."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいワークスペースをリストの先頭に挿入します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "목록 맨 위에 새 작업 공간을 삽입합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sett inn nye arbeidsområder øverst i listen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wstaw nowe przestrzenie robocze na górze listy."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inserir novas áreas de trabalho no topo da lista."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставлять новые рабочие пространства в начало списка."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แทรกเวิร์กสเปซใหม่ที่ด้านบนของรายการ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni çalışma alanlarını listenin en üstüne ekle."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставляти нові робочі області на початок списку."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在列表顶部插入新工作区。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將新工作區插入列表最上方。"
           }
         }
       }

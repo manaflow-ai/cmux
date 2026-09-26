@@ -241,7 +241,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: effectiveMode.description,
+                subtitle: String(localized: "settings.automation.socketMode.subtitle", defaultValue: "Sets which local processes can send commands to cmux."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(
@@ -279,7 +279,7 @@ public struct AutomationSection: View {
                 )
                 SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
             }
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Off turns command access off. cmux processes only accepts commands from processes started in cmux terminals. Automation mode also accepts other apps running as this Mac user. Password mode requires a password. Full open access accepts any local process without a password and is unsafe."))
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(

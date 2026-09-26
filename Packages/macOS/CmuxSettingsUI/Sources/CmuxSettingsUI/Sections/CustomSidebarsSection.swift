@@ -89,7 +89,7 @@ public struct CustomSidebarsSection: View {
         SettingsCardRow(
             configurationReview: .json("customSidebars.renderer"),
             String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"),
-            subtitle: renderer.current.rendererDescription
+            subtitle: String(localized: "settings.customSidebars.renderer.subtitle", defaultValue: "Isolated process keeps a faulty sidebar from crashing cmux but accepts clicks only. In-app also accepts hover, focus, and typing.")
         ) {
             Picker("", selection: Binding(get: { renderer.current }, set: { renderer.set($0) })) {
                 ForEach(CustomSidebarRendererMode.uiCases, id: \.self) { mode in

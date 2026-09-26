@@ -109,9 +109,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.checklistStyle"),
             searchAnchorID: "setting:betaFeatures:workspace-todos-checklist-style",
             String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
-            subtitle: workspaceTodosChecklistStyle.current == .popover
-                ? String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover.")
-                : String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."),
             controlWidth: 196
         ) {
             Picker(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), selection: Binding(

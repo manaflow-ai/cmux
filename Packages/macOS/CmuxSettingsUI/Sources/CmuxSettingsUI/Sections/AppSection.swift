@@ -228,7 +228,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.newWorkspacePlacement"),
                 String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
-                subtitle: workspacePlacementSubtitle(placement.current),
+                subtitle: String(localized: "settings.app.newWorkspacePlacement.subtitle", defaultValue: "Sets where new workspaces appear in the sidebar."),
                 controlWidth: Self.columnWidth
             ) {
                 // Order matches legacy NewWorkspacePlacement.allCases:
@@ -351,7 +351,7 @@ public struct AppSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:app:file-drops",
                 String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"),
-                subtitle: fileDropSubtitle(fileDrop.current),
+                subtitle: String(localized: "settings.app.fileDrop.defaultBehavior.subtitle", defaultValue: "Sets what happens when files are dragged onto a terminal or editor. Hold Shift while dragging to use the other option."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { fileDrop.current }, set: { fileDrop.set($0) })) {
@@ -831,7 +831,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.confirmQuit", "app.warnBeforeQuit"),
                 String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                subtitle: confirmQuitSubtitle(confirmQuit.current),
+                subtitle: String(localized: "settings.app.warnBeforeQuit.subtitle", defaultValue: "Sets when cmux asks for confirmation before quitting with Command-Q. Dirty Only asks only when a workspace would ask before closing."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { confirmQuit.current }, set: { confirmQuit.set($0) })) {

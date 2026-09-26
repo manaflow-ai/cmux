@@ -455,18 +455,10 @@ public struct MobileSection: View {
     }
 
     private var artifactFolderAccessSubtitle: String {
-        switch artifactFolderAccess.current {
-        case .subtree:
-            String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleSubtree",
-                defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."
-            )
-        case .oneLevel:
-            String(
-                localized: "settings.mobile.artifactFolderAccess.subtitleOneLevel",
-                defaultValue: "Limits iOS to immediate children of referenced or visible folders."
-            )
-        }
+        String(
+            localized: "settings.mobile.artifactFolderAccess.subtitle",
+            defaultValue: "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."
+        )
     }
 
     /// Read-only connection count and the reachable routes the phone can use.

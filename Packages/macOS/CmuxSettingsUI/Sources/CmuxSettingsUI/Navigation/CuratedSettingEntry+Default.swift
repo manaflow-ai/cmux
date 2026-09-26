@@ -333,7 +333,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .mobile,
                 id: "artifactFolderAccess",
                 title: String(localized: "settings.mobile.artifactFolderAccess", defaultValue: "Folder Access"),
-                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitleSubtree", defaultValue: "Lets iOS browse any item inside a folder referenced by chat or visible in a terminal."),
+                detailText: String(localized: "settings.mobile.artifactFolderAccess.subtitle", defaultValue: "Sets how far iPhone and iPad can browse into a folder that a chat mentions or a terminal shows. One Level shows only the items directly inside it."),
                 paths: ["mobile.artifactFolderAccess"],
                 synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
             ),
@@ -369,8 +369,7 @@ extension Array where Element == CuratedSettingEntry {
                 id: "workspace-todos-checklist-style",
                 title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
                 detailText: [
-                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover."),
-                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Sets how a workspace checklist opens when clicked: in a popover or expanded under the row."),
                     String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover"),
                     String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline"),
                 ].joined(separator: " "),
