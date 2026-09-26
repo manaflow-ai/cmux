@@ -1075,13 +1075,35 @@ class GhosttyApp {
         }
     }
 
+    /// Bit order of Ghostty's packed `ShellIntegrationFeatures`.
+    static let ghosttyShellIntegrationFeatureNames = [
+        "cursor", "sudo", "title", "ssh-env", "ssh-terminfo", "path",
+    ]
+    /// Ghostty's defaults: cursor, title and path on.
+    static let ghosttyDefaultShellIntegrationFeatures: CUnsignedInt = 0b100101
+
+    /// Spells out every shell-integration feature from `features` with the
+    /// cursor bit cleared. Ghostty parses the value starting from its defaults,
+    /// so listing only `no-cursor` would reset the user's other choices.
+    static func shellIntegrationFeaturesWithoutCursor(_ features: CUnsignedInt) -> String {
+        ghosttyShellIntegrationFeatureNames.enumerated().map { bit, name in
+            bit != 0 && features & (1 << CUnsignedInt(bit)) != 0 ? name : "no-\(name)"
+        }.joined(separator: ",")
+    }
+
     /// cmux sources Ghostty's shell integration from its own bootstrap files,
-    /// so keep Ghostty's prompt cursor escape out of that managed path.
+    /// so keep Ghostty's prompt cursor escape out of that managed path while
+    /// preserving the user's other shell-integration features.
     func loadCmuxShellIntegrationOverride(_ config: ghostty_config_t) {
+        var features = Self.ghosttyDefaultShellIntegrationFeatures
+        let key = "shell-integration-features"
+        if !ghostty_config_get(config, &features, key, UInt(key.utf8.count)) {
+            features = Self.ghosttyDefaultShellIntegrationFeatures
+        }
         loadInlineGhosttyConfig(
             """
             shell-integration = none
-            shell-integration-features = no-cursor
+            shell-integration-features = \(Self.shellIntegrationFeaturesWithoutCursor(features))
             """,
             into: config,
             prefix: "cmux-shell-integration-override",
