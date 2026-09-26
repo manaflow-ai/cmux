@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudBannerCore
+import CmuxCloudTui
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -70,6 +71,60 @@ struct CloudPortRecoveryTests {
         await provider.refreshCurrentGraph(force: true)
         #expect(provider.info.portDiscoveryState == .unavailable(.link))
         await provider.stop()
+    }
+
+    /// The cached pass retires the rescan's refresh, but the rescan still owns the Ports request.
+    @Test("A rescan's inventory publishes its rows after a cached refresh retires its pass")
+    func rescanRowsSurviveCachedRefresh() async throws {
+        let root = URL(fileURLWithPath: "/tmp/cmux-ports-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = root.appendingPathComponent("daemon-fixture")
+        try Self.portsDaemonScript.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: client.path)
+        // The catalog, provider, link and scan request are production paths; only the daemon is a fixture.
+        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "ports-fixture.invalid", port: nil, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
+        ))
+        let links = SSHTuiLinkManager(
+            connection: connection, clientURL: client,
+            paths: CloudTuiClientPaths(home: root), isEnabled: { true }
+        )
+        _ = try await links.connected(machineID: connection.id)
+        guard let link = await links.link(machineID: connection.id) else {
+            Issue.record("The fixture link did not connect")
+            await links.disconnect()
+            return
+        }
+        // Drain the connection edge so it cannot start an extra refresh mid-test.
+        var changes = link.changes.makeAsyncIterator()
+        #expect(await changes.next() == .connected)
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        catalog.register(provider)
+        let machine = provider.machine
+        func rows() -> [Int] {
+            catalog.authoritativeSnapshot.resources(on: machine).compactMap(\.id.forwardedPort).sorted()
+        }
+
+        provider.requestPortDiscovery()
+        await provider.refreshCurrentGraph(force: true)
+        #expect(await eventually { rows() == [3000] })
+        // The daemon holds the second scan until the cached pass has landed.
+        await provider.refreshCurrentGraph(force: true)
+        #expect(await eventually { FileManager.default.fileExists(atPath: root.appendingPathComponent("scan-started").path) })
+        await provider.refreshCurrentGraph(force: false)
+        #expect(provider.info.portDiscoveryState == .available)
+        #expect(rows() == [3000])
+        FileManager.default.createFile(atPath: root.appendingPathComponent("release-scan").path, contents: nil)
+        #expect(await eventually { rows() == [3000, 8000] })
+        #expect(provider.info.portDiscoveryState == .available)
+
+        catalog.unregister(machine: machine)
+        await provider.stop()
+        await links.disconnect()
     }
 
     @Test("A metadata result from before retirement cannot revive a provider")
@@ -176,6 +231,82 @@ struct CloudPortRecoveryTests {
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
         return condition()
     }
+
+    /// Work that crosses a real socket needs sleeps, not main-actor spins.
+    private func eventually(_ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        return condition()
+    }
+
+    // A local protocol peer, started and reaped by the real link. It answers the
+    // second port scan only after the test creates `release-scan`.
+    private static let portsDaemonScript = #"""
+    #!/usr/bin/python3
+    import json
+    import pathlib
+    import socket
+    import threading
+    import time
+
+    root = pathlib.Path(__file__).parent
+    path = str(root / "daemon.sock")
+    snapshot = {
+        "cursor": {"generation": "daemon", "revision": "7"},
+        "workspaces": [{"id": "ws_main", "name": "Main"}],
+        "screens": [{"id": "screen", "workspace_id": "ws_main"}],
+        "panes": [{"id": "pane", "screen_id": "screen"}],
+        "tabs": [{"id": "tab", "pane_id": "pane", "name": "Main", "content_kind": "terminal", "content_id": "term"}],
+        "terminals": [{"id": "term", "title": "bash", "cwd": "/srv/project", "lifecycle": "running", "stream_revision": "1"}],
+        "browsers": [], "agents": []
+    }
+    listings = [
+        "LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\n",
+        "LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\nLISTEN 0 128 0.0.0.0:8000 0.0.0.0:*\n",
+    ]
+    scans = 0
+    send_lock = threading.Lock()
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(path)
+    listener.listen(1)
+    print(json.dumps({"event": "connection-snapshot", "local_socket": path, "connection": {}}), flush=True)
+    peer, _ = listener.accept()
+
+    def send(response):
+        with send_lock:
+            peer.sendall((json.dumps(response) + "\n").encode())
+
+    def release(response):
+        while not (root / "release-scan").exists():
+            time.sleep(0.01)
+        send(response)
+
+    with peer, peer.makefile("r") as reader:
+        for line in reader:
+            request = json.loads(line)
+            op = request.get("operation", request.get("cmd"))
+            params = request.get("params", {})
+            response = {"id": request["id"], "ok": True}
+            if "operation" in request:
+                response.update(protocol="cmux.protocol/2", type="response")
+            if op == "session.events":
+                result = {"stream_id": params["stream_id"]}
+            elif op == "session.snapshot":
+                result = snapshot
+            elif op == "machine-listening-tcp":
+                scans += 1
+                result = {"stdout": listings[min(scans, len(listings)) - 1]}
+            elif op in ("stream.cancel", "request.cancel"):
+                result = {}
+            else:
+                raise AssertionError("unexpected request: " + op)
+            response["result" if "operation" in request else "data"] = result
+            if op == "machine-listening-tcp" and scans == 2:
+                (root / "scan-started").touch()
+                threading.Thread(target=release, args=(response,), daemon=True).start()
+            else:
+                send(response)
+    """#
 }
 
 /// A carrier that never connects, so every refresh takes the link-failure path.
