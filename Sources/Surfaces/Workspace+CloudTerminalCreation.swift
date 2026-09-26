@@ -352,6 +352,7 @@ extension Workspace {
             if let existing = catalog.projections.first(where: {
                 $0.workspaceID == self.id && $0.resource == created.id
                     && (remoteView == nil || $0.remoteTabID == remoteView?.tabID)
+                    && self.panels[$0.panelID] != nil
             }) {
                 self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: existing.panelID)
                 return (existing, true)
