@@ -1344,6 +1344,56 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("a free-plan paused VM inside its access window resumes despite the zero create ceiling", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000109",
+      userId: "user-workflow-free-resume",
+      billingTeamId: "team-workflow-free-resume",
+      billingPlanId: "free",
+      providerVmId: "provider-vm-free-resume",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const reservationCeilings: number[] = [];
+    const base = testWorkflowRepo({ vm, usageEvents });
+    const repo: VmRepositoryShape = {
+      ...base,
+      reservePausedResume: (input) =>
+        Effect.suspend(() => {
+          reservationCeilings.push(input.maxActiveVms ?? 0);
+          if (input.maxActiveVms !== null && input.maxActiveVms <= 0) {
+            return Effect.fail(
+              new VmLimitExceededError({
+                kind: "active_vms",
+                billingTeamId: input.billingTeamId ?? input.userId,
+                limit: input.maxActiveVms,
+              }),
+            );
+          }
+          return Effect.succeed({ ...vm, status: "running" as const });
+        }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "ok", stderr: "" }),
+      getStatus: () => Effect.succeed("paused" as const),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: "provider-vm-free-resume" })),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-free-resume",
+        teamIds: ["team-workflow-free-resume"],
+        providerVmId: "provider-vm-free-resume",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(reservationCeilings).toEqual([1]);
+  });
+
   test("passes persisted provider metadata to the exec driver", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000119",
@@ -1395,8 +1445,6 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       approveCmuxRemoteEnrollment: (...args) =>
         Effect.sync(() => {
-          // Keep the tuple cast local so this test also catches the missing
-          // optional argument on the pre-fix gateway contract.
           approvalCalls.push(args as unknown[]);
           return { approved: true, state: "approved" as const, deviceFingerprint: "device-1" };
         }),
