@@ -1,6 +1,6 @@
 import Foundation
 
-/// Builds shell-free restore invocations from structured persisted records.
+/// Builds shell-free restore and fork invocations from structured persisted records.
 public struct AgentRestorePlanner: Sendable {
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -42,10 +42,10 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
-    /// Produces the final direct process invocation for a persisted restore request.
+    /// Produces the final direct process invocation for a persisted restore or fork request.
     ///
     /// - Parameters:
-    ///   - request: Structured restore data.
+    ///   - request: Structured restore or fork data.
     ///   - ambientEnvironment: The current CLI environment inherited by the child.
     /// - Returns: A direct invocation, or `nil` when the record cannot be restored safely.
     public func invocation(
@@ -148,7 +148,8 @@ public struct AgentRestorePlanner: Sendable {
             arguments: routedArguments,
             workingDirectory: workingDirectory,
             environment: environment,
-            preflightInvocations: preflights
+            preflightInvocations: preflights,
+            codexResumeSessionID: kind == "codex" && request.mode == .resumeAgent ? normalized(request.checkpointID) : nil
         )
     }
 
@@ -249,6 +250,29 @@ public struct AgentRestorePlanner: Sendable {
                 }
                 return preparedArguments.map { ($0, false) }
             }
+        case .forkAgent:
+            if let preparedArguments {
+                return (preparedArguments, false)
+            }
+            guard let checkpointID = normalized(request.checkpointID) else { return nil }
+            let launch = request.launchCommand
+            switch AgentForkArgv().launcherResolution(
+                launcher: launch?.launcher,
+                sessionId: checkpointID,
+                executablePath: launch?.executablePath,
+                arguments: launch?.arguments ?? []
+            ) {
+            case .resolved(let arguments):
+                return arguments.map { ($0, true) }
+            case .passthrough:
+                return AgentForkArgv().builtInKind(
+                    kind: kind,
+                    sessionId: checkpointID,
+                    executablePath: launch?.executablePath,
+                    arguments: launch?.arguments ?? [],
+                    observedPermissionMode: request.observedPermissionMode
+                ).map { ($0, true) }
+            }
         }
     }
 
@@ -260,6 +284,13 @@ public struct AgentRestorePlanner: Sendable {
         let launchEnvironment = request.launchCommand?.environment ?? [:]
         var captured = launchEnvironment
         captured.merge(request.environment) { _, binding in binding }
+        if kind == "codex", request.mode == .resumeAgent,
+           normalized(captured["CODEX_HOME"]) == nil,
+           let home = normalized(request.launchCommand?.verificationHome) {
+            captured["CODEX_HOME"] = CodexHomeResolver().resolve(
+                launchVerificationHome: home, ambientEnvironment: [:]
+            )
+        }
         if kind == "codex",
            let rawCodexHome = normalized(captured["CODEX_HOME"]),
            let launchWorkingDirectory = normalized(request.launchCommand?.workingDirectory)
@@ -421,7 +452,13 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        if first != restoreLaunch.executableName {
+        environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+            kind: kind,
+            executablePath: request.launchCommand?.executablePath,
+            arguments: request.launchCommand?.arguments ?? []
+        )) { _, captured in captured }
+        if first != restoreLaunch.executableName,
+           (first as NSString).lastPathComponent == restoreLaunch.executableName {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue

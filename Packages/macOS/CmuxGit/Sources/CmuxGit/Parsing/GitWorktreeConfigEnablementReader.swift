@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Resolves `extensions.worktreeConfig` through a bounded config include walk.
-nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
+struct GitWorktreeConfigEnablementReader: Sendable {
     private static let maximumPathCount = 256
     private static let maximumByteCount = 8 * 1_024 * 1_024
 
@@ -183,7 +183,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         case .oversized, .unavailable:
             failed = true
             return
-        case .contents(let contents, consumedByteCount: let consumedByteCount):
+        case let .contents(contents, consumedByteCount: consumedByteCount):
             remainingByteCount = max(0, remainingByteCount - consumedByteCount)
             var inExtensionsSection = false
             var includeSection = false

@@ -8,20 +8,18 @@ extension CMUXCLI {
             var selected: [String: Any] = [:]
             let directPrivateEnvironment = dictionary["environment"]
             let nestedLaunchEnvironment = (dictionary["launch_command"] as? [String: Any])?["environment"]
-            let commandContainsPrivateEnvironment = containsPrivateSubrouterRoutingKey(
-                in: directPrivateEnvironment
-            )
-            let legacyCommandContainsPrivateEnvironment = commandContainsPrivateEnvironment
-                || containsPrivateSubrouterRoutingKey(
-                    in: nestedLaunchEnvironment
-                )
+            // Both rendered commands can carry values from either environment:
+            // the binding's own and the captured launch command's.
+            let commandContainsPrivateEnvironment =
+                containsPrivateSubrouterRoutingKey(in: directPrivateEnvironment)
+                || containsPrivateSubrouterRoutingKey(in: nestedLaunchEnvironment)
             let privateRoutingValues = privateSubrouterRoutingValues(in: directPrivateEnvironment)
                 .union(privateSubrouterRoutingValues(in: nestedLaunchEnvironment))
             for (key, value) in dictionary
                 where !isPrivateSubrouterRoutingKey(key) {
                 if key == "command", commandContainsPrivateEnvironment {
                     selected[key] = NSNull()
-                } else if key == "legacy_command", legacyCommandContainsPrivateEnvironment {
+                } else if key == "legacy_command", commandContainsPrivateEnvironment {
                     selected[key] = NSNull()
                 } else if (key == "arguments" || key == "prepared_arguments"),
                           let arguments = value as? [String] {
@@ -76,10 +74,9 @@ extension CMUXCLI {
             || key == "CMUX_CUSTOM_CODEX_PATH"
     }
 
-    func jsonString(_ object: Any) -> String {
-        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
-        options.insert(.sortedKeys)
-        options.insert(.withoutEscapingSlashes)
+    func jsonString(_ object: Any, prettyPrinted: Bool = true) -> String {
+        var options: JSONSerialization.WritingOptions = [.sortedKeys, .withoutEscapingSlashes]
+        if prettyPrinted { options.insert(.prettyPrinted) }
         guard JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object, options: options),
               let output = String(data: data, encoding: .utf8) else {

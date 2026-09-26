@@ -147,7 +147,7 @@ public final class SidebarDragState {
         dragImage: NSImage
     ) -> Bool {
         guard let sessionRegistry else { return false }
-        let session = sessionRegistry.beginSession(workspaceId: tabId)
+        let session = sessionRegistry.beginNativeSession(workspaceId: tabId)
         activate(session: session, role: .source(session.id))
         guard sessionRegistry.beginNativeDragging(
             sessionId: session.id,
@@ -166,6 +166,18 @@ public final class SidebarDragState {
             return false
         }
         return true
+    }
+
+    /// Reclaims superseded native source holds after a real pointer boundary.
+    ///
+    /// This is intentionally separate from ``finishDrag()``: ordinary
+    /// presentation teardown may clear logical state while AppKit still owns a
+    /// live source, whereas a new pointer boundary proves that older native
+    /// sessions are no longer in their event loop.
+    public func reclaimSupersededNativeSources(excludingSessionId: UUID) {
+        sessionRegistry?.reclaimSupersededNativeSources(
+            excludingSessionId: excludingSessionId
+        )
     }
 
     /// Mirrors the coordinator's current session into a destination window.

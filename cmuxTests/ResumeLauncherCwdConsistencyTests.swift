@@ -143,7 +143,8 @@ struct ResumeLauncherCwdConsistencyTests {
             restoringWorkingDirectory: restoredDirectory
         ))
         #expect(input.contains("cd -- '\(restoredDirectory)'"))
-        #expect(!input.contains(savedDirectory))
+        #expect(!input.contains("cd -- '\(savedDirectory)'"))
+        #expect(!input.contains("--cd"))
     }
 
     @Test("remote inline Subrouter resume routes its Codex child through the managed wrapper")

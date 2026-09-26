@@ -29,7 +29,7 @@ jobs:
     # becomes npm `latest`. Only strict stable X.Y.Z may go through here; a
     # nightly-form version on latest would put a nightly in front of every
     # `npx cmux` user (nightlies publish via cmux-tui-nightly.yml with --tag nightly).
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -183,10 +183,14 @@ jobs:
 
       - name: Revalidate packed npm contract
         run: |
+          contract_args=()
+          if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then
+            contract_args+=(--include-windows)
+          fi
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ inputs.version }}" \
-            --include-windows \
+            "${contract_args[@]}" \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
 
@@ -228,8 +232,10 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
-            cmux-tui-win32-x64
           )
+          if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then
+            packages+=(cmux-tui-win32-x64)
+          fi
           for package in "${packages[@]}"; do
             # A retried run must not fail on the packages an earlier attempt
             # already published at this exact version.

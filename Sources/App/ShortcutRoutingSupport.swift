@@ -1,8 +1,198 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
 import Foundation
 import CmuxTerminal
+
+/// Stateless matching policy for configured application shortcuts.
+///
+/// AppDelegate owns the active chord and event-routing context; this type only
+/// interprets an event against a stored shortcut. Keeping layout lookup as an
+/// injected dependency preserves the non-Latin keyboard test seam without
+/// coupling matching to AppDelegate or application state.
+struct ConfiguredShortcutMatcher {
+    let layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+
+    init(
+        layoutCharacterProvider: @escaping (UInt16, NSEvent.ModifierFlags) -> String? =
+            KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) {
+        self.layoutCharacterProvider = layoutCharacterProvider
+    }
+
+    func matches(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        activeChordPrefix: ShortcutStroke? = nil
+    ) -> Bool {
+        guard !shortcut.isUnbound else { return false }
+        if let activeChordPrefix {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == activeChordPrefix else {
+                return false
+            }
+            return matches(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.hasChord else { return false }
+        return matches(event: event, stroke: shortcut.firstStroke)
+    }
+
+    func matches(event: NSEvent, stroke: ShortcutStroke) -> Bool {
+        stroke.matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
+    }
+
+    func numberedDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags == stroke.modifierFlags else { return nil }
+        let numberKeyDigit = digitForNumberKeyCode(event.keyCode)
+
+        if let digit = numberedDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
+        ) {
+            return digit
+        }
+
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        let hasUsableASCIIEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+            && (eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true)
+        if !hasUsableASCIIEventChars || numberKeyDigit != nil {
+            let layoutCharacter = layoutCharacterProvider(event.keyCode, event.modifierFlags)
+            if let digit = numberedDigit(
+                eventCharacter: layoutCharacter,
+                applyShiftSymbolNormalization: false,
+                eventKeyCode: event.keyCode
+            ) {
+                return digit
+            }
+        }
+
+        return numberKeyDigit
+    }
+
+    func numberedDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
+        return numberedDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    func eventCouldMatchNumberedDigit(_ event: NSEvent) -> Bool {
+        if digitForNumberKeyCode(event.keyCode) != nil {
+            return true
+        }
+        return numberedDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) != nil
+    }
+
+    func matchesDirectional(
+        event: NSEvent,
+        stroke: ShortcutStroke,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        if stroke.key == arrowGlyph {
+            let flags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function])
+            return event.keyCode == arrowKeyCode && flags == stroke.modifierFlags
+        }
+        return matches(event: event, stroke: stroke)
+    }
+
+    func matchesDirectional(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        guard !shortcut.hasChord else { return false }
+        return matchesDirectional(
+            event: event,
+            stroke: shortcut.firstStroke,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode
+        )
+    }
+
+    func matchesTab(event: NSEvent, stroke: ShortcutStroke) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return event.keyCode == 48 && flags == stroke.modifierFlags
+    }
+
+    func matchesTab(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.isUnbound, !shortcut.hasChord else { return false }
+        return matchesTab(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func numberedDigit(
+        eventCharacter: String?,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Int? {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
+        let normalized = normalizedEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        )
+        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
+        return digit
+    }
+
+    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
+        switch keyCode {
+        case 18: return 1
+        case 19: return 2
+        case 20: return 3
+        case 21: return 4
+        case 23: return 5
+        case 22: return 6
+        case 26: return 7
+        case 28: return 8
+        case 25: return 9
+        default: return nil
+        }
+    }
+
+    private func normalizedEventCharacter(
+        _ eventCharacter: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> String {
+        let lowered = eventCharacter.lowercased()
+        guard applyShiftSymbolNormalization else { return lowered }
+        switch lowered {
+        case "{": return "["
+        case "}": return "]"
+        case "<": return eventKeyCode == 43 ? "," : lowered
+        case ">": return eventKeyCode == 47 ? "." : lowered
+        case "?": return "/"
+        case ":": return ";"
+        case "\"": return "'"
+        case "|": return "\\"
+        case "~": return "`"
+        case "+": return "="
+        case "_": return "-"
+        case "!": return eventKeyCode == 18 ? "1" : lowered
+        case "@": return eventKeyCode == 19 ? "2" : lowered
+        case "#": return eventKeyCode == 20 ? "3" : lowered
+        case "$": return eventKeyCode == 21 ? "4" : lowered
+        case "%": return eventKeyCode == 23 ? "5" : lowered
+        case "^": return eventKeyCode == 22 ? "6" : lowered
+        case "&": return eventKeyCode == 26 ? "7" : lowered
+        case "*": return eventKeyCode == 28 ? "8" : lowered
+        case "(": return eventKeyCode == 25 ? "9" : lowered
+        case ")": return eventKeyCode == 29 ? "0" : lowered
+        default: return lowered
+        }
+    }
+}
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -135,15 +325,16 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard (123...126).contains(keyCode) else { return false }
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-
-    if normalizedFlags.isEmpty {
+    if normalizedFlags.isEmpty || normalizedFlags == [.shift] ||
+        normalizedFlags == [.option] || normalizedFlags == [.option, .shift] {
+        // Selection and word/paragraph navigation need WebKit's native defaults.
         return true
     }
-
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // Cmd+Option+Arrow remains reserved for cmux pane-focus shortcuts.
+    if normalizedFlags == [.command] {
+        return keyCode == 125 || keyCode == 126
+    }
+    return normalizedFlags == [.command, .shift]
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -571,16 +762,7 @@ func startOrFocusTerminalSearch(
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    guard flags.contains(.command) else { return false }
-
-    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-    if event.keyCode == 50,
-       normalizedFlags == [.command] || normalizedFlags == [.command, .shift] {
-        return false
-    }
-
-    return true
+    event.cmuxRoutesDirectlyToMainMenu
 }
 
 private enum BrowserFindCommandEquivalent: CaseIterable {
@@ -613,12 +795,11 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
 }
 
 func cmuxIsWebInspectorClassName(_ className: String) -> Bool {
-    className.contains("WKInspector") || className.contains("WebInspector")
+    className.cmuxNamesWebInspectorClass
 }
 
 func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
-    cmuxIsWebInspectorClassName(String(describing: type(of: object))) ||
-        cmuxIsWebInspectorClassName(NSStringFromClass(type(of: object)))
+    object.cmuxBelongsToWebInspector
 }
 
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
@@ -674,21 +855,7 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
 }
 
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
-    guard let responder else { return false }
-    if cmuxIsWebInspectorObject(responder) {
-        return true
-    }
-    guard let view = responder as? NSView else { return false }
-    var node: NSView? = view
-    var hops = 0
-    while let current = node, hops < 64 {
-        if cmuxIsWebInspectorObject(current) {
-            return true
-        }
-        node = current.superview
-        hops += 1
-    }
-    return false
+    responder?.cmuxIsInsideWebInspector ?? false
 }
 
 private func browserFindCommandEquivalent(
@@ -956,8 +1123,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 

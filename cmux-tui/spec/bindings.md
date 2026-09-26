@@ -12,10 +12,13 @@ The split is deliberate:
   handwritten in each language.
 - Mechanical protocol-v12 models are generated deterministically and exposed
   only through `raw`.
-- A catalog descriptor in every package proves that all 124 transported
+- A catalog descriptor in every package proves that all 125 transported
   operations have the same class and wire name.
 - The six sidebar plugin operations are local CLI/filesystem APIs. Transported
-  SDK roots expose sidebar views, not plugin resource handles.
+  SDK roots expose sidebar views, not plugin resource handles. Agent plugin
+  install, selection, update, and removal are also CLI-only because they build
+  and replace caller-owned executables; they are specified in `plugins.md`, not
+  as transport operations.
 
 Code generation is a repository build tool. It is never a consumer dependency
 and does not define the public API.
@@ -42,7 +45,11 @@ Every high-level SDK must provide:
 
 Decimal wire values remain strings. TypeScript never converts them to
 `number`; Java uses `BigInteger`; other SDKs validate canonical unsigned
-decimal text before an optional native conversion.
+decimal text before an optional native conversion. Journal producer versions
+are bounded positive uint32 values in every binding, and manifest size,
+permission, subject, correlation, and sensitivity limits are checked before a
+socket write. JSON Schema compilation and payload authorization remain server
+responsibilities.
 
 The server may return `mutation.indeterminate` after a crash around an external
 effect. SDKs retain the structured error and never repeat that key
@@ -97,6 +104,11 @@ cursor.
 The `cmux-sdk` package exports crate `cmux`. Resource handles clone without
 I/O. Mutation helpers create one secure key; `_with` variants accept explicit
 mutation options. Typed streams are owned iterators with cancellation handles.
+Journal producers use `Session::journal_producers`,
+`Session::put_journal_producer`, and `Session::append_journal`; the types are
+generic and do not require agent-specific core code. The longer
+`put_journal_producer_manifest` and `append_journal_event` spellings remain
+source-compatible aliases.
 The optional `cmux-sidebar` package applies terminal-style render patches to a
 Ratatui buffer and forwards typed input without adding Ratatui to the base SDK.
 Private models live under `cmux::raw`.
@@ -107,6 +119,9 @@ Private models live under `cmux::raw`.
 resource graph for `asyncio`. Cancellation closes its dedicated connection and
 releases reader threads. The package supports Python 3.9 without runtime
 dependencies. Private models live under `cmux.raw`.
+Generic producers use `list_journal_producers`, `put_journal_producer`, and
+`append_journal`; the longer `put_journal_producer_manifest` and
+`append_journal_event` names remain compatibility aliases.
 
 ### TypeScript
 
@@ -115,6 +130,9 @@ browser-safe ESM and accepts an injected WebSocket transport. `cmux-sdk/node`
 adds Unix socket discovery. Shared modules import no Node built-ins.
 Stream APIs are `AsyncIterable`, accept `AbortSignal`, and preserve decimal
 strings. Private models live under `cmux-sdk/raw`.
+Generic producers use `listJournalProducers`, `putJournalProducer`, and
+`appendJournal`. The public model uses camelCase while the wire keeps the
+schema's snake_case names.
 
 ### Go
 
@@ -122,6 +140,9 @@ Package `cmux` accepts `context.Context` on blocking operations. Context
 cancellation stops local waiting and closes dedicated streams; it does not
 claim to cancel an already executing mutation. A dial function can inject a
 transport on Windows and in tests. Private models live under `cmux/raw`.
+Generic producers use `ListJournalProducers`, `PutJournalProducer`, and
+`AppendJournal`; the options and results use typed uint32 versions and owned
+JSON payload values.
 
 ### Java
 
@@ -129,6 +150,9 @@ Package `com.cmux` uses builders for requests with several optional fields and
 immutable results. `Client` and `ResourceStream` support
 try-with-resources. A transport can be injected for WebSockets, non-Unix
 platforms, and tests. Private models live under `com.cmux.raw`.
+Generic producers use `journalProducers`, `putJournalProducer`, and
+`appendJournal`. Java represents schema and manifest versions as `long` so the
+full uint32 wire range is representable before validation.
 
 ### C++20
 
@@ -136,6 +160,9 @@ Headers under `cmux` expose native C++ value types and no Rust ABI.
 `cmux::result<T>` separates typed failure categories. The default transport is
 Unix JSON Lines; applications inject other transports. Private headers live
 under `cmux/raw`.
+Generic producers use `journal_producers`, `put_journal_producer`, and
+`append_journal`. `class` and `namespace` stay available through the public
+names `journal_class` and `namespace_` where the language reserves them.
 
 ### Zig
 
@@ -143,6 +170,10 @@ Public methods accept an explicit allocator for owned data. Results and streams
 require `deinit`. Errors retain structured remote fields and secret values are
 zeroized when their owning values are released. Private modules live under
 `raw`.
+Generic producers use `journalProducers`, `putJournalProducer`, and
+`appendJournal`. Zig public fields use `journal_class` and `namespace_` for
+the reserved wire names `class` and `namespace`; all returned values have an
+explicit allocator owner and `deinit`.
 
 ## Transport parity
 

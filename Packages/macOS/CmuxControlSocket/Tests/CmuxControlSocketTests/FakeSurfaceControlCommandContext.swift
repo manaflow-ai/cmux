@@ -4,8 +4,14 @@ import Foundation
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
+    var paneCreateInputs: ControlPaneCreateInputs?
+    var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
+    var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var closeResolution: ControlSurfaceCloseResolution = .tabManagerUnavailable
+    var onSurfaceClose: (() -> Void)?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeGetClaim: (
@@ -48,20 +54,47 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
         surfaceListSnapshot
     }
+    func controlSurfaceClose(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
+    ) -> ControlSurfaceCloseResolution {
+        onSurfaceClose?()
+        return closeResolution
+    }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
     func controlPaneCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
-        paneCreateResolution
+        paneCreateInputs = inputs
+        return paneCreateResolution
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        splitInputs = inputs
+        return splitResolution
     }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        createInputs = inputs
+        return createResolution
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "app-localized terminal creation type error",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
     }
 
     func controlSurfaceResumeSet(
@@ -146,7 +179,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution {
         reportedShellState = (
             workspaceID,

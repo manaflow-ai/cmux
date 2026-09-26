@@ -57,8 +57,8 @@ extension TerminalSurface {
             return
         }
         guard paneHost.window == nil else { return }
-        let width = max(surfaceView.bounds.width, CGFloat(800))
-        let height = max(surfaceView.bounds.height, CGFloat(600))
+        let width = max(surfaceView.bounds.width, Self.hiddenPaneDefaultSize.width)
+        let height = max(surfaceView.bounds.height, Self.hiddenPaneDefaultSize.height)
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(
             contentRect: frame,
@@ -140,6 +140,9 @@ extension TerminalSurface {
            displayID != 0,
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
+        }
+        if isViewInWindow {
+            onManualWindowAttached?()
         }
         rendererPresentationReadinessDidChange()
     }
@@ -523,19 +526,6 @@ extension TerminalSurface {
         return true
     }
 
-    /// Sets the transport-only command used when a deferred restore is cancelled.
-    ///
-    /// Persistent SSH restores keep their PTY attached after cancellation, but
-    /// must omit the embedded agent-resume payload. The value is captured when
-    /// admission is cancelled and remains in force for later runtime retries.
-    ///
-    /// - Parameter command: The transport-only command to run after cancellation.
-    @MainActor
-    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
-        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
-        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
-    }
-
     /// Primes the initial input for the next runtime spawn only.
     public func prepareNextRuntimeInitialInput(_ input: String?) {
         let trimmedInput = input?.isEmpty == false ? input : nil
@@ -562,6 +552,9 @@ extension TerminalSurface {
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
             flushPendingManualSizeReportIfAttached()
+            if isViewInWindow {
+                onManualWindowAttached?()
+            }
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif
@@ -587,6 +580,10 @@ extension TerminalSurface {
 
         attachedView = view
         releaseHeadlessStartupWindowIfNeeded(for: view)
+
+        if isViewInWindow {
+            onManualWindowAttached?()
+        }
 
         // Ordinary portal attachment can arrive before AppKit has put the view in
         // a window. Defer those. Startup and cold-input paths install the owned
@@ -659,7 +656,9 @@ extension TerminalSurface {
         configurationReloadDeferredRuntimeSurfaceView = view
         let accepted =
             engine
-                .deferRuntimeSurfaceCreationForConfigurationReload {
+                .deferRuntimeSurfaceCreationForConfigurationReload(
+                    surfaceID: id
+                ) {
                     [weak self] in
                     self?
                         .resumeRuntimeSurfaceCreationAfterConfigurationReload()
@@ -694,6 +693,15 @@ extension TerminalSurface {
         prepareFontSizeForDeferredConfigurationRuntimeCreation()
         createSurface(for: view, source: source)
     }
+    /// Replays a surface creation request that could not fit in the engine's
+    /// bounded reload-deferral map. The engine calls this from its incremental
+    /// post-gate overflow sweep; ordinary callers should continue using
+    /// ``createSurface(for:source:)``.
+    @MainActor
+    public func resumeDeferredRuntimeSurfaceCreationAfterConfigurationReloadIfNeeded() {
+        guard configurationReloadDeferredRuntimeSurfaceCreation else { return }
+        resumeRuntimeSurfaceCreationAfterConfigurationReload()
+    }
 
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
@@ -715,12 +723,19 @@ extension TerminalSurface {
         ) {
             return
         }
-        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        let requestedSpawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        let agentShimState = agentCommandShimStateForSurface(
+            view: view,
+            source: source,
+            spawnPolicy: requestedSpawnPolicy
+        )
         guard agentShimState.isReady else { return }
+        let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
+        if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -749,7 +764,8 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            agentCommandShims: agentCommandShims
+            agentCommandShims: agentCommandShims,
+            spawnPolicy: spawnPolicy
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
@@ -829,7 +845,7 @@ extension TerminalSurface {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let backingSize = initialRuntimeBackingSize(for: view)
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {

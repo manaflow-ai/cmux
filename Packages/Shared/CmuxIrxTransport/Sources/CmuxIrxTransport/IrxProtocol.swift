@@ -3,21 +3,30 @@ public import Foundation
 /// Wire identity for the irx transport. Distinct from the legacy
 /// `cmux/mobile/1` ALPN so an old peer can never half-connect to an irx
 /// endpoint: version mismatch fails at the TLS handshake, not mid-protocol.
-public enum IrxProtocol {
-    public static let alpn = "cmux/irx/1"
-    public static var alpnData: Data { Data(alpn.utf8) }
+public struct IrxProtocol: Sendable {
+    public init() {}
+
+    public let alpn = "cmux/irx/1"
+    public var alpnData: Data { Data(alpn.utf8) }
     /// Envelope version carried on every control frame.
-    public static let version = 1
+    public let version = 1
     /// Control frames are small (hello/admit/keepalive/descriptors); anything
     /// larger is a protocol error, never buffered.
-    public static let maximumControlFrameByteCount = 256 * 1024
-    /// Keepalive cadence: one tiny ping per interval, pong deadline after
-    /// which the connection is declared dead. Hard closes (the realistic
-    /// relay-expiry case) are detected instantly by the termination watcher;
-    /// the ping loop bounds SILENT path blackholes to interval + deadline,
-    /// keeping worst-case detection-plus-redial inside single-digit seconds.
-    public static let keepaliveInterval: Duration = .seconds(5)
-    public static let keepaliveDeadline: Duration = .seconds(2)
+    public let maximumControlFrameByteCount = 256 * 1024
+    /// Application latency sampling cadence. Connection lifetime is owned by
+    /// Iroh's native keepalives and negotiated connection idle timeout.
+    public let keepaliveInterval: Duration = .seconds(5)
+    /// A missed application pong retires only the diagnostic stream.
+    public let keepaliveDeadline: Duration = .seconds(2)
+    /// How long a control-stream replacement may take to open a fresh stream
+    /// and receive the host's acknowledgement. Generous next to the 2 s
+    /// keepalive deadline because it includes opening the stream and a host
+    /// actor hop, and a miss here only falls back to the conservative
+    /// two-silent-timeout threshold unless the connection is also silent.
+    public let controlRepairDeadline: Duration = .seconds(5)
+    /// Error code for resetting a control stream retired by a replacement.
+    public let retiredControlStreamErrorCode: UInt64 = 7
+
 }
 
 /// Machine-readable close/denial codes. The code travels in the QUIC
@@ -39,6 +48,13 @@ public enum IrxCloseCode: String, CaseIterable, Sendable {
     case hostShutdown = "host-shutdown"
     case keepaliveTimeout = "keepalive-timeout"
     case explicitRedial = "explicit-redial"
+
+    /// Codes that represent an admission result, not a session lifecycle
+    /// close. Lifecycle closes stay transport failures so the owner can redial.
+    public static let admissionOutcomeCodes: Set<IrxCloseCode> = [
+        .invalidGrant, .grantExpired, .revoked, .identityMismatch,
+        .malformedHello, .protocolMismatch, .admissionTimeout,
+    ]
 
     /// Codes that must NOT trigger automatic redial.
     public static let terminalForAutoRedial: Set<IrxCloseCode> = [
@@ -82,8 +98,15 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case keepalive
     case events
     case terminal
+    case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
+    /// Client-opened replacement for a stalled control stream on an admitted
+    /// connection. The server acknowledges with ``IrxControlLaneRepairAck``
+    /// and moves the session's control lane onto this stream. A server that
+    /// predates it cannot decode the descriptor and resets the stream, which
+    /// the client treats as "replacement unavailable".
+    case controlRepair = "control_repair"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -105,7 +128,7 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         cursor: UInt64? = nil,
         offset: UInt64? = nil
     ) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.lane = lane
         self.resource = resource
         self.cursor = cursor
@@ -114,17 +137,18 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
 }
 
 /// Client -> server admission request, first frame on the control stream.
-/// The grant is the broker-signed pair grant; everything the server needs to
-/// judge admission is in the grant plus the TLS-authenticated key, so
-/// admission is one round trip and needs no backend call.
+/// List-auth hellos carry NO grant: the server judges the TLS-authenticated
+/// key against its device-list snapshot, so admission stays one round trip
+/// with no backend call. The grant field remains OPTIONAL on the wire so an
+/// old peer's grant-bearing hello still parses (the list judge ignores it).
 public struct IrxHello: Codable, Equatable, Sendable {
     public var v: Int
     public var proto: String
-    public var grant: String
+    public var grant: String?
 
-    public init(grant: String) {
-        v = IrxProtocol.version
-        proto = IrxProtocol.alpn
+    public init(grant: String? = nil) {
+        v = IrxProtocol().version
+        proto = IrxProtocol().alpn
         self.grant = grant
     }
 }
@@ -140,10 +164,23 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     public var keepaliveDeadlineMs: Int
 
     public init(session: String) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.session = session
-        keepaliveIntervalMs = Int(IrxProtocol.keepaliveInterval.components.seconds) * 1000
-        keepaliveDeadlineMs = Int(IrxProtocol.keepaliveDeadline.components.seconds) * 1000
+        keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
+        keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+    }
+}
+
+/// Server -> client acknowledgement, first frame on a ``IrxLaneKind/controlRepair``
+/// stream. It is written by the server's application layer after it has
+/// moved the admitted session's control lane onto the stream, so receiving it
+/// is evidence that the host process, not just its QUIC stack, is serving the
+/// connection.
+public struct IrxControlLaneRepairAck: Codable, Equatable, Sendable {
+    public var v: Int
+
+    public init() {
+        v = IrxProtocol().version
     }
 }
 
@@ -155,7 +192,7 @@ public struct IrxPing: Codable, Equatable, Sendable {
     public var pong: Bool
 
     public init(seq: UInt64, pong: Bool) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.seq = seq
         self.pong = pong
     }
@@ -177,7 +214,7 @@ public struct IrxLaneError: Codable, Equatable, Sendable {
     public var message: String
 
     public init(code: Code, message: String) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.code = code
         self.message = message
     }
@@ -193,10 +230,12 @@ public enum IrxFrameCodecError: Error, Equatable, Sendable {
 /// Length-prefixed JSON control frames: 4-byte big-endian length + body.
 /// Used only for the tiny control vocabulary above; application lanes carry
 /// raw bytes after their descriptor.
-public enum IrxFrameCodec {
-    public static func encode(_ value: some Encodable) throws -> Data {
+public struct IrxFrameCodec: Sendable {
+    public init() {}
+
+    public func encode(_ value: some Encodable) throws -> Data {
         let body = try JSONEncoder().encode(value)
-        guard body.count <= IrxProtocol.maximumControlFrameByteCount else {
+        guard body.count <= IrxProtocol().maximumControlFrameByteCount else {
             throw IrxFrameCodecError.frameTooLarge(body.count)
         }
         var data = Data(capacity: 4 + body.count)
@@ -206,7 +245,7 @@ public enum IrxFrameCodec {
         return data
     }
 
-    public static func decode<T: Decodable>(_ type: T.Type, from body: Data) throws -> T {
+    public func decode<T: Decodable>(_ type: T.Type, from body: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: body)
         } catch {

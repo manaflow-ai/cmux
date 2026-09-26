@@ -12,6 +12,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
+    private let writeData: @Sendable (FileHandle, Data) throws -> Void
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
@@ -20,10 +21,18 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private var flushSuspendedForTesting = false
 #endif
 
-    init(eventLogURL: URL, maxEventLogBytes: UInt64, maxPendingLines: Int) {
+    init(
+        eventLogURL: URL,
+        maxEventLogBytes: UInt64,
+        maxPendingLines: Int,
+        writeData: @escaping @Sendable (FileHandle, Data) throws -> Void = { handle, data in
+            try handle.write(contentsOf: data)
+        }
+    ) {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxPendingLines = max(1, maxPendingLines)
+        self.writeData = writeData
     }
 
     func enqueue(_ line: String) {
@@ -128,32 +137,55 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private func append(_ lines: [String]) {
         guard !lines.isEmpty else { return }
         do {
-            try FileManager.default.createDirectory(
-                at: eventLogURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
             let fileManager = FileManager.default
-            if !fileManager.fileExists(atPath: eventLogURL.path) {
-                _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
-            }
-            var handle = try FileHandle(forWritingTo: eventLogURL)
+            // Every agent hook event flushes here, so the steady state is one
+            // open + seek + write. Directory and file creation run only when the
+            // open fails, and the end-of-file offset doubles as the current size
+            // instead of a separate attributesOfItem stat per flush.
+            var handle = try openForAppending(fileManager: fileManager)
             defer { try? handle.close() }
-            try handle.seekToEnd()
-            var currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
+            var currentSize = try handle.seekToEnd()
+            // One file segment at a time bounds the extra buffer to the rotation limit,
+            // except for an indivisible oversized record (the existing write-whole policy).
+            var batchData = Data()
+
+            func writeBatch() throws {
+                guard !batchData.isEmpty else { return }
+                try writeData(handle, batchData)
+                batchData.removeAll(keepingCapacity: true)
+            }
+
             for line in lines {
-                let data = Data((line + "\n").utf8)
-                if currentSize + UInt64(data.count) > maxEventLogBytes {
+                let lineBytes = UInt64(line.utf8.count) + 1
+                if currentSize + lineBytes > maxEventLogBytes {
+                    try writeBatch()
                     try handle.close()
                     try rotate(fileManager: fileManager)
                     handle = try FileHandle(forWritingTo: eventLogURL)
                     currentSize = 0
                 }
-                try handle.write(contentsOf: data)
-                currentSize += UInt64(data.count)
+                batchData.append(contentsOf: line.utf8)
+                batchData.append(0x0a)
+                currentSize += lineBytes
             }
+            try writeBatch()
         } catch {
             cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
+    }
+
+    private func openForAppending(fileManager: FileManager) throws -> FileHandle {
+        if let handle = try? FileHandle(forWritingTo: eventLogURL) {
+            return handle
+        }
+        try fileManager.createDirectory(
+            at: eventLogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if !fileManager.fileExists(atPath: eventLogURL.path) {
+            _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+        }
+        return try FileHandle(forWritingTo: eventLogURL)
     }
 
     private func rotate(fileManager: FileManager) throws {

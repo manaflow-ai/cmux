@@ -1,7 +1,9 @@
+import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
 import CmuxCore
 import Foundation
+import CmuxPanes
 import Bonsplit
 import CmuxWorkspaces
 #if canImport(CryptoKit)
@@ -26,7 +28,11 @@ enum SessionPersistencePolicy {
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // Below ~400pt the chrome cannot lay out without overlap: the sidebar
+    // footer (account/help/update pill) collides with workspace rows and the
+    // update pill clips at the window edge. User resizes stop here via
+    // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
+    static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -286,8 +292,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     var approvalPolicy: SurfaceResumeApprovalPolicy?
     var approvalRecordId: String?
     var launchFlavor: SurfaceResumeLaunchFlavor
-    /// Whether decoding observed a legacy binding without an execution location.
-    private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
 
     init(
@@ -359,7 +363,6 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
             updatedAt: try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
                 ?? Date().timeIntervalSince1970
         )
-        wasDecodedWithoutLaunchFlavor = decodedLaunchFlavor == nil
     }
 
     var isProcessDetected: Bool {
@@ -1005,26 +1008,10 @@ enum SurfaceResumeApprovalStore {
         isMainThread: Bool,
         isRunningTests: Bool
     ) -> Bool {
-        guard binding.launchFlavor == .local else {
+        guard isMainThread, !isRunningTests else {
             return false
         }
-        guard isMainThread else {
-            return false
-        }
-        guard !isRunningTests else {
-            return false
-        }
-        guard !binding.isCLIBinding else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        return proposalNeedsApproval(binding: binding, existingRecord: existingRecord)
     }
 
     static func applyingPromptlessCLIManualApprovalIfNeeded(
@@ -1588,89 +1575,6 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
     var cleanupLocalPathWhenDisposed: Bool
 }
 
-struct SessionBrowserPanelSnapshot: Codable, Sendable {
-    var urlString: String?
-    var profileID: UUID?
-    var shouldRenderWebView: Bool
-    var pageZoom: Double
-    var developerToolsVisible: Bool
-    var isMuted: Bool
-    var chromeVisibility: BrowserChromeVisibility? = nil
-    var omnibarVisible: Bool? = nil
-    var backHistoryURLStrings: [String]?
-    var forwardHistoryURLStrings: [String]?
-    /// True when the surface is a transparent internal cmux UI (e.g. the diff
-    /// viewer). Restored so the surface comes back transparent, not opaque.
-    var transparentBackground: Bool? = nil
-    /// Diff viewer token + request path, when this browser surface hosts a diff viewer.
-    /// Restored by re-registering the token with the app-owned `CmuxDiffViewerURLSchemeHandler`
-    /// and navigating via the custom scheme, independent of the (possibly-dead) local HTTP server.
-    var diffViewerToken: String? = nil
-    var diffViewerRequestPath: String? = nil
-
-    init(
-        urlString: String?,
-        profileID: UUID?,
-        shouldRenderWebView: Bool,
-        pageZoom: Double,
-        developerToolsVisible: Bool,
-        isMuted: Bool = false,
-        chromeVisibility: BrowserChromeVisibility? = nil,
-        omnibarVisible: Bool? = nil,
-        backHistoryURLStrings: [String]?,
-        forwardHistoryURLStrings: [String]?,
-        transparentBackground: Bool? = nil,
-        diffViewerToken: String? = nil,
-        diffViewerRequestPath: String? = nil
-    ) {
-        self.urlString = urlString
-        self.profileID = profileID
-        self.shouldRenderWebView = shouldRenderWebView
-        self.pageZoom = pageZoom
-        self.developerToolsVisible = developerToolsVisible
-        self.isMuted = isMuted
-        self.chromeVisibility = chromeVisibility
-        self.omnibarVisible = omnibarVisible
-        self.backHistoryURLStrings = backHistoryURLStrings
-        self.forwardHistoryURLStrings = forwardHistoryURLStrings
-        self.transparentBackground = transparentBackground
-        self.diffViewerToken = diffViewerToken
-        self.diffViewerRequestPath = diffViewerRequestPath
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case urlString
-        case profileID
-        case shouldRenderWebView
-        case pageZoom
-        case developerToolsVisible
-        case isMuted
-        case chromeVisibility
-        case omnibarVisible
-        case backHistoryURLStrings
-        case forwardHistoryURLStrings
-        case transparentBackground
-        case diffViewerToken
-        case diffViewerRequestPath
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
-        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
-        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
-        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
-        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
-        isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
-        chromeVisibility = try container.decodeIfPresent(BrowserChromeVisibility.self, forKey: .chromeVisibility)
-        omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)
-        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
-        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
-        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
-        diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
-        diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
-    }
-}
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1712,6 +1616,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil
@@ -1737,77 +1645,14 @@ struct SessionPanelSnapshot: Codable, Sendable {
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
-enum SessionSplitOrientation: String, Codable, Sendable {
-    case horizontal
-    case vertical
-
-    init(_ orientation: SplitOrientation) {
-        switch orientation {
-        case .horizontal:
-            self = .horizontal
-        case .vertical:
-            self = .vertical
-        }
-    }
-
-    var splitOrientation: SplitOrientation {
-        switch self {
-        case .horizontal:
-            return .horizontal
-        case .vertical:
-            return .vertical
-        }
-    }
-}
-
-struct SessionPaneLayoutSnapshot: Codable, Sendable {
-    var panelIds: [UUID]
-    var selectedPanelId: UUID?
-    var isFullWidthTabMode: Bool? = nil
-}
-
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
-    var orientation: SessionSplitOrientation
-    var dividerPosition: Double
-    var first: SessionWorkspaceLayoutSnapshot
-    var second: SessionWorkspaceLayoutSnapshot
-}
-
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
-    case pane(SessionPaneLayoutSnapshot)
-    case split(SessionSplitLayoutSnapshot)
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case pane
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "pane":
-            self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
-        case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .pane(let pane):
-            try container.encode("pane", forKey: .type)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try container.encode("split", forKey: .type)
-            try container.encode(split, forKey: .split)
-        }
-    }
-}
+// The pane layout value types and Bonsplit codec live in CmuxPanes so the
+// reusable topology boundary is independent of the app's session models. Keep
+// these module-local aliases for persisted-session source compatibility.
+typealias SessionSplitOrientation = CmuxPanes.SessionSplitOrientation
+typealias SessionPaneLayoutSnapshot = CmuxPanes.SessionPaneLayoutSnapshot
+typealias SessionSplitLayoutSnapshot = CmuxPanes.SessionSplitLayoutSnapshot
+typealias SessionWorkspaceLayoutSnapshot = CmuxPanes.SessionWorkspaceLayoutSnapshot
+typealias SessionSplitContainerLayoutCodec = CmuxPanes.SessionSplitContainerLayoutCodec
 
 /// One canvas pane's persisted geometry, ordered back-to-front so restore
 /// reproduces the z-order.
@@ -1832,6 +1677,9 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     var vmID: String
     var isBase: Bool
+    /// The machine's cmux-tui workspace this local workspace stands for; absent in
+    /// legacy snapshots and for machine-only bindings (`vm shell`).
+    var remoteWorkspaceID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1845,11 +1693,19 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var customDescription: String?
     var customColor: String?
     var customizationDirectory: String? = nil
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Whether notification side effects are muted for this workspace. The
+    /// optional form keeps manifests written before per-workspace mute support
+    /// backwards-compatible; missing values restore as `false`.
+    var isMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
@@ -1888,6 +1744,24 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
+extension SessionPanelSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
+
+extension SessionWorkspaceSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
+
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
@@ -1909,6 +1783,10 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil
+    /// Optional caller-owned identity for idempotent group creation.
+    var externalID: String? = nil
+    /// Raw ``WorkspaceGroupAnchorProvenance`` value; absent in older snapshots.
+    var anchorWorkspaceProvenance: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {
