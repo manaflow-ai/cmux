@@ -21,17 +21,6 @@ For UI or behavior changes, include a short demo video or screenshots (GitHub up
 
 - Video URL or attachment:
 
-<!--
-## Review Trigger (Copy/Paste as PR comment)
-
-```text
-@codex review
-@coderabbitai review
-@greptileai review
-@cubic-dev-ai review
-```
--->
-
 ## Checklist
 
 - [ ] Behavior changes have added or updated tests, or Testing says why not
@@ -39,4 +28,4 @@ For UI or behavior changes, include a short demo video or screenshots (GitHub up
 - [ ] New or changed v2 socket method allowlisted for `cmux ssh`: the [relay authorization questions](https://github.com/manaflow-ai/cmux/blob/main/CLAUDE.md#remote-cli-relay-authorization-ghsa-9vmv-3hjw-j28c) are answered above
 - [ ] iOS connectivity, auth, lifecycle, workspace action, terminal I/O or mobile RPC contract change: [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) updated, or explained why existing coverage still applies, with the affected workload result recorded
 - [ ] Docs and changelog updated if needed
-- [ ] Bot reviews requested after the latest commit (paste the commented-out Review Trigger block from this template as a PR comment, or equivalent), and all bot and human review comments resolved
+- [ ] Reviewed with a subagent before merge ([cmux-review](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-review/SKILL.md)), and all bot and human review comments resolved

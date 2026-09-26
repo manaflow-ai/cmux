@@ -72,8 +72,12 @@ public struct SSHTuiConnection: Sendable {
         arguments[1] = "browser-proxy"
         arguments[2] = "ssh://" + configuration.destination
         arguments.removeAll { ["--headless", "--json"].contains($0) }
-        arguments += ["--workspace-root", "/", "--allowed-host", "127.0.0.1",
-                      "--allowed-host", "localhost", "--allowed-host", "::1"]
+        // SSH services conventionally bind to the host loopback interface. The
+        // remote proxy keeps this opt-in separate from Cloud's private-address
+        // allowlist so an SSH carrier cannot accidentally broaden Cloud routes.
+        arguments += ["--workspace-root", "/", "--allow-loopback",
+                      "--allowed-host", "127.0.0.1", "--allowed-host", "localhost",
+                      "--allowed-host", "::1"]
         return arguments
     }
 }
