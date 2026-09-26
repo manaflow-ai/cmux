@@ -600,18 +600,13 @@ final class SurfaceCatalog {
         guard info.id.tuiMachineID != nil,
               let state = state ?? cloudStates[info.id] else { return info }
         var adjusted = info
-        let canonical = state.workspaces.map {
+        // Metadata has no mutation receipt: an absent id may be a deleted
+        // workspace, so it cannot establish a pending creation. Created terminal
+        // views already have receipt-backed resource overlays; empty workspaces
+        // become visible when the daemon includes them in its graph.
+        adjusted.remoteWorkspaces = state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
-        var seen = Set(canonical.map(\.id))
-        // Only resource overlays attest to a creation ahead of the graph.
-        // A machine summary has no mutation receipt and may contain deleted rows.
-        let pending = (resourceIDsByMachine[info.id] ?? [])
-            .compactMap { resources[$0] }
-            .flatMap(\.remoteWorkspaces)
-            .filter { seen.insert($0.id).inserted }
-            .sorted { ($0.index, $0.id) < ($1.index, $1.id) }
-        adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }
 
