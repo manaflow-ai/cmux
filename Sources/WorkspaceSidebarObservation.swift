@@ -220,6 +220,7 @@ private struct SidebarObservationState: Equatable {
     let panelDirectoryDisplayLabels: [UUID: String]
     let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
+    let agentUsage: [String: SidebarAgentUsage]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
     let progress: SidebarProgressState?
@@ -346,11 +347,15 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(
+                $listeningPorts,
+                sidebarMetadata.panelDirectoryDisplayLabelsPublisher,
+                sidebarMetadata.agentUsagePublisher
+            )
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels, agentUsage) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -363,6 +368,7 @@ extension Workspace {
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
+                    agentUsage: agentUsage,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
                     progress: metadataFields.3,

@@ -303955,6 +303955,360 @@
         }
       }
     },
+    "settings.app.showAgentUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استخدام الوكيل في الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nutzung in der Seitenleiste anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Usage in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el uso del agente en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’utilisation des agents dans la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにエージェントの使用状況を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 에이전트 사용량 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示代理用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示代理用量"
+          }
+        }
+      }
+    },
+    "settings.app.showAgentUsage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلحق النموذج ونسبة نافذة السياق المستخدمة بإدخالات حالة Claude Code وCodex، بالإضافة إلى تكلفة API تقديرية لـ Claude Code. التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hängt Modell und belegtes Kontextfenster an die Statuseinträge von Claude Code und Codex an, für Claude Code zusätzlich die geschätzten API-Kosten. Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade el modelo y la ventana de contexto usada a las entradas de estado de Claude Code y Codex, además de un coste estimado de la API para Claude Code. El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le modèle et la part de la fenêtre de contexte utilisée aux entrées d’état de Claude Code et Codex, ainsi qu’un coût API estimé pour Claude Code. Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex のステータス項目にモデルと使用中のコンテキストウィンドウを追加し、Claude Code には推定 API コストも表示します。コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 상태 항목에 모델과 사용 중인 컨텍스트 창을 덧붙이고, Claude Code에는 예상 API 비용도 표시합니다. 비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 和 Codex 的状态条目后附加模型和已用的上下文窗口，并为 Claude Code 附加估算的 API 费用。费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 與 Codex 的狀態項目後附加模型與已用的上下文視窗，並為 Claude Code 附加估算的 API 費用。費用是依 API 公開價格估算，並非你的訂閱帳單。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.show-agent-usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex وكيل استخدام نموذج نافذة السياق رموز نسبة تكلفة سعر تقدير الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex Agent Nutzung Modell Kontextfenster Token Prozent Kosten Preis Schätzung Seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agente uso modelo ventana de contexto tokens porcentaje coste precio estimación barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agent utilisation modèle fenêtre de contexte jetons pourcentage coût prix estimation barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex エージェント 使用状況 モデル コンテキストウィンドウ トークン パーセント コスト 料金 推定 サイドバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 에이전트 사용량 모델 컨텍스트 창 토큰 퍼센트 비용 가격 추정 사이드바"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文窗口 令牌 百分比 费用 价格 估算 侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文視窗 權杖 百分比 費用 價格 估算 側邊欄"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCostAtLeast": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@+"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@+"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@+"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@+"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@+"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@+"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@+"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@+"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@+"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.costHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "費用是依 API 公開價格估算，並非你的訂閱帳單。"
+          }
+        }
+      }
+    },
     "settings.app.showProgress.subtitle": {
       "extractionState": "manual",
       "localizations": {

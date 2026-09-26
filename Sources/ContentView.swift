@@ -16955,7 +16955,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var helpText: String {
-        entries.map(\.sidebarDisplayText)
+        entries.map(\.sidebarHelpText)
         .joined(separator: "\n")
     }
 
@@ -16981,7 +16981,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
+                .safeHelp(entry.sidebarToolTip(linkURL: url) ?? url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())
