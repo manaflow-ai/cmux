@@ -19,7 +19,8 @@ use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failu
 
 pub(crate) const PTY_OPERATION_QUEUE_CAPACITY: usize = 512;
 pub(crate) const TERMINAL_EXITED_LABEL: &str = "terminal exited";
-const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const PTY_INPUT_MAX_BYTES: usize = 4 * 1024 * 1024;
+const MAX_QUEUED_BYTES: usize = PTY_INPUT_MAX_BYTES;
 const MAX_CONCURRENT_SURFACE_OPERATIONS: usize = 32;
 const RESERVED_RELEASE_BYTES: usize = 64;
 const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
