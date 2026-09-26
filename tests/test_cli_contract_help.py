@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import git_fixture_env
+
 
 START_MARKER = "<!-- cli-contract-help-probes:start -->"
 END_MARKER = "<!-- cli-contract-help-probes:end -->"
@@ -138,6 +140,7 @@ def clean_git_env() -> dict[str, str]:
     for key in list(env):
         if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             env.pop(key)
+    git_fixture_env.without_auto_maintenance(env)
     return env
 
 
