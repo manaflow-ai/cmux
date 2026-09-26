@@ -225,6 +225,7 @@ Built-in diff viewer settings. See [the detailed diff configuration](https://cmu
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `diffViewer.defaultLayout` | `"unified"` or `"split"` | `"unified"` | Default layout for newly opened diff viewers. The toolbar choice persists and `cmux diff --layout` overrides this value for one invocation. |
+| `diffViewer.cssVariables` | object | `{}` | Hex color overrides for the diff viewer's documented CSS custom properties. |
 
 ## shortcuts
 
