@@ -489,6 +489,29 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+# Claude Code's native session name is shown in its /resume picker and terminal
+# title. Resolve the caller's workspace through the same tagged cmux socket used
+# by the hook bridge, then use the custom workspace title when one exists. Keep
+# this lookup best-effort: a stale socket, an older cmux CLI, or an unnamed
+# workspace must never prevent Claude from starting.
+cmux_claude_workspace_name() {
+    local cmux_bin payload title
+    cmux_socket_available || return 1
+    cmux_bin="$(resolve_hook_cmux_bin)"
+    [[ -x "$cmux_bin" ]] || return 1
+    payload="$(
+        CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+            "$cmux_bin" --socket "$CMUX_SOCKET_PATH" current-workspace --json 2>/dev/null
+    )" || return 1
+    title="$(printf '%s' "$payload" \
+        | /usr/bin/plutil -extract workspace.custom_title raw -expect string -o - -- - 2>/dev/null
+    )" || return 1
+    title="${title#"${title%%[![:space:]]*}"}"
+    title="${title%"${title##*[![:space:]]}"}"
+    [[ -n "$title" ]] || return 1
+    printf '%s' "$title"
+}
+
 CLAUDE_AUTH_SELECTION_ENV_KEYS=(
     ANTHROPIC_API_KEY
     ANTHROPIC_MODEL
@@ -761,6 +784,21 @@ claude_explicit_session_flag_present() {
                 ;;
         esac
         index=$((index + 1))
+    done
+    return 1
+}
+
+claude_explicit_name_flag_present() {
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --name|--name=*|-n|-n?*)
+                return 0
+                ;;
+        esac
     done
     return 1
 }
@@ -1961,6 +1999,18 @@ fi
 CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
 if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
     set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
+fi
+
+# Give new sessions the workspace's human-readable task name. Explicit Claude
+# names and resume/continue launches were excluded above, so this never
+# overwrites a user's title or retitles an existing conversation.
+if [[ "$SKIP_SESSION_ID" != true ]]; then
+    if ! claude_explicit_name_flag_present "$@"; then
+        CMUX_CLAUDE_WORKSPACE_NAME="$(cmux_claude_workspace_name || true)"
+        if [[ -n "$CMUX_CLAUDE_WORKSPACE_NAME" ]]; then
+            set -- --name "$CMUX_CLAUDE_WORKSPACE_NAME" "$@"
+        fi
+    fi
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then

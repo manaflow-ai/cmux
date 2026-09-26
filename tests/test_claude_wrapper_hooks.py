@@ -3005,11 +3005,89 @@ def test_mismatched_restore_tokens_still_require_live_socket(failures: list[str]
                f"mismatched marker {token}: marker leaked to Claude: {observed_env}", failures)
 
 
+def workspace_name_sandbox(payload: dict | str):
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        env["HOME"] = str(tmp / "home")
+        (tmp / "home").mkdir()
+        env["CMUX_WORKSPACE_ID"] = "workspace:caller"
+        env["FAKE_WORKSPACE_JSON"] = json.dumps(payload) if isinstance(payload, dict) else payload
+        make_executable(
+            Path(env["CMUX_BUNDLED_CLI_PATH"]),
+            r'''#!/usr/bin/env bash
+printf '%s timeout=%s workspace=%s surface=%s\n' "$*" "${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC-}" "$CMUX_WORKSPACE_ID" "$CMUX_SURFACE_ID" >> "$FAKE_CMUX_LOG"
+if [[ "${1:-}" == "--socket" ]]; then shift 2; fi
+if [[ "$*" == *current-workspace* ]]; then
+  printf '%s' "$FAKE_WORKSPACE_JSON"
+elif [[ "${1:-}" == "hooks" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+fi
+''',
+        )
+    return setup
+
+
+CLAUDE_NAME_HELP = "Usage: claude [options]\nOptions:\n  -n, --name <name>  Session display name\n"
+
+
+def test_workspace_name_becomes_native_claude_session_name(failures: list[str]) -> None:
+    title = 'workshop 日本語 "splitwise" $(false)'
+    code, args, calls, stderr, *rest = run_wrapper(
+        socket_state="live", argv=["--", "a prompt"], help_output=CLAUDE_NAME_HELP,
+        setup_sandbox=workspace_name_sandbox({"workspace": {"custom_title": title}}),
+    )
+    expect(code == 0, f"workspace name: launch failed: {stderr}", failures)
+    expect("--name" in args and args[args.index("--name") + 1] == title,
+           f"workspace name: missing exact native name: {args}", failures)
+    queries = [call for call in calls if "current-workspace" in call]
+    expect(len(queries) == 1 and "workspace=workspace:caller surface=surface:test" in queries[0],
+           f"workspace name: expected caller-scoped lookup: {queries}", failures)
+    if queries:
+        expect("--socket " in queries[0] and "timeout=0.75" in queries[0],
+               f"workspace name: lookup must use the bounded caller socket: {queries}", failures)
+    captured = base64.b64decode(rest[-1]).split(b"\0")[:-1]
+    expect(captured[-2:] == [b"--", b"a prompt"],
+           f"workspace name: generated name leaked into restore argv: {captured!r}", failures)
+
+
+def test_workspace_name_preserves_explicit_names_and_resumes(failures: list[str]) -> None:
+    for argv in (
+        ["--name", "mine"], ["--name=mine"], ["-n", "mine"], ["-nmine"],
+        ["--resume"], ["--resume", "saved"], ["--resume=saved"],
+        ["--continue"], ["-c"], ["agents"], ["--help"],
+    ):
+        code, args, calls, stderr, *_ = run_wrapper(
+            socket_state="live", argv=argv, help_output=CLAUDE_NAME_HELP,
+            setup_sandbox=workspace_name_sandbox({"workspace": {"custom_title": "cmux task"}}),
+        )
+        expect(code == 0 and "cmux task" not in args,
+               f"workspace name {argv}: changed native invocation: {args}, {stderr}", failures)
+        expect(not any("current-workspace" in call for call in calls),
+               f"workspace name {argv}: unnecessary workspace lookup: {calls}", failures)
+
+
+def test_workspace_name_fails_open_without_a_name_or_supported_claude(failures: list[str]) -> None:
+    for payload, help_output in (
+        ({"workspace": {"title": "Terminal", "custom_title": None}}, CLAUDE_NAME_HELP),
+        ({"workspace": {"custom_title": ""}}, CLAUDE_NAME_HELP),
+        ({"workspace": {"custom_title": 42}}, CLAUDE_NAME_HELP),
+        ("not json", CLAUDE_NAME_HELP),
+    ):
+        code, args, _, stderr, *_ = run_wrapper(
+            socket_state="live", argv=[], help_output=help_output,
+            setup_sandbox=workspace_name_sandbox(payload),
+        )
+        expect(code == 0 and "--name" not in args,
+               f"workspace name fallback {payload}: launch changed: {args}, {stderr}", failures)
+
+
 def main() -> int:
     if ensure_node_on_path() is None:
         print("SKIP: node runtime not found; wrapper fakes exec node")
         return 0
     failures: list[str] = []
+    test_workspace_name_becomes_native_claude_session_name(failures)
+    test_workspace_name_preserves_explicit_names_and_resumes(failures)
+    test_workspace_name_fails_open_without_a_name_or_supported_claude(failures)
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
