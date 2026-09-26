@@ -723,4 +723,57 @@ struct ExternalHoverOwnerCoordinatorTests {
             .init(active: false, identityMatched: false, pendingMatched: false, committed: false, event: nil)
         ])
     }
+    @Test("A retired request never registers diagnostics demand")
+    func retiredRequestDoesNotRegisterDiagnostics() {
+        let calls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { $0() },
+            project: { _ in },
+            manageDiagnosticsRenderDemand: { active in calls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+        let lifetime = coordinator.currentLifetimeToken
+        coordinator.retireLifetime()
+        var calledSetter = false
+        let minted = coordinator.callSetterAndRecordPending(
+            lifetimeToken: lifetime, event: 1, path: "/tmp/retired"
+        ) {
+            calledSetter = true
+            return Self.token(1)
+        }
+        #expect(minted == nil)
+        #expect(!calledSetter)
+        #expect(calls.withLock { $0 }.isEmpty)
+    }
+
+    @Test("Retirement releases diagnostics demand synchronously and only once")
+    func retirementReleasesDiagnosticsDemand() {
+        let calls = OSAllocatedUnfairLock(initialState: [Bool]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { $0() },
+            project: { _ in },
+            manageDiagnosticsRenderDemand: { active in calls.withLock { $0.append(active) } },
+            diagnosticsEnabled: { true }
+        )
+        _ = coordinator.callSetterAndRecordPending(event: 1, path: "/tmp/a") { Self.token(1) }
+        coordinator.retireLifetime()
+        coordinator.retireLifetime()
+        #expect(calls.withLock { $0 } == [true, false])
+    }
+
+    @Test("A replacement generation cannot reuse a retired generation's queued projection")
+    func projectionRetainsExactLifetime() {
+        let queue = DeterministicMainQueue()
+        let recorder = ProjectionRecorder()
+        let coordinator = makeCoordinator(queue: queue, recorder: recorder)
+        acceptViaRealFlow(coordinator, seed: 1, path: "/tmp/old")
+        let oldProjection = queue.takeAll()
+        coordinator.beginLifetime(runtimeSurfaceGeneration: 2)
+        acceptViaRealFlow(coordinator, seed: 2, path: "/tmp/new")
+        oldProjection.forEach { $0() }
+        #expect(recorder.applied.isEmpty)
+        queue.drainOneRound()
+        #expect(recorder.applied == [Self.entry(2, path: "/tmp/new")])
+    }
+
 }
