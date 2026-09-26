@@ -206,7 +206,7 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
-    static let piPolicy = Policy(
+    static let piCompatiblePolicy = Policy(
         valueOptions: [
             "--append-system-prompt",
             "--api-key",
@@ -268,15 +268,21 @@ extension AgentLaunchSanitizer {
         ]
     )
 
+    static let piPolicy: Policy = {
+        var policy = piCompatiblePolicy
+        policy.valueOptions.formUnion(["--name", "-n"])
+        return policy
+    }()
+
     /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
-    /// policy is pi's plus the campfire-only surface. `--relay` is safe to
+    /// policy adds the campfire-only surface to the shared Pi-compatible options. `--relay` is safe to
     /// replay (a relay URL, not a credential); `--join-as`/`--name` are
     /// joiner-only display names that make no sense on a host resume. An invite
     /// URL is a positional argument and is dropped by the default positional
     /// handling — it carries the lobby capability token and must never be
     /// persisted or replayed.
     static let campfirePolicy: Policy = {
-        var policy = piPolicy
+        var policy = piCompatiblePolicy
         policy.valueOptions.formUnion(["--relay", "--join", "--join-as", "--name"])
         policy.nonRestorableCommands.insert("init")
         policy.droppedOptions.formUnion(["--join", "--join-as", "--name", "--auto-exit"])
