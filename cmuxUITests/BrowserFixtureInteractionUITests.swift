@@ -497,6 +497,22 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
+    func testSelectorScrollFindsLightAndShadowControls() throws {
+        try launchApp()
+        let sid = try openFixture("shadow-open")
+        for selector in ["#light-scroller", "#shadow-scroller"] {
+            try socketResult(
+                method: "browser.scroll",
+                params: ["surface_id": sid, "selector": selector, "dy": 120]
+            )
+        }
+        XCTAssertTrue(try evalBool(
+            "document.getElementById('light-scroller').scrollTop === 120 && " +
+                "document.getElementById('host').shadowRoot.getElementById('shadow-scroller').scrollTop === 120",
+            surfaceID: sid
+        ))
+    }
+
     /// Framework-controlled inputs need real WebKit key events. A focused
     /// element is a valid target for `type`, so callers do not need to invent
     /// a selector that cannot describe a shadow-DOM node.
