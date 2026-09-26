@@ -2217,12 +2217,18 @@ class Wiring(unittest.TestCase):
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
                                             "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && contains("
+        routed = "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+        self.assertIn(f"{routed} && github.run_attempt == 2 && contains("
                       "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
                       "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) "
-                      "|| github.event_name == 'pull_request' && "
+                      f"|| {routed} && "
                       "(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
+        # Main's dispatch takes the side label only where the picker placed the wrapper.
+        self.assertIn("|| github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && "
+                      "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
+                      "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
+                      "|| vars.CI_PAID_MACOS_OVERFLOW == '1'", wrapper)
 
     def test_callers_pass_the_choice(self):
         jobs = self.workflow("ci.yml")["jobs"]
@@ -2241,10 +2247,11 @@ class Wiring(unittest.TestCase):
         self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"],
                          "${{ needs.changes.outputs.macos_pr_side_runner }}")
         self.assertEqual(jobs["macos"]["with"]["pr_side_runner"], "${{ needs.changes.outputs.macos_pr_side_runner }}")
-        # In ci-macos.yml only swift-package-tests reads it; its root jobs never do.
+        # In ci-macos.yml only the side lanes read it (swift-package-tests and
+        # release-build); its root jobs never do.
         macos_jobs = self.workflow("ci-macos.yml")["jobs"]
         readers = sorted(name for name, job in macos_jobs.items() if "pr_side_runner" in yaml.safe_dump(job))
-        self.assertEqual(readers, ["swift-package-tests"])
+        self.assertEqual(readers, ["release-build", "swift-package-tests"])
         self.assertEqual(self.workflow("ci.yml")["jobs"]["changes"]["outputs"]["macos_pr_side_runner"],
                          "${{ steps.macos-pool.outputs.side_runner }}")
         self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
@@ -2343,7 +2350,8 @@ class Wiring(unittest.TestCase):
         # (MACOS_RUNNER_PR) or the retry pool; only the owned label, on the
         # attempts that read it, when owned_jobs names ' swift-package '.
         job = self.workflow("ci-macos.yml")["jobs"]["swift-package-tests"]
-        owned = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && "
+        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && "
                  "contains(inputs.pr_owned_jobs, ' swift-package ') && "
                  "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
                  "(inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
@@ -2368,6 +2376,44 @@ class Wiring(unittest.TestCase):
             if "helper" in (step.get("name") or "").lower() and step.get("name") != "Record Release Ghostty helper identity":
                 self.assertIn("inputs.full_suite == 'true' && inputs.release_build == 'true'", step.get("if", ""),
                               step.get("name"))
+
+    def test_release_build_takes_an_owned_mac_only_where_the_picker_placed_them(self):
+        # The universal Release build: the side label when owned_jobs names
+        # ' release-build ' (same repository or main's dispatch), else the
+        # macOS 26 variable, and its product-contract mirror says the same.
+        job = self.workflow("ci-macos.yml")["jobs"]["release-build"]
+        owned = ("(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || "
+                 "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && "
+                 "contains(inputs.pr_owned_jobs, ' release-build ') && "
+                 "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
+                 "(inputs.pr_side_runner || inputs.pr_refused_retry_runner))")
+        expected = ("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && "
+                    "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+                    f"{owned} || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}}}")
+        self.assertEqual(job["runs-on"], expected)
+        self.assertEqual(job["env"]["CMUX_PRODUCT_RUNNER"], expected)
+        self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
+
+    def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
+        full = dict(macos="true", full_suite="true", unit_suite="false", unit_in_admission="false",
+                    claude_wrapper="true", cli="true", remote_daemon="false")
+        plan = pool.run_plan(**full, swift_packages="true", release_build="true")
+        # The helper build keeps swift-package-tests on Blacksmith; release-build takes its place.
+        self.assertEqual(plan.side, ("claude-wrapper", "release-build"))
+        self.assertNotIn("release-build", pool.run_plan(**full, swift_packages="true", release_build="false").side)
+        self.assertNotIn("release-build", pool.run_plan(**full, swift_packages="true").side)
+        self.assertNotIn("release-build", pool.run_plan(**{**full, "full_suite": "false"},
+                                                          release_build="true").side)
+        # Still at most three side lanes, so the most machines a run holds is unchanged.
+        self.assertLessEqual(pool.run_plan(**{**full, "remote_daemon": "true"}, swift_packages="true",
+                                           release_build="true").peak, pool.MAX_RUN_JOBS)
+        keys, held = pool.place(plan, plan.peak)
+        self.assertIn("release-build", keys)
+        self.assertEqual(held, plan.peak)
+        # Behind the root jobs and cli-product, ahead of the light side lanes.
+        order = sorted(("claude-wrapper", "remote-daemon", "release-build", "cli-product", "lag"), key=pool.priority)
+        self.assertEqual(order, ["lag", "cli-product", "release-build", "remote-daemon", "claude-wrapper"])
+        self.assertIn("release-build", pool.SIDE_LANE_JOBS)
 
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
@@ -2501,7 +2547,7 @@ class MainFullSuite(unittest.TestCase):
             choice = self.main_choice(self.snap(), **kwargs)
             self.assertEqual((choice.runner, choice.root_runner), ("", ""), kwargs)
 
-    def test_main_routes_the_full_suite_without_its_side_lanes(self):
+    def test_main_routes_the_full_suite_with_its_side_lanes(self):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot = Path(tmp, "snap.json")
             fresh = self.snap()
@@ -2518,10 +2564,11 @@ class MainFullSuite(unittest.TestCase):
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(pool.main(["--snapshot", str(snapshot)], env), 0)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            # The nine root jobs at their peak, plus the Claude wrapper and the remote daemon beside them.
             self.assertEqual((values["runner"], values["persistent"], values["root_runner"], values["jobs"]),
-                             (MINI, "true", ROOT_MINI, "9"))
+                             (MINI, "true", ROOT_MINI, "11"))
             self.assertEqual(values["owned_jobs"], " admission " + " ".join(f"shard-{index}" for index in range(1, 8))
-                             + " lag cli-product ")
+                             + " lag cli-product remote-daemon claude-wrapper ")
             self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
             # A dispatch on another branch writes the default route.
             env.update(GITHUB_REF="refs/heads/topic")
