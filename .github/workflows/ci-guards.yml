@@ -392,6 +392,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_catch_up_pr.py
 
+      - name: Validate automatic PR catch-up selection
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_auto_catch_up_select.py
+
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
@@ -427,6 +431,10 @@ jobs:
       - name: Validate warm-state distance recording and routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
+
+      - name: Validate the owned idle catch-up build
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_catch_up.py
 
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}

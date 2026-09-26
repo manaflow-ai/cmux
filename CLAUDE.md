@@ -84,7 +84,11 @@ its receipts. Required CI and review still apply to the final pushed head.
 
 ## Merging main into a branch
 
-Catch a branch up with `scripts/merge-main.sh`, not a raw `git merge origin/main`. It merges the newest main commit whose CI fast guards passed (a red or pending tip is skipped, and it says which commits and why), resolves generated-file conflicts the way `/catch-up` does, then runs `scripts/ci/guards-local.sh` and labels each failure inherited from main or introduced by this branch. Fix the introduced ones; the inherited ones are main's. `--dry-run` shows the pick, `--tip` merges a red tip on purpose. See [docs/ci/merge-main.md](docs/ci/merge-main.md).
+Don't bring main into your branch yourself. When main's fast guards go green, `pr-catch-up.yml` merges that commit into open pull requests that conflict with main or are red only because of main, once their head has been quiet for 30 minutes (label `no-auto-catch-up` to opt out). It resolves generated-file conflicts, pushes, and CI runs on the result. A conflict it can't resolve gets one comment on the PR; that is your cue to merge by hand. To catch up sooner, comment `/catch-up` on the PR.
+
+If a push is rejected because the branch moved, run `git pull --no-rebase` and push again; never force-push over the catch-up merge.
+
+When you do need main locally (you depend on something that just landed, or catch-up asked you to resolve a conflict), use `scripts/merge-main.sh`, not a raw `git merge origin/main`. It merges the newest main commit whose CI fast guards passed, resolves generated-file conflicts the same way, then runs `scripts/ci/guards-local.sh` and labels each failure inherited from main or introduced by this branch. Fix the introduced ones; the inherited ones are main's. `--dry-run` shows the pick, `--tip` merges a red tip on purpose. See [docs/ci/merge-main.md](docs/ci/merge-main.md).
 
 ## First pass, then dogfood
 
