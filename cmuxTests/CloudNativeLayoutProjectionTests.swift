@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CMUXAuthCore
 import CmuxAuthRuntime
+import Bonsplit
 import CmuxCloud
 import CmuxCore
 import CmuxIrohTransport
