@@ -251,12 +251,12 @@ public struct MobileSection: View {
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """
-                Devices signed in to the same account connect automatically. \
-                Use this QR only to pair through Tailscale.
+                Sign in to cmux on your iPhone with the same account and it \
+                connects automatically. No QR code is needed.
                 """
             )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Open Pairing…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)

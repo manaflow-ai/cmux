@@ -669,7 +669,7 @@ jobs:
           # Fixed paths survive across jobs on persistent runners. Clear them
           # before any trusted product/cache restoration.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
 
@@ -903,13 +903,32 @@ jobs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Full runs share the cache warmer's and stable release lane's image and
-    # toolchain, which is what the compilation cache is keyed on — OS, arch and
-    # toolchain, never instance size, which is deliberately larger here. Fast
+    # Owned minis first. Attempt 1 of a push or schedule run on main takes one
+    # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
+    # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
+    # glaeda-trusted-<class>-xcode-<version>) and that runner's own label
+    # (vars.CI_NIGHTLY_TRUSTED_RUNNER, glaeda-runner-<runner name>), so only a
+    # runner carrying both can take it. Today that is cmux15-glaeda: the
+    # trusted mini with no pull request runners and no dev-build worker. The
+    # other trusted mini (cmuxs-mac-mini-6) builds team dev builds as the same
+    # user, so it keeps seeding but never builds the shipped app. Its
+    # job-started hook admits only main's own push and schedule jobs. Not the
+    # pull request pool: this job holds the ci-cache-writer R2 keys and the
+    # Sentry token, and its app is what build-sign-notarize-nightly signs and
+    # ships. runner_label_policy.py holds both variables to those shapes.
+    # ci-owned-pool-rescue.yml watches the run (owned_pool_rescue.py,
+    # NIGHTLY_WORKFLOW_PATH): when the mini does not take the job within its
+    # budget, or refuses it at job start, the failed jobs are re-run, and
+    # every later attempt takes Blacksmith below. Either variable empty is
+    # Blacksmith. Signing stays on Blacksmith (build-sign-notarize-nightly).
+    # Blacksmith runs share the cache warmer's and stable release lane's image
+    # and toolchain, which is what the compilation cache is keyed on — OS, arch
+    # and toolchain, never instance size, which is deliberately larger here.
+    # An owned mini keys its own lineage (see the cache key step). Fast
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -941,11 +960,28 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # A persistent owned mini keeps the workspace between jobs. Checkout's
+      # clean already drops untracked output; clear the build tree by name as
+      # well, so a stale product or dSYM from an earlier job can never ship.
+      - name: Clear build outputs a persistent runner kept
+        run: scripts/ci/clear-dirs.sh build-universal remote-daemon-assets
+
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
         run: |
           set -euo pipefail
-          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          # The key is OS, arch and toolchain. An owned mini (runner
+          # <member>-glaeda[-K]) runs the same Xcode build as Blacksmith but
+          # compiles in another workspace path, so its cache entries would
+          # mostly miss there and push Blacksmith's own entry out of the
+          # prefix restore. Fold its workspace path into the toolchain hash:
+          # each lineage restores only its own, and Blacksmith's key is
+          # unchanged.
+          identity="$(xcodebuild -version)"
+          case "${RUNNER_NAME:-}" in
+            *-glaeda | *-glaeda-[0-9]*) identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE" ;;
+          esac
+          echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Restore Xcode compilation cache
         id: compilation-cache-restore
@@ -1724,6 +1760,16 @@ jobs:
           # work. Direct execution is isolated from the runner's Dock state.
           CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
             ./scripts/smoke-launch-macos-app.sh \
+            "$CHANNEL_APP_PATH"
+
+      - name: Smoke bundled CLI against the signed app
+        run: |
+          set -euo pipefail
+          # Launch-only smoke proves the process lives; this drives the shipped
+          # app through the CLI inside the same bundle (version, help, SSH
+          # daemon manifest, ping, capabilities, workspace create/list/close).
+          # A thin x86_64 variant skips when the runner has no Rosetta.
+          ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
       - name: Notarize app ticket through final DMG

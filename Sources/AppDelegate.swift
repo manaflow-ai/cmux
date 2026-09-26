@@ -845,15 +845,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// The app's settings dependency container, handed over by `cmuxApp` via
-    /// `configure(...)` before any main window is created. AppKit builds the
-    /// main window's `NSHostingView` itself, so it injects this into the
-    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
-    /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
+    private(set) var browserDataImportCoordinator: BrowserDataImportCoordinator?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -1604,6 +1600,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SurfaceCatalog.shared.installCloudWorkspaceRenameService(
             CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
         )
+        TerminalPredictionCenter.shared.bindEnabledSetting(
+            userDefaultsKey: SettingCatalog().betaFeatures.predictedEcho.userDefaultsKey
+        )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
@@ -1936,7 +1935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    self.browserDataImportCoordinator?.presentImportDialog()
                 }
             }
         }
@@ -2454,6 +2453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cloudWorkspaceOperationController: CloudWorkspaceOperationController,
         newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
         computerUseRuntimeService: ComputerUseRuntimeService,
         devicesRegistry: DeviceSurfaceProviderRegistry? = nil,
         computersService: HiveComputersService? = nil
@@ -2480,6 +2480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             operations: cloudWorkspaceOperationController, catalog: .shared
         )
         self.newMachineSheetPresenter = newMachineSheetPresenter
+        self.browserDataImportCoordinator = browserDataImportCoordinator
         self.computerUseRuntimeService = computerUseRuntimeService
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
@@ -2580,6 +2581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
+        TerminalController.shared.attachBrowserDataImportCoordinator(browserDataImportCoordinator)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         TerminalController.shared.attachAutomationEngine(automationEngine)
@@ -5993,12 +5995,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager
     ) {
-        if tabManager.selectedTab?.isRemoteTmuxMirror == true
-            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil {
-            _ = performNewWorkspaceAction(
-                tabManager: tabManager,
-                debugSource: "sidebar.emptyArea.remote"
-            )
+        // Remote targets and a configured `ui.newWorkspace.action` go through
+        // the shared empty-area path; the plain local case keeps the
+        // owning-window route below.
+        if sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: tabManager)
+            || sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: tabManager) {
+            performSidebarEmptyAreaNewWorkspaceAction(tabManager: tabManager)
         } else if addWorkspace(
             windowId: windowId,
             bringToFront: false,
@@ -8245,6 +8247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performNewWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
@@ -8264,8 +8267,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
+            placementOverride: placementOverride,
             debugSource: debugSource
         )
+    }
+
+    /// Empty-area double-click in the sidebar. A configured
+    /// `ui.newWorkspace.action` applies here exactly as it does for the `+`
+    /// button and File > New Workspace; without one, a plain workspace lands
+    /// after the last row, which is what clicking below every row asks for.
+    @discardableResult
+    func performSidebarEmptyAreaNewWorkspaceAction(tabManager: TabManager) -> Bool {
+        // A remote-tmux mirror or remote Mac creates its workspace on the
+        // remote side, which decides placement, so the end-of-list override
+        // does not apply there. Gate on the SELECTED workspace, not
+        // `tabs.contains`: a dedicated remote window can be polluted with a
+        // dragged-in local workspace (move targets don't exclude dedicated
+        // windows), and `contains` would then misroute a local empty-area
+        // double-click into spawning an unwanted tmux session.
+        if sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: tabManager) {
+            return performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remote"
+            )
+        }
+        if sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: tabManager) {
+            return performNewWorkspaceAction(
+                tabManager: tabManager,
+                placementOverride: .end,
+                debugSource: "sidebar.emptyArea"
+            )
+        }
+        return tabManager.addWorkspaceIfActive(placementOverride: .end) != nil
+    }
+
+    /// Whether a sidebar empty-area creation targets a remote-tmux mirror or a
+    /// remote Mac, whose new workspaces are placed by the remote side.
+    private func sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: TabManager) -> Bool {
+        tabManager.selectedTab?.isRemoteTmuxMirror == true
+            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil
+    }
+
+    /// Whether the window owning `tabManager` has a `ui.newWorkspace.action`.
+    private func sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: TabManager) -> Bool {
+        mainWindowContext(for: tabManager)?.cmuxConfigStore?.resolvedNewWorkspaceAction() != nil
     }
 
     /// Creates a new workspace whose initial surface is a browser pane in its
@@ -8438,6 +8483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
         event: NSEvent?,
+        placementOverride: WorkspacePlacement? = nil,
         debugSource: String,
         title: String? = nil,
         initialBrowserURL: URL? = nil,
@@ -8514,7 +8560,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
-        let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
+        // An explicit placement override is the caller's own decision about
+        // where the workspace lands, so it outranks the selection-derived group
+        // target: `createWorkspaceInGroup` takes a group placement instead and
+        // would drop the override, filing a sidebar empty-area double-click
+        // into the selected workspace's group rather than after the last row.
+        let workspaceGroupTarget = placementOverride == nil
+            ? context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
+            : nil
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
@@ -8523,7 +8576,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
                debugSource: debugSource,
-               workspaceGroupTarget: workspaceGroupTarget
+               workspaceGroupTarget: workspaceGroupTarget,
+               appendsToEnd: placementOverride == .end
            ) {
             return true
         }
@@ -8557,6 +8611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             ) else { return false }
             createdWorkspaceHandler?(workspace)
@@ -8572,6 +8627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
+            placementOverride: placementOverride,
             applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
             event: event,
             debugSource: debugSource
@@ -9149,7 +9205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         in context: MainWindowContext,
         debugSource: String,
         replacingInitialWorkspace initialWorkspace: Workspace? = nil,
-        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil
+        workspaceGroupTarget: WorkspaceGroupNewWorkspaceTarget? = nil,
+        appendsToEnd: Bool = false
     ) -> Bool {
         guard let cmuxConfigStore = context.cmuxConfigStore,
               let action = cmuxConfigStore.resolvedNewWorkspaceAction() else {
@@ -9175,12 +9232,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) != nil
         }
 
-        let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
+        // `appendsToEnd` is an explicit end-of-list placement (the sidebar
+        // empty-area double-click). Configured actions create their workspace
+        // at the default placement, so snapshot ids here and move the new one
+        // to the end once the action has run.
+        let beforeIds = (workspaceGroupTarget != nil || appendsToEnd)
+            ? Set(context.tabManager.tabs.map(\.id))
+            : nil
         var asyncObserverId: UUID?
         // Named workspace commands and inline workspace actions both create a
         // workspace, so both must retire the throwaway initial workspace.
         let actionCreatesWorkspace = action.workspaceCommandName != nil || action.action.inlineWorkspace != nil || action.action == .builtIn(.newAgentChat)
-        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil && !appendsToEnd) ? nil : { [weak self, weak context] in
+            if appendsToEnd,
+               let context,
+               let beforeIds,
+               let newlyCreatedId = context.tabManager.tabs.first(where: { !beforeIds.contains($0.id) })?.id {
+                context.tabManager.reorderWorkspace(
+                    tabId: newlyCreatedId,
+                    toIndex: context.tabManager.tabs.count - 1
+                )
+            }
             if let context,
                let workspaceGroupTarget,
                let beforeIds {
@@ -9648,6 +9720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
+        placementOverride: WorkspacePlacement? = nil,
         applyCreationTitleAsCustomTitle: Bool = true,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
@@ -9704,6 +9777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
                 select: true,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else if workingDirectory != nil || initialTerminalInput != nil {
@@ -9712,6 +9786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: workingDirectory,
                 initialTerminalInput: initialTerminalInput,
                 select: true,
+                placementOverride: placementOverride,
                 autoWelcomeIfNeeded: initialTerminalInput == nil,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
@@ -9719,10 +9794,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspace = context.tabManager.addWorkspaceIfActive(
                 title: title, titleSource: titleSource,
                 select: true,
+                placementOverride: placementOverride,
                 applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
             )
         } else {
-            workspace = context.tabManager.addWorkspaceIfActive(select: true)
+            workspace = context.tabManager.addWorkspaceIfActive(
+                select: true,
+                placementOverride: placementOverride
+            )
         }
         guard let workspace else { return nil }
         #if DEBUG
@@ -10183,6 +10262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
+            .environment(browserDataImportCoordinator)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
@@ -10385,14 +10465,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        guard let workspace = context.tabManager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false) else {
+        let launch = WelcomeBannerDelivery.prepareLaunch(context.tabManager.welcomeBannerDeliveryResolver())
+        guard let workspace = context.tabManager.addWorkspaceIfActive(
+            initialTerminalEnvironment: launch.environment,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else {
             return
         }
-        sendWelcomeCommandWhenReady(to: workspace)
+        if launch.delivery == .typedCommand {
+            sendWelcomeCommandWhenReady(to: workspace)
+        }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace, beforeSend: {
+        sendTextWhenReady(WelcomeBannerDelivery.typedCommandText, to: workspace, beforeSend: {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
             }
@@ -10540,7 +10627,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
-                NSApp.terminate(nil)
+                AppDelegate.requestApplicationTermination()
             }
         )
     }
@@ -14319,7 +14406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
         ) {
-            NSApp.terminate(nil)
+            Self.requestApplicationTermination()
             return true
         }
 
@@ -14332,7 +14419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Mark as confirmed so applicationShouldTerminate does not show a
                 // second alert when NSApp.terminate re-enters the delegate callback.
                 self?.isQuitWarningConfirmed = true
-                NSApp.terminate(nil)
+                AppDelegate.requestApplicationTermination()
             } else {
                 onCancel?()
             }
@@ -15515,8 +15602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .left)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.left), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
@@ -15536,8 +15622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .right)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.right), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
@@ -15557,8 +15642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .up)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.up), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
@@ -15578,8 +15662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .down)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.down), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
 #endif
@@ -15602,8 +15685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.previous, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -15626,8 +15708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.next, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -15927,6 +16008,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .focusHistoryLast) {
+            if performFocusedDockShortcut(
+                .focusHistoryLast,
+                action: .focusHistoryLast,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateToLastFocused() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode) {
             // Reached only when focus mode is off (the active-focus-mode bypass
             // returns earlier), so this enters focus mode for the focused browser.
@@ -16127,6 +16223,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    /// Runs a workspace terminal font size action from a non-keyboard
+    /// entrypoint (command palette) through the same coordinator enqueue as
+    /// the keyboard shortcut.
+    ///
+    /// - Returns: Whether a workspace resolved and the change was not rejected.
+    @discardableResult
+    func performWorkspaceTerminalFontSizeAction(
+        _ action: KeyboardShortcutSettings.Action,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let routedTabs = activeTabManagerForCommands(
+            preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
+        )
+        guard let workspace = routedTabs?.selectedWorkspace else { return false }
+        switch enqueueWorkspaceTerminalFontSizeChange(
+            action,
+            workspace: workspace,
+            tabManager: routedTabs,
+            deferFlush: false
+        ) {
+        case .rejected:
+            return false
+        case .acceptedMutation, .consumedWithoutMutation:
+            return true
+        }
     }
 
     private func enqueueWorkspaceTerminalFontSizeChange(

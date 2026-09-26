@@ -1365,6 +1365,10 @@
     "class": "brand",
     "source": "OpenCode"
   },
+  "machines.agent.pi": {
+    "class": "brand",
+    "source": "Pi"
+  },
   "machines.freeAccess.upgrade": {
     "source": "Upgrade",
     "identityLocales": {

@@ -129,6 +129,10 @@ path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_node_options_survives_tmpdir_purge.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_wrapper_user_binary_resolution.py"
 lane = "macos-cli-no-socket"
 
@@ -280,6 +284,10 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_pi_extension_wakeup.py"
+lane = "macos-cli-no-socket-post-fish"
+
+[[test]]
 path = "tests/test_codex_permission_prompt_notification.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -338,6 +346,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_bisect.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_replay_app_host_verdict.py"
 lane = "linux-guard"
 
@@ -359,6 +371,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cli_lane_in_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
@@ -442,11 +458,15 @@ path = "tests/test_ci_owned_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_warm_distance.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_owned_warm_labels.py"
+path = "tests/test_ci_owned_warm_state.py"
 lane = "linux-guard"
 
 [[test]]
@@ -590,6 +610,10 @@ path = "tests/test_issue_5164_starship_prompt_composition.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lan_product_source.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
@@ -727,6 +751,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_ghostty_zig_workflows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1058,6 +1086,10 @@ path = "tests/test_shell_scrollback_restore_replay_path_regression.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_shell_welcome_banner_startup.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_zdotdir_user_override.py"
 lane = "legacy"
 
@@ -1240,4 +1272,48 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_late_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_admission_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_catch_up_pr.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_auto_catch_up_select.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_run_guards.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_check_repo_variables.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_timing_readout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_schema_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"

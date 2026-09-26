@@ -37,8 +37,12 @@ within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
 on the persistent pool that failed within REFUSAL_SECONDS of starting, with
 its runner setup step failed or no workflow step succeeded, counts as refused
-(compile admission's `always()` metrics steps still succeed after a refusal): the watcher confirms the head has
-not moved, cancels the run if it is still going, and re-runs its failed jobs.
+(compile admission's `always()` metrics steps still succeed after a refusal): the watcher lets the rest of the
+run finish, since GitHub re-runs no job of a run in progress and cancelling
+it would kill every healthy sibling, then confirms the head has not moved and
+re-runs its failed jobs. Only a run still going at the watch's end, or main's
+full-suite run (whose failure would open main's red-CI issue), is cancelled
+first.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
 (compile admission, say) is kept. A run on an owned pool is split across pools
@@ -56,8 +60,9 @@ job can run on an owned Mac). GitHub delivers no `requested` event for a
 re-run (run 36059281883's attempt 2 started no rescue), so the watch that
 re-ran the failed jobs goes on to watch attempt 2 itself, for owned jobs
 only, and stops at the first look that lists no job on an owned label. A job
-refused, or queued past the budget, on attempt 2 gets the run cancelled if it
-is still going and its failed and cancelled jobs re-run once more, keeping the
+queued past the budget on attempt 2 gets the run cancelled if it is still
+going, and one refused there waits for the run to finish (as on attempt 1);
+either way its failed and cancelled jobs are re-run once more, keeping the
 jobs that passed; attempt 3 and later always take retry_runner on
 Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
 Attempt 2 of a re-run of failed jobs needs no marker: `changes` is not
@@ -71,7 +76,10 @@ is no head to re-check, and its build and test jobs are not a split that can
 break: from attempt 2 on both take the runner job's retry_label, a macOS 26
 Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
 its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. A stuck E2E run
+follow-on watch of attempt 2 finds no owned job and stops. When the build
+itself did not succeed, every job is re-run instead, so the `sibling` job
+looks again for another run compiling the same revision
+(e2e_build_unfinished). A stuck E2E run
 that finished some other way (a newer dispatch in its concurrency group
 cancelled it) is not re-run, since that would cancel the newer one. Its
 watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
@@ -109,6 +117,21 @@ one gets the run cancelled and its failed and cancelled jobs re-run, keeping
 the jobs that had already finished. That re-run is on Blacksmith, so it is
 not followed. A stuck run that finished some other way (a newer push cancelled
 it) is not re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS.
+
+Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
+no picker, and attempt 1 of a push or schedule run on main puts
+build-nightly-app on vars.CI_SEED_TRUSTED_POOL, the trusted owned pool
+(glaeda-trusted-<class>-xcode-<version>, TRUSTED_LABEL), while every later
+attempt takes Blacksmith. The trusted minis also seed DerivedData on every
+push, so the job may wait behind a seed: its budget adds one QUEUE_ROUND_SECONDS
+round. A stuck job gets the run cancelled and its failed and cancelled jobs
+re-run; a refused one waits for the run to finish (the signing job is skipped
+behind it) and then gets its failed jobs re-run. The run is not a pull request,
+so in place of a head it checks for a newer nightly run on main that has not
+finished: nightly.yml's concurrency group holds that run pending behind this
+one, and a re-run would join the group and cancel it. With one, a stuck run is
+cancelled and not re-run (so the newer run starts), and a refused one is left
+as it is; the newer run builds main's newer HEAD.
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
@@ -167,6 +190,7 @@ import datetime as dt
 import http.client
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -193,6 +217,15 @@ QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLO
 # Side-lane workflows: no picker job. Their light macOS jobs take
 # vars.CI_SIDE_LANE_RUNNER (a glaeda-side-* label) on attempt 1 of a same-repo
 # pull request run, and every later attempt takes their Blacksmith default.
+# nightly.yml: no picker job either. build-nightly-app takes the trusted owned
+# pool (vars.CI_SEED_TRUSTED_POOL) on attempt 1 of a push or schedule run on
+# main, and Blacksmith on every later attempt.
+NIGHTLY_WORKFLOW_PATH = ".github/workflows/nightly.yml"
+NIGHTLY_EVENTS = frozenset({"push", "schedule"})
+# The trusted owned pool's labels: minis with no pull request runners, whose
+# job-started hook admits only main's push and schedule jobs. Only nightly.yml's
+# app build asks for one through this watch.
+TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/auth-refresh-tests.yml",
     ".github/workflows/cloud-command-deadlines.yml",
@@ -252,9 +285,13 @@ JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
 JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
-# A refused job fails in seconds; a real failure of the first step after
-# checkout takes longer than this, and one that does not is cheap to retry.
-REFUSAL_SECONDS = 120
+# A refused job fails within the runner's setup; a real failure of the first
+# step after checkout takes longer than this, and one that does not is cheap to
+# retry. glaeda's hook may wait up to 240 s inside that setup for the mini's one
+# gui token (GUI_WAIT_S) before refusing, and an app-host shard waiting there
+# costs far less than a refusal's rescue round trip and a Blacksmith re-run
+# (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
+REFUSAL_SECONDS = 360
 # The last attempt that may run on an owned pool: a refused job's one retry
 # on the fleet (see the module docstring).
 LAST_OWNED_ATTEMPT = 2
@@ -299,9 +336,9 @@ def parse_time(value: object) -> dt.datetime | None:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any."""
+    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if persistent(str(label)):
+        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)):
             return str(label)
     return None
 
@@ -424,7 +461,8 @@ class GitHub:
     GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
     which ci-macos.yml's attempt-2 routing checks. An installation token
     lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch.
+    `token` for the rest of the watch. A 403 is a read the App may not make
+    (branch_head needs contents, which it lacks): that one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:
@@ -432,8 +470,8 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str) -> Any:
-        headers = self.read_headers if method == "GET" else self.headers
+    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+        headers = self.read_headers if method == "GET" and not own_token else self.headers
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
@@ -442,8 +480,11 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
         except urllib.error.HTTPError as error:
-            if error.code != 401 or headers is self.headers:
+            if error.code not in (401, 403) or headers is self.headers:
                 raise
+            if error.code == 403:
+                # The installation lacks this read's permission: this one read goes on GITHUB_TOKEN.
+                return self.request(method, path, own_token=True)
             self.read_headers = self.headers
             return self.request(method, path)
         return json.loads(body) if body else None
@@ -488,6 +529,14 @@ class GitHub:
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
 
+    def newer_unfinished_runs(self, path: str, run_id: int, branch: str) -> list[int]:
+        """Ids of `path`'s runs on `branch` newer than `run_id` that have not finished (one request)."""
+        workflow = path.rsplit("/", 1)[-1]
+        data = self.request("GET", f"/actions/workflows/{workflow}/runs?branch={branch}&per_page=20")
+        return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
+                      and run.get("status") != "completed")
+
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
@@ -517,6 +566,9 @@ class Target:
     full_rerun: bool = False
     side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
     main: bool = False  # main's full-suite dispatch of ci.yml: no pull request, main's HEAD instead
+    # A push or schedule run of nightly.yml on main (watched as a side lane,
+    # against main's HEAD).
+    nightly: bool = False
     # ci.yml started this watch because late-placement may move jobs onto owned
     # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
     late: bool = False
@@ -533,13 +585,15 @@ class Target:
 
 
 def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str:
-    """The CI, E2E or iOS run to watch, or why this event is not one."""
+    """The CI, E2E, iOS or nightly run to watch, or why this event is not one."""
     run = event.get("workflow_run") or {}
     path = run.get("path")
+    if path == NIGHTLY_WORKFLOW_PATH:
+        return nightly_target(run, repository)
     side = path in SIDE_WORKFLOW_PATHS
     if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS and not side:
-        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, a side-lane workflow "
-                f"or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
+        return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, {NIGHTLY_WORKFLOW_PATH}, "
+                f"a side-lane workflow or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
     on_main = (path == CI_WORKFLOW_PATH and run.get("event") == "workflow_dispatch"
             and run.get("head_branch") == MAIN_BRANCH)
@@ -565,6 +619,22 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
                   e2e=e2e, side=side, path=str(path))
+
+
+def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
+    """A nightly.yml run to watch, or why not: only attempt 1 of main's own push or schedule run."""
+    if run.get("event") not in NIGHTLY_EVENTS:
+        return f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a push or schedule"
+    if run.get("head_branch") != MAIN_BRANCH:
+        return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not {MAIN_BRANCH}"
+    head = (run.get("head_repository") or {}).get("full_name") or ""
+    if head.casefold() != repository.casefold():
+        return "a fork head; forks never take a persistent pool"
+    attempt = int(run.get("run_attempt") or 0)
+    if attempt != 1:
+        return f"attempt {attempt}; its first attempt's watch follows it"
+    return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
+                  side=True, nightly=True)
 
 
 def marker_name(target: Target) -> str:
@@ -654,12 +724,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         # Waiting for compile admission and late placement: nothing can be stuck yet.
         interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
-            if any(refused(job) for job in jobs):
-                look = assess(jobs, now=now(), budget_seconds=budget_seconds, first_seen=first_seen,
-                              deadline=deadline, floor_seconds=floor_seconds)
-                log(f"look {looks}: {look.reason}")
-                return look.action, look.reason
-            if run_finished(jobs) and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
+            finished = run_finished(jobs) and \
+                read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed"
+            if finished and not any(refused(job) for job in jobs):
                 return "stop", "the run finished"
             seen_at = now()
             for job in jobs:
@@ -667,6 +734,19 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds)
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main:
+                # GitHub re-runs no job of a run still in progress (403 "already
+                # running", for one job or the failed ones), and cancelling
+                # the run to re-run it killed every healthy sibling (run
+                # 36198335113: two refused app-host shards cost five running
+                # shards and the CLI product tests, all re-run on Blacksmith).
+                # Let the siblings finish; at the deadline, cancel as before.
+                # Main's run still cancels at once: a run that ends in failure
+                # makes ci-main-full-suite.yml open the red-CI issue before
+                # the re-run starts, and a cancelled one does not.
+                log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
+                sleep(IDLE_POLL_SECONDS)
+                continue
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):
                 return look.action, look.reason
@@ -695,11 +775,37 @@ def next_attempt(target: Target) -> str:
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
+def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], None],
+                         log: Callable[[str], None]) -> bool:
+    """An E2E run whose build job did not succeed, so its re-run compiles.
+
+    A re-run of failed jobs keeps the `sibling` job's attempt-1 answer, taken
+    before the refusal, so it never waits for a sibling that started compiling
+    the same revision since: run 36168890047's attempt 2 compiled product
+    8c48a10e beside run 36168944875. Re-running every job runs the Linux
+    jobs and that wait again, which costs seconds. A build that passed is
+    kept, as always.
+    """
+    if target.path != E2E_WORKFLOW_PATH:
+        return False
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    build = next((job for job in jobs if job.get("name") == "build"), None)
+    return build is None or build.get("conclusion") != "success"
+
+
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request (or main) no longer wants this run, or "" when it still does."""
     if target.e2e and not target.pr_number:
         return ""  # a dispatch has no head to move; a newer one cancels it by concurrency
+    if target.nightly:
+        # nightly.yml's concurrency group never cancels in progress: a newer
+        # run waits behind this one, and a re-run of this one would join the
+        # group and cancel that pending run. Leave the revision to it.
+        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, MAIN_BRANCH), sleep, log)
+        if newer:
+            return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+        return ""
     if target.main:
         head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
         if head != target.head_sha:
@@ -729,7 +835,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # refusal is the fleet's, and a red run would open main's red-CI issue.
     keep_main = target.main and failed_only
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
-    if moved and target.main:
+    if moved and (target.main or target.nightly):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
         # the new HEAD.
@@ -751,6 +857,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if run.get("status") == "completed":
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
+        if e2e_build_unfinished(api, target, sleep, log):
+            api.rerun(target.run_id)
+            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.cancel(target.run_id)
@@ -783,6 +892,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if moved:
         return f"cancelled but not re-run: {moved}"
     if failed_only:
+        if e2e_build_unfinished(api, target, sleep, log):
+            api.rerun(target.run_id)
+            return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
     api.rerun(target.run_id)
@@ -874,12 +986,17 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
                "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
+        else f"main's nightly build at {target.head_sha[:12]}" if target.nightly \
         else f"pull request #{target.pr_number}"
-    if target.side:
+    if target.side and not target.nightly:
         subject += " (side lane)"
     # ci.yml's, test-ios.yml's and test-e2e.yml's pickers queue on purpose, within the queue
     # rounds: their owned jobs may wait up to the pool's expected wait (see the docstring).
     queue_extra = queue_seconds(queue_rounds) if target.path in QUEUEING_WORKFLOW_PATHS else 0
+    if target.nightly:
+        # The trusted minis seed DerivedData on every push to main, as this run
+        # starts: let the app build wait one round behind a seed.
+        queue_extra = QUEUE_ROUND_SECONDS
     log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"
         + (f": {seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
     # A watch deadline for attempt 1, and a fresh one (capped by the job's

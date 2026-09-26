@@ -18,6 +18,8 @@ elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_N
 producer_hit = os.environ.get("CMUX_PRODUCT_FROM_PRODUCER") == "true"
 local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
 peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
+# "lan": another PR mini through glaeda's LAN helper; "peer": a trusted HTTPS peer.
+peer_source = os.environ.get("CMUX_PEER_PRODUCT_SOURCE") or ("peer" if peer_hit else "")
 r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
 parallel_hit = os.environ.get("CMUX_PARALLEL_PRODUCT_HIT") == "true"
 record = {
@@ -25,8 +27,10 @@ record = {
     "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "disabled",
     "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     "repository": os.environ["GITHUB_REPOSITORY"],
-    "artifact_id": int(os.environ["ARTIFACT_ID"]),
-    "provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"],
+    # test-e2e.yml's build job on an owned Mac restores its own archive
+    # before it uploads it, so there is no artifact yet.
+    "artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None,
+    "provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None,
     "archive_sha256": os.environ["EXPECTED_SHA256"],
     "product_contract": os.environ["CMUX_PRODUCT_CONTRACT"],
     "source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"],
@@ -38,7 +42,7 @@ record = {
     "lookup_source": (
         "producer" if producer_hit else
         "local" if local_hit else
-        "peer" if peer_hit else
+        ("lan" if peer_source == "lan" else "peer") if peer_hit else
         "layers-github" if layer_hit else
         "r2" if r2_hit else
         "github-parallel" if parallel_hit else
@@ -47,6 +51,7 @@ record = {
     "local_hit": local_hit,
     "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
     "peer_hit": peer_hit,
+    "peer_source": peer_source,
     "peer_lookup_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_LOOKUP_SECONDS") or 0),
     "peer_transfer_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_TRANSFER_SECONDS") or 0),
     "peer_bytes_transferred": int(os.environ.get("CMUX_PEER_PRODUCT_BYTES") or 0),

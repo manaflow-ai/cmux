@@ -43,6 +43,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether copy also rejoins lines an application hard-wrapped to the
+    /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
+    /// the row wrap flag are always joined, regardless of this key.
+    public let reflowHardWrapOnCopy = DefaultsKey<Bool>(
+        id: "terminal.reflowHardWrapOnCopy",
+        defaultValue: false,
+        userDefaultsKey: "terminal.reflowHardWrapOnCopy"
+    )
+
     /// Whether macOS text-editing gestures are replayed as their line-editor
     /// equivalents: Command and Option arrow motion, and the Command and Option
     /// deletion chords. Off by default, because the mode claims chords the

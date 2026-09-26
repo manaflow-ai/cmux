@@ -4023,6 +4023,30 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-node-options-space",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings --require=\"/Users/a b/tools/hook.cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings --require=\"/Users/a b/tools/hook.cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-node-options-space'")
+        )
+    }
+
     func testClaudeResumeCommandDropsEmptyStaleCmuxNodeOptionsEnvironment() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,

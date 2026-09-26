@@ -439,6 +439,9 @@ class TabManager: ObservableObject {
     }
     private struct PendingPanelTitleUpdate {
         let title: String
+        /// `title` with any spinner frame removed. Carried alongside so the
+        /// flush can tell an advancing spinner from a changed label.
+        let stableTitle: String
         weak var sourceSurface: TerminalSurface?
         let sourceTerminalLifecycleId: UUID
     }
@@ -538,6 +541,19 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+
+    /// Picks how the automatic first-launch welcome reaches the new terminal.
+    /// Tests replace it to exercise each delivery without depending on the host shell.
+    var welcomeBannerDeliveryResolver: @MainActor () -> WelcomeBannerDelivery = { WelcomeBannerDelivery.current() }
+    /// Types the welcome fallback into `workspace` once its terminal is ready.
+    /// Tests replace it to observe the typed-fallback path.
+    lazy var typedWelcomeSender: @MainActor (Workspace) -> Void = { [weak self] workspace in
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+        } else {
+            self?.sendWelcomeWhenReady(to: workspace)
+        }
+    }
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -1371,6 +1387,19 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            var welcomeDelivery: WelcomeBannerDelivery?
+            var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
+                let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
+                welcomeDelivery = launch.delivery
+                if launch.delivery == .shellStartup {
+                    resolvedInitialTerminalEnvironment.merge(launch.environment, uniquingKeysWith: { current, _ in current })
+                    // The token file makes shell-startup delivery at most once,
+                    // so mark it shown now; the typed fallback marks on send.
+                    UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+                }
+            }
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let defaultTitle: String
@@ -1395,7 +1424,7 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
@@ -1467,13 +1496,8 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
+            if welcomeDelivery == .typedCommand {
+                typedWelcomeSender(newWorkspace)
             }
             return newWorkspace
         }
@@ -1485,7 +1509,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
             return
         }
@@ -1505,7 +1529,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
         }
 
@@ -2462,12 +2486,11 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+            if selectedTabId == workspace.id,
+               let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
+                // Keep the "focused row position" stable when possible; see
+                // WorkspacesModel.selectionTargetAfterClose for the rule.
+                selectedTabId = nextSelectedId
             }
 
             // A promoted anchor's resolved display title switches from its own
@@ -2831,7 +2854,7 @@ class TabManager: ObservableObject {
         alert.messageText = title
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         if let closeButton = alert.buttons.first {
             closeButton.keyEquivalent = "\r"
@@ -3807,9 +3830,11 @@ class TabManager: ObservableObject {
             )
         }
 #endif
+        let trimmedStable = change.stableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
         pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
             title: trimmed,
+            stableTitle: trimmedStable.isEmpty ? trimmed : trimmedStable,
             sourceSurface: sourceSurface,
             sourceTerminalLifecycleId: sourceSurface.terminalLifecycleId
         )
@@ -3833,19 +3858,44 @@ class TabManager: ObservableObject {
                   sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
                 continue
             }
-            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
+            updatePanelTitle(
+                tabId: key.tabId,
+                panelId: key.panelId,
+                title: update.title,
+                stableTitle: update.stableTitle,
+                sourceSurface: sourceSurface
+            )
         }
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
         panelTitleUpdateCoalescer.flushNow()
     }
-
     @discardableResult
     func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) -> Bool {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: nil)
+    }
+
+    @discardableResult
+    private func applyPanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String?,
+        sourceSurface: TerminalSurface?
+    ) -> Bool {
         guard let tab = workspacesById[tabId] else { return false }
+        if let sourceSurface {
+            // Batched flush path: the queued surface must still own the panel.
+            guard let terminalPanel = tab.terminalPanel(for: panelId),
+                  terminalPanel.surface === sourceSurface else { return false }
+        }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        let applied = tab.updatePanelTitle(panelId: panelId, title: title)
+        let applied = tab.updatePanelTitle(panelId: panelId, title: title, stableTitle: stableTitle)
         guard !tab.isRemoteTmuxMirror else { return applied }
+        // A spinner-only frame has already refreshed the AppKit tab label inside
+        // `tab.updatePanelTitle`. Nothing below it can produce a different result,
+        // so stop before the window title and the display-title comparison.
+        guard applied else { return false }
         if tab.focusedPanelId == panelId, selectedTabId == tabId {
             updateWindowTitle(for: tab)
         }
@@ -3863,11 +3913,14 @@ class TabManager: ObservableObject {
         return applied
     }
 
-    private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId],
-              let terminalPanel = tab.terminalPanel(for: panelId),
-              terminalPanel.surface === sourceSurface else { return }
-        _ = updatePanelTitle(tabId: tabId, panelId: panelId, title: title)
+    private func updatePanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String,
+        sourceSurface: TerminalSurface
+    ) {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: stableTitle, sourceSurface: sourceSurface)
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
@@ -4328,6 +4381,12 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateForward()
     }
 
+    /// Toggles focus back to the position it most recently left.
+    @discardableResult
+    func navigateToLastFocused() -> Bool {
+        focusHistoryNavigation.navigateToLastFocused()
+    }
+
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }
@@ -4365,7 +4424,7 @@ class TabManager: ObservableObject {
         remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        guard let panel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
@@ -4376,14 +4435,18 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Move focus in the specified direction
     func moveSplitFocus(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
-        tab.moveFocus(direction: direction)
-        return true
+        return tab.moveFocus(direction: direction)
     }
 
     /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
@@ -4454,7 +4517,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        guard let panel = tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4462,7 +4525,12 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Create a new browser surface in a pane
@@ -6932,4 +7000,74 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
+}
+
+/// How the first-launch welcome banner reaches the new workspace's terminal.
+///
+/// cmux shell integration prints the banner from inside the shell's startup
+/// when ``environmentKey`` names a one-shot token file, so no command is typed
+/// and nothing lands in the user's shell history. Typing ``typedCommandText``
+/// is the fallback for shells that do not load cmux shell integration.
+///
+/// Delivery is at most once: every integration unsets the variable, skips
+/// printing inside tmux, and prints only when its `rm` of the token file
+/// succeeds, so a child that inherits the variable (for example `exec tmux`
+/// or `exec zsh` from `.bashrc`, before the bash bootstrap runs) cannot print
+/// it a second time. If no integrated shell consumes the token, the banner is
+/// skipped rather than repeated on a later launch.
+enum WelcomeBannerDelivery: Equatable {
+    case shellStartup
+    case typedCommand
+
+    /// Holds the path of the one-shot token file the bundled zsh, bash, fish
+    /// and nushell integrations consume to print `cmux welcome` at startup.
+    static let environmentKey = "CMUX_SHOW_WELCOME_FILE"
+    /// Typed fallback. The leading space keeps it out of history only for zsh
+    /// with HIST_IGNORE_SPACE, bash with HISTCONTROL=ignorespace or ignoreboth,
+    /// and fish; other shells may still record it (best effort).
+    static let typedCommandText = " cmux welcome\n"
+    private static let tokenDirectoryName = "cmux-welcome-banner"
+    private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
+
+    static func resolve(
+        shellIntegrationEnabled: Bool,
+        resolvedShell: String?,
+        hasUserGhosttyCommand: Bool
+    ) -> WelcomeBannerDelivery {
+        guard shellIntegrationEnabled,
+              !hasUserGhosttyCommand,
+              let resolvedShell,
+              integratedShellNames.contains(URL(fileURLWithPath: resolvedShell).lastPathComponent) else {
+            return .typedCommand
+        }
+        return .shellStartup
+    }
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> WelcomeBannerDelivery {
+        resolve(
+            shellIntegrationEnabled: defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+            resolvedShell: GhosttyApp.shared.resolvedUserShell,
+            hasUserGhosttyCommand: GhosttyApp.shared.hasUserGhosttyCommand
+        )
+    }
+
+    /// Resolves the startup environment for `delivery`. Shell startup writes a
+    /// fresh token file and returns its path under ``environmentKey``; if the
+    /// token cannot be written the launch falls back to ``typedCommand``.
+    static func prepareLaunch(
+        _ delivery: WelcomeBannerDelivery,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> (delivery: WelcomeBannerDelivery, environment: [String: String]) {
+        guard delivery == .shellStartup else { return (.typedCommand, [:]) }
+        let directory = tempDirectory.appendingPathComponent(tokenDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let token = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+            try Data().write(to: token, options: .atomic)
+            return (.shellStartup, [environmentKey: token.path])
+        } catch {
+            return (.typedCommand, [:])
+        }
+    }
 }
