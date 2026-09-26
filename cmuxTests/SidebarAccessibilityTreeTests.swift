@@ -8,7 +8,41 @@ import Testing
 @MainActor
 struct SidebarAccessibilityTreeTests {
     @Test
+    func treeWalkReadsLegacyAttributeText() {
+        let child = LegacyAccessibilityFixture(text: "Legacy file.swift")
+        let root = LegacyAccessibilityFixture(children: [child])
+        var walk = SidebarAccessibilityTreeWalk()
+        walk.visit(root)
+        #expect(walk.cycle == nil)
+        #expect(walk.visited.contains(ObjectIdentifier(child)))
+        #expect(walk.textValues.contains("Legacy file.swift"))
+    }
+
+    @Test
+    func treeWalkReadsModernChildrenWithoutRequiringAnAppKitElementSubclass() {
+        let child = ModernAccessibilityFixture(text: "Modern file.swift")
+        let root = ModernAccessibilityFixture(children: [child])
+        var walk = SidebarAccessibilityTreeWalk()
+        walk.visit(root)
+        #expect(walk.cycle == nil)
+        #expect(walk.visited.contains(ObjectIdentifier(child)))
+        #expect(walk.textValues.contains("Modern file.swift"))
+    }
+
+    @Test
     func mountedSidebarAndProjectPanelAccessibilityWalkIsAcyclic() async throws {
+        // AppKit scroll views omit their document's accessibility children
+        // until an assistive client enables the application's AX hierarchy.
+        // This in-process test must establish and restore that client state.
+        let enhancedUI = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        guard NSApp.accessibilityIsAttributeSettable(enhancedUI) else {
+            Issue.record("AppKit must allow AXEnhancedUserInterface in this hosted test")
+            return
+        }
+        let previousEnhancedUI = (NSApp.accessibilityAttributeValue(enhancedUI) as? NSNumber)?.boolValue ?? false
+        NSApp.accessibilitySetValue(true, forAttribute: enhancedUI)
+        defer { NSApp.accessibilitySetValue(previousEnhancedUI, forAttribute: enhancedUI) }
+
         let url = try #require(URL(string: "https://example.com/context"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Read \(url.absoluteString)"
@@ -37,9 +71,11 @@ struct SidebarAccessibilityTreeTests {
             panel.loadState.model != nil || panel.lastLoadError != nil
         }
         try #require(loaded && panel.loadState.model != nil, "Project fixture must load: \(panel.lastLoadError ?? "")")
+        // An in-process accessibility test has no external assistive client
+        // to enable SwiftUI's accessibility output for this hosted hierarchy.
         let projectView = NSHostingView(rootView: ProjectPanelView(
             panel: panel, isFocused: false, onRequestPanelFocus: {}
-        ))
+        ).environment(\.accessibilityEnabled, true))
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 820, height: 300))
         container.frame = NSRect(x: 0, y: 0, width: 360, height: 300)
         projectView.frame = NSRect(x: 360, y: 0, width: 460, height: 300)
@@ -71,6 +107,23 @@ struct SidebarAccessibilityTreeTests {
         root.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
+        // Flushing the AppKit table does not finish SwiftUI's lazy project
+        // navigator. Wait for its mounted content before walking the window.
+        var projectWalk = SidebarAccessibilityTreeWalk()
+        let projectContentRendered = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            projectView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            projectWalk = SidebarAccessibilityTreeWalk()
+            projectWalk.visit(projectView)
+            return projectWalk.cycle != nil
+                || projectWalk.textValues.contains { $0.contains("Context.swift") }
+        }
+        try #require(projectWalk.cycle == nil, "Project accessibility children must not cycle: \(projectWalk.cycle ?? [])")
+        try #require(
+            projectContentRendered,
+            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted()), accessibility nodes: \(projectWalk.visitedNodeTypes)"
+        )
+
         let cell = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
@@ -89,17 +142,16 @@ struct SidebarAccessibilityTreeTests {
             "A row text field must expose only its own link elements, never AppKit cell aliases."
         )
 
-        // SwiftUI's project-panel LazyVStack rows are not consistently vended
-        // to the AX tree without an assistive client. The hosting view is still
-        // traversed for cycle/depth safety below.
         var walk = SidebarAccessibilityTreeWalk()
         walk.visit(window)
         #expect(walk.cycle == nil, "Accessibility children must not point back to an ancestor: \(walk.cycle ?? [])")
         #expect(walk.maxDepth < 256, "Accessibility walk exceeded the safety depth: \(walk.maxDepth)")
         #expect(walk.visited.contains(ObjectIdentifier(textView)))
         #expect(walk.visited.contains(ObjectIdentifier(link)))
-        // The project panel remains covered by the hosting-view cycle/depth walk;
-        // its SwiftUI rows are intentionally not required in this headless AX mode.
+        // The walk still descends into the project panel's NSHostingView, so the
+        // cycle and depth checks cover it. Its SwiftUI rows are not asserted:
+        // with no assistive client attached, SwiftUI does not vend them in the
+        // app host, and the walk only ever saw the sidebar row's text.
 
         let updated = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "Changed https://example.com/updated", workspaceId: model.workspaceId
@@ -234,4 +286,45 @@ struct SidebarAccessibilityTreeTests {
         rootObject = P0;
     }
     """
+}
+
+private final class LegacyAccessibilityFixture: NSObject {
+    let text: String?
+    let children: [Any]
+
+    init(text: String? = nil, children: [Any] = []) {
+        self.text = text
+        self.children = children
+        super.init()
+    }
+
+    override func accessibilityIsIgnored() -> Bool { false }
+
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        [.children, .value]
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        switch attribute {
+        case .children: return children
+        case .value: return text
+        default: return nil
+        }
+    }
+}
+
+private final class ModernAccessibilityFixture: NSObject {
+    let text: String?
+    let children: [Any]
+
+    init(text: String? = nil, children: [Any] = []) {
+        self.text = text
+        self.children = children
+        super.init()
+    }
+
+    override func accessibilityIsIgnored() -> Bool { false }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? { nil }
+    @objc func accessibilityChildren() -> [Any]? { children }
+    @objc func accessibilityValue() -> Any? { text }
 }

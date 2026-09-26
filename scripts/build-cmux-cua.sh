@@ -9,9 +9,12 @@ CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
-# conventional bin directory, then the standard Homebrew prefixes.
-export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+# Xcode build phases do not inherit a login-shell PATH, so fall back to
+# rustup's conventional bin directory, then the standard Homebrew prefixes.
+# Append rather than prepend: tools the caller already put on PATH (a pinned
+# toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
+# must keep precedence over Homebrew's copies.
+export PATH="${PATH}:${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
 
 OUTPUT=""
 ARCHS_RAW=""

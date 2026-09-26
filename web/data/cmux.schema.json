@@ -528,6 +528,11 @@
           "default": false,
           "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
+        "equalizeSplitsOnCreate": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
@@ -923,7 +928,7 @@
               "hostPattern": {
                 "type": ["string", "null"],
                 "minLength": 1,
-                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. When the session sets a HostName (for example through a ProxyCommand or broker), the rule also matches against that resolved host. Omit the key or set it to null for a catch-all (a blank string is rejected)."
               },
               "command": {
                 "type": "string",
@@ -1848,6 +1853,7 @@
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
+              "focusHistoryLast",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
