@@ -375,3 +375,66 @@ extension GlobalSearchShortcutBehaviorTests {
     }
     }
 }
+
+extension GlobalSearchShortcutBehaviorTests {
+    /// macOS places a status item asynchronously and can leave it unplaced
+    /// (a crowded or hidden menu bar). The Search palette must still appear on
+    /// a screen instead of anchoring to a status button that is not on one.
+    @MainActor @Suite final class GlobalSearchPopoverAnchorTests {
+    @Test func paletteAnchoredToOffscreenStatusButtonAppearsOnScreen() throws {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 22),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.isReleasedWhenClosed = false
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 40, height: 22))
+        hostWindow.contentView?.addSubview(button)
+        hostWindow.setFrameOrigin(NSPoint(x: -60_000, y: -60_000))
+        hostWindow.orderFrontRegardless()
+        defer {
+            GlobalSearchCoordinator.shared.dismissPalette()
+            hostWindow.orderOut(nil)
+        }
+        #expect(
+            !NSScreen.screens.contains { $0.frame.intersects(hostWindow.frame) },
+            "The fixture's status button must sit off every screen"
+        )
+
+        GlobalSearchCoordinator.shared.dismissPalette()
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+        let popoverWindow = try #require(
+            waitForVisibleSearchWindow(excluding: hostWindow),
+            "The Search palette must present its query field"
+        )
+        #expect(
+            NSScreen.screens.contains { $0.frame.intersects(popoverWindow.frame) },
+            "The Search palette appeared at \(popoverWindow.frame), off every screen"
+        )
+    }
+
+    private func waitForVisibleSearchWindow(
+        excluding hostWindow: NSWindow,
+        timeout: TimeInterval = 3
+    ) -> NSWindow? {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if let window = NSApp.windows.first(where: {
+                $0 !== hostWindow
+                    && $0.isVisible
+                    && $0.firstResponder is NSTextView
+            }) {
+                return window
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return nil
+    }
+    }
+}
