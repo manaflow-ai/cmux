@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -32,6 +32,7 @@ class PreflightTrustTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
                         CMUX_FIXTURE_MARKER=str(self.marker), PYTHONDONTWRITEBYTECODE="1")
+        git_fixture_env.without_auto_maintenance(self.env)
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Trust fixture")
         self.git("config", "user.email", "fixture@example.invalid")

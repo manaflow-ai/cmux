@@ -48,7 +48,7 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       # Declared here, not in a step, so the always() summary and upload steps
       # still have a path when an earlier step fails.
-      CMUX_NUCLEO_FFI_LOG: ${{ github.workspace }}/command-palette-search-benchmarks.log
+      CMUX_NUCLEO_FFI_LOG: ${{ github.workspace }}/command-palette-search-benchmarks-${{ github.run_id }}-${{ github.run_attempt }}.log
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash

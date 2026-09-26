@@ -13,7 +13,7 @@ extension GlobalSearchShortcutBehaviorTests {
     @MainActor @Suite final class GlobalSearchInputOwnershipTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
-    init() {
+    init() throws {
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: FileManager.default.temporaryDirectory
@@ -28,7 +28,10 @@ extension GlobalSearchShortcutBehaviorTests {
         // animates the close, so `isShown` stays true until the run loop turns.
         // Settle it here so no test starts with the last test's palette open.
         GlobalSearchCoordinator.shared.dismissPalette()
-        _ = Self.waitUntilGlobalSearchCloses()
+        try #require(
+            Self.waitUntilGlobalSearchCloses(),
+            "The previous test's Global Search palette never closed"
+        )
     }
 
     deinit {
