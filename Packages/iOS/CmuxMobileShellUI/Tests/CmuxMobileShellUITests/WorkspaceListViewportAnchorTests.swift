@@ -39,7 +39,7 @@ import UIKit
         let ids = (0..<40).map { "workspace-\($0)" }
         let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
-        try #require(overlap > 0 && overlap < fixture.pixel)
+        try #require(overlap > 0 && overlap < fixture.pixel, "Overlap \(overlap) at pixel \(fixture.pixel)")
         let before = fixture.screenY(of: "workspace-20")
 
         // Only anchoring workspace-20 keeps it in place: anchoring the sliver
@@ -53,7 +53,7 @@ import UIKit
         let ids = (0..<40).map { "workspace-\($0)" }
         let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel)
-        try #require(overlap >= fixture.pixel && overlap < fixture.pixel * 2)
+        try #require(overlap >= fixture.pixel && overlap < fixture.pixel * 2, "Overlap \(overlap) at pixel \(fixture.pixel)")
         let before = fixture.screenY(of: "workspace-19")
 
         // Only anchoring workspace-19 keeps it in place: with no anchor the
@@ -83,7 +83,7 @@ import UIKit
         let ids = (0..<40).map { "workspace-\($0)" }
         let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
-        try #require(overlap > 0 && overlap < fixture.pixel)
+        try #require(overlap > 0 && overlap < fixture.pixel, "Overlap \(overlap) at pixel \(fixture.pixel)")
         let neighborBefore = fixture.screenY(of: "workspace-22")
 
         // Anchoring the sliver of workspace-19 would pull workspace-22 up by
@@ -210,19 +210,28 @@ import UIKit
         /// and returns the overlap measured the way the viewport anchor measures it.
         func scroll(row: Int, overlappingTopBy overlap: CGFloat) throws -> CGFloat {
             let indexPath = IndexPath(row: row, section: 0)
-            let topInset = tableView.adjustedContentInset.top
             let maxY = tableView.rectForRow(at: indexPath).maxY
-            var offset = maxY - overlap - topInset
+            func measuredOverlap() -> CGFloat {
+                maxY - (tableView.contentOffset.y + tableView.adjustedContentInset.top)
+            }
+            tableView.contentOffset.y = maxY - overlap - tableView.adjustedContentInset.top
+            tableView.layoutIfNeeded()
+            // UIKit can round the offset to a whole pixel, which erases a
+            // thinner sliver, so the top inset takes up the difference.
+            tableView.contentInset.top += measuredOverlap() - overlap
             // Rounding can leave the measured overlap an ulp short of the target.
-            while maxY - (offset + topInset) < overlap { offset = offset.nextDown }
-            tableView.contentOffset.y = offset
+            var nudges = 0
+            while measuredOverlap() < overlap, nudges < 8 {
+                tableView.contentInset.top = tableView.contentInset.top.nextDown
+                nudges += 1
+            }
             tableView.layoutIfNeeded()
             let visibleRows = tableView.indexPathsForVisibleRows ?? []
             try #require(
                 visibleRows.contains(indexPath),
-                "Row \(row) ending at \(maxY) isn't visible at offset \(tableView.contentOffset.y) with top inset \(topInset); visible rows \(visibleRows.map(\.row))"
+                "Row \(row) ending at \(maxY) isn't visible at offset \(tableView.contentOffset.y) with top inset \(tableView.adjustedContentInset.top); visible rows \(visibleRows.map(\.row))"
             )
-            return maxY - (tableView.contentOffset.y + topInset)
+            return measuredOverlap()
         }
 
         func indexPath(of rawID: String) -> IndexPath? {
