@@ -157,11 +157,14 @@ struct WorkspaceMacSelectionScope {
     }
 
     func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
-        guard canCreateWorkspace else { return false }
         guard !switchPending else { return false }
-        switch visibleSelection {
-        case .machine(let id) where locallyServedMachineIDs.contains(id):
+        // A locally served computer (SSH) creates on its own connection, so
+        // the foreground Mac's `canCreateWorkspace` does not gate it.
+        if case .machine(let id) = visibleSelection, locallyServedMachineIDs.contains(id) {
             return true
+        }
+        guard canCreateWorkspace else { return false }
+        switch visibleSelection {
         case .machine(let id):
             // Creating requires the foreground connection to BE the selected
             // pairing: same device, and for a tagged selection the same build.
