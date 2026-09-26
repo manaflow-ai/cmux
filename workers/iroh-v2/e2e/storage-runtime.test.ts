@@ -49,8 +49,31 @@ test("workerd SQLite persists registration and keeps one challenge/receipt slot"
   expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-1", issuedAt: 2001, now: 2001 } })).status).toBe(200);
   expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-1", issuedAt: 2001, now: 2001 } })).status).toBe(500);
   expect((await post("/revoke", { deviceRecordId: commit.body.device.deviceRecordId, now: 2002, actorUserId: "u1" })).status).toBe(200);
-  expect((await post("/register", { input: { descriptor, challengeId: "c2", nonceHash: "n2", payloadHash: "p2", requestId: "r1", requestHash: "h1", now: 2002 } })).status).toBe(500);
-  expect((await post("/revision", {})).body.revision).toBe(2);
+  expect((await post("/issue", { identity, issue: { challengeId: "c-recover", nonceHash: "n-recover", payloadHash: "p-recover", expiresAt: 4000, issuedAt: 3000 } })).status).toBe(200);
+  const recovery = await post("/register", { input: { descriptor, challengeId: "c-recover", nonceHash: "n-recover", payloadHash: "p-recover", requestId: "r-recover", requestHash: "h-recover", now: 3001 } });
+  expect(recovery.status).toBe(200);
+  expect(recovery.body.device.revoked).toBe(false);
+  expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-recovery", issuedAt: 3001, now: 3001 } })).status).toBe(200);
+  expect((await post("/revision", {})).body.revision).toBe(3);
+});
+
+test("an administrator revocation cannot be undone by a pending enrollment", async () => {
+  const isolated = (await mf.getDurableObjectNamespace("STORAGE")).getByName("admin-recovery");
+  const post = async (path: string, body: unknown) => {
+    const response = await isolated.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() as any };
+  };
+  const device = { ...descriptor, identity: { ...identity, deviceId: "admin-revoked" }, endpointId: "9".repeat(64) };
+  const issue = { challengeId: "admin-initial", nonceHash: "admin-nonce", payloadHash: "admin-payload", expiresAt: 4000, issuedAt: 2000 };
+  expect((await post("/issue", { identity: device.identity, issue })).status).toBe(200);
+  const input = { descriptor: device, challengeId: issue.challengeId, nonceHash: issue.nonceHash, payloadHash: issue.payloadHash, requestId: "admin-initial", requestHash: "admin-initial-hash", now: 2001 };
+  const registered = await post("/register", { input });
+  expect(registered.status).toBe(200);
+  expect((await post("/issue", { identity: device.identity, issue: { ...issue, challengeId: "pending-recovery" } })).status).toBe(200);
+  expect((await post("/revoke", { deviceRecordId: registered.body.device.deviceRecordId, now: 2002, actorUserId: "administrator" })).status).toBe(200);
+  const result = await post("/register", { input: { ...input, challengeId: "pending-recovery", requestId: "pending-recovery", requestHash: "pending-hash", now: 2003 } });
+  expect(result.status).toBe(500);
+  expect(result.body.code).toBe("device_revoked");
 });
 
 test("failed enrollment leaves its challenge available for retry", async () => {
@@ -140,11 +163,12 @@ test("authority lease accepts newer verification and ignores stale updates", asy
   const first = await post("/authority/observe", { userId: "authority-user", verifiedAt: 1000, expiresAt: 4600, now: 1000 });
   expect(first.status).toBe(200);
   expect(first.body.revision).not.toBeNull();
-  expect(first.body.revision).toBe(5);
+  expect(first.body.revision).toBe(6);
   expect((await post("/authority/get", { userId: "authority-user" })).body).toMatchObject({ verifiedAt: 1000, expiresAt: 4600 });
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 900, expiresAt: 4500, now: 1000 })).body.revision).toBeNull();
   const renewed = await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 });
   expect(renewed.body.revision).not.toBeNull();
+  expect(renewed.body.revision).toBe(7);
   expect(renewed.body.revision).toBeGreaterThan(first.body.revision);
   expect((await post("/authority/get", { userId: "authority-user" })).body).toMatchObject({ verifiedAt: 2000, expiresAt: 5600 });
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6601, now: 3000 })).status).toBe(500);
@@ -231,7 +255,7 @@ test("SQLite state survives a workerd restart", async () => {
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
-  expect((await post("/revision", {})).body.revision).toBe(6);
+  expect((await post("/revision", {})).body.revision).toBe(7);
 });
 
 test("socket reservations aggregate across teams and survive retries", async () => {
@@ -270,6 +294,29 @@ test("socket reservations survive a second workerd restart", async () => {
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
   expect((await post("/socket/list", { userId: "socket-capacity" })).body.length).toBe(501);
+});
+test("administrative revocation after recovery validation cannot be cleared by registration", async () => {
+  const recoveryIdentity = { ...identity, deviceId: "revocation-race" };
+  const recoveryDescriptor = { ...descriptor, identity: recoveryIdentity, endpointId: "f".repeat(64) };
+  const initial = { descriptor: recoveryDescriptor, challengeId: "race-initial", nonceHash: "race-nonce", payloadHash: "race-payload", requestId: "race-enroll", requestHash: "race-enroll-hash", now: 2001 };
+  expect((await post("/issue", { identity: recoveryIdentity, issue: { ...initial, expiresAt: 3000, issuedAt: 2000 } })).status).toBe(200);
+  const enrolled = await post("/register", { input: initial });
+  expect(enrolled.status).toBe(200);
+  const deviceRecordId = enrolled.body.device.deviceRecordId;
+  expect((await post("/revoke", { deviceRecordId, now: 2002, actorUserId: identity.userId })).status).toBe(200);
+  const recovery = { ...initial, challengeId: "race-recovery", requestId: "race-recover", requestHash: "race-recover-hash", now: 3001 };
+  expect((await post("/issue", { identity: recoveryIdentity, issue: { ...recovery, expiresAt: 4000, issuedAt: 3000 } })).status).toBe(200);
+  expect((await post("/validate", { input: recovery })).status).toBe(200);
+
+  // Model the interleaving while TeamBroker.register awaits ownership.reserve.
+  const revoked = await post("/revoke", { deviceRecordId, now: 3002, actorUserId: "team-admin" });
+  expect(revoked.status).toBe(200);
+  const result = await post("/register", { input: { ...recovery, now: 3003 } });
+  expect(result.status).toBe(500); // The storage harness exposes OperationError as 500.
+  expect(result.body.code).toBe("device_revoked");
+  expect((await post("/revision", {})).body.revision).toBe(revoked.body.revision);
+  expect((await post("/receipt", { identity: recoveryIdentity, requestId: recovery.requestId, requestHash: recovery.requestHash })).body).toBeNull();
+  expect((await post("/validate", { input: { ...recovery, now: 3003 } })).status).toBe(200);
 });
 
 
