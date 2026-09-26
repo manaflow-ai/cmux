@@ -50,7 +50,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .hybrid:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.bytes", "terminal.render_grid", "terminal.set_font",
+                    "terminal.bytes", "terminal.render_grid", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -60,7 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .renderGrid:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.render_grid", "terminal.set_font",
+                    "terminal.render_grid", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -70,7 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .rawBytes:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.bytes", "terminal.set_font",
+                    "terminal.bytes", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -112,6 +112,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
     static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    /// Hosts that advertise this capability emit a lossless event-lane
+    /// heartbeat. A successful control RPC proves host registration only; a
+    /// heartbeat received here proves this phone's event reader is alive.
+    static let terminalEventHeartbeatCapability = "terminal.events.heartbeat.v1"
     static let browserStreamCapability = MobileBrowserStreamCapability.identifier
     static let browserStreamViewportCapability = MobileBrowserStreamCapability.viewportIdentifier
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
@@ -150,13 +154,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let caffeineControlCapability = "caffeine.control.v1"
     nonisolated private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
     /// How long the render-grid stream may stay silent (no event of any topic)
-    /// before the liveness watchdog suspects the push subscription is dead and
-    /// runs a bounded host probe; only repeated failed probes force the
-    /// re-subscribe + replay (silence alone is the normal state of an idle
-    /// terminal). Picked at the low end of the acceptable 8-12s window so a
-    /// wedged stream recovers in a few seconds instead of the transport's ~85s
-    /// timeout, while staying well above any normal inter-event gap on a busy
-    /// shell.
+    /// before the watchdog starts a bounded host probe. This is a suspicion
+    /// threshold, never a deadline for replacing a connection. A registered
+    /// heartbeat-capable stream gets a further delivery grace period before
+    /// a second probe can trigger reader repair.
     static let renderGridLivenessSilenceThreshold: TimeInterval = 9
     /// A single timed-out probe is ambiguous during Iroh path migration, app
     /// resume, or a short Mac stall. Require independent confirmation before
@@ -1247,10 +1248,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // stream and compares "now" against the last received event to detect
     // prolonged silence. Silence alone is NOT death: a healthy idle terminal
     // pushes nothing (the Mac dedupes unchanged render-grid frames), so a
-    // silence-threshold crossing first runs a bounded idempotent
-    // `mobile.events.subscribe` probe (same stream id, current topics) and
-    // only tears down + re-subscribes + replays after repeated probe failures
-    // with no intervening event or successful probe.
+    // silence-threshold crossing first runs a bounded subscription probe.
+    // Heartbeat-capable hosts get a latency-aware delivery grace period and a
+    // second probe before reader repair; legacy hosts require repeated failed
+    // probes. Any intervening event invalidates the pending recovery decision.
     private var renderGridLivenessTimer: (any DispatchSourceTimer)?
     private var renderGridLivenessListenerID: UUID?
     /// The in-flight liveness probe spawned by a silence-threshold crossing.
@@ -1262,6 +1263,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
+    /// Invalidates asynchronous recovery decisions when newer evidence arrives,
+    /// even if that evidence ages past the silence threshold before a reply.
+    private var renderGridLivenessEvidenceGeneration: UInt64 = 0
+    /// Earliest confirmation probe after a registered stream fails to deliver.
+    private var renderGridLivenessConfirmationDeadline: Date?
     var lastTerminalEventAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
@@ -14349,10 +14355,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticks independently and, on each tick, hops to the main actor to compare
     /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
     /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
-    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict: an
-    /// idle terminal pushes no events, so the tick first re-asserts the
-    /// subscription with a bounded idempotent `mobile.events.subscribe`
-    /// round-trip and only recovers when that probe fails (see
+    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict:
+    /// legacy hosts use a bounded registration probe because an idle terminal
+    /// pushes no events, while heartbeat-capable hosts require delivery proof
+    /// before the listener is restarted (see
     /// ``checkRenderGridLiveness(listenerID:)``).
     private func startRenderGridLivenessWatchdog(listenerID: UUID) {
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -14400,20 +14406,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessConfirmationDeadline = nil
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
     ///
     /// Stamped by (1) every envelope the listener loop actually consumes,
-    /// (2) a successful host probe (positive proof the channel is alive while
-    /// the terminal is merely idle), and (3) the arming of a new watchdog
-    /// generation, as the clean generation reset. The watchdog compares this
-    /// single record against `renderGridLivenessSilenceThreshold`. The only
-    /// other write is `resetTerminalOutputTracking` clearing it to nil when
-    /// the connection context is torn down entirely.
+    /// (2) a successful host probe for legacy hosts that lack delivery
+    /// heartbeats, and (3) the arming of a new watchdog generation, as the
+    /// clean generation reset. The watchdog compares this single record against
+    /// `renderGridLivenessSilenceThreshold`. The only other write is
+    /// `resetTerminalOutputTracking` clearing it to nil when the connection
+    /// context is torn down entirely.
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessEvidenceGeneration &+= 1
+        renderGridLivenessConfirmationDeadline = nil
     }
 
     #if DEBUG
@@ -14425,13 +14434,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let listenerID = renderGridLivenessListenerID else { return }
         checkRenderGridLiveness(listenerID: listenerID)
     }
+
+    /// The reader identity lets tests detect replacement even before its first RPC.
+    var debugTerminalEventListenerIDForTesting: UUID? { terminalEventListenerID }
+
+    /// Wait for the current decision without a wall-clock settling delay.
+    func debugWaitForRenderGridLivenessCheckForTesting() async {
+        await renderGridLivenessProbeTask?.value
+    }
     #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
-    /// threshold, verify the silence with a bounded host probe and only tear
-    /// down + re-subscribe + replay (via the existing resync path) after two
-    /// consecutive probe failures with no intervening evidence of liveness.
+    /// threshold, verify the silence with a bounded host probe. Legacy hosts
+    /// require two consecutive probe failures before the existing recovery
+    /// path runs. A heartbeat-capable host gets an additional delivery grace
+    /// period of at least nine seconds (or twice the probe duration). A second
+    /// probe after that grace can repair the reader if no event has arrived.
+    /// Each decision is invalidated by evidence received during an await.
     ///
     /// The probe step exists because silence is ambiguous: a healthy idle
     /// terminal emits nothing (the Mac dedupes unchanged render-grid frames by
@@ -14460,10 +14480,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let silent = now.timeIntervalSince(last)
         guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
         guard renderGridLivenessProbeTask == nil else { return }
+        if let deadline = renderGridLivenessConfirmationDeadline, now < deadline {
+            return
+        }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
         let topics = terminalOutputTransport.eventTopics
         let probeID = UUID()
+        let evidenceGeneration = renderGridLivenessEvidenceGeneration
         renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
             let ack = await self?.probeEventSubscriptionLiveness(
@@ -14472,27 +14496,83 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: probeTimeoutNanoseconds
             ) ?? .failed
             guard let self else { return }
-            // Only the probe that owns the single-flight slot may clear it; a
-            // superseded probe completing late returns without touching the
-            // newer generation's in-flight slot.
+            // Keep ownership through every await, including transport status.
+            // A superseded probe must never clear a newer probe's slot.
             guard self.renderGridLivenessProbeID == probeID else { return }
-            self.renderGridLivenessProbeTask = nil
-            self.renderGridLivenessProbeID = nil
+            defer {
+                if self.renderGridLivenessProbeID == probeID {
+                    self.renderGridLivenessProbeTask = nil
+                    self.renderGridLivenessProbeID = nil
+                }
+            }
             guard !Task.isCancelled,
                   self.renderGridLivenessListenerID == listenerID,
                   self.terminalEventListenerID == listenerID,
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
             if case .subscribed(let alreadySubscribed) = ack {
-                // The host accepted the re-subscribe over the event channel:
-                // the stream is healthy. Count the round-trip as the liveness
-                // evidence so the silence window restarts from this proof.
+                let heartbeatCapable = self.supportedHostCapabilities.contains(
+                    Self.terminalEventHeartbeatCapability
+                )
+                // A heartbeat-capable host separates registration from
+                // delivery liveness. The probe only proves that the Mac still
+                // owns the subscription; a heartbeat is the evidence that
+                // this phone's reader is consuming the event lane.
+                if heartbeatCapable, alreadySubscribed != false {
+                    self.markMacConnectionHealthy()
+                    self.renderGridLivenessConsecutiveProbeFailures = 0
+                    guard self.renderGridLivenessEvidenceGeneration == evidenceGeneration else {
+                        return
+                    }
+                    let responseTime = self.runtime?.now() ?? Date()
+                    if self.renderGridLivenessConfirmationDeadline == nil {
+                        // Control replies and event frames can arrive at
+                        // different times during congestion or route changes.
+                        // Give delivery a full window after the reply, growing
+                        // it when the observed control round-trip was slow.
+                        let probeDuration = max(0, responseTime.timeIntervalSince(now))
+                        let grace = max(Self.renderGridLivenessSilenceThreshold, 2 * probeDuration)
+                        self.renderGridLivenessConfirmationDeadline = responseTime.addingTimeInterval(grace)
+                        MobileDebugLog.anchormux(
+                            "sync.liveness delivery_unproven awaiting_confirmation graceMs=\(Int(grace * 1000))"
+                        )
+                        return
+                    }
+                    MobileDebugLog.anchormux(
+                        "sync.liveness delivery_unproven restart silentMs=\(Int(silent * 1000))"
+                    )
+                    mobileShellLog.info(
+                        "event delivery remained silent through grace and confirmation; repairing listener"
+                    )
+                    self.resyncTerminalOutput(
+                        reason: "liveness_event_delivery",
+                        restartEventStream: true,
+                        recoversConnectionOnSubscriptionFailure: false
+                    )
+                    return
+                }
+                // A missing registration is repaired in place for every host.
+                // The host has just reinstalled the subscription, so replay
+                // repairs the output window that was absent while it was
+                // unregistered. Do not stamp delivery liveness here for a
+                // heartbeat-capable host; the next heartbeat must provide that
+                // evidence.
+                self.markMacConnectionHealthy()
+                if heartbeatCapable, alreadySubscribed == false {
+                    MobileDebugLog.anchormux("sync.liveness heartbeat_registration_repaired silentMs=\(Int(silent * 1000))")
+                    self.repairLostTerminalEventSubscription(
+                        reason: "liveness_probe_repaired"
+                    )
+                    return
+                }
+                // Legacy hosts have no delivery heartbeat. Preserve their
+                // bounded probe behavior, where a successful registration
+                // round-trip is the strongest available liveness evidence.
                 self.recordTerminalEventStreamLiveness()
                 // The round-trip is also positive proof of the client/host
                 // connection itself; recover the visible status if a prior
                 // transient RPC failure marked it unavailable, since an idle
                 // terminal may never emit another event to flip it back.
-                self.markMacConnectionHealthy()
                 if alreadySubscribed == false {
                     // The registration had been LOST host-side (the probe just
                     // reinstalled it), so render-grid deltas emitted during the
@@ -14510,8 +14590,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 return
             }
-            // Events may have resumed while the probe was in flight; a fresh
-            // stamp means the stream already proved itself, so no recovery.
+            // An event during this probe invalidates its failure, even when
+            // the event's timestamp is already old by the time the reply lands.
+            guard self.renderGridLivenessEvidenceGeneration == evidenceGeneration else { return }
             let recheckNow = self.runtime?.now() ?? Date()
             let recheckLast = self.lastTerminalEventAt ?? recheckNow
             guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold else {
@@ -14531,17 +14612,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.renderGridLivenessConsecutiveProbeFailures = 0
             let transportClosed = await client.isTransportClosed()
-            guard self.renderGridLivenessListenerID == listenerID,
+            guard !Task.isCancelled,
+                  self.renderGridLivenessEvidenceGeneration == evidenceGeneration,
+                  self.renderGridLivenessListenerID == listenerID,
                   self.terminalEventListenerID == listenerID,
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
-            if transportClosed == false {
-                // The subscription probe only proved that this application
-                // stream stalled. Keep the shared Iroh session, whose other
-                // lanes may still carry terminal input and keepalives, and
-                // restart only the event listener.
+            if transportClosed != true {
+                // Failed probes cannot distinguish a stalled reader from
+                // network delay. Missing native status is also inconclusive.
+                // Preserve the shared session unless closure is confirmed,
+                // repairing only this reader and its missed output.
                 MobileDebugLog.anchormux(
-                    "sync.liveness event_lane_repair transport_alive silentMs=\(silentMs)"
+                    "sync.liveness event_lane_repair closure_unconfirmed silentMs=\(silentMs)"
                 )
                 self.resyncTerminalOutput(
                     reason: "liveness_event_lane",
@@ -15920,7 +16003,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let surfaceID = payload.surfaceID
         let bytes = payload.bytes
-        guard !terminalLaneOutputReadySurfaceIDs.contains(surfaceID) else { return }
         if diagnosedTerminalOutputSurfaceIDs.insert(surfaceID).inserted {
             recordAppEvent(
                 .terminalOutputReceived,
@@ -16191,6 +16273,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessTimer = nil
         renderGridLivenessListenerID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
+        renderGridLivenessConfirmationDeadline = nil
 
         let start = terminalSubscriptionStartTask
         let refresh = terminalSubscriptionRefreshTask

@@ -2,6 +2,46 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+/// The dedicated Iroh byte lane is an optimization. Its readiness signal must
+/// never suppress the event-stream byte fallback, because the lane can be
+/// registered while its receive task is already stalled.
+@MainActor
+@Test func terminalBytesRemainFallbackAfterDedicatedLaneBecomesReady() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    #expect(await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1))
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the cold replay response must settle before testing the byte fallback"
+    )
+
+    // Model the lane coordinator announcing readiness before its receive loop
+    // has proved that it can continue delivering bytes.
+    store.terminalLaneOutputReadySurfaceIDs.insert(surfaceID)
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 0,
+        text: "fallback-bytes"
+    ))
+
+    let delivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fallback-bytes") }
+    }
+    #expect(
+        delivered,
+        "terminal.bytes must remain a live fallback after the dedicated lane reports ready"
+    )
+    collector.unmount()
+}
+
 /// `terminalOutputNeedsReplay` is the render-pipeline-reset entrypoint: the
 /// local surface was just rebuilt blank, so nothing pre-barrier is visible.
 /// Unlike intact-surface barriers, this one must drop the stale floor and the

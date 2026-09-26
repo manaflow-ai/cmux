@@ -422,6 +422,11 @@ final class MobileHostService {
     private let ticketStore = MobileAttachTicketStore()
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var pathMonitor: MobileHostNetworkPathMonitor?
+    /// Periodic proof that an authenticated event subscriber can receive
+    /// frames. This is deliberately emitted through the same bounded event
+    /// queues as terminal output, so it detects a half-dead reader rather than
+    /// merely proving that the control RPC is still responsive.
+    private var eventHeartbeatTask: Task<Void, Never>?
     /// Injected once via `configure(auth:)` at app startup, before the
     /// listener starts accepting connections.
     private var auth: AuthCoordinator?
@@ -732,10 +737,13 @@ final class MobileHostService {
     }
 
     func start() {
+        startEventHeartbeat()
         syncToSettings()
     }
 
     func stop() {
+        eventHeartbeatTask?.cancel()
+        eventHeartbeatTask = nil
         let runtime = pairingRuntime
         runtime.prepareForStop()
         Task { @MainActor in await runtime.stopHost() }
@@ -746,6 +754,26 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.removeAll()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+    }
+
+    private func startEventHeartbeat() {
+        eventHeartbeatTask?.cancel()
+        eventHeartbeatTask = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                Self.emitEvent(
+                    topic: "terminal.events.heartbeat",
+                    payload: [
+                        "sent_at_ms": Int(Date().timeIntervalSince1970 * 1000),
+                    ]
+                )
+            }
+        }
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
