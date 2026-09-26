@@ -138,7 +138,7 @@ test("explicit credentials file is exclusive and accepts either supported key pa
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, [
-    "==> dev sign-in account: [redacted]",
+    "==> dev sign-in profile: agent ([redacted])",
     "temporary@example.com",
     "temporary-password",
     "",
@@ -186,7 +186,7 @@ test("production release-gate flags fail before creating runtime state", () => {
     "--skip-build",
   ]);
   assert.equal(reusedBuild.status, 2);
-  assert.match(reusedBuild.stderr, /cannot reuse a build/u);
+  assert.match(reusedBuild.stderr, /requires --credentials-file/u);
 
   const productionEnvironmentWithoutProduction = run("bash", [
     "scripts/run-iroh-release-gate.sh",
@@ -196,6 +196,40 @@ test("production release-gate flags fail before creating runtime state", () => {
   ]);
   assert.equal(productionEnvironmentWithoutProduction.status, 2);
   assert.match(productionEnvironmentWithoutProduction.stderr, /requires --production/u);
+});
+
+test("production monitor reuses credentials and preserves its endpoint state", (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const fakeBin = path.join(directory, "bin");
+  mkdirSync(fakeBin);
+  const called = path.join(directory, "account-setup-called");
+  for (const command of ["bun", "bunx"]) {
+    writeFileSync(path.join(fakeBin, command),
+      '#!/bin/sh\ntouch "$CMUX_TEST_ACCOUNT_SETUP_CALLED"\nexit 73\n', { mode: 0o755 });
+  }
+  // Stop safely at device validation after account selection, before app launch.
+  writeFileSync(path.join(fakeBin, "xcrun"),
+    '#!/bin/sh\nprintf \'{"devices":{}}\\n\'\n', { mode: 0o755 });
+  const credentials = path.join(directory, "credentials.env");
+  writeFileSync(credentials,
+    "CMUX_UITEST_STACK_EMAIL=monitor@example.com\nCMUX_UITEST_STACK_PASSWORD=fixture\n",
+    { mode: 0o600 });
+  const endpoint = path.join(directory, "Library/Application Support/cmux/iroh-debug/com.cmuxterm.app.debug.prdreuse");
+  mkdirSync(endpoint, { recursive: true });
+  writeFileSync(path.join(endpoint, "endpoint.key"), "monitor-identity\n");
+  const result = run("bash", [
+    "scripts/run-iroh-release-gate.sh", "--mode", "relay-only", "--tag", "prdreuse",
+    "--production", "--skip-build", "--soak-profile", "basic",
+    "--credentials-file", credentials, "--simulator-id", "00000000-0000-0000-0000-000000000000",
+  ], {
+    HOME: directory, TMPDIR: directory,
+    PATH: `${fakeBin}:${process.env.PATH}`, CMUX_TEST_ACCOUNT_SETUP_CALLED: called,
+  });
+  assert.equal(existsSync(called), false, result.stdout + result.stderr);
+  assert.match(result.stderr, /simulator is not this tag's dedicated monitor device/u);
+  assert.equal(readFileSync(path.join(endpoint, "endpoint.key"), "utf8"), "monitor-identity\n");
+  assert.equal(existsSync(credentials), true);
 });
 
 test("release gate iOS build is isolated from the configured default iPhone", () => {

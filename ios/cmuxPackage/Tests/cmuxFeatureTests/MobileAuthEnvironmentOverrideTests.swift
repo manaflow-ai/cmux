@@ -209,14 +209,48 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
 
     // MARK: - Dev sign-in shortcut gating
 
-    @Test func productionAuthDisablesTheFortyTwoShortcut() {
-        // The 42 shortcut signs in with fixed development-project
-        // credentials; a --prod-auth build must not expose that
-        // known-credential path against the production Stack project.
+    @Test func productionAuthRequiresExplicitInjectedCredentials() {
+        // A production-auth build never enables the known-credential 42
+        // shortcut by itself. The monitor may opt into credential priming only
+        // through the explicit launch marker and injected production creds.
         #expect(MobileAuthComposition.includesDevAuth(
             policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
             resolvedEnvironment: .production
         ) == false)
+        #expect(MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .production,
+            environment: [
+                "CMUX_DEV_AUTH_REPLACE_SESSION": "1",
+                "CMUX_UITEST_STACK_EMAIL": "production@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "password",
+            ]
+        ) == true)
+        #expect(MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .production,
+            environment: [
+                "CMUX_UITEST_STACK_EMAIL": "production@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "password",
+            ]
+        ) == false)
+    }
+
+    @Test(arguments: [
+        [String: String](),
+        ["CMUX_UITEST_STACK_EMAIL": "production@example.com"],
+        ["CMUX_UITEST_STACK_PASSWORD": "test-password"],
+        ["CMUX_UITEST_STACK_EMAIL": "", "CMUX_UITEST_STACK_PASSWORD": "test-password"],
+        ["CMUX_UITEST_STACK_EMAIL": "production@example.com", "CMUX_UITEST_STACK_PASSWORD": ""],
+    ])
+    func productionAuthRejectsIncompleteInjectedCredentials(credentials: [String: String]) {
+        var environment = credentials
+        environment["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
+        #expect(!MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .production,
+            environment: environment
+        ))
     }
 
     @Test func developmentAuthKeepsTheFortyTwoShortcutWhenThePolicyHasIt() {

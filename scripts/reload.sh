@@ -1899,7 +1899,23 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
 fi
+reload_stamp_source_revision() {
+  local app="$1" source_checkout="$2" commit
+  commit="$(
+    unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+    unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+    git -C "$source_checkout" rev-parse --short=10 HEAD
+  )" || return 1
+  [[ "$commit" =~ ^[0-9a-f]{10,40}$ ]] || return 1
+  /usr/libexec/PlistBuddy -c "Set :CMUXCommit $commit" "$app/Contents/Info.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $commit" "$app/Contents/Info.plist"
+}
+
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
+# Xcode can regenerate Info.plist after the bundled-resource phase writes its
+# stamp. Publish identity only after every build task has finished, before the
+# tagged copy and final signature, including on incremental builds.
+reload_stamp_source_revision "$APP_PATH" "$SCRIPT_DIR/.."
 XCODEBUILD_OUTPUT_VALID=1
 
 if [[ "${SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE:-0}" -eq 1 ]]; then

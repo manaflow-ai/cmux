@@ -19,9 +19,11 @@ provider-neutral broker-authorized custom-route proof across a non-loopback
 private host interface with relays disabled.
 
 Credentials resolve through scripts/lib/dev-secrets.sh and are never printed.
-`--production` creates a verified temporary production Stack account, runs the
-same gate against https://cmux.com, then deletes the account. Production account
-API cleanup failures fail the gate even when direct Stack cleanup succeeds.
+`--production` builds with a verified temporary production Stack account, runs
+the same gate against https://cmux.com, then deletes the account. With
+`--skip-build`, it instead requires `--credentials-file` and verifies the
+already-installed production pair. Production account API cleanup failures fail
+the gate even when direct Stack cleanup succeeds.
 EOF
 }
 
@@ -75,8 +77,8 @@ if [[ "$PRODUCTION" -eq 0 && -n "$STACK_ENV_FILE" ]]; then
   echo "error: --stack-env-file requires --production" >&2
   exit 2
 fi
-if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
-  echo "error: --production cannot reuse a build because each run bakes a new protected credential-file path" >&2
+if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 && -z "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  echo "error: --production --skip-build requires --credentials-file for the installed production pair" >&2
   exit 2
 fi
 if [[ "$PRODUCTION" -eq 1 ]]; then
@@ -108,8 +110,8 @@ if [[ -n "$SOAK_PROFILE" ]]; then
 fi
 
 if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
-  [[ "$SKIP_BUILD" -eq 1 && "$PRODUCTION" -eq 0 && -n "$SOAK_PROFILE" ]] || {
-    echo "error: --simulator-id requires a prebuilt staging soak" >&2; exit 2;
+  [[ "$SKIP_BUILD" -eq 1 && -n "$SOAK_PROFILE" ]] || {
+    echo "error: --simulator-id requires a prebuilt soak" >&2; exit 2;
   }
 fi
 
@@ -141,7 +143,10 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/iroh-release-gate-targets.sh"
 cmux_attach_validate_dev_tag "$TAG"
 if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
-  [[ "$PRODUCTION" -eq 0 ]] || { echo "error: --credentials-file is for staging only" >&2; exit 2; }
+  if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 0 ]]; then
+    echo "error: --credentials-file with a production build would bypass the disposable-account setup" >&2
+    exit 2
+  fi
   cmux_dev_secrets_validate_file "$DOGFOOD_CREDENTIALS_FILE"
 fi
 
@@ -356,7 +361,7 @@ cleanup() {
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay >/dev/null 2>&1 || true
   defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-  if [[ "$PRODUCTION" -eq 1 ]]; then
+  if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 0 ]]; then
     # Production uses a disposable account and must remove its local tokens.
     # The endpoint key and verified-policy cache live outside the ordinary
     # tagged app support directory, so clear that exact tagged identity too.
@@ -412,7 +417,11 @@ trap cleanup EXIT
 trap handle_interrupt INT
 trap handle_termination TERM
 
-if [[ "$PRODUCTION" -eq 1 ]]; then
+if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
+  # Reuse the validated account for the installed pair. Only a build run owns
+  # disposable account creation and deletion.
+  PROD_CREDENTIALS_FILE="$DOGFOOD_CREDENTIALS_FILE"
+elif [[ "$PRODUCTION" -eq 1 ]]; then
   # macOS normally exports TMPDIR with a trailing slash. Resolve its logical
   # spelling once so every protected path given to the account helper is
   # absolute and syntactically normalized without changing symlink identity.
@@ -707,7 +716,10 @@ fi
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
 MAC_AUTH_ARGS=()
-if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+if [[ -n "$PROD_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_load --profile agent --credentials-file "$PROD_CREDENTIALS_FILE" >/dev/null
+  MAC_AUTH_ARGS=(0 agent "$PROD_CREDENTIALS_FILE" "$CMUX_DEV_AUTH_ACCOUNT")
+elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_load --profile agent --credentials-file "$DOGFOOD_CREDENTIALS_FILE" >/dev/null
   MAC_AUTH_ARGS=(0 agent "$DOGFOOD_CREDENTIALS_FILE" "$CMUX_DEV_AUTH_ACCOUNT")
 fi

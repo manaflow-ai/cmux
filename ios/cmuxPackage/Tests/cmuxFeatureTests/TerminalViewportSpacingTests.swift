@@ -76,7 +76,7 @@ private final class ViewportSpacingHarness {
     /// rows — the remaining REAL grid input used to drive renegotiation.
     static let tallComposerBand: CGFloat = 160
 
-    init() throws {
+    init(width: CGFloat = 402) throws {
         let runtime = try GhosttyRuntime.shared()
         let delegate = ViewportSpacingDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
@@ -87,7 +87,7 @@ private final class ViewportSpacingHarness {
         // complete here; suppress render dispatch so the render-stall recovery
         // never pauses the geometry pipeline under test.
         view.isRenderDispatchSuppressed = true
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: 874))
         view.frame = window.bounds
         window.addSubview(view)
         window.isHidden = false
@@ -186,6 +186,21 @@ private final class ViewportSpacingHarness {
 @MainActor
 @Suite("Terminal viewport vertical spacing", .serialized)
 struct TerminalViewportSpacingTests {
+    @Test("late pre-attachment geometry cannot inflate the current window capacity")
+    func reportWidthCannotExceedCurrentWindow() throws {
+        let harness = try ViewportSpacingHarness(width: 393)
+        defer { harness.tearDown() }
+
+        #expect(harness.window.bounds.width == 393)
+        // A geometry pass started before attachment at 402pt can complete
+        // after the real 393pt window mounts. It must not become a remembered
+        // full width that makes the Mac send an unrenderable extra column.
+        #expect(harness.view.columnReportContainerWidth(currentWidth: 402) == 393)
+        #expect(harness.view.columnReportContainerWidth(currentWidth: 393) == 393)
+        let overlayWidth: CGFloat = harness.view.traitCollection.userInterfaceIdiom == .phone ? 393 : 300
+        #expect(harness.view.columnReportContainerWidth(currentWidth: 300) == overlayWidth)
+    }
+
     /// Baseline: after attach and the natural-grid handshake, the terminal
     /// fills the whole viewport (no letterbox, no top gap).
     @Test("natural grid fills the viewport after attach")
