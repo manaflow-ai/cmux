@@ -31744,6 +31744,7 @@ struct CMUXCLI {
         guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
             return
         }
+        var evidenceIsRestorable = isRestorable
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
             if let launchEnvironment = launchCommand?.environment {
@@ -31755,7 +31756,14 @@ struct CMUXCLI {
             )
             switch existence {
             case .exists:
-                break
+                // A durable Hermes state-database identity is positive restore
+                // evidence even when the reaped process no longer has a launch
+                // command. Preserve explicit negative evidence, though: a
+                // rejected or known non-restorable invocation must not regain a
+                // default resume binding merely because its ID remains indexed.
+                if isRestorable != false {
+                    evidenceIsRestorable = true
+                }
             case .missing:
                 clearAgentSurfaceResumeBinding(
                     client: client,
@@ -31831,7 +31839,7 @@ struct CMUXCLI {
                 )
                 return
             }
-        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand, isRestorable: isRestorable, transcriptPath: transcriptPath) {
+        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand, isRestorable: evidenceIsRestorable, transcriptPath: transcriptPath) {
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
