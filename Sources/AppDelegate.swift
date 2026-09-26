@@ -10465,21 +10465,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        let delivery = WelcomeBannerDelivery.current()
+        let launch = WelcomeBannerDelivery.prepareLaunch(context.tabManager.welcomeBannerDeliveryResolver())
         guard let workspace = context.tabManager.addWorkspaceIfActive(
-            initialTerminalEnvironment: delivery == .shellStartup ? WelcomeBannerDelivery.shellStartupEnvironment : [:],
+            initialTerminalEnvironment: launch.environment,
             select: true,
             autoWelcomeIfNeeded: false
         ) else {
             return
         }
-        if delivery == .typedCommand {
+        if launch.delivery == .typedCommand {
             sendWelcomeCommandWhenReady(to: workspace)
         }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady(WelcomeBannerDelivery.typedCommand, to: workspace, beforeSend: {
+        sendTextWhenReady(WelcomeBannerDelivery.typedCommandText, to: workspace, beforeSend: {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
             }

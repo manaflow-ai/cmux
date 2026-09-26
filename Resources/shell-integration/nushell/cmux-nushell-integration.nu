@@ -256,12 +256,17 @@ def --env _cmux_restore_scrollback_once [] {
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($env.PWD)\u{07}"
 }
 
-# First-launch welcome banner. cmux sets CMUX_SHOW_WELCOME on the first
-# workspace's shell instead of typing `cmux welcome` into it, so the banner
-# prints during startup and never lands in shell history.
+# First-launch welcome banner. cmux passes the path of a one-shot token file in
+# CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+# workspace's shell, so the banner prints during startup and never lands in
+# shell history. Only the shell whose `rm` of the token succeeds prints it, and
+# never inside tmux, so children that inherited the variable cannot repeat it.
 def --env _cmux_show_welcome_once [] {
-    if ($env.CMUX_SHOW_WELCOME? | default "") != "1" { return }
-    hide-env CMUX_SHOW_WELCOME
+    let token = ($env.CMUX_SHOW_WELCOME_FILE? | default "")
+    if ($token | is-empty) { return }
+    hide-env CMUX_SHOW_WELCOME_FILE
+    if (^/bin/rm -- $token | complete | get exit_code) != 0 { return }
+    if not (($env.TMUX? | default "") | is-empty) { return }
     let cli = (_cmux_wrapper_path "cmux")
     if ($cli | is-empty) { return }
     try { ^$cli welcome }

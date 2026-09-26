@@ -153,12 +153,17 @@ if test "$_cmux_integration_enabled" != 0
     end
     _cmux_restore_scrollback_once
 
-    # First-launch welcome banner. cmux sets CMUX_SHOW_WELCOME on the first
-    # workspace's shell instead of typing `cmux welcome` into it, so the banner
-    # prints during startup and never lands in shell history.
+    # First-launch welcome banner. cmux passes the path of a one-shot token file
+    # in CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+    # workspace's shell, so the banner prints during startup and never lands in
+    # shell history. Only the shell whose `rm` of the token succeeds prints it,
+    # and never inside tmux, so children that inherited the variable cannot repeat it.
     function _cmux_show_welcome_once
-        test "$CMUX_SHOW_WELCOME" = 1; or return 0
-        set -e CMUX_SHOW_WELCOME
+        set -l token "$CMUX_SHOW_WELCOME_FILE"
+        set -e CMUX_SHOW_WELCOME_FILE
+        test -n "$token"; or return 0
+        /bin/rm -- "$token" >/dev/null 2>&1; or return 0
+        test -z "$TMUX"; or return 0
         set -l cli (string replace -r '/?shell-integration/?$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")/bin/cmux
         if not test -x "$cli"
             set cli (command -s cmux)

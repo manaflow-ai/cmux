@@ -542,6 +542,19 @@ class TabManager: ObservableObject {
 
     private let managedDevicePolicy: ManagedDevicePolicy
 
+    /// Picks how the automatic first-launch welcome reaches the new terminal.
+    /// Tests replace it to exercise each delivery without depending on the host shell.
+    var welcomeBannerDeliveryResolver: @MainActor () -> WelcomeBannerDelivery = { WelcomeBannerDelivery.current() }
+    /// Types the welcome fallback into `workspace` once its terminal is ready.
+    /// Tests replace it to observe the typed-fallback path.
+    lazy var typedWelcomeSender: @MainActor (Workspace) -> Void = { [weak self] workspace in
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+        } else {
+            self?.sendWelcomeWhenReady(to: workspace)
+        }
+    }
+
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
@@ -1374,17 +1387,18 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
-            let welcomeDelivery: WelcomeBannerDelivery? = autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                ? WelcomeBannerDelivery.current()
-                : nil
+            var welcomeDelivery: WelcomeBannerDelivery?
             var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
-            if welcomeDelivery == .shellStartup {
-                resolvedInitialTerminalEnvironment.merge(
-                    WelcomeBannerDelivery.shellStartupEnvironment,
-                    uniquingKeysWith: { current, _ in current }
-                )
-                UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+            if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
+                let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
+                welcomeDelivery = launch.delivery
+                if launch.delivery == .shellStartup {
+                    resolvedInitialTerminalEnvironment.merge(launch.environment, uniquingKeysWith: { current, _ in current })
+                    // The token file makes shell-startup delivery at most once,
+                    // so mark it shown now; the typed fallback marks on send.
+                    UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+                }
             }
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
@@ -1483,11 +1497,7 @@ class TabManager: ObservableObject {
             ])
 #endif
             if welcomeDelivery == .typedCommand {
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
-                } else {
-                    sendWelcomeWhenReady(to: newWorkspace)
-                }
+                typedWelcomeSender(newWorkspace)
             }
             return newWorkspace
         }
@@ -1499,7 +1509,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText(WelcomeBannerDelivery.typedCommand)
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
             return
         }
@@ -1519,7 +1529,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText(WelcomeBannerDelivery.typedCommand)
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommandText)
             }
         }
 
@@ -6997,20 +7007,28 @@ enum BrowserFirstResponderNotificationUserInfoKey {
 /// How the first-launch welcome banner reaches the new workspace's terminal.
 ///
 /// cmux shell integration prints the banner from inside the shell's startup
-/// when it sees ``environmentKey``, so no command is typed and nothing lands in
-/// the user's shell history. Typing ``typedCommand`` is the fallback for shells
-/// that do not load cmux shell integration.
+/// when ``environmentKey`` names a one-shot token file, so no command is typed
+/// and nothing lands in the user's shell history. Typing ``typedCommandText``
+/// is the fallback for shells that do not load cmux shell integration.
+///
+/// Delivery is at most once: every integration unsets the variable, skips
+/// printing inside tmux, and prints only when its `rm` of the token file
+/// succeeds, so a child that inherits the variable (for example `exec tmux`
+/// or `exec zsh` from `.bashrc`, before the bash bootstrap runs) cannot print
+/// it a second time. If no integrated shell consumes the token, the banner is
+/// skipped rather than repeated on a later launch.
 enum WelcomeBannerDelivery: Equatable {
     case shellStartup
     case typedCommand
 
-    /// The one-shot variable the bundled zsh, bash, fish and nushell
-    /// integrations consume (and unset) to print `cmux welcome` at startup.
-    static let environmentKey = "CMUX_SHOW_WELCOME"
-    static let shellStartupEnvironment = [environmentKey: "1"]
-    /// Leading space keeps the fallback out of history for shells configured
-    /// with HIST_IGNORE_SPACE / HISTCONTROL=ignorespace (and fish by default).
-    static let typedCommand = " cmux welcome\n"
+    /// Holds the path of the one-shot token file the bundled zsh, bash, fish
+    /// and nushell integrations consume to print `cmux welcome` at startup.
+    static let environmentKey = "CMUX_SHOW_WELCOME_FILE"
+    /// Typed fallback. The leading space keeps it out of history only for zsh
+    /// with HIST_IGNORE_SPACE, bash with HISTCONTROL=ignorespace or ignoreboth,
+    /// and fish; other shells may still record it (best effort).
+    static let typedCommandText = " cmux welcome\n"
+    private static let tokenDirectoryName = "cmux-welcome-banner"
     private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
 
     static func resolve(
@@ -7034,5 +7052,24 @@ enum WelcomeBannerDelivery: Equatable {
             resolvedShell: GhosttyApp.shared.resolvedUserShell,
             hasUserGhosttyCommand: GhosttyApp.shared.hasUserGhosttyCommand
         )
+    }
+
+    /// Resolves the startup environment for `delivery`. Shell startup writes a
+    /// fresh token file and returns its path under ``environmentKey``; if the
+    /// token cannot be written the launch falls back to ``typedCommand``.
+    static func prepareLaunch(
+        _ delivery: WelcomeBannerDelivery,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> (delivery: WelcomeBannerDelivery, environment: [String: String]) {
+        guard delivery == .shellStartup else { return (.typedCommand, [:]) }
+        let directory = tempDirectory.appendingPathComponent(tokenDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let token = directory.appendingPathComponent(UUID().uuidString, isDirectory: false)
+            try Data().write(to: token, options: .atomic)
+            return (.shellStartup, [environmentKey: token.path])
+        } catch {
+            return (.typedCommand, [:])
+        }
     }
 }
