@@ -586,6 +586,15 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
+        // The header "+" is Cmd-Y from this window: same gates, sheet and
+        // optimistic create, and no workspace until the sheet completes.
+        nodeActions.newMachine = { [weak tabManager] in
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                tabManager: tabManager,
+                preferredWindow: tabManager?.window,
+                debugSource: "cloudTree.cloudMachinesSection"
+            )
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -605,6 +614,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),
+            canCreateCloudMachine: includesCloud,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")
