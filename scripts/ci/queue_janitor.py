@@ -538,6 +538,14 @@ def pool_load_snapshot(
                     oldest[pool] = created
     for pool, created in oldest.items():
         pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    # Which job each owned runner is running and since when: pr_runner_pool.py's warm routing
+    # estimates a busy warm runner's wait from it (warm_distance.remaining_seconds()).
+    running: dict[str, dict[str, str]] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if job.get("status") in RUNNING_JOB_STATUSES and job.get("runner_name") and owned_label(job):
+                running[str(job["runner_name"])] = {"job": str(job.get("name") or ""),
+                                                    "started_at": str(job.get("started_at") or "")}
     for pool, count in committed.items():
         pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                 "oldest_queued_minutes": 0})["committed"] = count
@@ -545,6 +553,7 @@ def pool_load_snapshot(
         "version": POOL_LOAD_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
+        "running": dict(sorted(running.items())),
         "settings": dict(settings or {}),
     }
 
