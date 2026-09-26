@@ -71,13 +71,41 @@ private func terminalTextEditingNormalizedModifiers(
     modifiers.subtracting([.numericPad, .function, .capsLock])
 }
 
+/// Which modifier owns line-wise and word-wise gestures.
+///
+/// The Option family always moves and deletes by word. The layout only decides
+/// what Command means, and whether plain Control+Left/Right is claimed.
+///
+/// ```swift
+/// let chord = terminalTextEditingResolve(
+///     keyCode: 0x7B, // Left arrow
+///     modifiers: [.command],
+///     layout: .commandMovesByWord
+/// )
+/// // chord == TerminalTextEditingChord(letter: "b", modifier: .option)
+/// ```
+public enum TerminalTextEditingLayout: Equatable, Sendable {
+    /// The macOS text-field convention: Command moves and deletes by line,
+    /// Option by word. Control-bearing events are never claimed.
+    case standard
+
+    /// Browser-style navigation for people who reach for Command to jump words:
+    /// Command moves and deletes by word, like Option, and Control+Left/Right
+    /// take over line start and end. Control+Left/Right are the only
+    /// Control-bearing events any layout claims; every Control+letter chord,
+    /// including `Ctrl+C` and `Ctrl+W`, still reaches the terminal unchanged.
+    case commandMovesByWord
+}
+
 /// Resolves a macOS text-editing gesture into the line-editor chord it stands for.
 ///
 /// Returns `nil` for anything the mode does not own, which the caller must pass
 /// through untouched. In particular this returns `nil` for every event carrying
-/// Control, so `Ctrl+C` and friends keep reaching the remote unchanged, and for
-/// Shift combinations, because readline and zle have no selection model for a
-/// shift-extended gesture to target.
+/// Control, except plain Control+Left/Right under
+/// ``TerminalTextEditingLayout/commandMovesByWord``, so `Ctrl+C` and friends keep
+/// reaching the remote unchanged. Shift combinations also pass through, because
+/// readline and zle have no selection model for a shift-extended gesture to
+/// target.
 ///
 /// `Cmd+A` is deliberately unmapped. In macOS it means select-all, which has no
 /// line-editor equivalent, and silently repurposing it as "beginning of line"
@@ -94,20 +122,31 @@ private func terminalTextEditingNormalizedModifiers(
 /// - Parameters:
 ///   - keyCode: The virtual key code of the event.
 ///   - modifiers: The event modifiers, already mapped off AppKit.
+///   - layout: Which modifier owns line-wise gestures. Defaults to
+///     ``TerminalTextEditingLayout/standard``.
 /// - Returns: The chord to replay, or `nil` when the event is not a
 ///   text-editing gesture and should pass through to the terminal unchanged.
 public func terminalTextEditingResolve(
     keyCode: UInt16,
-    modifiers: TerminalTextEditingModifiers
+    modifiers: TerminalTextEditingModifiers,
+    layout: TerminalTextEditingLayout = .standard
 ) -> TerminalTextEditingChord? {
     let normalized = terminalTextEditingNormalizedModifiers(modifiers)
-
-    // Control-bearing events stay with the remote application, always.
-    guard !normalized.contains(.control) else { return nil }
 
     // No selection model downstream, so a shift-extended gesture has nothing to
     // resolve to. Pass it through rather than dropping the shift silently.
     guard !normalized.contains(.shift) else { return nil }
+
+    if normalized.contains(.control) {
+        // Only the browser-style layout claims a Control-bearing event, and only
+        // the two bare arrows, so no Control+letter chord is ever intercepted.
+        guard layout == .commandMovesByWord, normalized == [.control] else { return nil }
+        switch keyCode {
+        case TerminalTextEditingKeyCode.leftArrow: return .beginningOfLine
+        case TerminalTextEditingKeyCode.rightArrow: return .endOfLine
+        default: return nil
+        }
+    }
 
     let hasCommand = normalized.contains(.command)
     let hasOption = normalized.contains(.option)
@@ -116,7 +155,7 @@ public func terminalTextEditingResolve(
     // is ambiguous, and neither means an ordinary keystroke.
     guard hasCommand != hasOption else { return nil }
 
-    if hasCommand {
+    if hasCommand, layout == .standard {
         switch keyCode {
         case TerminalTextEditingKeyCode.leftArrow: return .beginningOfLine
         case TerminalTextEditingKeyCode.rightArrow: return .endOfLine
@@ -133,4 +172,22 @@ public func terminalTextEditingResolve(
     case TerminalTextEditingKeyCode.forwardDelete: return .killForwardWord
     default: return nil
     }
+}
+
+/// Whether some layout could resolve this event to a gesture.
+///
+/// The app target calls this before reading any setting, so an ordinary
+/// keystroke leaves the key path without touching `UserDefaults` or the
+/// terminal. It is the union of every ``TerminalTextEditingLayout``.
+///
+/// - Parameters:
+///   - keyCode: The virtual key code of the event.
+///   - modifiers: The event modifiers, already mapped off AppKit.
+/// - Returns: `true` when at least one layout maps the event to a chord.
+public func terminalTextEditingIsGestureCandidate(
+    keyCode: UInt16,
+    modifiers: TerminalTextEditingModifiers
+) -> Bool {
+    terminalTextEditingResolve(keyCode: keyCode, modifiers: modifiers, layout: .standard) != nil
+        || terminalTextEditingResolve(keyCode: keyCode, modifiers: modifiers, layout: .commandMovesByWord) != nil
 }
