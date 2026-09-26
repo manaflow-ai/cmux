@@ -288,7 +288,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             scannedPorts = portsCache?.ports
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-        let currentPorts = scannedPorts ?? portsCache?.ports ?? []
         guard isAwake, summary.cloudSummary == nil || vmClient != nil else {
             // No blocker covers a missing control-plane client, so settle a requested scan here.
             portDiscovery.linkFailed()
@@ -418,6 +417,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             #endif
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+        // An earlier pass's rescan can land during this snapshot read; publish the inventory it accepted.
+        let currentPorts = supportsPortPreviews ? portsCache?.ports ?? [] : []
         if let eventsFeedWarning {
             linkState = .error
             linkError = eventsFeedWarning
