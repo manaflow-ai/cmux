@@ -11836,11 +11836,6 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
-        /// Mirror destinations for the origin-color resolve, walked once for this render
-        /// pass so a row doesn't rescan the session mirrors. Nil when origin colors are off.
-        let mirrorOriginDestinations: [UUID: String]?
-        /// Hosts named after colliding titles for this render pass (beta), keyed by workspace id.
-        let hostTitleSuffixes: [UUID: String]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -12003,7 +11998,6 @@ struct VerticalTabsSidebar: View, Equatable {
             displayAccessibility: sidebarDisplayAccessibility
         )
 #endif
-        let mirrorOriginDestinations = mirrorDestinationsForOriginPresentation()
         let renderContext = WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,
@@ -12029,9 +12023,7 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
-            mirrorOriginDestinations: mirrorOriginDestinations,
-            hostTitleSuffixes: hostTitleSuffixes(tabs: tabs, mirrorDestinations: mirrorOriginDestinations)
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -13214,10 +13206,23 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
-        workspaceSnapshotCache.refresh(workspaceIds: workspaceIds) { workspaceId in
+        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
+        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabManager.tabs, mirrorDestinations: mirrorDestinations)
+        // A rename can start or end a title collision, which changes the host shown on OTHER rows.
+        // Rebuild every row whose saved snapshot carries a different host than it should now.
+        let staleHostIds = tabManager.tabs.compactMap { workspace -> UUID? in
+            guard let saved = workspaceSnapshotCache.snapshotsById[workspace.id],
+                  saved.hostTitleSuffix != hostTitleSuffixes[workspace.id] else { return nil }
+            return workspace.id
+        }
+        workspaceSnapshotCache.refresh(workspaceIds: workspaceIds.union(staleHostIds)) { workspaceId in
             guard let workspace = workspaceById[workspaceId] else { return nil }
             return makeWorkspaceSnapshot(
-                workspace: workspace, settings: settings, showsAgentActivity: showsAgentActivity
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations,
+                hostTitleSuffixes: hostTitleSuffixes
             )
         }
     }
@@ -13228,11 +13233,23 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
+        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabs, mirrorDestinations: mirrorDestinations)
+        // The origin color and the host after a colliding title differ per row, so each row's
+        // cached snapshot is reused only when its own key still matches.
         workspaceSnapshotCache.reconcile(
             workspaceIds: Set(workspaceById.keys),
-            presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
-                settings: settings, showsAgentActivity: showsAgentActivity
-            )
+            presentationKey: { workspaceId in
+                SidebarWorkspaceSnapshotFactory.presentationKey(
+                    settings: settings,
+                    showsAgentActivity: showsAgentActivity,
+                    customColorHex: workspaceById[workspaceId].flatMap { workspace in
+                        workspace.customColor
+                            ?? originColorHex(for: workspace, mirrorDestinations: mirrorDestinations)
+                    },
+                    hostTitleSuffix: hostTitleSuffixes[workspaceId]
+                )
+            }
         ) { workspaceId in
             guard let workspace = workspaceById[workspaceId] else { return nil }
             return makeWorkspaceSnapshot(
