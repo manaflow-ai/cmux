@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
+          "leftMinWidth": "Largeur minimale en points jusqu’à laquelle la barre latérale gauche (espaces de travail) peut être réduite. Réduisez-la pour récupérer de l’espace pour le terminal sans masquer la barre latérale. Limitée à 120–260 ; valeur par défaut 240.",
           "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
         },
         "fileExplorer": {

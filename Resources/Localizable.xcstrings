@@ -231261,23 +231261,6 @@
         }
       }
     },
-    "machines.agent.pi": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
-          }
-        }
-      }
-    },
     "machines.auth.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -362903,6 +362886,65 @@
         }
       }
     },
+    "settings.search.alias.setting.sidebarAppearance.left-min-width": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space الحد الأدنى للعرض الشريط الجانبي الأيسر ضيق الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space minimale breite linke seitenleiste schmal terminal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space ancho mínimo barra lateral izquierda estrecha terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space largeur minimale barre latérale gauche étroite terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space 最小幅 左サイドバー 狭く ターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space 최소 너비 왼쪽 사이드바 좁게 터미널"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space 最小宽度 左侧边栏 窄 终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space 最小寬度 左側側邊欄 窄 終端機"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.sidebarAppearance.light-tint": {
       "extractionState": "manual",
       "localizations": {
@@ -367884,6 +367926,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd 또는 Control을 길게 누르면 단축키 힌트 칩이 표시됩니다."
+          }
+        }
+      }
+    },
+    "settings.sidebar.leftMinWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحد الأدنى لعرض الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimale Seitenleistenbreite"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Minimum Width"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho mínimo de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur minimale de la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの最小幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 최소 너비"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏最小宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄最小寬度"
+          }
+        }
+      }
+    },
+    "settings.sidebar.leftMinWidth.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تعيين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
+    },
+    "settings.sidebar.leftMinWidth.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أصغر عرض يمكن سحب الشريط الجانبي الأيسر إليه. قلّله لترك مساحة أكبر للطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die geringste Breite, auf die sich die linke Seitenleiste ziehen lässt. Verringere sie, um dem Terminal mehr Platz zu lassen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The narrowest the workspace sidebar can be dragged. Lower it to leave more room for the terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El ancho mínimo al que se puede arrastrar la barra lateral izquierda. Redúcelo para dejar más espacio a la terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La largeur minimale à laquelle la barre latérale gauche peut être réduite. Diminuez-la pour laisser plus de place au terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左サイドバーをドラッグで狭められる最小幅です。値を下げるとターミナルの表示領域が広がります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 사이드바를 드래그해 줄일 수 있는 최소 너비입니다. 값을 낮추면 터미널 공간이 넓어집니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左侧边栏可拖动到的最小宽度。调低此值可为终端留出更多空间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側側邊欄可拖曳到的最小寬度。調低此值可為終端機留出更多空間。"
           }
         }
       }
@@ -558421,6 +558640,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "machines.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }

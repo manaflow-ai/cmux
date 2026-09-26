@@ -111,6 +111,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.leftMinWidth` | number | `240` | Minimum width in points the left (workspace) sidebar can be dragged to. Lower it to reclaim space for the terminal without hiding the sidebar. Clamped to 120–260; defaults to 240. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |

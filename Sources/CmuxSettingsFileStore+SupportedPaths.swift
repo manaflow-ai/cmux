@@ -100,6 +100,7 @@ extension CmuxSettingsFileStore {
         "sidebar.loadingSpinnerPosition",
         "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
+        LeftSidebarWidthSettings.settingsPath,
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",

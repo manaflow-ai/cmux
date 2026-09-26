@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
+          "leftMinWidth": "Mindestbreite in Punkten, auf die die linke Seitenleiste (Arbeitsbereiche) gezogen werden kann. Verringere sie, um Platz für das Terminal zu gewinnen, ohne die Seitenleiste auszublenden. Begrenzt auf 120–260; Standard ist 240.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

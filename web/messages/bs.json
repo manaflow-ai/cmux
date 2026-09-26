@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
+          "leftMinWidth": "Minimalna širina u tačkama do koje se lijeva bočna traka (radni prostori) može povući. Smanjite je da oslobodite prostor za terminal bez skrivanja bočne trake. Ograničeno na 120–260; zadano je 240.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {

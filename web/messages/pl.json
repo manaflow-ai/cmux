@@ -1349,6 +1349,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksymalna liczba wierszy wyświetlanych dla najnowszego powiadomienia pod tytułem każdego obszaru roboczego.",
+          "leftMinWidth": "Minimalna szerokość w punktach, do której można przeciągnąć lewy pasek boczny (obszary robocze). Zmniejsz ją, aby odzyskać miejsce dla terminala bez ukrywania paska bocznego. Ograniczone do 120–260; wartość domyślna to 240.",
           "rightMaxWidth": "Maksymalna szerokość prawego paska bocznego w punktach. Jeśli pominięta, obowiązuje wbudowany limit dynamiczny."
         },
         "fileExplorer": {

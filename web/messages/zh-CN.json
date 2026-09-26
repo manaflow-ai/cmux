@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
+          "leftMinWidth": "左侧边栏（工作区）可拖动到的最小宽度（点）。调小可在不隐藏边栏的情况下为终端腾出空间。限制在 120–260；默认值为 240。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {

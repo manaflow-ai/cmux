@@ -255,6 +255,121 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    /// Runs `body` with the left sidebar minimum-width default and the settings
+    /// file store's bookkeeping keys cleared, restoring them afterwards.
+    private func withIsolatedLeftSidebarMinimumWidthDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let keys = [
+            LeftSidebarWidthSettings.minimumWidthKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        let previousValues = keys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in keys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+        try body(defaults)
+    }
+
+    private func writeSettingsFile(_ contents: String, named name: String) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "\(name)-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try contents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        return settingsFileURL
+    }
+
+    func testSettingsFileStoreAppliesLeftSidebarMinimumWidthSetting() throws {
+        try withIsolatedLeftSidebarMinimumWidthDefaults { defaults in
+            let settingsFileURL = try writeSettingsFile(
+                #"{ "sidebar": { "leftMinWidth": 160 } }"#,
+                named: "left-sidebar-min-width"
+            )
+            defer { try? FileManager.default.removeItem(at: settingsFileURL.deletingLastPathComponent()) }
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.double(forKey: LeftSidebarWidthSettings.minimumWidthKey), 160, accuracy: 0.001)
+            XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults), 160, accuracy: 0.001)
+            // A restored or dragged width below the configured floor snaps to it,
+            // and widths above the floor are kept.
+            XCTAssertEqual(SessionPersistencePolicy.sanitizedSidebarWidth(140, defaults: defaults), 160, accuracy: 0.001)
+            XCTAssertEqual(SessionPersistencePolicy.sanitizedSidebarWidth(184, defaults: defaults), 184, accuracy: 0.001)
+        }
+    }
+
+    func testSettingsFileStoreClampsLeftSidebarMinimumWidthSetting() throws {
+        try withIsolatedLeftSidebarMinimumWidthDefaults { defaults in
+            for (configured, expected) in [(40.0, 120.0), (10_000.0, 260.0)] {
+                defaults.removeObject(forKey: importedManagedDefaultsKey)
+                let settingsFileURL = try writeSettingsFile(
+                    #"{ "sidebar": { "leftMinWidth": \#(configured) } }"#,
+                    named: "left-sidebar-min-width-clamped"
+                )
+                defer { try? FileManager.default.removeItem(at: settingsFileURL.deletingLastPathComponent()) }
+
+                _ = KeyboardShortcutSettingsFileStore(
+                    primaryPath: settingsFileURL.path,
+                    fallbackPath: nil,
+                    additionalFallbackPaths: [],
+                    startWatching: false
+                )
+
+                XCTAssertEqual(
+                    defaults.double(forKey: LeftSidebarWidthSettings.minimumWidthKey),
+                    expected,
+                    accuracy: 0.001,
+                    "leftMinWidth \(configured)"
+                )
+            }
+        }
+    }
+
+    func testRemovingLeftSidebarMinimumWidthFromSettingsFileRestoresPreviousValue() throws {
+        try withIsolatedLeftSidebarMinimumWidthDefaults { defaults in
+            let settingsFileURL = try writeSettingsFile(
+                #"{ "sidebar": { "leftMinWidth": 150 } }"#,
+                named: "left-sidebar-min-width-unset"
+            )
+            defer { try? FileManager.default.removeItem(at: settingsFileURL.deletingLastPathComponent()) }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults), 150, accuracy: 0.001)
+
+            try #"{ "sidebar": {} }"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+            store.reload()
+
+            XCTAssertNil(defaults.object(forKey: LeftSidebarWidthSettings.minimumWidthKey))
+            XCTAssertEqual(
+                SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
+                LeftSidebarWidthSettings.defaultMinimumWidth,
+                accuracy: 0.001
+            )
+        }
+    }
+
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
         let range = SidebarResizeInteraction.Edge.leading.hitRange(dividerX: 200)
 
