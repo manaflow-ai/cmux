@@ -23,6 +23,7 @@ import yaml
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOMEBREW = os.path.join(ROOT, ".github", "workflows", "update-homebrew.yml")
 RELEASE = os.path.join(ROOT, ".github", "workflows", "release.yml")
+CI_GUARDS = os.path.join(ROOT, ".github", "workflows", "ci-guards.yml")
 BUILD_JOB = "build-sign-notarize"
 
 FAILURES = []
@@ -39,6 +40,7 @@ def _check(cond, msg):
 def main():
     homebrew = yaml.safe_load(open(HOMEBREW, encoding="utf-8"))
     release = yaml.safe_load(open(RELEASE, encoding="utf-8"))
+    ci_guards = open(CI_GUARDS, encoding="utf-8").read()
 
     text = open(HOMEBREW, encoding="utf-8").read()
     _check(
@@ -84,6 +86,18 @@ def main():
     _check(
         "generate-ios-screenshots" not in needs,
         "the signed build does not depend on the iOS screenshot capture",
+    )
+    _check(
+        "git submodule update --init --depth 1 homebrew-cmux" in ci_guards,
+        "release-notary initializes the vendored Homebrew tap before hashing",
+    )
+    _check(
+        "./tests/test_homebrew_sha.sh" in ci_guards,
+        "release-notary verifies the cask digest against the published DMG",
+    )
+    _check(
+        "Cache-Control: no-cache" in text and "homebrew_run=${GITHUB_RUN_ID}" in text,
+        "the updater bypasses cached release bytes after an in-place asset repair",
     )
 
     if FAILURES:
