@@ -83,6 +83,8 @@ An SSH host no longer has one persistence mode. One SSH connection serves every 
 | D35 | **`+` names the kind.** On one SSH computer, `+` is a menu: "New cmux-tui Workspace", "New tmux Session", "New Shell". A kind the host cannot create is dimmed with its reason as the subtitle (tmux not installed; cmux-tui unsupported OS/arch); before the host is probed every kind is offered. Under All Computers each SSH computer is a submenu of its kinds (Macs unchanged). The first cmux-tui workspace on a host without cmux-tui runs the D10 installer with an "Installing cmux-tui on this computer…" notice above the list. Entry points without a menu (the terminal's New Workspace button) repeat the kind on screen, else the first installed kind. |
 | D36 | **Row subtitle names the kind** where Mac rows show activity: "cmux-tui", "tmux session", "Shell"; a workspace from another cmux-tui session adds it ("cmux-tui · main") so same-named workspaces stay apart. The empty state reads "No Workspaces" with the quiet status line. |
 | D37 | **Closing a row closes it on the server** whichever device created it (tmux `kill-session`; cmux-tui closes the workspace and its terminals), as before for tmux. |
+| D38 | **Confirm before ending what outlives the phone.** Closing a tmux or cmux-tui row asks "End “<name>” on <host>?" (End Session / Close Workspace, Cancel default) from every entrypoint through one store decision; a shell, which ends with the phone's channel anyway, closes in one tap. Who created the item is not tracked: a phone-created tmux session can run a long job or gain a laptop client. |
+| D39 | **Mac On iPhone routes per destination (3a).** Loopback always goes to the Mac; with the Mac's default loopback-only policy other hosts load from the phone; when the Mac allows other hosts the phone tries the Mac and falls back to its own network only on a policy denial (refused/unreachable stay errors). |
 
 HIG checked: [Menus](https://developer.apple.com/tutorials/data/design/human-interface-guidelines/menus.json) (group related items with separators, show unavailable items dimmed rather than hiding them, keep a submenu available when its items are not, one submenu level, verb-phrase titles) and [Pull-down buttons](https://developer.apple.com/tutorials/data/design/human-interface-guidelines/pull-down-buttons.json) (an Add button's menu "lets people specify the item they want to add"). The kind's reason uses the menu item subtitle, which neither page covers.
 
@@ -221,6 +223,23 @@ Branch `feat-ios-direct-ssh`, PR https://github.com/manaflow-ai/cmux/pull/14149,
 | Native pixel scrolling on SSH surfaces | **Unverified**: simulator harness cannot synthesize scroll gestures | |
 | Scrollback above a running full-screen app after reattach | Needs cmux-tui server change (`vt-state` sends only the alternate screen) | |
 
+## Round 4 verification (2026-09-25)
+
+Autonomous pass while Aziz was away; evidence in `artifacts/dssh/v3/` and the report page. All on isolated simulators.
+
+| Area | Status |
+|---|---|
+| D38 close questions (tmux, cmux-tui, shell one tap) | Verified on video |
+| D33 laptop reclaims cmux-tui geometry | **Server bug fixed** (`cmux-tui` restores the displaced owner); verified with a CI-built binary. Ships to SSH hosts only with a cmux-tui release past the pinned 0.13.4 |
+| D16 password once, then key | Verified on video with a password lab server; password not persisted |
+| Launch auto-connect | Fixed B1 (duplicate trust question cancelled the install), B2 (server greeting dropped before the SSH handler existed), B3 (a late Cancel after Trust paused the host); 3 relaunches connect in 1.3-1.9 s |
+| Connect errors | Plain sentences for refused / timed out / not found / unreachable |
+| D39 Mac relay (PR #14301) | Verified phone to Mac; stress 65 lanes opened and closed; policy-denial fallback unit-tested only |
+| Package-conventions refactor | Lint clean on both branches; full 10-item SSH regression and the relay regression pass after it |
+| UX fixes | No "Mac update required" in SSH-only mode; new host connects on Save; keyboard returns after Allow Paste (shared, Mac terminals too); SSH Files chip always shown (**overlaps the first terminal rows; design open**) |
+
+Open: this Mac is out of PTYs (other sessions hold ~230), so PTY-backed lab tests fail until freed; a rebuilt Mac dev app can freeze on the first phone RPC behind a keychain prompt read on the main thread (not from this work).
+
 ## Backlog
 
 - ET client (v1.1), mosh client (v1.2).
@@ -241,3 +260,4 @@ Branch `feat-ios-direct-ssh`, PR https://github.com/manaflow-ai/cmux/pull/14149,
 - 2026-09-23: D1 updated: cmux-tui mode brings cmux workspaces over SSH.
 - 2026-09-23: D23 cmux-tui browser surfaces in v1 via the streamed browser view.
 - 2026-09-24: Round 3: D31-D37, one host serves cmux-tui, tmux, and shells at once; per-host persistence removed.
+- 2026-09-25: Round 4: D38 close confirmation, D39 Mac relay routing (3a); M6 fixed in cmux-tui; B1-B3 launch/trust fixes; conventions refactor; four UX fixes. See Round 4 verification.
