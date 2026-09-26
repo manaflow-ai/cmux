@@ -1109,7 +1109,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             focusPlacement: .rightSidebarDock,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: .immediate,
-                willRunStartupCommand: false,
                 willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
             )
         )
@@ -1125,7 +1124,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel: terminal,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: initialInput != nil,
             resumeWorkingDirectory: snapshot.workingDirectory
         )
