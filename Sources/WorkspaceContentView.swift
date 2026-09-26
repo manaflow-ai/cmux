@@ -478,7 +478,7 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+    static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
         topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
     )
 

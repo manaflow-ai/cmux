@@ -133,6 +133,9 @@ jobs:
       group: pr-catch-up-merge-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     permissions:
+      # actions: read lists the base branch's CI fast guards runs, to merge
+      # the newest green base commit instead of a red tip.
+      actions: read
       contents: read
       pull-requests: read
     outputs:
@@ -250,6 +253,31 @@ jobs:
           submodules: false
           lfs: false
 
+      # Merge the newest base commit whose CI fast guards passed, so a red
+      # base tip does not hand this pull request its failures (the same
+      # selection as the local merge-main tool). Its own step so the token
+      # that reads the runs is never in the environment of the step that
+      # works on pull request bytes. Any failure leaves the pick empty and the
+      # merge falls back to the tip.
+      - name: Pick the newest green base commit
+        id: base
+        if: steps.pr.outputs.head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          selection="$RUNNER_TEMP/base-selection.json"
+          python3 -I "$TRUSTED/scripts/ci/last_green_base.py" --repo "$CANDIDATE" --ref "origin/$BASE_REF" \
+            --branch "$BASE_REF" --github-repo "$GITHUB_REPOSITORY" --json > "$selection" || true
+          cat "$selection"
+          chosen="$(jq -r '.chosen // empty' "$selection" 2> /dev/null || true)"
+          tip="$(jq -r '.tip // empty' "$selection" 2> /dev/null || true)"
+          if [[ "$chosen" =~ ^[0-9a-f]{40}$ && "$tip" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "chosen=$chosen" >> "$GITHUB_OUTPUT"
+            echo "tip=$tip" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge the base with the trusted tools
         id: merge
         if: steps.pr.outputs.head_sha != ''
@@ -257,6 +285,8 @@ jobs:
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           BASE_REF: ${{ steps.pr.outputs.base_ref }}
           ACTOR: ${{ github.event.sender.login }}
+          CHOSEN: ${{ steps.base.outputs.chosen }}
+          TIP: ${{ steps.base.outputs.tip }}
           GIT_AUTHOR_NAME: github-actions[bot]
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
@@ -268,10 +298,22 @@ jobs:
           git -C "$CANDIDATE" rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF^{commit}" > /dev/null
           mkdir -p "$RUNNER_TEMP/catch-up"
           result="$RUNNER_TEMP/catch-up/result.json"
+          # The green pick from the step above; no verdict, or no green commit
+          # among the newest 40, falls back to the tip as before.
+          base="origin/$BASE_REF"
+          note="Requested by $ACTOR on pull request #$PR_NUMBER."
+          if [[ "$CHOSEN" =~ ^[0-9a-f]{40}$ && "$TIP" =~ ^[0-9a-f]{40}$ ]] &&
+             git -C "$CANDIDATE" merge-base --is-ancestor "$CHOSEN" "origin/$BASE_REF"; then
+            base="$CHOSEN"
+            if [[ "$CHOSEN" != "$TIP" ]]; then
+              note="$note Merged $BASE_REF at ${CHOSEN:0:12}, its newest commit with green CI fast guards; the tip ${TIP:0:12} was not green."
+            fi
+          fi
           code=0
           python3 -I "$TRUSTED/scripts/ci/catch_up_pr.py" merge \
-            --repo "$CANDIDATE" --tools-root "$TRUSTED" --base "origin/$BASE_REF" --json \
-            --note "Requested by $ACTOR on pull request #$PR_NUMBER." > "$result" || code=$?
+            --repo "$CANDIDATE" --tools-root "$TRUSTED" --base "$base" --json \
+            --title "Merge origin/$BASE_REF into the pull request head" \
+            --note "$note" > "$result" || code=$?
           cat "$result"
           status="$(jq -r '.status' "$result")"
           echo "status=$status" >> "$GITHUB_OUTPUT"
