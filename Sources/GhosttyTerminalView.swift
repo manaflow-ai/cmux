@@ -24,65 +24,6 @@ import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
 
-// cmux's libghostty fork exports the ExternalHover C surface without adding
-// these declarations to the public GhosttyKit header. Keep the app-only FFI
-// bindings here: the standalone CmuxTerminal package and cmux-cli do not link
-// these symbols, while the app's GhosttyKit does.
-private struct CmuxExternalHoverCellRange {
-    var row: UInt16
-    var start_column: UInt16
-    var end_column: UInt16
-}
-
-private typealias ghostty_external_hover_cell_range_s = CmuxExternalHoverCellRange
-
-private struct CmuxExternalHoverDiagnosticsEntry {
-    var event: UInt64 = 0
-    var source: UInt8 = 0
-    var reason: UInt8 = 0
-    var verdict: UInt8 = 0
-    var flags: UInt8 = 0
-    var seq: UInt32 = 0
-}
-
-private typealias ghostty_external_hover_diag_entry_s = CmuxExternalHoverDiagnosticsEntry
-
-// lint:allow free-function — @_silgen_name FFI declarations for cmux's
-// libghostty ExternalHover extension, which is absent from GhosttyKit.h.
-@_silgen_name("ghostty_surface_read_text_physical_rows")
-private func ghostty_surface_read_text_physical_rows(
-    _ surface: ghostty_surface_t,
-    _ selection: ghostty_selection_s,
-    _ outText: UnsafeMutablePointer<ghostty_text_s>?
-) -> Bool
-
-@_silgen_name("ghostty_surface_set_external_link_hover")
-private func ghostty_surface_set_external_link_hover(
-    _ surface: ghostty_surface_t,
-    _ topRow: UInt32,
-    _ rowCount: UInt32,
-    _ text: UnsafePointer<CChar>,
-    _ textLength: Int,
-    _ ranges: UnsafePointer<ghostty_external_hover_cell_range_s>?,
-    _ rangeCount: Int,
-    _ outTokenBits: UnsafeMutablePointer<UInt64>?,
-    _ hostEventID: UInt64
-) -> Bool
-
-@_silgen_name("ghostty_surface_clear_external_link_hover")
-private func ghostty_surface_clear_external_link_hover(
-    _ surface: ghostty_surface_t,
-    _ tokenBits: UnsafePointer<UInt64>?
-)
-
-@_silgen_name("ghostty_surface_drain_external_hover_diagnostics")
-private func ghostty_surface_drain_external_hover_diagnostics(
-    _ surface: ghostty_surface_t,
-    _ outEntries: UnsafeMutablePointer<ghostty_external_hover_diag_entry_s>?,
-    _ capacity: Int,
-    _ outDroppedCountCumulative: UnsafeMutablePointer<UInt64>?
-) -> UInt
-
 enum GhosttyStartupAppearancePreviewState {
     #if DEBUG
     // The selected debug preview profile. Backed by the CmuxTerminalCore seam
