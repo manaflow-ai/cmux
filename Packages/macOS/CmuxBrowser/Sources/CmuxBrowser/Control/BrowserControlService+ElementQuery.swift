@@ -139,9 +139,12 @@ extension BrowserControlService {
                 : [];
               if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
             }
-            parts.unshift(part);
             const root = cur.getRootNode && cur.getRootNode();
             const crossesShadowRoot = !cur.parentElement && !!(root && root.host);
+            // A shadow-root child has no element ancestor in its CSS tree.
+            // Anchor it so a matching nested subtree cannot win the query.
+            if (crossesShadowRoot) part += ':not(* *)';
+            parts.unshift(part);
             const parent = crossesShadowRoot ? root.host : cur.parentElement;
             if (parent) separators.unshift(crossesShadowRoot ? ' >>> ' : ' > ');
             cur = parent;
