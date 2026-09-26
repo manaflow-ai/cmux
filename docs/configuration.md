@@ -249,7 +249,10 @@ instead and inserts what the command prints.
 - `hostPattern`: an fnmatch glob matched against the ssh destination (`user@` and
   IPv6 brackets stripped, then lowercased) — the same glob style as a single
   `ssh_config` `Host` pattern (`*`, `?`; no pattern lists or `!` negation). Omit
-  it, or set it to `null`, for a catch-all.
+  it, or set it to `null`, for a catch-all. When the session carries a `HostName`
+  ssh option (for example a connection through a ProxyCommand broker dialled as
+  `localhost`), a rule also matches that resolved host, so a pattern written
+  against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
   (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,

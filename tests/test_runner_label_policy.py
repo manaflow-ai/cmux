@@ -190,6 +190,7 @@ class DriftReportingOverVariables(unittest.TestCase):
 
 
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -202,14 +203,33 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
+        # These hold runner names matched against runner.name, not a runs-on
+        # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
-            read |= set(
-                re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-            )
+            read |= {
+                name
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                if name not in NON_LABEL_RUNNER_VARIABLES
+            }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
         self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
+
+
+class SideLaneVariable(unittest.TestCase):
+    def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
+        # CI_SIDE_LANE_RUNNER is the picker-less side lanes' whole runs-on.
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "blacksmith-6vcpu-macos-26"}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-side-nonsense", "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_SIDE_LANE_RUNNER": label})],
+                    ["CI_SIDE_LANE_RUNNER"],
+                )
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
 
 
 class OwnedPoolLabels(unittest.TestCase):

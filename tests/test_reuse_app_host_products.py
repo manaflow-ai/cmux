@@ -99,6 +99,41 @@ class ReuseProducts(TestProductHandoff):
         self.assertEqual(target['EnvironmentVariables']['SOURCE'], '/queue/work/cmux/fixtures')
         self.assertTrue(Path(target['DependentProductPaths'][0]).exists())
 
+    def test_a_claim_picks_the_derived_data_after_the_checks(self):
+        # switch_root moves the job to the product's root only once the
+        # product passed every check, and the product lands in that root.
+        current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
+        moved = self.consumer.parent / "other-root" / "derived"
+        claims = []
+
+        def claim():
+            claims.append(True)
+            return moved
+
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertTrue(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                          None, claim=claim))
+        self.assertEqual(claims, [True])
+        self.assertTrue((moved / "Build/Products" / reuse.products.RECEIPT).exists())
+        self.assertFalse((self.consumer / "Build/Products").exists())
+
+    def test_a_refused_claim_is_a_miss_that_leaves_nothing(self):
+        current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
+        report = {}
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertFalse(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                           report, claim=lambda: None))
+        self.assertIn("root_unavailable", report["miss_reasons"])
+        self.assertFalse((self.consumer / "Build/Products").exists())
+        # A candidate that fails its checks never moves the job.
+        self.api.artifact["expired"] = True
+        with mock.patch.object(reuse, "github_product_identity",
+                               side_effect=lambda api, rev: api.product_identities[rev]):
+            self.assertFalse(reuse.restore(self.api, self.contract, self.consumer, "13", current, "1",
+                                           None, claim=lambda: self.fail("claimed an expired product")))
+
     def test_fork_wrong_workflow_and_failed_compile_are_misses(self):
         for field, value in [('event', 'workflow_dispatch'), ('path', '.github/workflows/untrusted.yml'),
                              ('head_repository', {'full_name': 'fork/cmux'})]:
@@ -292,6 +327,7 @@ class ReuseProducts(TestProductHandoff):
             "agent-chat/src/components/Chat.tsx",
             "scripts/git-hooks/pre-commit",
             "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj-group-membership.py",
             "scripts/check-pbxproj.sh",
             "scripts/check-test-determinism.py",
             "scripts/dev-fleet-warm-slot.py",
@@ -1225,6 +1261,14 @@ class ReuseProducts(TestProductHandoff):
             ("main_push_to_main_push", self.main_push_run(), self.main_push_run(), False),
             ("main_push_to_merge_group", self.main_push_run(),
              {**pull_request, "event": "merge_group"}, False),
+            # A dispatch of a main commit PR CI never compiled takes the
+            # seeder's product; its own products still never reach main.
+            ("main_push_to_dispatch", self.main_push_run(), self.e2e_dispatch_run(), True),
+            ("other_branch_push_to_dispatch", self.main_push_run(head_branch="feature"),
+             self.e2e_dispatch_run(), False),
+            ("ci_push_to_dispatch", self.main_push_run(path=".github/workflows/ci.yml"),
+             self.e2e_dispatch_run(), False),
+            ("dispatch_to_main_push", self.e2e_dispatch_run(), self.main_push_run(), False),
         ]
         for name, producer, consumer, expected in cases:
             with self.subTest(name=name):
@@ -1235,6 +1279,14 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(reuse.trusted_ci_run(self.main_push_run(), self.api.repository))
         self.assertFalse(reuse.trusted_ci_run(
             self.main_push_run(head_branch="release"), self.api.repository))
+
+    def e2e_dispatch_run(self):
+        return {
+            "event": "workflow_dispatch",
+            "path": ".github/workflows/test-e2e.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [],
+        }
 
     def use_main_push_producer(self):
         self.api.run.update(self.main_push_run(), head_sha="abc123")
@@ -1262,6 +1314,24 @@ class ReuseProducts(TestProductHandoff):
             (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
         self.assertEqual(provenance["original_producer"]["revision"], "abc123")
         self.assertEqual(provenance["consumer"]["revision"], "def456")
+
+    def test_a_dispatch_adopts_the_product_a_main_push_compiled(self):
+        self.use_main_push_producer()
+        self.dispatch_consumer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["producer_run_id"], "12")
+        self.assertEqual(report["compile_seconds_avoided"], 120.0)
+
+    def test_a_dispatch_rejects_a_main_push_product_of_other_inputs(self):
+        self.use_main_push_producer()
+        self.dispatch_consumer()
+        self.api.product_identities["abc123"] = {**self.contract["product_inputs"], "source": "f" * 64}
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+            download.assert_not_called()
+        self.assertIn("producer_product_inputs_mismatch", report["miss_reasons"])
 
     def test_main_push_producer_misses(self):
         cases = {
@@ -1311,13 +1381,14 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
     def test_a_main_push_is_never_a_consumer(self):
-        # main() only restores for consumer events, so no pull request product
-        # can reach main; only pull requests take a main push product.
+        # main() only restores for consumer events, so no pull request or
+        # dispatch product can reach main; only pull requests and dispatches,
+        # which need write access, take a main push product.
         self.assertNotIn("push", reuse.PERMITTED_PRODUCERS)
         self.assertEqual(
             {event for event, producers in reuse.PERMITTED_PRODUCERS.items()
              if "push" in producers},
-            {"pull_request"},
+            {"pull_request", "workflow_dispatch"},
         )
 
     def test_failed_producer_compile_is_a_miss(self):
@@ -1597,6 +1668,56 @@ class GateDeclinedProducer(unittest.TestCase):
         self.assertIn(f"      - name: {reuse.GATE_DECLINE_STEP}\n", workflow)
 
 
+class E2EProducerPublishedBeforeItsTests(unittest.TestCase):
+    """test-e2e.yml's build job publishes, then runs the tests itself."""
+
+    PATH = ".github/workflows/test-e2e.yml"
+
+    def job(self, status, conclusion, *steps):
+        return {
+            "status": status,
+            "conclusion": conclusion,
+            "steps": [{"name": name, "conclusion": result} for name, result in steps],
+        }
+
+    def test_a_published_product_counts_while_or_after_its_tests_run(self):
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
+        for label, job in (
+            ("tests running", self.job("in_progress", None, (before, "success"),
+                                       ("Run selected tests on the build runner", None))),
+            ("tests failed", self.job("completed", "failure", (before, "success"),
+                                      ("Run selected tests on the build runner", "failure"))),
+            # An owned Mac tests first and uploads after, whatever the tests did.
+            ("owned, tests failed", self.job("completed", "failure", (before, "skipped"),
+                                             ("Run selected tests", "failure"), (after, "success"))),
+        ):
+            with self.subTest(label):
+                self.assertTrue(reuse.compile_job_admitted(job, steps))
+                # Only the workflow that publishes before testing is read so.
+                self.assertFalse(reuse.compile_job_admitted(job))
+
+    def test_an_unpublished_product_does_not(self):
+        steps = reuse.PUBLISH_STEPS[self.PATH]
+        before, after = steps
+        for label, job in (
+            ("still compiling", self.job("in_progress", None, (before, None))),
+            ("upload failed", self.job("completed", "failure", (before, "failure"))),
+            ("compile failed", self.job("completed", "failure",
+                                        ("Build the app-host and UI test product", "failure"), (before, "skipped"),
+                                        (after, "skipped"))),
+            ("owned, testing", self.job("in_progress", None, (before, "skipped"), (after, None))),
+        ):
+            with self.subTest(label):
+                self.assertFalse(reuse.compile_job_admitted(job, steps))
+
+    def test_the_step_name_matches_the_workflow(self):
+        workflow = (Path(__file__).resolve().parents[1] / self.PATH).read_text(encoding="utf-8")
+        for name in reuse.PUBLISH_STEPS[self.PATH]:
+            self.assertIn(f"      - name: {name}\n", workflow)
+        self.assertEqual(set(reuse.PUBLISH_STEPS), {self.PATH})
+
+
 class ContractParity(unittest.TestCase):
     """PR compile admission and E2E dispatches must name one product alike.
 
@@ -1738,6 +1859,115 @@ class ContractParity(unittest.TestCase):
                 self.assertEqual(asked, expected)
                 outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 self.assertEqual(outputs["hit"], "true")
+
+    def test_an_owned_mac_looks_at_its_other_roots_and_moves_to_the_hit(self):
+        """About one E2E build in five starts on another root than its product."""
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first, second = tmp / "cmux-ci", tmp / "cmux-ci-2"
+        derived = second / "derived-data-compile-admission"
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+        at_first = reuse.at_root(own, first)
+        asked, moves = [], []
+
+        def fake_restore(api, value, target, run, identity, attempt, report, claim=None):
+            asked.append((value, claim is not None))
+            hit = value == at_first
+            if hit:
+                self.assertEqual(claim(), first / "derived-data-compile-admission")
+            report.update(reason="hit" if hit else "miss",
+                          miss_reasons="" if hit else "no_matching_contract_artifact")
+            return hit
+
+        def fake_switch(root):
+            moves.append(root)
+            return root / "derived-data-compile-admission"
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[first, second]), \
+                mock.patch.object(reuse, "switch_root", side_effect=fake_switch), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=fake_restore):
+            reuse.main()
+        # Its own root first, without a move; then root 1, moving on the hit.
+        self.assertEqual(asked, [(own, False), (at_first, True)])
+        self.assertEqual(moves, [first])
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["hit"], "true")
+        # Packaging seals the product at root 1, so it is published under that key.
+        self.assertEqual(outputs["product_key"], reuse.key(at_first))
+
+    def test_a_miss_on_every_root_keeps_the_job_where_it_is(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        derived = tmp / "cmux-ci" / "derived-data-compile-admission"
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=derived)
+
+        def miss(api, value, target, run, identity, attempt, report, claim=None):
+            report.update(reason="miss", miss_reasons="no_matching_contract_artifact")
+            return False
+
+        output = tmp / "out"
+        env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+               "GITHUB_RUN_ATTEMPT": "1", "CMUX_REUSE_SWITCH_ROOTS": "1"}
+        helper = tmp / "glaeda-canonical-root"
+        helper.write_text("")
+        with mock.patch.dict(os.environ, env), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                mock.patch.object(reuse, "ROOT_HELPER", helper), \
+                mock.patch.object(reuse, "canonical_roots", return_value=[tmp / "cmux-ci", tmp / "cmux-ci-2"]), \
+                mock.patch.object(reuse, "switch_root", side_effect=lambda root: self.fail("moved on a miss")), \
+                mock.patch.object(reuse, "contract", return_value=own), \
+                mock.patch.object(reuse.products, "identity", return_value={}), \
+                mock.patch.object(reuse, "restore", side_effect=miss):
+            reuse.main()
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual((outputs["hit"], outputs["product_key"]), ("false", ""))
+
+    def test_canonical_roots_are_root_one_then_numbered_roots(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        first = tmp / "cmux-ci"
+        for name in ("cmux-ci", "cmux-ci-10", "cmux-ci-2", "cmux-ci-x", "cmux-ci-2-old"):
+            (tmp / name).mkdir()
+        (tmp / "cmux-ci-3").write_text("not a root")
+        with mock.patch.object(reuse, "FIRST_ROOT", first):
+            self.assertEqual(reuse.canonical_roots(), [first, tmp / "cmux-ci-2", tmp / "cmux-ci-10"])
+
+    def test_switch_root_moves_the_job_and_its_paths(self):
+        tmp = Path(self.enterContext(__import__("tempfile").TemporaryDirectory()))
+        root, env_file = tmp / "cmux-ci-2", tmp / "env"
+        (root / "derived-data-compile-admission" / "stale").mkdir(parents=True)
+        env_file.write_text("")
+        calls = []
+
+        def run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, "", "still in use")
+
+        with mock.patch.dict(os.environ, {"GITHUB_ENV": str(env_file)}), \
+                mock.patch.object(reuse.subprocess, "run", side_effect=run):
+            returncode = 1
+            self.assertIsNone(reuse.switch_root(root))
+            self.assertEqual(env_file.read_text(), "")
+            self.assertTrue((root / "derived-data-compile-admission" / "stale").exists())
+            returncode = 0
+            self.assertEqual(reuse.switch_root(root), root / "derived-data-compile-admission")
+        self.assertEqual(calls[0], [str(reuse.ROOT_HELPER), "take", str(root), "--switch",
+                                    "--wait", str(reuse.ROOT_SWITCH_WAIT_S)])
+        self.assertEqual(list((root / "derived-data-compile-admission").iterdir()), [])
+        self.assertTrue((root / "compile-admission-cas").is_dir())
+        self.assertEqual(env_file.read_text().splitlines(), [
+            f"CMUX_DERIVED_DATA_PATH={root / 'derived-data-compile-admission'}",
+            f"CMUX_E2E_COMPILATION_CACHE={root / 'compile-admission-cas'}",
+        ])
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by
