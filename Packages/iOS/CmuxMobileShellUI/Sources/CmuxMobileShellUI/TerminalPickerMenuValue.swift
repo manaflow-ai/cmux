@@ -1,5 +1,6 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 
 /// Immutable state that determines the native terminal picker's presented menu.
 struct TerminalPickerMenuValue: Equatable {
@@ -21,6 +22,9 @@ struct TerminalPickerMenuValue: Equatable {
     /// cmux-tui screen (PRD D32). `nil` keeps the flat Terminals section
     /// (Mac workspaces, shells).
     let sshTabLayout: MobileSSHTabLayout?
+    /// Whether the workspace belongs to an SSH computer rather than a cmux
+    /// Mac, which names its browser section.
+    let isSSHComputer: Bool
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -37,7 +41,8 @@ struct TerminalPickerMenuValue: Equatable {
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
         activeSimulatorStreamPanelID: String? = nil,
-        sshTabLayout: MobileSSHTabLayout? = nil
+        sshTabLayout: MobileSSHTabLayout? = nil,
+        isSSHComputer: Bool = false
     ) {
         let resolvedRows = snapshotRows.isEmpty
             ? liveTerminals.map(TerminalPickerMenuRow.init)
@@ -60,6 +65,16 @@ struct TerminalPickerMenuValue: Equatable {
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
         self.sshTabLayout = sshTabLayout
+        self.isSSHComputer = isSSHComputer
+    }
+
+    /// The streamed-browser section's title, by the kind of computer the
+    /// tabs run on: "Mac Browsers" for a cmux Mac, "Browsers" for an SSH
+    /// computer (its tabs are not on a Mac).
+    var browserSectionTitle: String {
+        isSSHComputer
+            ? L10n.string("mobile.ssh.browserStream.menuTitle", defaultValue: "Browsers")
+            : L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")
     }
 
     /// The single row that carries the checkmark. Nil while the phone-local

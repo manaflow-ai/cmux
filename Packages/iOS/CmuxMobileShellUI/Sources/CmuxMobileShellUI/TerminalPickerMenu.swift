@@ -97,7 +97,7 @@ struct TerminalPickerMenu: View, Equatable {
 
         if value.supportsBrowserStream {
             if !value.browserStreamRows.isEmpty {
-                Section(L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")) {
+                Section(value.browserSectionTitle) {
                     ForEach(value.browserStreamRows) { panel in
                         Button { actions.selectBrowserStream(panel.id) } label: {
                             Label(

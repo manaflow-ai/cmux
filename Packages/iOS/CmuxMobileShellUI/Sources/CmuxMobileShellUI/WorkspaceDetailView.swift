@@ -927,7 +927,8 @@ struct WorkspaceDetailView: View {
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
                 activeSimulatorStreamPanelID: activeSimulatorStream?.id,
-                sshTabLayout: store.sshTabLayout(workspaceID: workspace.id)
+                sshTabLayout: store.sshTabLayout(workspaceID: workspace.id),
+                isSSHComputer: sshHostID != nil
             ),
             actions: TerminalPickerMenuActions(
                 selectTerminal: selectTerminalFromPicker,
