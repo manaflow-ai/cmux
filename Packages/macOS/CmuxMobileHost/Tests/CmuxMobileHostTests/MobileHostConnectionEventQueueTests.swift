@@ -45,6 +45,22 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.consumeOverflow())
     }
 
+    @Test("A replacement grid that cannot fit leaves the last admitted grid queued")
+    func rejectedReplacementKeepsQueuedGrid() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 4)
+        queue.updateSubscribedTopics(["device.terminal.grid"])
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).admitted)
+        // The queued grid's room counts toward its replacement.
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([2, 3])).admitted)
+        #expect(queue.count == 1)
+        let result = queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data(count: 5))
+        #expect(result.overflowed)
+        #expect(!result.admitted)
+        #expect(queue.count == 1)
+        #expect(queue.byteCount == 2)
+        #expect(queue.dequeue()?.frame == Data([2, 3]))
+    }
+
     @Test("A growing replacement grid sheds droppable events before it overflows")
     func replacementShedsDroppableEventsBeforeOverflow() {
         let queue = MobileHostConnectionEventQueue(maximumEventCount: 4, maximumByteCount: 4)
