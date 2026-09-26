@@ -20,7 +20,7 @@ public struct GhosttyConfigDiscovery {
     /// own identifier.
     public static let releaseBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
 
-    private let fileReader: any GhosttyConfigFileReading
+    let fileReader: any GhosttyConfigFileReading
     private let fontProbe: any GhosttyFontProbing
     private let pathResolver: CmuxGhosttyConfigPathResolver
 

@@ -884,6 +884,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
     }()
+    /// Reloads the Ghostty config when one of its files changes on disk.
+    private lazy var ghosttyConfigLiveReloadCoordinator: GhosttyConfigLiveReloadCoordinator = {
+        GhosttyConfigLiveReloadCoordinator(
+            snapshotReader: DiscoveryGhosttyConfigLiveReloadSnapshotReader(
+                currentBundleIdentifier: Bundle.main.bundleIdentifier,
+                appSupportDirectory: FileManager.default.urls(
+                    for: .applicationSupportDirectory,
+                    in: .userDomainMask
+                ).first,
+                configHomeDirectory: DiscoveryGhosttyConfigLiveReloadSnapshotReader.configHomeDirectory(
+                    environment: ProcessInfo.processInfo.environment
+                )
+            ),
+            changeSource: FileWatcherGhosttyConfigChangeSource()
+        ) { [weak self] in
+            _ = self?.reloadConfiguration(source: "ghosttyConfigFileWatcher")
+        }
+    }()
+    /// Shows Ghostty config errors after a load, once per distinct set.
+    private lazy var ghosttyConfigDiagnosticsNoticePresenter = GhosttyConfigDiagnosticsNoticePresenter(
+        isMainWindow: { [weak self] window in
+            self?.isMainTerminalWindow(window) ?? false
+        }
+    )
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -1837,6 +1861,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
+        if !isRunningUnderXCTest {
+            startGhosttyConfigLiveReload()
+        }
         installGlobalFontMagnificationObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
@@ -14294,7 +14321,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
+            MainActor.assumeIsolated {
+                self?.ghosttyConfigDidReloadForLiveReload()
+            }
         }
+    }
+
+    /// Starts the Ghostty config file watcher and shows diagnostics from the
+    /// launch-time config load, which ran before the reload observer existed.
+    private func startGhosttyConfigLiveReload() {
+        ghosttyConfigLiveReloadCoordinator.start()
+        ghosttyConfigDiagnosticsNoticePresenter.update(
+            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+        )
+    }
+
+    private func ghosttyConfigDidReloadForLiveReload() {
+        guard !isRunningUnderXCTestCached else { return }
+        ghosttyConfigLiveReloadCoordinator.noteConfigurationDidReload()
+        ghosttyConfigDiagnosticsNoticePresenter.update(
+            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+        )
     }
 
     private func installGlobalFontMagnificationObserver() {
