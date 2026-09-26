@@ -7,15 +7,22 @@ import Testing
     private let url = URL(string: "https://github.com/owner/repo/pull/12746")!
 
     @Test func attachReplaceAndClearAreIdempotent() {
+        // `#expect` evaluates a call against an immutable copy, so each
+        // mutating call's result is bound before it is asserted.
         var store = SidebarManualPullRequestStore()
-        #expect(store.attach(number: 12746, label: "PR", url: url, status: .open, branch: "feature/pr"))
+        let attached = store.attach(number: 12746, label: "PR", url: url, status: .open, branch: "feature/pr")
+        #expect(attached)
         #expect(store.state?.number == 12746)
-        #expect(!store.attach(number: 12746, label: "PR", url: url, status: .open, branch: "feature/pr"))
-        #expect(store.attach(number: 12747, label: "PR", url: url, status: .merged, branch: "main"))
+        let reattached = store.attach(number: 12746, label: "PR", url: url, status: .open, branch: "feature/pr")
+        #expect(!reattached)
+        let replaced = store.attach(number: 12747, label: "PR", url: url, status: .merged, branch: "main")
+        #expect(replaced)
         #expect(store.state?.status == .merged)
-        #expect(store.clear())
+        let cleared = store.clear()
+        #expect(cleared)
         #expect(store.state == nil)
-        #expect(!store.clear())
+        let clearedAgain = store.clear()
+        #expect(!clearedAgain)
     }
 
     @Test func reconcilePreservesManualIdentityAndUpdatesStatus() {
@@ -30,7 +37,8 @@ import Testing
             branch: "other",
             isStale: false
         )
-        #expect(store.reconcile(with: watcher))
+        let reconciled = store.reconcile(with: watcher)
+        #expect(reconciled)
         #expect(store.state?.label == "owner/repo")
         #expect(store.state?.branch == "feature/pr")
         #expect(store.state?.status == .closed)
@@ -44,7 +52,8 @@ import Testing
     func reconcileIgnoresNonMatchingWatcherState(_ watcher: SidebarPullRequestState) {
         var store = SidebarManualPullRequestStore()
         _ = store.attach(number: 12746, label: "PR", url: url, status: .open, branch: "feature/pr")
-        #expect(!store.reconcile(with: watcher))
+        let reconciled = store.reconcile(with: watcher)
+        #expect(!reconciled)
         #expect(store.state?.status == .open)
     }
 }
