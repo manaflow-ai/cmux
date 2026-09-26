@@ -135,9 +135,9 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setMenuBarOnly(_ enabled: Bool) -> Bool
 
-    /// Opens the iOS pairing window, which shows a scannable QR code for
-    /// pairing an iPhone with this Mac. The host owns the window so the
-    /// package can't open it directly.
+    /// Opens the iOS pairing window, which walks through signing in to the
+    /// same account on the iPhone. The host owns the window so the package
+    /// can't open it directly.
     func openMobilePairingWindow()
 
     /// Plays the currently configured notification sound so the user
