@@ -791,7 +791,10 @@ struct ExternalHoverOwnerCoordinatorTests {
         #expect(invalidated.withLock { $0 }.count == 1)
         #expect(invalidated.withLock { $0.first } === first)
         coordinator.retireLifetime()
-        #expect(invalidated.withLock { $0 } == [first, second])
+        let retired = invalidated.withLock { $0 }
+        #expect(retired.count == 2)
+        #expect(retired[0] === first)
+        #expect(retired[1] === second)
     }
 
 }
