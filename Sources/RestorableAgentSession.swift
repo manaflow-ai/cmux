@@ -514,14 +514,14 @@ enum AgentResumeCommandBuilder {
             cwd,
             normalized(launchCommand?.workingDirectory),
         ].compactMap { $0 }
-        // Sanitizing runs on the agent's own argv, before the launcher prefix is added: the
-        // sanitizer strips `--cwd`/`-C`/`--workspace` options whose value matches the restore
-        // directory, and a launcher's prefix may legitimately carry the same option for itself.
-        // The environment prefix stays out of it — those words are `NAME=value`, never options.
         // Exact built-in registrations delegate to AgentResumeArgv just like
         // non-Vault kinds; only user-authored templates own their cwd flags.
         let usesStructuredResumeArguments = customRegistration == nil ||
             customRegistration?.registeredResumeKind != nil
+        // Sanitizing runs on the agent's own argv, before the launcher prefix is added: the
+        // sanitizer strips `--cwd`/`-C`/`--workspace` options whose value matches the restore
+        // directory, and a launcher's prefix may legitimately carry the same option for itself.
+        // The environment prefix stays out of it — those words are `NAME=value`, never options.
         let sanitizedAgentParts: [String]
         if !usesStructuredResumeArguments {
             sanitizedAgentParts = argv
