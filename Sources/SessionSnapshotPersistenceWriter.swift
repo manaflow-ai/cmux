@@ -13,14 +13,17 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
     typealias Store = any SessionSnapshotStoring<AppSessionSnapshot>
 
     private let store: Store
+    private let defaults: UserDefaults
     private let queue: DispatchQueue
     private let targetQueue: DispatchQueue
 
     init(
         store: Store,
-        queue: DispatchQueue
+        queue: DispatchQueue,
+        defaults: UserDefaults = .standard
     ) {
         self.store = store
+        self.defaults = defaults
         self.targetQueue = queue
         // Own serial ordering even if the supplied scheduling target is concurrent.
         self.queue = DispatchQueue(
@@ -42,23 +45,23 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         // Persistence can outlive its main-actor owner; retain only the Sendable
-        // store so finishing a write cannot destroy AppDelegate on this queue.
-        let writeBlock = { [store] in
-            Self.removeLegacyPersistedWindowGeometry()
+        // store and defaults so finishing a write cannot destroy AppDelegate on this queue.
+        let writeBlock = { [store, defaults] in
+            Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
             if let persistedGeometryData {
-                UserDefaults.standard.set(
+                defaults.set(
                     persistedGeometryData,
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
             }
             if let snapshot {
-                Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+                Self.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
                 _ = store.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
-                    Self.markCrashOnlyPrimarySnapshotRemoval()
+                    Self.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
                 } else {
-                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
                 }
                 store.removeSnapshot(fileURL: nil)
             }

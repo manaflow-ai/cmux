@@ -590,12 +590,17 @@ private final class PersistenceQueueProbeStore: SessionSnapshotStoring, @uncheck
 
 extension CrashDiagnosticSessionPolicyTests {
     @Test("Shutdown persistence shares the autosave serial executor")
-    func synchronousPersistenceUsesAutosaveQueue() {
+    func synchronousPersistenceUsesAutosaveQueue() throws {
         let queue = DispatchQueue(label: "cmux.tests.snapshot-persistence")
         let key = DispatchSpecificKey<Bool>()
         queue.setSpecific(key: key, value: true)
         let store = PersistenceQueueProbeStore(key: key)
-        let writer = SessionSnapshotPersistenceWriter(store: store, queue: queue)
+        // Isolated defaults: the empty-snapshot path clears the crash-only
+        // marker and legacy geometry keys, which must not touch shared state.
+        let suiteName = "cmux.tests.snapshot-persistence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let writer = SessionSnapshotPersistenceWriter(store: store, queue: queue, defaults: defaults)
 
         writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: false)
         writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: true)
