@@ -1412,6 +1412,7 @@
       "customActionsDesc": "<actions>actions</actions> គឺជាធាតុដែល cmux រត់ឡើងវិញបាន។ ប្រើ actions នៅពេល behavior ដូចគ្នាត្រូវមានពី Command Palette, surface tab bar, shortcuts ឬ menu របស់ plus button។ ទុក <commands>commands</commands> សម្រាប់ shell commands និង workspace layouts ដែលប្រើឡើងវិញ។ ដាក់ <palette>palette</palette> ជា false នៅពេល action មិនគួរបង្ហាញក្នុង Command Palette។",
       "actionTypes": "ប្រភេទ action",
       "actionTypeBuiltin": "Alias ទៅ built-in cmux action ដូចជា cmux.newTerminal, cmux.newBrowser, cmux.splitRight ឬ cmux.splitDown។",
+      "actionTypeBuiltinCopy": "សកម្មភាពចម្លងដែលមានស្រាប់៖ cmux.copyWorkingDirectory ចម្លងថតធ្វើការរបស់ terminal, cmux.copyProjectRoot ចម្លងឫសនៃ git repository របស់វា (ឬថតធ្វើការ នៅពេលនៅក្រៅ repository) ហើយ cmux.copyScreen ចម្លងអេក្រង់ដែលមើលឃើញ។",
       "actionTypeCommand": "រត់ shell text ក្នុង terminal។ ប្រើ target ដើម្បីជ្រើស terminal បច្ចុប្បន្ន ឬ tab ថ្មីក្នុង pane បច្ចុប្បន្ន។",
       "actionTypeAgent": "ចាប់ផ្តើម coding agent ដែលគាំទ្រ។ បច្ចុប្បន្នគាំទ្រ codex និង claude ជាមួយ args ជម្រើស។",
       "actionTypeWorkspaceCommand": "រត់ named workspace definition ពី commands។ ប្រើវាសម្រាប់ multi-pane layouts, working directories ផ្ទាល់ខ្លួន និង startup commands។",

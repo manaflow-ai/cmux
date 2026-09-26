@@ -1412,6 +1412,7 @@
       "customActionsDesc": "En <actions>actions</actions>-oppføring er den gjenbrukbare tingen cmux kjører. Bruk handlinger når samme oppførsel skal være tilgjengelig fra Command Palette, overflatefanelinjen, snarveier eller plussknappmenyen. Behold <commands>commands</commands> for gjenbrukbare shell-kommandoer og arbeidsområdeoppsett. Sett <palette>palette</palette> til false når en handling ikke skal vises i Command Palette.",
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Alias til en innebygd cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Innebygde kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbeidsmappe, cmux.copyProjectRoot kopierer roten av git-repositoriet (eller arbeidsmappen utenfor et repository), og cmux.copyScreen kopierer den synlige skjermen.",
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
       "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",

@@ -1412,6 +1412,7 @@
       "customActionsDesc": "Запись <actions>actions</actions> описывает переиспользуемое действие, которое запускает cmux. Используйте действия, когда одно и то же поведение должно быть доступно из Command Palette, панели вкладок поверхности, сочетаний клавиш или меню кнопки плюс. Оставьте <commands>commands</commands> для переиспользуемых shell-команд и раскладок рабочих областей. Установите <palette>palette</palette> в false, если действие не должно отображаться в Command Palette.",
       "actionTypes": "Типы действий",
       "actionTypeBuiltin": "Псевдоним встроенного действия cmux, например cmux.newTerminal, cmux.newBrowser, cmux.splitRight или cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Встроенные действия копирования: cmux.copyWorkingDirectory копирует рабочий каталог терминала, cmux.copyProjectRoot — корень его git-репозитория (или рабочий каталог вне репозитория), а cmux.copyScreen — видимый экран.",
       "actionTypeCommand": "Запускает shell-текст в терминале. Используйте target, чтобы выбрать текущий терминал или новую вкладку в текущей панели.",
       "actionTypeAgent": "Запускает поддерживаемого кодового агента. Сейчас поддерживаются codex и claude с необязательными аргументами.",
       "actionTypeWorkspaceCommand": "Запускает именованное определение рабочей области из commands. Используйте для многопанельных раскладок, пользовательских рабочих каталогов и стартовых команд.",

@@ -1412,6 +1412,7 @@
       "customActionsDesc": "<actions>actions</actions> 項目是 cmux 執行的可重複使用行為。當同一個行為需要從 Command Palette、表面分頁列、快捷鍵或加號按鈕選單觸發時，請使用動作。將 <commands>commands</commands> 保留給可重複使用的 shell 命令與工作區配置。如果某個動作不應出現在 Command Palette，請將 <palette>palette</palette> 設為 false。",
       "actionTypes": "動作類型",
       "actionTypeBuiltin": "為內建 cmux 動作建立別名，例如 cmux.newTerminal、cmux.newBrowser、cmux.splitRight 或 cmux.splitDown。",
+      "actionTypeBuiltinCopy": "複製類內建動作：cmux.copyWorkingDirectory 複製終端機的工作目錄，cmux.copyProjectRoot 複製其 Git 儲存庫的根目錄（不在儲存庫中時複製工作目錄），cmux.copyScreen 複製目前可見的畫面內容。",
       "actionTypeCommand": "在終端機中執行 shell 文字。使用 target 選擇目前終端機或目前面板中的新分頁。",
       "actionTypeAgent": "啟動支援的程式碼代理。現在支援 codex 與 claude，並可使用選用引數。",
       "actionTypeWorkspaceCommand": "執行 commands 中具名的工作區定義。用於多面板配置、自訂工作目錄與啟動命令。",

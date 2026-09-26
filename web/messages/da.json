@@ -1412,6 +1412,7 @@
       "customActionsDesc": "En <actions>actions</actions>-post er den genbrugelige ting, som cmux kører. Brug handlinger, når den samme adfærd skal være tilgængelig fra Command Palette, overfladens fanelinje, genveje eller plusknappens menu. Behold <commands>commands</commands> til genbrugelige shell-kommandoer og arbejdsområdelayouts. Sæt <palette>palette</palette> til false, når en handling ikke skal vises i Command Palette.",
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Opret et alias til en indbygget cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Indbyggede kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbejdsmappe, cmux.copyProjectRoot kopierer roden af dens git-repository (eller arbejdsmappen uden for et) og cmux.copyScreen kopierer den synlige skærm.",
       "actionTypeCommand": "Kør shelltekst i en terminal. Brug target til at vælge den aktuelle terminal eller en ny fane i den aktuelle rude.",
       "actionTypeAgent": "Start en understøttet kodeagent. I dag understøttes codex og claude med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kør en navngiven arbejdsområdedefinition fra commands. Brug dette til layouts med flere ruder, brugerdefinerede arbejdsmapper og startkommandoer.",

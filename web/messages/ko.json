@@ -1412,6 +1412,7 @@
       "customActionsDesc": "<actions>actions</actions> 항목은 cmux가 실행하는 재사용 가능한 동작입니다. 같은 동작을 Command Palette, 서피스 탭 바, 단축키 또는 플러스 버튼 메뉴에서 사용할 때 액션을 사용하세요. 재사용 가능한 셸 명령과 워크스페이스 레이아웃에는 <commands>commands</commands>를 계속 사용하세요. Command Palette에서 숨길 액션은 <palette>palette</palette>를 false로 설정합니다.",
       "actionTypes": "액션 유형",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight, cmux.splitDown 같은 내장 cmux 액션의 별칭입니다.",
+      "actionTypeBuiltinCopy": "복사용 내장 동작: cmux.copyWorkingDirectory는 터미널의 작업 디렉터리를, cmux.copyProjectRoot는 Git 저장소의 루트(저장소 밖에서는 작업 디렉터리)를, cmux.copyScreen은 보이는 화면을 복사합니다.",
       "actionTypeCommand": "터미널에서 셸 텍스트를 실행합니다. target으로 현재 터미널 또는 현재 패널의 새 탭을 선택합니다.",
       "actionTypeAgent": "지원되는 코딩 에이전트를 시작합니다. 현재 codex와 claude를 지원하며 선택적 인수를 줄 수 있습니다.",
       "actionTypeWorkspaceCommand": "commands의 이름 있는 워크스페이스 정의를 실행합니다. 여러 패널 레이아웃, 사용자 지정 작업 디렉터리, 시작 명령에 사용합니다.",

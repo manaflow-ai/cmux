@@ -1412,6 +1412,7 @@
       "customActionsDesc": "Uma entrada <actions>actions</actions> é a unidade reutilizável que o cmux executa. Use ações quando o mesmo comportamento deve estar disponível na Command Palette, na barra de abas de superfície, em atalhos ou no menu do botão de mais. Mantenha <commands>commands</commands> para comandos shell reutilizáveis e layouts de workspace. Defina <palette>palette</palette> como false quando uma ação não deve aparecer na Command Palette.",
       "actionTypes": "Tipos de ação",
       "actionTypeBuiltin": "Cria um alias para uma ação integrada do cmux, como cmux.newTerminal, cmux.newBrowser, cmux.splitRight ou cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Ações integradas de cópia: cmux.copyWorkingDirectory copia o diretório de trabalho do terminal, cmux.copyProjectRoot copia a raiz do repositório git (ou o diretório de trabalho fora de um repositório) e cmux.copyScreen copia a tela visível.",
       "actionTypeCommand": "Executa texto shell em um terminal. Use target para escolher o terminal atual ou uma nova aba no painel atual.",
       "actionTypeAgent": "Inicia um agente de programação compatível. Hoje oferece suporte a codex e claude, com argumentos opcionais.",
       "actionTypeWorkspaceCommand": "Executa uma definição de workspace nomeada em commands. Use para layouts com vários painéis, diretórios de trabalho personalizados e comandos de inicialização.",

@@ -1414,6 +1414,7 @@
       "customActionsDesc": "<actions>actions</actions> คือรายการที่ cmux ใช้รันซ้ำได้ ใช้ actions เมื่อ behavior เดียวกันควรเรียกได้จาก Command Palette, surface tab bar, shortcuts หรือเมนูของปุ่มบวก เก็บ <commands>commands</commands> ไว้สำหรับ shell commands และ workspace layouts ที่ใช้ซ้ำได้ ตั้ง <palette>palette</palette> เป็น false เมื่อไม่ต้องการให้ action แสดงใน Command Palette",
       "actionTypes": "ประเภท action",
       "actionTypeBuiltin": "สร้าง alias ให้ built-in cmux action เช่น cmux.newTerminal, cmux.newBrowser, cmux.splitRight หรือ cmux.splitDown",
+      "actionTypeBuiltinCopy": "การดำเนินการคัดลอกในตัว: cmux.copyWorkingDirectory คัดลอกไดเรกทอรีทำงานของเทอร์มินัล cmux.copyProjectRoot คัดลอกรากของรีโพซิทอรี git (หรือไดเรกทอรีทำงานเมื่ออยู่นอกรีโพซิทอรี) และ cmux.copyScreen คัดลอกหน้าจอที่มองเห็น",
       "actionTypeCommand": "รันข้อความ shell ใน terminal ใช้ target เพื่อเลือก terminal ปัจจุบันหรือ tab ใหม่ใน pane ปัจจุบัน",
       "actionTypeAgent": "เริ่ม coding agent ที่รองรับ ปัจจุบันรองรับ codex และ claude พร้อม args แบบเลือกได้",
       "actionTypeWorkspaceCommand": "รัน workspace definition ที่มีชื่อจาก commands ใช้สำหรับเลย์เอาต์หลาย pane, working directory แบบกำหนดเอง และ startup commands",

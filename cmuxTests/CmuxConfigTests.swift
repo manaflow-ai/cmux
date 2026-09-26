@@ -1405,6 +1405,71 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
     }
 
+    @MainActor
+    func testCopyBuiltInsResolveAsSurfaceTabBarButtonsAndHonorActionOverrides() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "cmux.copyScreen": { "title": "Grab Screen", "palette": false }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                "cmux.copyWorkingDirectory",
+                { "action": "copyProjectRoot", "title": "Root" },
+                "cmux.copyScreen"
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.map(\.action),
+            [
+                .builtIn(.copyWorkingDirectory),
+                .builtIn(.copyProjectRoot),
+                .builtIn(.copyScreen)
+            ]
+        )
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.compactMap {
+                guard case .builtIn(let builtIn) = $0.action else { return nil }
+                return builtIn.terminalCopyAction
+            },
+            [.workingDirectory, .projectRoot, .visibleScreen]
+        )
+        // Copy built-ins never create a Bonsplit split/tab, so the tab bar
+        // routes them to the workspace's executable-button path.
+        XCTAssertTrue(store.surfaceTabBarButtons.allSatisfy {
+            guard case .builtIn(let builtIn) = $0.action else { return false }
+            return builtIn.bonsplitAction == nil
+        })
+
+        let copyScreen = try XCTUnwrap(store.resolvedAction(id: "cmux.copyScreen"))
+        XCTAssertEqual(copyScreen.title, "Grab Screen")
+        XCTAssertFalse(copyScreen.palette)
+        // Built-ins reach the palette through native entries, never as
+        // duplicate custom rows.
+        XCTAssertFalse(store.paletteCustomActions().contains { $0.id.hasPrefix("cmux.copy") })
+    }
+
     func testDecodeEmptySurfaceTabBarButtons() throws {
         let json = """
         {

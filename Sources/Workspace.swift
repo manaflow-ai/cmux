@@ -5312,9 +5312,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
+        resolvedWorkingDirectory(panelId: focusedPanelId)
+    }
+
+    /// ``resolvedWorkingDirectory()`` for a specific panel, such as the tab a
+    /// surface tab bar button belongs to. `nil` skips the panel tiers.
+    func resolvedWorkingDirectory(panelId: UUID?) -> String? {
         let candidates = [
-            focusedPanelId.flatMap { panelDirectories[$0] },
-            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            panelId.flatMap { panelDirectories[$0] },
+            panelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ]
         for candidate in candidates {
@@ -14616,6 +14622,17 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+                if let copyAction = builtInAction.terminalCopyAction {
+                    // Target the tab selected in the pane whose button was
+                    // clicked, not whichever pane happens to have focus.
+                    TerminalCopyActionRunner.run(
+                        copyAction,
+                        workspace: self,
+                        panelId: bonsplitController.selectedTab(inPane: pane)
+                            .flatMap { panelIdFromSurfaceId($0.id) }
+                    )
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
