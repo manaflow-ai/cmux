@@ -43,7 +43,8 @@ Exit codes: 0 merged or already up to date, 1 blocked (needs a person),
 Usage:
   catch_up_pr.py merge --base origin/main|SHA [--repo DIR] [--tools-root DIR] [--title T] [--json]
   catch_up_pr.py verify --repo DIR --head SHA --base SHA --merged SHA --base-tip REF
-  catch_up_pr.py comment --result result.json --push pushed|...
+  catch_up_pr.py comment --result result.json --push pushed|... [--auto --head-sha SHA]
+  catch_up_pr.py read-result --file outputs.json [--pin SHA]
 """
 
 from __future__ import annotations
@@ -690,11 +691,118 @@ def render_comment(result: dict, push: str, base_name: str, head_name: str, run_
             f" did not push. Nothing changed on the branch; comment `/catch-up` to try again.{footer}")
 
 
+AUTO_MARKER = "<!-- cmux-auto-catch-up head={head} -->"
+# The automatic path speaks only when it pushed or when a person must act on
+# this head; the marker then keeps auto_catch_up_select.py off the head. Every
+# other outcome (up to date, an error or a lost runner, the branch moved, the
+# push job refused the merge, no push token) says nothing and marks nothing:
+# the selector's ledger bounds how often such a head is tried again.
+AUTO_SPOKEN = frozenset({("blocked", None), ("merged", "pushed"), ("merged", "push-denied"),
+                         ("merged", "needs-workflows")})
+
+
+def render_auto_comment(result: dict, push: str, base_name: str, head_name: str, run_url: str,
+                        head_sha: str) -> str:
+    """The comment for a catch-up nobody asked for, or "" when it should stay silent.
+
+    It carries AUTO_MARKER for the head it tried, which auto_catch_up_select.py
+    reads so that head is not tried again. No @-mentions and no issue
+    references, so a comment on many pull requests pings nobody.
+    """
+    status = result.get("status")
+    if not re.fullmatch(r"[0-9a-f]{40}", head_sha or ""):
+        return ""
+    if (status, None if status == "blocked" else push) not in AUTO_SPOKEN:
+        return ""
+    body = render_comment(result, push, base_name, head_name, "")
+    lines = [AUTO_MARKER.format(head=head_sha),
+             f"Automatic catch-up: {code(base_name)} is green again and this branch needed it.", "", body]
+    if status == "merged" and push == "pushed":
+        lines += ["", "If your next push is rejected because the branch moved, run `git pull --no-rebase` and push"
+                  " again; do not force-push over this merge."]
+    else:
+        lines += ["", "Automatic catch-up will not try this head again; a new push or `/catch-up` does."]
+    lines.append("Label the pull request `no-auto-catch-up` to opt out.")
+    footer = f"\n\n<sub>[Catch-up run]({run_url})</sub>" if run_url else ""
+    return "\n".join(lines) + footer
+
+
+# --- the merge job's hand-off, read by the push job -----------------------------
+
+RESULT_STATUSES = frozenset({"merged", "up_to_date", "blocked", "error"})
+RESULT_SHAS = ("head_sha", "base_sha", "merged_sha")
+RESULT_REFS = ("head_ref", "base_ref")
+REFUSAL_LIMIT = 400
+
+
+def valid_branch(name: str) -> bool:
+    completed = subprocess.run(["git", "check-ref-format", "--branch", name], capture_output=True, text=True)
+    return completed.returncode == 0
+
+
+def one_line(value: object) -> str:
+    """A string with no control characters, or "" (a line break could add a step output)."""
+    return value if isinstance(value, str) and not re.search(r"[\x00-\x1f\x7f]", value) else ""
+
+
+def read_merge_result(data: object, pin: str) -> tuple[dict[str, str], str | None]:
+    """The merge job's outputs.json, validated for the push job: (outputs, warning).
+
+    Nothing in it is trusted. Commit ids are 40 hex, branch names pass
+    check-ref-format, the status is one the merge prints (anything else reads
+    as error), the head is the pin when there is one, and the refusal is one
+    line without workflow commands. A failed check yields no merge values, so
+    nothing is verified or pushed.
+    """
+    if not isinstance(data, dict):
+        return {}, "the merge result is not an object"
+    refusal = one_line(data.get("refusal")).replace("::", ":")[:REFUSAL_LIMIT]
+    outputs = {"refusal": refusal} if refusal else {}
+    status = one_line(data.get("status"))
+    values = {"status": status if status in RESULT_STATUSES or not status else "error"}
+    for key in RESULT_SHAS:
+        value = one_line(data.get(key))
+        if value and not re.fullmatch(r"[0-9a-f]{40}", value):
+            return outputs, f"bad commit id in {key}"
+        values[key] = value
+    for key in RESULT_REFS:
+        value = one_line(data.get(key))
+        if value and not valid_branch(value):
+            return outputs, f"bad branch name in {key}"
+        values[key] = value
+    if pin and values["head_sha"] and values["head_sha"] != pin:
+        return outputs, "the merge result is for another head than the one selected"
+    return {**values, **outputs}, None
+
+
+def command_read_result(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.is_file():
+        print(f"No merge result at {path}.", file=sys.stderr)
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    pin = args.pin if re.fullmatch(r"[0-9a-f]{40}", args.pin or "") else ""
+    outputs, warning = read_merge_result(data, pin)
+    if warning:
+        print(f"::warning::{warning}", file=sys.stderr)
+    for key, value in outputs.items():
+        print(f"{key}={value}")
+    return 0
+
+
 def command_comment(args: argparse.Namespace) -> int:
     try:
         result = json.loads(Path(args.result).read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         result = {"status": "error", "message": f"no catch-up result ({error.__class__.__name__})"}
+    if args.auto:
+        text = render_auto_comment(result, args.push, args.base_name, args.head_name, args.run_url, args.head_sha)
+        if text:
+            print(text)
+        return 0
     print(render_comment(result, args.push, args.base_name, args.head_name, args.run_url))
     return 0
 
@@ -722,11 +830,18 @@ def main(argv: list[str]) -> int:
     comment.add_argument("--result", required=True)
     comment.add_argument("--push", required=True,
                          choices=["pushed", "pushed-without-ci", "rejected", "needs-workflows", "push-denied",
-                                  "unverified", "not-attempted"])
+                                  "unverified", "not-attempted", "skipped-no-app-token"])
     comment.add_argument("--base-name", default="main")
     comment.add_argument("--head-name", default="this branch")
     comment.add_argument("--run-url", default="")
+    comment.add_argument("--auto", action="store_true",
+                         help="the automatic path: marked with --head-sha, empty when nothing needs saying")
+    comment.add_argument("--head-sha", default="", help="the head the automatic catch-up tried")
     comment.set_defaults(func=command_comment)
+    read_result = sub.add_parser("read-result", help="validate the merge job's outputs.json; print key=value lines")
+    read_result.add_argument("--file", required=True)
+    read_result.add_argument("--pin", default="", help="the head the request or selection pinned, if any")
+    read_result.set_defaults(func=command_read_result)
     args = parser.parse_args(argv)
     return args.func(args)
 
