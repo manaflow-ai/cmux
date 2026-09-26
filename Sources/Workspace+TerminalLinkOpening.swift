@@ -6,7 +6,7 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension BrowserTerminalLinkSplitDirection {
-    var splitOrientation: SplitOrientation {
+    var splitOrientation: SessionSplitOrientation {
         switch self {
         case .right:
             .horizontal
@@ -101,7 +101,7 @@ extension Workspace: TerminalLinkOpenContainer {
         splitDirection: BrowserTerminalLinkSplitDirection
     ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
-        let orientation = splitDirection.splitOrientation
+        let orientation = splitDirection.splitOrientation.splitOrientation
         if let targetPane = preferredTargetPane(
             fromPanelId: target.containerPanelID,
             orientation: orientation
