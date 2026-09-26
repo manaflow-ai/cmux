@@ -291,6 +291,7 @@ async function stripePersonalCheckout(
       client_reference_id: stackUserId,
       metadata,
       subscription_data: { metadata },
+      ...stripeCheckoutTaxOptions(),
       customer: stripeBillingStatus.customerId ?? undefined,
       customer_email: stripeBillingStatus.customerId
         ? undefined
@@ -387,6 +388,7 @@ async function stripeTeamCheckout(
       client_reference_id: resolvedTeamId,
       metadata,
       subscription_data: { metadata },
+      ...stripeCheckoutTaxOptions(),
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
@@ -584,6 +586,19 @@ function unavailableIntervalResponse(request: NextRequest): NextResponse | null 
   if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
   const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
   return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
+}
+
+function stripeCheckoutTaxOptions(): {
+  readonly automatic_tax?: { readonly enabled: true };
+  readonly tax_id_collection?: { readonly enabled: true };
+} {
+  // The env schema validates this opt-in, while reading process.env here keeps
+  // the route's test seam dynamic when a test toggles the flag after imports.
+  if (process.env.STRIPE_AUTOMATIC_TAX?.trim() !== "1") return {};
+  return {
+    automatic_tax: { enabled: true },
+    tax_id_collection: { enabled: true },
+  };
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
