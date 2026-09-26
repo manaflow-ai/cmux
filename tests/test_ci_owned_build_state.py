@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_build_state as state  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 OWNED = "startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
 
@@ -56,6 +57,31 @@ class Fixture(unittest.TestCase):
 
 
 class Check(Fixture):
+    def test_check_records_the_seed_prefix_for_idle_prefetch(self):
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "CI_CACHE_R2_PUBLIC_URL": "https://cache.test"}
+        with unittest.mock.patch.dict(os.environ, env):
+            run(state.check, self.store, "fp", self.workspace)
+        recorded = json.loads((self.store / state.seed.SEED_SOURCE).read_text())
+        self.assertEqual(recorded, {"prefix": "admission-derived-data-v1-macOS-ARM64-fp-", "runner_os": "macOS",
+                                    "runner_arch": "ARM64", "public_url": "https://cache.test"})
+        # Outside a job there is nothing to record.
+        (self.store / state.seed.SEED_SOURCE).unlink()
+        with unittest.mock.patch.dict(os.environ, {"RUNNER_OS": ""}):
+            run(state.check, self.store, "fp", self.workspace)
+        self.assertFalse((self.store / state.seed.SEED_SOURCE).exists())
+
+    def test_check_and_keep_sweep_what_a_killed_clear_left_aside(self):
+        # glaeda's idle catch-up is killed whenever a job starts; a kill inside clear's rmtree leaves this
+        self.keep()
+        for name in (".derived-data.discard-111", ".derived-data.discard-222"):
+            (self.store / name / "Build").mkdir(parents=True)
+        run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual(sorted(p.name for p in self.store.glob(".derived-data.discard-*")), [])
+        self.assertTrue((self.store / state.DERIVED).is_dir(), "the kept build itself stays")
+        (self.store / ".derived-data.discard-333").mkdir()
+        run(state.keep, self.store, self.derived, "fp")
+        self.assertFalse((self.store / ".derived-data.discard-333").exists())
+
     def test_cold_store(self):
         result = run(state.check, self.store, "fp", self.workspace)
         self.assertEqual((result["warm"], result["packages"]), ("false", "false"))
@@ -207,6 +233,160 @@ class AdoptAndSave(Fixture):
             self.assertEqual(state.main(["x", "check", "only"]), 2)
 
 
+A = "a" * 40
+B = "b" * 40
+C = "c" * 40
+D = "d" * 40
+E = "e" * 40
+
+
+class WarmKeys(Fixture):
+    """`keep` stamps the merge base; `warm-keys` prints what owned_warm_state.py folds."""
+
+    def setUp(self):
+        super().setUp()
+        self.seeds = self.store / "seeds"
+
+    def kept(self, fingerprint="fp", merged_onto=A, pr="", store=None):
+        self.derived.mkdir(parents=True, exist_ok=True)
+        return run(state.keep, store or self.store, self.derived, fingerprint, merged_onto, pr)
+
+    def seed(self, commit, fingerprint="fp", jobs=14, when=0, manifest=True):
+        path = self.seeds / f"admission-derived-data-v1-macOS-ARM64-{fingerprint}-j{jobs}-{commit}"
+        path.mkdir(parents=True)
+        if manifest:
+            (path / state.seed.MANIFEST).write_text("{}")
+        os.utime(path, (1_000_000 + when, 1_000_000 + when))
+        return path
+
+    def keys(self, fingerprint="fp", cache=True):
+        env = {"CMUX_SEED_LOCAL_CACHE": str(self.seeds) if cache else ""}
+        with unittest.mock.patch.dict(os.environ, env):
+            return state.warm_keys(self.store, "cmux11s-glaeda-1", "glaeda-root-std-xcode-26.6", fingerprint)
+
+    def test_keep_stamps_the_merge_base_and_replaces_it(self):
+        self.kept(merged_onto=A.upper())
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["merged_onto"], A)
+        self.kept(merged_onto="")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+        self.kept(merged_onto="not-a-commit")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+
+    def test_kept_build_first_then_the_newest_seeds_of_this_fingerprint(self):
+        self.kept()
+        self.seed(B, when=10)
+        self.seed(C, when=30, jobs=12)
+        self.seed(D, when=20)
+        self.seed(E, fingerprint="other", when=40)  # another Xcode: never adopted here
+        self.seed("f" * 40, when=50, manifest=False)  # incomplete
+        self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
+                                       "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12]})
+
+    def test_at_most_eight_keys_without_repeats(self):
+        self.kept()
+        commits = (A, B, C, D, E, *(f"{digit}" * 40 for digit in range(5)))
+        for when, commit in enumerate(commits):
+            self.seed(commit, when=when)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, *(f"{digit}" * 12 for digit in (4, 3, 2, 1, 0)),
+                                               "e" * 12, "d" * 12])
+        self.assertEqual(state.MAX_WARM_KEYS, __import__("owned_warm_state").MAX_KEYS)
+
+    def test_keep_stamps_the_pull_request_after_the_merge_base(self):
+        self.kept(pr="14718")
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 14718)
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-14718", "b" * 12])
+        for junk in ("", "0", "x1", "1" * 10):
+            self.kept(pr=junk)
+            self.assertNotIn("pr", json.loads((self.store / "stamp.json").read_text()), junk)
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output):
+            self.assertEqual(state.main(["x", "keep", str(self.store), str(self.derived), "fp", A, "7"]), 0)
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["pr"], 7)
+
+    def test_the_other_roots_keys_follow_this_roots(self):
+        # A job's root follows glaeda's free token, so a runner lists its whole mini.
+        # Each root has its own fingerprint (compile-app-host-test-product.sh adds root=).
+        second = self.store / "cmux-ci-2"
+        self.kept(pr="7")
+        self.kept(fingerprint="fp2", merged_onto=B, pr="8", store=second)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12, "pr-8"])
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": ""}):
+            from_second = state.warm_keys(second, "r", "p", "fp2")["keys"]
+        self.assertEqual(from_second, ["b" * 12, "pr-8", "a" * 12, "pr-7"])
+        # Another root counts only with a kept DerivedData of this STATE_VERSION.
+        stamp = json.loads((second / "stamp.json").read_text())
+        (second / "stamp.json").write_text(json.dumps({**stamp, "fingerprint": "fp2-owned-rec0"}))
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        (second / "stamp.json").write_text(json.dumps(stamp))
+        state.clear(second / "derived-data")
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        # Not a root store: never read.
+        (self.store / "cmux-ci-x").mkdir()
+        self.assertEqual(state.other_root_stores(self.store), [second])
+
+    def test_a_mini_with_a_second_root_lists_no_seeds(self):
+        # glaeda routes a warm admission by stamps only, so it may start at a
+        # root whose store lacks the seed (and whose fingerprint rules it out).
+        # Only stamp keys, which the hook follows to their root, are listed.
+        self.kept(pr="7")
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12])
+        second = self.store / "cmux-ci-2"
+        second.mkdir()
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        # From the second root, its own seeds are left out too.
+        second_seeds = second / "seeds"
+        name = self.seed(C, fingerprint="fp2").name
+        second_seeds.mkdir()
+        (self.seeds / name).rename(second_seeds / name)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(second_seeds)}):
+            self.assertEqual(state.warm_keys(second, "r", "p", "fp2")["keys"], ["a" * 12, "pr-7"])
+
+    def test_seeds_count_only_when_prefer_may_clone_them(self):
+        self.kept()
+        self.seed(B)
+        self.assertEqual(self.keys(cache=False)["keys"], ["a" * 12])
+
+    def test_a_kept_build_of_another_fingerprint_or_none_is_not_warm(self):
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["b" * 12])
+        self.kept(fingerprint="old")
+        self.assertEqual(self.keys(fingerprint="fp")["keys"], ["b" * 12])
+        self.assertEqual(self.keys(fingerprint="")["keys"], ["a" * 12, "b" * 12])
+
+    def test_a_kept_build_without_a_merge_base_adds_no_key(self):
+        self.kept(merged_onto="")
+        self.assertEqual(self.keys()["keys"], [])
+
+    def test_main_prints_only_the_document_the_janitor_folds(self):
+        import owned_warm_state
+
+        self.kept()
+        self.seed(B)
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.seeds),
+                                                   "GITHUB_OUTPUT": str(self.store / "out")}):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "cmux11s-glaeda-1",
+                                         "glaeda-root-std-xcode-26.6", "fp"]), 0)
+        document = json.loads(output.getvalue())
+        self.assertFalse((self.store / "out").exists())
+        jobs = [{"name": "CI / " + owned_warm_state.ADMISSION_JOB, "runner_name": "cmux11s-glaeda-1",
+                 "workflow_name": owned_warm_state.CI_WORKFLOW}]
+        self.assertEqual(owned_warm_state.record(document, jobs), ("cmux11s-glaeda-1", ["a" * 12, "b" * 12]))
+
+    def test_main_never_fails(self):
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.object(state, "warm_keys", side_effect=OSError("disk")):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "r", "p"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"runner": "r", "pool": "p", "keys": []})
+
+    def test_the_usage_names_warm_keys(self):
+        self.assertIn("owned_build_state.py warm-keys STORE RUNNER POOL", state.__doc__)
+
+
 class Replay(Fixture):
     """A warm job must see the times the kept build saw, not the copy's (job 107904138254)."""
 
@@ -346,11 +526,14 @@ class Prefer(Fixture):
         self.kept_seed("p-j14-base", changed=1)
         self.assertEqual(self.prefer()["prefer"], "false")
 
-    def test_a_seed_to_download_wins_only_within_max_distance(self):
+    def test_a_small_kept_diff_never_pays_for_a_download(self):
+        """A download costs about DOWNLOAD_INPUTS inputs of compile, so 3 changed inputs keep the warm build."""
         self.kept(changed=3)
-        self.assertEqual(self.prefer(("p-j14-base", 2))["prefer"], "false")
-        self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=2)["prefer"], "true")
-        self.assertEqual(self.prefer(("p-j14-base", 3), max_distance=2)["prefer"], "false")
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False):
+            for located, limit in ((("p-j14-base", 2), None), (("p-j14-base", 2), 2), (("p-j14-base", 0), 50)):
+                result = self.prefer(located, max_distance=limit)
+                self.assertEqual(result["prefer"], "false")
+        self.assertIn("too few to pay for a download", result["reason"])
 
     def test_an_unchanged_kept_derived_data_is_never_replaced_by_a_download(self):
         self.kept(changed=0)
@@ -382,6 +565,200 @@ class Prefer(Fixture):
         with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_EXACT": "p-j14-gone"}):
             self.assertIsNone(state.seed.chosen())
 
+    def recorded_with_package_change(self, changed):
+        record = self.recorded(changed)
+        record["Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/F.swift"] = ["stale", 1]
+        return record
+
+    def test_rebuilds_app_only_for_a_package_swift_source(self):
+        self.assertTrue(state.rebuilds_app({"Packages/macOS/CmuxCloud/Sources/CmuxCloud/A.swift"}))
+        self.assertTrue(state.rebuilds_app({"vendor/bonsplit/Package.swift"}))
+        self.assertFalse(state.rebuilds_app({"Sources/AppDelegate.swift", "cmuxTests/ATests.swift",
+                                             "Packages/macOS/CmuxCloud/README.md"}))
+
+    def test_a_seed_without_a_package_change_beats_more_changed_inputs_with_one(self):
+        """115 changed inputs across a package change cost 958 s (job 108004619872)."""
+        self.kept(changed=5)
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "false"))
+
+    def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-oldest").mkdir(parents=True)
+        (self.cache / "p-j14-oldest" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False) as compare:
+            result = self.prefer(("p-j14-base", 0), max_distance=2)
+        compare.assert_called_once_with("p-j14-base", self.workspace)
+        self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
+        # When the bucket seed recompiles the app too, or GitHub cannot say,
+        # the clone stays: it is the cheaper start.
+        for answer in (True, None):
+            with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
+                result = self.prefer(("p-j14-base", 0), max_distance=2)
+            self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
+        # Without downloads, the kept seed is all there is.
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
+            result = self.prefer(("p-j14-base", 0))
+        compare.assert_not_called()
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-oldest"))
+
+    def test_a_far_bucket_seed_replaces_a_kept_build_that_recompiles_the_app(self):
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=3)))
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=False):
+            result = self.prefer(("p-j14-base", 6), max_distance=2)
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_distance"], result["local"]),
+                         ("true", "p-j14-base", "6", "false"))
+        for answer in (True, None):
+            with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
+                self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=2)["prefer"], "false")
+
+    def test_a_near_bucket_seed_that_recompiles_the_app_never_replaces_a_kept_build_that_does_not(self):
+        self.kept(changed=state.DOWNLOAD_INPUTS + 50)
+        for files, expected in ((["Packages/X/Sources/X/A.swift"], "false"), (None, "false"),
+                                (["Sources/A.swift"], "true")):
+            with unittest.mock.patch.object(state, "bucket_compare", return_value=files):
+                result = self.prefer(("p-j14-base", 1), max_distance=2)
+            self.assertEqual(result["prefer"], expected)
+            if files and expected == "false":
+                self.assertEqual(result["reason"],
+                                 "the seed 1 commits behind may recompile the app; the kept DerivedData does not")
+
+    def test_the_cheapest_kept_seed_wins_not_the_nearest(self):
+        """The nearest kept seed sits behind a package change; an older one does not."""
+        self.kept(changed=6)
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        self.kept_seed("p-j14-older", changed=3)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_changed"], result["local"]),
+                         ("true", "p-j14-older", "3", "true"))
+
+    def test_a_far_download_wins_on_github_s_estimate_not_its_commit_count(self):
+        """main moves 5 to 8 commits per seed, so a count of 2 almost never passed."""
+        self.kept(changed=6)
+        big = state.DOWNLOAD_INPUTS + 200
+        record = self.recorded(6)
+        for index in range(6, big):
+            record[f"Sources/G{index}.swift"] = ["stale", 1]
+        (self.store / "derived-data" / state.RECORD).write_text(json.dumps(record))
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Sources/A.swift"] * 5 + ["Sources/B.swift"]):
+            result = self.prefer(("p-j14-base", 6), max_distance=50)
+        self.assertEqual((result["prefer"], result["seed_key"], result["seed_changed"], result["local"]),
+                         ("true", "p-j14-base", "2", "false"))
+        many = [f"Sources/H{index}.swift" for index in range(big - 50)]
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=many):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Packages/X/Sources/X/A.swift"]):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+        # GitHub cannot say: no download.
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=None):
+            self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=50)["prefer"], "false")
+        # A submodule bump makes the counts incomparable: only a seed a couple
+        # of commits behind, and only one GitHub call either way.
+        with unittest.mock.patch.object(state, "submodules", return_value={"ghostty"}):
+            with unittest.mock.patch.object(state, "bucket_compare", return_value=["ghostty", "Sources/A.swift"]) as compare:
+                self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=50)["prefer"], "false")
+                self.assertEqual(self.prefer(("p-j14-base", 2), max_distance=50)["prefer"], "true")
+            self.assertEqual(compare.call_count, 2)
+        # MAX_DISTANCE still caps a download.
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Sources/A.swift"]):
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=5)["prefer"], "false")
+
+    def test_a_download_is_weighed_against_the_best_kept_seed_too(self):
+        big = state.DOWNLOAD_INPUTS * 3
+        record = self.recorded(6)
+        for index in range(6, big):
+            record[f"Sources/G{index}.swift"] = ["stale", 1]
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.RECORD).write_text(json.dumps(record))
+        local = self.recorded(6)
+        for index in range(6, state.DOWNLOAD_INPUTS * 2):
+            local[f"Sources/G{index}.swift"] = ["stale", 1]
+        (self.cache / "p-j14-oldest").mkdir(parents=True)
+        (self.cache / "p-j14-oldest" / state.seed.MANIFEST).write_text(json.dumps(local))
+        with unittest.mock.patch.object(state, "bucket_compare", return_value=["Sources/A.swift"]):
+            result = self.prefer(("p-j14-base", 4), max_distance=50)
+        self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
+        with unittest.mock.patch.object(state, "bucket_compare",
+                                        return_value=[f"Sources/H{i}.swift" for i in range(state.DOWNLOAD_INPUTS)]):
+            result = self.prefer(("p-j14-base", 4), max_distance=50)
+        self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
+
+    def test_best_kept_seed_skips_an_unreadable_manifest(self):
+        self.kept(changed=5)
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text("{not json")
+        self.kept_seed("p-j14-older", changed=1)
+        result = self.prefer(("p-j14-base", 0))
+        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-older"))
+
+    def test_a_small_kept_diff_never_asks_github(self):
+        self.kept(changed=3)
+        with unittest.mock.patch.object(state, "bucket_compare") as compare, \
+             unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=True):
+            self.prefer(("p-j14-base", 6), max_distance=50)
+        compare.assert_not_called()
+
+    def test_package_tests_do_not_rebuild_the_app(self):
+        self.assertFalse(state.rebuilds_app({"Packages/macOS/CmuxSettingsUI/Tests/CmuxSettingsUITests/ATests.swift"}))
+
+    def test_a_far_bucket_seed_never_replaces_a_kept_build_without_a_package_change(self):
+        self.kept(changed=3)
+        with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
+            self.assertEqual(self.prefer(("p-j14-base", 6), max_distance=2)["prefer"], "false")
+        compare.assert_not_called()
+
+    def test_the_bucket_compare_reads_github_and_gives_up_past_its_file_limit(self):
+        def run(files):
+            def fake(argv, **_):
+                out = "abc123\n" if argv[0] == "git" else json.dumps(files)
+                return unittest.mock.Mock(stdout=out)
+            return fake
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}):
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Sources/A.swift"])) as ran:
+                self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), False)
+            self.assertEqual(ran.call_args_list[1].args[0][:3], ["gh", "api", "repos/o/r/compare/seedsha...abc123"])
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Packages/X/Sources/X/A.swift"])):
+                self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), True)
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=run(["Sources/A.swift"] * 300)):
+                self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+            with unittest.mock.patch.object(state.subprocess, "run", side_effect=OSError("no gh")):
+                self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": ""}):
+            self.assertIsNone(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace))
+
+    def test_a_submodule_bump_under_a_package_root_rebuilds_the_app(self):
+        """Compare lists a submodule bump as the bare path (bonsplit, 4 bumps this month)."""
+        (self.workspace / ".gitmodules").write_text(
+            '[submodule "vendor/bonsplit"]\n\tpath = vendor/bonsplit\n\turl = x\n'
+            '[submodule "ghostty"]\n\tpath = ghostty\n\turl = y\n')
+        self.assertEqual(state.submodules(self.workspace), {"vendor/bonsplit", "ghostty"})
+        real = state.subprocess.run
+
+        def fake(argv, **kwargs):
+            if argv[:2] == ["git", "-C"]:
+                return unittest.mock.Mock(stdout="abc123\n")
+            if argv[0] == "gh":
+                return unittest.mock.Mock(stdout=json.dumps(self.compared))
+            return real(argv, **kwargs)
+        with unittest.mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+             unittest.mock.patch.object(state.subprocess, "run", side_effect=fake):
+            self.compared = ["vendor/bonsplit"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), True)
+            # ghostty ships as a prebuilt xcframework, not a package root.
+            self.compared = ["ghostty", "Sources/A.swift"]
+            self.assertIs(state.bucket_seed_rebuilds_app("p-j14-seedsha", self.workspace), False)
+
     def test_any_error_keeps_the_warm_path(self):
         output = Path(self.tmp.name) / "output"
         with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
@@ -401,7 +778,7 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        # check, prefer, adopt, record, keep, warm-keys, save.
         self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -409,7 +786,8 @@ class WorkflowCommandLines(unittest.TestCase):
             env = {"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
                    "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
                    "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
-                   "HOME": str(base)}
+                   "MERGED_ONTO": "a" * 40, "RUNNER_NAME": "runner", "RUNNER_TEMP": str(base),
+                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)}
             for step in calls:
                 script = step["run"]
                 # The fingerprint comes from Xcode; stand in for it.
@@ -422,6 +800,8 @@ class WorkflowCommandLines(unittest.TestCase):
                 # adopt runs `defaults` on macOS only after a hit; a miss here is fine.
                 self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr[-400:]}")
                 self.assertNotIn("owned_build_state.py check STORE", result.stderr, step["name"])
+            # keep ran before warm-keys, so the kept build's merge base is listed.
+            self.assertEqual(json.loads((base / "warm-keys.json").read_text())["keys"], ["a" * 12])
 
 
 class Wiring(unittest.TestCase):
@@ -440,6 +820,9 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
+        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+                      self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])
@@ -483,7 +866,7 @@ class Wiring(unittest.TestCase):
                      "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
                      "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
-                     "Upload the owned Mac's warm keys"):
+                     "Upload the owned Mac's warm keys", "Record warm-state distance"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
@@ -581,6 +964,172 @@ class Wiring(unittest.TestCase):
         for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
             self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
+
+
+class E2EWiring(unittest.TestCase):
+    """test-e2e.yml's build reads the owned state admission keeps, and never writes it."""
+
+    def setUp(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        self.jobs = workflow["jobs"]
+        self.steps = self.jobs["build"]["steps"]
+        self.names = [step.get("name") for step in self.steps]
+        self.by_id = {step.get("id"): step for step in self.steps if step.get("id")}
+
+    def test_state_is_read_only_on_an_owned_runner(self):
+        owned = self.by_id["owned-state"]
+        self.assertIn(OWNED, owned["if"])
+        self.assertIn("steps.reuse.outputs.hit != 'true'", owned["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["prefer-seed"]["if"])
+        self.assertIn("vars.CI_OWNED_PREFER_SEED != ''", self.by_id["prefer-seed"]["if"])
+        self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["owned-adopt"]["if"])
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertIs(self.by_id[step_id].get("continue-on-error"), True, step_id)
+            self.assertNotIn("uses", self.by_id[step_id], step_id)
+        # A dispatch builds any revision it names, so it must never become
+        # the next pull request's starting point: check, prefer and adopt
+        # only, in every job of the workflow.
+        import re
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        commands = re.findall(r"owned_build_state\.py\" ([a-z-]+)", text)
+        self.assertEqual(sorted(set(commands)), ["adopt", "check", "prefer"])
+        for word in ("keep", "save", "record", "warm-keys"):
+            self.assertNotRegex(text, rf"owned_build_state\.py\"? {word}\b")
+
+    def test_a_failed_adopt_starts_the_build_empty(self):
+        # adopt's copytree fallback leaves a partial tree when it fails, and
+        # the step continues on error, so the compile would trust it.
+        discard = self.steps[self.names.index("Discard a partly adopted DerivedData")]
+        self.assertEqual(discard["if"], "${{ steps.owned-adopt.outcome == 'failure' }}")
+        self.assertIn('rm -rf -- "$CMUX_DERIVED_DATA_PATH"', discard["run"])
+        self.assertIn("refusing to clear an unowned DerivedData path", discard["run"])
+        index = self.names.index
+        self.assertEqual(index("Adopt this owned Mac's DerivedData") + 1, index(discard["name"]))
+        self.assertLess(index(discard["name"]), index("Build the app-host and UI test product"))
+
+    def test_the_helper_comes_from_the_workflow_revision(self):
+        # An older tested revision's owned_build_state.py moved the kept state
+        # out of the store for a keep this job never runs.
+        run = self.by_id["owned-state"]["run"]
+        self.assertEqual(self.by_id["owned-state"]["env"]["WORKFLOW_SHA"], "${{ github.workflow_sha }}")
+        self.assertIn("raw.githubusercontent.com/$GITHUB_REPOSITORY/$WORKFLOW_SHA/scripts/ci/$name", run)
+        for step_id in ("owned-state", "prefer-seed", "owned-adopt"):
+            self.assertNotIn("scripts/ci/owned_build_state.py", str(self.by_id[step_id]), step_id)
+        # Naming it as scripts/ci/... in the build job would make the tested
+        # revision's copy part of the E2E product identity.
+        import product_input_identity as identity
+        block = identity._job_block(identity.Path(ROOT / ".github/workflows/test-e2e.yml").read_text(), "build")
+        self.assertNotIn("scripts/ci/owned_build_state.py", block)
+
+    def test_owned_packages_and_state_skip_the_downloads(self):
+        self.assertIn("steps.owned-state.outputs.packages != 'true'", self.by_id["swift-package-cache"]["if"])
+        for step in (self.by_id["seed"], self.step("Start the DerivedData seed download")):
+            self.assertIn("steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true'",
+                          step["if"])
+            # Empty off an owned Mac, so Blacksmith's seed steps see no local cache.
+            self.assertEqual(step["env"]["CMUX_SEED_LOCAL_CACHE"],
+                             "${{ vars.CI_OWNED_PREFER_SEED != '' && steps.owned-state.outputs.seeds || '' }}")
+            self.assertIn("steps.prefer-seed.outputs.seed_key", step["env"]["CMUX_SEED_EXACT"])
+        self.assertIn("steps.seed.outputs.hit != 'true'", self.by_id["owned-adopt"]["if"])
+        self.assertIn("steps.owned-adopt.outcome != 'skipped'",
+                      self.step("Forget the adopted-build inode override")["if"])
+
+    def step(self, name):
+        return self.steps[self.names.index(name)]
+
+    def test_order(self):
+        index = self.names.index
+        self.assertLess(index("Reuse a compiled product instead of building one"), index("Reuse this owned Mac's build state"))
+        self.assertLess(index("Reuse this owned Mac's build state"), index("Cache Swift packages"))
+        self.assertLess(index("Compute the DerivedData seed key"), index("Prefer a near seed over this owned Mac's DerivedData"))
+        self.assertLess(index("Prefer a near seed over this owned Mac's DerivedData"), index("Start the DerivedData seed download"))
+        self.assertLess(index("Resolve Swift packages"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt the DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
+        self.assertLess(index("Adopt this owned Mac's DerivedData"), index("Build the app-host and UI test product"))
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC"', self.by_id["owned-adopt"]["run"])
+
+    def owned_state(self, root, kept_packages=True):
+        """Run the owned-state step against a temporary store; (code, outputs, store base)."""
+        import os
+        import subprocess
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        fleet, workspace, temp = base / "fleet", base / "workspace", base / "temp"
+        for directory in (fleet, workspace / "scripts/ci", temp, base / "bin"):
+            directory.mkdir(parents=True)
+        if kept_packages:
+            (fleet / "source-packages").mkdir()
+            (fleet / "source-packages" / "Package.resolved").write_text("kept")
+        fingerprint = workspace / "scripts/ci/compile-app-host-test-product.sh"
+        fingerprint.write_text("#!/bin/sh\necho fp\n")
+        fingerprint.chmod(0o755)
+        # Serve the helpers from this checkout and record what was asked for.
+        curl = base / "bin" / "curl"
+        curl.write_text(f"""#!/bin/sh
+while [ "$#" -gt 1 ]; do
+  case "$1" in -o) out="$2"; shift ;; esac
+  shift
+done
+echo "$1" >> "{base}/urls"
+cp "{ROOT}/scripts/ci/${{1##*/}}" "$out"
+""")
+        curl.chmod(0o755)
+        output = base / "output"
+        output.write_text("")
+        run = self.by_id["owned-state"]["run"].replace("/Users/Shared/cmux-build-fleet/ci", str(fleet))
+        env = {"PATH": f"{base / 'bin'}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output),
+               "RUNNER_TEMP": str(temp), "GITHUB_REPOSITORY": "manaflow-ai/cmux", "WORKFLOW_SHA": "w" * 40,
+               "CMUX_DERIVED_DATA_PATH": "/private/tmp/cmux-ci/derived-data-compile-admission", "HOME": str(base)}
+        if root is not None:
+            env["CMUX_CI_CANONICAL_ROOT"] = root
+        result = subprocess.run(["bash", "-e", "-c", run], cwd=workspace, env=env, capture_output=True, text=True)
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        urls = (base / "urls").read_text().split() if (base / "urls").exists() else []
+        return result, outputs, fleet, workspace, urls
+
+    def test_each_root_reads_its_own_state_and_the_macs_packages(self):
+        for root, suffix in ((None, ""), ("/private/tmp/cmux-ci", ""), ("/private/tmp/cmux-ci-2", "/cmux-ci-2")):
+            with self.subTest(root=root):
+                result, outputs, fleet, workspace, urls = self.owned_state(root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(outputs["store"], f"{fleet}{suffix}")
+                self.assertEqual(outputs["seeds"], f"{fleet}{suffix}/seeds")
+                self.assertEqual(outputs["warm"], "false")
+                self.assertEqual(outputs["packages"], "true")
+                self.assertEqual((workspace / ".ci-source-packages/Package.resolved").read_text(), "kept")
+                # A clone: the Mac's packages stay where they were.
+                self.assertEqual((fleet / "source-packages/Package.resolved").read_text(), "kept")
+                self.assertTrue(urls)
+                for url in urls:
+                    self.assertTrue(url.startswith(f"https://raw.githubusercontent.com/manaflow-ai/cmux/{'w' * 40}/scripts/ci/"), url)
+                self.assertTrue(Path(outputs["tools"], "owned_build_state.py").is_file())
+
+    def test_an_unexpected_root_reads_nothing(self):
+        for root in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
+            with self.subTest(root=root):
+                result, outputs, _, workspace, urls = self.owned_state(root)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(outputs, {})
+                self.assertEqual(urls, [])
+                self.assertFalse((workspace / ".ci-source-packages").exists())
+
+    def test_the_adopt_and_prefer_lines_are_ones_the_script_accepts(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "derived").mkdir()
+            env = {"PATH": "/usr/bin:/bin", "HOME": str(base), "OWNED_TOOLS": str(ROOT / "scripts/ci"),
+                   "OWNED_STORE": str(base / "store"), "CMUX_DERIVED_DATA_PATH": str(base / "derived"),
+                   "CMUX_CI_CANONICAL_SRC": str(base / "src"), "SEED_PREFIX": "p-", "TEST_REF": "base",
+                   "MAX_DISTANCE": "", "CMUX_SEED_LOCAL_CACHE": str(base / "store/seeds")}
+            for step_id in ("owned-adopt", "prefer-seed"):
+                script = self.by_id[step_id]["run"].replace("python3 ", f"{sys.executable} ")
+                result = subprocess.run(["bash", "-c", script], cwd=base, env=dict(env, GITHUB_OUTPUT=os.devnull),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{step_id}: {result.stderr[-400:]}")
+                self.assertNotIn("owned_build_state.py check STORE", result.stderr, step_id)
 
 
 if __name__ == "__main__":

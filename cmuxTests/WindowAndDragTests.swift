@@ -587,6 +587,32 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
 }
 
 
+/// `AppDelegate.init` installs the new delegate as `AppDelegate.shared`, and
+/// many tests build a throwaway one without putting the host's back. The next
+/// test in the same host then ran against the leftover: detached-inspector
+/// Cmd-W tests failed on main whenever the shard layout placed them after
+/// AppDelegateWindowContextRoutingTests. XCTest runs these two in name order.
+@MainActor
+final class AppDelegateSharedIsolationTests: XCTestCase {
+    private static var sharedBeforeLeak: AppDelegate??
+
+    func test1ConstructingAnAppDelegateReplacesShared() {
+        Self.sharedBeforeLeak = .some(AppDelegate.shared)
+        let leaked = AppDelegate()
+        XCTAssertTrue(AppDelegate.shared === leaked)
+    }
+
+    func test2NextTestStartsWithTheHostSharedDelegate() throws {
+        guard let expected = Self.sharedBeforeLeak else {
+            throw XCTSkip("Runs after test1ConstructingAnAppDelegateReplacesShared in the same host")
+        }
+        XCTAssertTrue(
+            AppDelegate.shared === expected,
+            "A delegate a previous test constructed must not stay installed as AppDelegate.shared"
+        )
+    }
+}
+
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
     func testDefaultTerminalRegistrationKeepsAllAdvertisedTargets() {
@@ -602,7 +628,16 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
 
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
+        defer {
+            // The temporary delegate must not replace the running test host's
+            // delegate while its installed shortcut monitor still owns events.
+            AppDelegate.shared = previousAppDelegate
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         var scheduledWork: (@Sendable () -> Void)?
         var registerCallCount = 0
@@ -4322,5 +4357,25 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }
+
+    func testPaneExactRectUsesOverlayReferenceCoordinates() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let reference = NSView(frame: NSRect(x: 0, y: 32, width: 640, height: 368))
+        let target = NSView(frame: NSRect(x: 10, y: 50, width: 300, height: 200))
+        window.contentView?.addSubview(reference)
+        window.contentView?.addSubview(target)
+
+        XCTAssertEqual(
+            ContentView.tmuxWorkspacePaneExactRect(for: target, in: reference),
+            CGRect(x: 10, y: 18, width: 300, height: 200)
+        )
+    }
+
 }
 #endif

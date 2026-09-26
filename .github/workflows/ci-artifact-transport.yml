@@ -21,6 +21,7 @@ on:
       - tests/test_ci_selective_layer_wiring.py
       - scripts/ci/restore-app-host-test-product.sh
       - tests/test_node_product_cache.py
+      - tests/test_lan_product_source.py
       - scripts/ci/verify-r2-canary.py
       - scripts/ci/r2-canary-cloudflare.py
       - tests/test_ci_r2_canary.py
@@ -47,6 +48,7 @@ on:
       - tests/test_ci_selective_layer_wiring.py
       - scripts/ci/restore-app-host-test-product.sh
       - tests/test_node_product_cache.py
+      - tests/test_lan_product_source.py
       - scripts/ci/verify-r2-canary.py
       - scripts/ci/r2-canary-cloudflare.py
       - tests/test_ci_r2_canary.py
@@ -62,7 +64,7 @@ concurrency:
 
 jobs:
   transport:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -103,6 +105,7 @@ jobs:
       - name: Test transport and fallback
         run: |
           python3 tests/test_node_product_cache.py
+          python3 tests/test_lan_product_source.py
           python3 tests/test_ci_r2_artifact.py
           python3 tests/test_ci_r2_canary.py
           python3 tests/test_app_host_layer_transport.py

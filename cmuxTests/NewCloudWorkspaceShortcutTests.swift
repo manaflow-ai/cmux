@@ -15,7 +15,7 @@ import Testing
 /// rows with their live shortcut hints, and the shared action every
 /// entrypoint routes through.
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 final class NewCloudWorkspaceShortcutTests {
     private final class RecordingSheetPresenter: NewMachineSheetPresenting {
         private(set) var presentCount = 0
@@ -366,8 +366,8 @@ final class NewCloudWorkspaceShortcutTests {
 #if DEBUG
     @Test func testCommandYRoutesThroughSharedMachineAction() async throws {
         defer { restoreState() }
-        let appDelegate = AppDelegate()
-        setCloudMachinesEnabled(true)
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let appDelegate = windowFixture.appDelegate; setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
         // Shortcut routing bypasses an event bound to a window this delegate
@@ -520,8 +520,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
         defer { restoreState() }
-        let app = AppDelegate()
-        let manager = TabManager()
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let app = windowFixture.appDelegate; let manager = windowFixture.tabManager
         let workspace = try #require(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)

@@ -104,6 +104,20 @@ APP_HOST_CONSUMER_PATHS = (
 # executed and were accounted for, which is what a consumer edit can break.
 CONSUMER_CANARY_SELECTOR = "cmuxTests/CmuxSSHURLRequestTests"
 
+# What decides which suites share a worker and in what order they run. A new
+# layout can put one suite after another that leaves state behind, and only
+# running every shard shows that: #14393 took the canary, merged, and main
+# failed four suites that only fail in the new order. These run every unit
+# suite, as `unit-ci` does, but not the rest of the full suite.
+# generate_test_timings.py is left out: no CI job runs it, and its layout
+# change arrives as the timings file it writes.
+SHARD_LAYOUT_PATHS = (
+    MACOS_WORKFLOW_PATH,  # only shard_layout_lines() count
+    "scripts/ci/cmux-unit-test-timings.json",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/run-app-host-unit-batches.sh",
+)
+
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
     """True when the diff contains changes compile admission cannot judge.
@@ -232,6 +246,62 @@ def changed_unit_selectors(
     return suites
 
 
+def reverse_unit_selectors(
+    root: Path, paths: Iterable[str] | None, app_diff: str | None, already: list[str]
+) -> list[str]:
+    """Suites that could observe an app-source change, within what the budget has left.
+
+    A pull request that changes Sources/ or a macOS/Shared package without
+    touching cmuxTests/ otherwise runs no behavior test. reverse_test_impact.py
+    names the suites whose tests mention what the diff changed; this keeps the
+    ones that fit beside `already` in one changed-suites run. It only adds:
+    anything it cannot judge (no diff, a selector error) adds nothing, and a
+    suite that would push the run past its budget or out of the changed-suites
+    lane is left out rather than turning the run into seven shards. Only
+    suites the shared batch discovers are added: the selector also names
+    helper types in cmuxTests/, and a selector that matches no test fails the
+    run. A suite a strict step owns is left out, since that step runs apart
+    from the budget. Suites with entries in app-host-known-failures.json are
+    left out too: a known failure that happens to pass fails a changed-suites
+    run, which is right for a suite the pull request edited and wrong for one
+    it only reached.
+    """
+    if paths is None or app_diff is None or not app_diff.strip():
+        return []
+    try:
+        import reverse_test_impact as reverse
+
+        if not any(reverse.is_app_path(path.strip()) for path in paths):
+            return []
+        selection = reverse.select(reverse.read_root(root), app_diff)
+        if not selection.reached:
+            return []
+        timings = load_timings(DEFAULT_TIMINGS_PATH)
+        default_ms = (timings or {}).get("default_test_ms", reverse.FALLBACK_TEST_MS)
+        costs = reverse.suite_costs(root, timings)
+        spent = sum(costs.get(selector.split("/", 1)[1], default_ms) for selector in already)
+        if spent >= CHANGED_SUITES_BUDGET_MS:
+            return []
+        catalog = json.loads((root / "scripts/ci/app-host-known-failures.json").read_text(encoding="utf-8"))
+        known = {identifier.split("/", 1)[0] for identifier in catalog.get("tests", {})}
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        batch_suites = {selector.identifier.split("/")[1] for selector in discover_selectors(root)}
+        data = reverse.report(selection, costs, default_ms, CHANGED_SUITES_BUDGET_MS - spent)
+        chosen: list[str] = []
+        for suite in data["would_run"]:
+            selector = f"cmuxTests/{suite}"
+            if suite in known or suite not in batch_suites or selector in already:
+                continue
+            steps = strict_steps(workflow, already + chosen)
+            if strict_steps(workflow, already + chosen + [selector]) != steps:
+                continue
+            chosen.append(selector)
+        return chosen
+    except Exception as error:  # an addition only: never the reason a run fails
+        print(f"::warning::Reverse test impact selection failed: {error!r}", file=sys.stderr)
+        return []
+
+
 def job_lines(workflow: str, job: str) -> range | None:
     """1-based line numbers of `job` in a workflow's text, header included."""
     lines = workflow.splitlines()
@@ -303,6 +373,79 @@ def consumer_canary_selectors(
     if job is None or any(line in job or line in route for line in hunks):
         return [CONSUMER_CANARY_SELECTOR]
     return []
+
+
+SHARD_LAYOUT_SETTING_RE = re.compile(r"^      CMUX_APP_HOST_[A-Z_]*(SHARD|RESERVED_WALL_SECONDS):")
+SHARD_MATRIX_ENTRY_RE = re.compile(r'^\s*\{"shard":')
+
+
+def shard_layout_lines(workflow: str) -> set[int]:
+    """1-based lines of `app-host unit tests` that lay out its shards.
+
+    Its `strategy:` block (the shard matrix) and the job env that places a
+    strict step on a shard or reserves its time there.
+    """
+    job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    layout: set[int] = set()
+    in_strategy = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_strategy = text.startswith("    strategy:")
+        if in_strategy or SHARD_LAYOUT_SETTING_RE.match(text):
+            layout.add(number)
+    return layout
+
+
+def removed_shard_layout_setting(diff: str) -> bool:
+    """True when a ci-macos.yml hunk removes a line that set the shard layout.
+
+    changed_lines() reports new-side lines only, so a shard setting that an
+    edit deletes or renames to another key would not show up in
+    shard_layout_lines() of the new workflow.
+    """
+    path: str | None = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            path = target[2:] if target.startswith("b/") else None
+            continue
+        if line.startswith("--- "):
+            continue
+        if path == MACOS_WORKFLOW_PATH and line.startswith("-"):
+            removed = line[1:]
+            if SHARD_LAYOUT_SETTING_RE.match(removed) or SHARD_MATRIX_ENTRY_RE.match(removed):
+                return True
+    return False
+
+
+def shard_layout_changed(root: Path, paths: Iterable[str] | None, diff: str | None) -> bool:
+    """True when the diff changes how app-host unit suites are laid out over shards.
+
+    A ci-macos.yml edit counts only when a hunk touches shard_layout_lines(),
+    or when its hunks are missing and the edit cannot be placed. An unreadable
+    file list returns False because the caller already runs every unit suite.
+    """
+    if paths is None:
+        return False
+    stripped = {path.strip() for path in paths}
+    if stripped & set(SHARD_LAYOUT_PATHS[1:]):
+        return True
+    if MACOS_WORKFLOW_PATH not in stripped:
+        return False
+    hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
+    if not hunks:
+        return True
+    if removed_shard_layout_setting(diff):
+        return True
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return True
+    return bool(hunks & shard_layout_lines(workflow))
 
 
 def runs_in_admission(
@@ -404,6 +547,10 @@ def main(argv: list[str]) -> int:
         "--diff-from",
         help="`git diff -U0` of cmuxTests/ and ci-macos.yml; omit to count every line of a changed file",
     )
+    parser.add_argument(
+        "--app-diff-from",
+        help="`git diff -U0` of Sources/, Packages/ and CLI/; adds the suites that could observe it",
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
@@ -429,14 +576,42 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             diff = None
 
+    app_diff = None
+    if args.app_diff_from:
+        try:
+            app_diff = Path(args.app_diff_from).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            app_diff = None
+
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
+    layout = shard_layout_changed(args.root, paths, diff)
+    unit = layout or wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
-    # explicit requests for every suite.
-    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    # explicit requests for every suite, and a shard layout change needs every
+    # suite in its new order.
+    asked_for_every_suite = full or layout or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     canary = False
+    reached: list[str] = []
+    # A narrowed run (or none yet) also takes the suites that could observe
+    # the app-source change; an empty `selectors` under `unit` is already
+    # every suite.
+    if not asked_for_every_suite and (selectors or not unit):
+        reached = reverse_unit_selectors(args.root, paths, app_diff, selectors)
+        if reached:
+            # Alone, these ride on a compile this run pays for, like the
+            # consumer canary: a re-push of admitted inputs reuses the build
+            # and drops them rather than compiling again.
+            canary = not unit
+            if canary:
+                # Keep the consumer canary a consumer edit would have taken.
+                selectors = [
+                    selector for selector in consumer_canary_selectors(args.root, paths, diff)
+                    if selector not in reached
+                ]
+            selectors = selectors + reached
+            unit = True
     if not unit:
         # Nothing else asked for the unit tests, so a consumer edit takes the
         # one-suite canary rather than seven shards. ci.yml drops it again when
@@ -447,7 +622,9 @@ def main(argv: list[str]) -> int:
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
         steps = strict_steps(workflow, selectors) or []
-    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary)
+    # Suites reached this way can fill the whole budget; they take the
+    # changed-suites worker rather than holding compile admission.
+    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary or bool(reached))
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",

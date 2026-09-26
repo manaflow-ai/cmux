@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
@@ -18,6 +19,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    /// Unambiguous owners from the last accepted workspace mirror, keyed by canonical terminal ID.
+    private(set) var terminalWorkspaceIDs: [String: String] = [:]
     lazy var layoutSync = DeviceWorkspaceLayoutCoordinator(
         machine: machine, catalog: catalog,
         workspace: { Workspace.liveWorkspace(id: $0) },
@@ -135,7 +138,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                 return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account…"))
             }
             if needsAuthorization {
-                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect."))
+                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Mobile › Computers to connect."))
             }
             return (.unavailable, lastFailure)
         }
@@ -151,6 +154,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         layoutSync.connectionChanged()
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let records = link.mirror.workspaces.orderedRecords
+        var owners: [String: String] = [:]
+        var ambiguous = Set<String>()
+        for workspace in records {
+            for terminal in workspace.terminals {
+                let key = terminal.id.lowercased()
+                if let previous = owners[key], previous != workspace.id { ambiguous.insert(key) }
+                owners[key] = workspace.id
+            }
+        }
+        for key in ambiguous { owners[key] = nil }
+        terminalWorkspaceIDs = owners
         let resources = projection.resources(records, layouts: layoutSync.snapshots.mapValues(\.layout))
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }
@@ -290,6 +304,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     func projectionDidEnd(_ projection: SurfaceProjection) {
         sessions.removeValue(forKey: projection.panelID)?.stop()
+    }
+
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        layoutSync.projectionDidEnd(projection, reason: reason)
+        projectionDidEnd(projection)
     }
 
     @discardableResult

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import app_host_test_rerun as rerun  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 WORKFLOW = ROOT / ".github" / "workflows" / "app-host-test-rerun.yml"
 
@@ -557,6 +558,91 @@ class WorkflowTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertNotIn("python3 scripts/ci/app_host_test_rerun.py", text)
         self.assertEqual(text.count("path: .rerun-tools"), 2)
+
+
+
+TAKE_ROOT = ROOT / "scripts" / "ci" / "take-product-canonical-root.sh"
+
+
+class CanonicalRootTests(unittest.TestCase):
+    """An owned Mac runs two canonical roots; the rerun must hold the one it builds in."""
+
+    def step(self, name: str) -> str:
+        text = WORKFLOW.read_text()
+        start = text.index(f"- name: {name}")
+        end = text.find("\n      - name: ", start + 1)
+        return text[start: end if end != -1 else len(text)]
+
+    def take(self, derived: str | None, env_root: str | None = None, helper_exit: int = 0,
+             helper: bool = True) -> tuple[int, str, list[str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = Path(tmp, "cmux-test-products.json")
+            receipt.write_text("{}" if derived is None else '{"derived": "%s"}' % derived)
+            calls = Path(tmp, "calls")
+            fake = Path(tmp, "glaeda-canonical-root")
+            fake.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\necho /ignored\nexit {helper_exit}\n')
+            fake.chmod(0o755)
+            env = {"PATH": os.environ["PATH"],
+                   "CMUX_CI_CANONICAL_ROOT_HELPER": str(fake) if helper else str(Path(tmp, "missing"))}
+            if env_root is not None:
+                env["CMUX_CI_CANONICAL_ROOT"] = env_root
+            result = subprocess.run([str(TAKE_ROOT), str(receipt)], env=env, capture_output=True, text=True)
+            taken = calls.read_text().splitlines() if calls.exists() else []
+            return result.returncode, result.stdout.strip(), taken
+
+    def test_the_workflow_names_no_canonical_root_itself(self) -> None:
+        # The root comes from the product's receipt, or CMUX_CI_CANONICAL_ROOT,
+        # falling back to /private/tmp/cmux-ci only inside the helper.
+        code = [line for line in WORKFLOW.read_text().splitlines() if not line.lstrip().startswith("#")]
+        offending = [line for line in code if re.search(r"/private/tmp/cmux-ci\b", line)]
+        self.assertEqual(offending, [])
+        self.assertIn('root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"', TAKE_ROOT.read_text())
+        rerun_env = WORKFLOW.read_text().split("\n  rerun:\n", 1)[1].split("\n    steps:\n", 1)[0]
+        self.assertNotIn("CANONICAL_ROOT:", rerun_env)
+        self.assertNotIn("COMPILE_DERIVED_DATA:", rerun_env)
+
+    def test_the_root_is_held_before_its_derived_data_is_replaced(self) -> None:
+        self.assertIn('"$helper" take "$root" --wait 1800', TAKE_ROOT.read_text())
+        text = WORKFLOW.read_text()
+        # One job-owned replacement, in the step that takes the root first.
+        self.assertEqual(text.count('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'), 1)
+        step = self.step("Unpack products at the path CI compiled them")
+        self.assertLess(step.index("take-product-canonical-root.sh"), step.index('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'))
+        self.assertIn('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/take-product-canonical-root.sh"', step)
+        # The products are unpacked beside the job, not over a root, until then.
+        self.assertIn('-C "$staged"', step)
+        self.assertLess(step.index('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'), step.index('mv "$staged" "$COMPILE_DERIVED_DATA"'))
+        # canonical-resolve reads CMUX_CI_CANONICAL_ROOT, so it must agree.
+        for name in ("CMUX_CI_CANONICAL_ROOT", "CANONICAL_ROOT", "COMPILE_DERIVED_DATA"):
+            self.assertIn(f'echo "{name}=', step)
+        # The tests run from DerivedData of this job's own, as the shard jobs do.
+        self.assertIn('derived="$RUNNER_TEMP/cmux-derived-data-rerun"', self.step("Stage and validate products"))
+
+    def test_the_helper_takes_the_producers_root(self) -> None:
+        for root in ("/private/tmp/cmux-ci", "/private/tmp/cmux-ci-2", "/private/tmp/cmux-ci-12"):
+            # The producer's root wins over the one glaeda handed this job.
+            code, out, taken = self.take(f"{root}/derived-data-compile-admission", env_root="/private/tmp/cmux-ci-3")
+            self.assertEqual((code, out, taken), (0, root, [f"take {root} --wait 1800"]), root)
+
+    def test_a_receipt_without_a_canonical_root_keeps_this_jobs(self) -> None:
+        # Blacksmith: nothing exported, so the historical root.
+        self.assertEqual(self.take(None), (0, "/private/tmp/cmux-ci", ["take /private/tmp/cmux-ci --wait 1800"]))
+        self.assertEqual(self.take("/Users/runner/elsewhere", env_root="/private/tmp/cmux-ci-2"),
+                         (0, "/private/tmp/cmux-ci-2", ["take /private/tmp/cmux-ci-2 --wait 1800"]))
+        for bad in ("/tmp/elsewhere", "/private/tmp/cmux-ci-x", "/private/tmp/cmux-ci/../x"):
+            code, _, taken = self.take(None, env_root=bad)
+            self.assertNotEqual(code, 0, bad)
+            self.assertEqual(taken, [], bad)
+        for bad in ("/private/tmp/cmux-ci-x/derived-data-compile-admission",
+                    "/private/tmp/cmux-ci/../x/derived-data-compile-admission"):
+            self.assertEqual(self.take(bad)[1], "/private/tmp/cmux-ci", bad)
+
+    def test_ephemeral_runners_have_no_helper_and_a_busy_root_fails(self) -> None:
+        self.assertEqual(self.take("/private/tmp/cmux-ci-2/derived-data-compile-admission", helper=False),
+                         (0, "/private/tmp/cmux-ci-2", []))
+        code, out, taken = self.take("/private/tmp/cmux-ci/derived-data-compile-admission", helper_exit=1)
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(taken, ["take /private/tmp/cmux-ci --wait 1800"])
 
 
 if __name__ == "__main__":

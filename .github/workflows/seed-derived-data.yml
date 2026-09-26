@@ -18,8 +18,9 @@ name: Seed DerivedData
 # A push to main also publishes the app-host test product this build compiled,
 # under the artifact name compile admission publishes it under. A pull request
 # whose product inputs equal main's then adopts it in "Reuse exact compatible
-# compiled products" instead of compiling (scripts/ci/reuse_app_host_products.py
-# trusts only this workflow, on a main push, in this repository).
+# compiled products" instead of compiling, and so does an E2E dispatch of that
+# commit (scripts/ci/reuse_app_host_products.py trusts only this workflow, on a
+# main push, in this repository).
 
 on:
   push:
@@ -48,6 +49,8 @@ jobs:
       matrix: ${{ steps.inputs.outputs.matrix }}
       # The pool that publishes the app-host product when it builds.
       publisher: ${{ steps.inputs.outputs.publisher }}
+      # The pools whose seed goes in the far lane (seed_decide.py).
+      far: ${{ steps.inputs.outputs.far }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -146,19 +149,30 @@ jobs:
       # that order: {"include": [{"pool": ...}, {"pool": ..., "root": "2"}]}.
       matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
     runs-on: ${{ matrix.pool }}
-    # One seed at a time per pool, and never cancel-in-progress. main takes
-    # several merges an hour and a cold seed takes 15-20 minutes, so
+    # Two lanes per pool, one seed at a time in each, and never
+    # cancel-in-progress. main takes several merges an hour and a cold seed
+    # takes 15-20 minutes on Blacksmith (about an hour on the trusted pool), so
     # cancelling the running seed for each newer push would starve publishing
     # for as long as merges keep arriving. With `false`, the running seed
-    # always finishes and publishes, GitHub keeps at most one pending job, and
-    # a newer push replaces it, so the published seed is never more than about
-    # one build behind main. Per pool, so the 6 vCPU queue never holds back
-    # the 12 vCPU seed. tests/test_seed_derived_data.py pins this.
+    # always finishes and publishes, GitHub keeps at most one pending job per
+    # group, and a newer push replaces it. Per pool, so the 6 vCPU queue never
+    # holds back the 12 vCPU seed. A push far from its pool's covering seed
+    # (decide's `far`: more than 5 app Swift files, a package interface change
+    # or a hot file, warm_distance.py) goes in the `-far` group, so a newer near
+    # push never replaces it and it starts beside a running near seed; a newer
+    # far push still does (seed_decide.py). tests/test_seed_derived_data.py
+    # pins this.
     concurrency:
-      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}
+      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}${{ contains(fromJSON(needs.decide.outputs.far || '[]'), matrix.root && format('{0}@{1}', matrix.pool, matrix.root) || matrix.pool) && '-far' || '' }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
-    timeout-minutes: 60
+    # A chain with no seed yet builds cold. The first root 2 seed on the
+    # trusted pool (cmux11s) spent 14 minutes on checkout, packages and
+    # resolve, then 44 in Build, and 60 cancelled it before it saved, so the
+    # next push built cold again (run 36107956813). A seeded build finishes
+    # in a fraction of either limit. 30 more minutes cover the wait for this
+    # job's canonical root (Prepare admission build paths).
+    timeout-minutes: 120
     env:
       # The macOS 15 pool compiles with its own Xcode, as a pull request run
       # pr_runner_pool.py overflows there does; every other pool, the lane's.
@@ -201,12 +215,66 @@ jobs:
             root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"
             echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
           fi
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          # A far and a near seed of one root may run at once (the two
+          # concurrency lanes), so on an owned Mac hold this root for the job
+          # before clearing it. With glaeda's seed class the hook gives a seed
+          # job no root, and this take holds (and waits for) the one its matrix
+          # names. A hook that placed the job itself answers 2 for any other
+          # root: then the root it exported must be this one, or the Mac runs
+          # one seed at a time (one trusted runner), as before. A near and a far
+          # seed of one root on one Mac queue here for up to 30 minutes, inside
+          # the job's limit. Blacksmith has no helper.
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          if [ -x "$helper" ]; then
+            status=0
+            "$helper" take "$root" --wait 1800 >/dev/null || status=$?
+            placed="$(cat "${RUNNER_TEMP:-/nonexistent}/glaeda-canonical-root" 2>/dev/null || true)"
+            case "$status" in
+              0) echo "Holding $root for this job" ;;
+              2) if [ "$placed" = "$root" ]; then
+                   echo "The runner hook placed this job in $root"
+                 else
+                   echo "::warning::glaeda holds ${placed:-no root} for this job, not $root; safe only while this Mac runs one seed at a time (glaeda canonicalRoots must cover every seed root before a second trusted runner)"
+                 fi ;;
+              *) echo "::error::could not hold $root for this job (glaeda-canonical-root exit $status)"; exit 1 ;;
+            esac
+          fi
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # A trusted seed Mac keeps the seeds it builds and adopts, so the next
+      # seed job on it clones its lane's last seed instead of downloading it
+      # back from R2 (mini-6 and cmux15 seed jobs spent p50 856 s and 512 s
+      # at about 1.9 busy cores on 2026-09-25, cmuxterm-hq#661 Workstream 7).
+      # Only on the runners vars.CI_SEED_KEEP_LOCAL_RUNNERS names (space
+      # separated): the kept seed becomes the next R2 seed, so the Mac must
+      # run nothing else as this user (cmux15; not mini-6, whose dev-build
+      # worker builds PR code as cmux). The same per-root layout owned
+      # admission uses (seed_caches). It starts with 185 GiB free, and once
+      # the cache exists it stays on so prune_local keeps the disk at its
+      # floor (seed_derived_data.LOCAL_KEEP_MIN_FREE_BYTES, and each root's
+      # newest two).
+      - name: Keep seeds on a trusted Mac
+        if: matrix.pool == vars.CI_SEED_TRUSTED_POOL && contains(format(' {0} ', vars.CI_SEED_KEEP_LOCAL_RUNNERS), format(' {0} ', runner.name))
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          state=/Users/Shared/cmux-build-fleet/ci
+          cache="$state/seeds"
+          if [ -n "$CMUX_SEED_ROOT" ] && [ "$CMUX_SEED_ROOT" != 1 ]; then
+            cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"
+          fi
+          free_gib=$(df -g / | awk 'NR==2 {print $4}')
+          if [ -d "$cache" ] || [ "${free_gib:-0}" -ge 185 ]; then
+            echo "CMUX_SEED_LOCAL_CACHE=$cache" >> "$GITHUB_ENV"
+            echo "Keeping seeds in $cache ($free_gib GiB free)"
+          else
+            echo "Not keeping seeds on this Mac: $free_gib GiB free, under 185"
+          fi
 
       - name: Compute seed key
         id: key
@@ -233,6 +301,7 @@ jobs:
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Cache Swift packages
+        id: swift-package-cache
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
@@ -246,13 +315,18 @@ jobs:
       # SwiftPM's evaluated-manifest cache, which compile admission restores
       # read-only (scripts/ci/swiftpm-manifest-cache.sh). Exact key only: a
       # miss starts empty so the saved cache holds just this revision's
-      # manifests, at the canonical path admission resolves from.
+      # manifests, at the canonical path admission resolves from. Root 1 only:
+      # the key does not name the root, so a root lane could win the
+      # write-once save with entries no root 1 reader hits, and its clear
+      # would empty the cache every slot on that Mac shares. Owned Macs keep
+      # their other roots' entries themselves (`install` merges).
       - name: Compute SwiftPM manifest cache key
         id: swiftpm-manifest-key
         run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Restore SwiftPM manifest cache
         id: swiftpm-manifest-restore
+        if: matrix.root == ''
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
@@ -261,6 +335,7 @@ jobs:
           key: ${{ steps.swiftpm-manifest-key.outputs.key }}
 
       - name: Install SwiftPM manifest cache
+        if: matrix.root == ''
         run: |
           set -euo pipefail
           if [ "$MANIFEST_CACHE_HIT" = true ]; then
@@ -277,9 +352,41 @@ jobs:
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
+      # Seed the `spm-` package cache from the first main push after a
+      # Package.resolved change, instead of waiting up to a day for nightly.yml.
+      # canonical-resolve resolved a copy in the canonical root, so the
+      # workspace still holds only what was restored (on a miss, the previous
+      # lockfile's packages); save the resolved copy, as nightly.yml does.
+      # Right after resolve, so a later cancel or failure cannot lose it. R2
+      # saves are write-once per key, so matrix legs racing here are harmless.
+      - name: Collect resolved Swift packages
+        id: swift-package-collect
+        if: steps.swift-package-cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          test -d "$resolved/.package-cache"
+          rsync -a --delete "$resolved/" .ci-source-packages/
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      - name: Save Swift packages
+        if: steps.swift-package-collect.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+
       - name: Stage SwiftPM manifest cache
         id: swiftpm-manifest-stage
-        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        if: matrix.root == '' && steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         continue-on-error: true
         run: scripts/ci/swiftpm-manifest-cache.sh stage "$RUNNER_TEMP/swiftpm-manifests"
 
@@ -349,12 +456,23 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
 
+      # Before the product steps below rewrite Build/Products: the copy must
+      # be the seed exactly as saved. An APFS clone, so seconds.
+      - name: Keep the seed on this Mac
+        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
+        continue-on-error: true
+        env:
+          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
+
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
       # rewrite Build/Products, so these follow "Save seed". Only a main push
-      # is a producer pull requests trust; a dispatch would publish a product
-      # nothing adopts. A failure here costs pull requests the adoption, never
-      # the seed. The product does not depend on the width, so only the first
+      # is a producer pull requests and E2E dispatches trust; a dispatch of
+      # this workflow would publish a product nothing adopts. A failure here
+      # costs pull requests the adoption, never the seed. The product does not
+      # depend on the width, so only the first
       # pool (decide's publisher) publishes it, under the one artifact name
       # admission looks up. When that pool skips, its seed's commit has these
       # build inputs, and so the product pull requests already adopt.
@@ -391,7 +509,19 @@ jobs:
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
-          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
+          # Build/Products reaches each framework binary through Versions/Current
+          # symlinks, and product extractors accept no symlinks, so `tar -h` stored
+          # every framework binary three times: 1.9 GB on disk became 2.7 GB of
+          # tar and 830 MB gzipped. Stage the tree as hard links with the symlinks
+          # followed (the same tree `tar -h` wrote, beside the DerivedData so the
+          # links stay on one volume); tar then stores each file once and every
+          # other path as a hard link, which tar -x, aa and
+          # reuse_app_host_products.py all extract. Same files, 572 MB, packed
+          # faster.
+          stage="$(mktemp -d "${CMUX_COMPILE_ADMISSION_DERIVED_DATA%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
+          (cd "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" && pax -rwlL Build/Products "$stage")
+          COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       # Three days, as admission keeps its own: a pull request only matches

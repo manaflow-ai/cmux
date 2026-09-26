@@ -11,7 +11,11 @@ import GhosttyKit
 
 @MainActor
 extension DeadKeyCompositionRegressionTests {
+    /// - Parameter optionAsAlt: A `macos-option-as-alt` value to install on the
+    ///   app and the live surface immediately before the keys are dispatched,
+    ///   or nil to use the current configuration.
     func exerciseDeadKeyInput(
+        optionAsAlt: String? = nil,
         expectedOptionPreserved: Bool,
         expectedText: [String]
     ) async {
@@ -109,8 +113,23 @@ extension DeadKeyCompositionRegressionTests {
         }
 
         window.makeFirstResponder(view)
+        // Install the configuration only now, with no run-loop turn before the
+        // synchronous dispatch below. A configuration reload queued earlier in
+        // the shared test host (appearance sync, theme or settings changes)
+        // otherwise lands while the surface is created, replaces the app
+        // config and creates the surface without this option.
+        var restoreConfiguration: () -> Void = {}
+        if let optionAsAlt {
+            guard let liveSurface = surface.surface else {
+                XCTFail("Expected native surface before installing macos-option-as-alt")
+                return
+            }
+            restoreConfiguration = installOptionAsAltConfiguration(optionAsAlt, surface: liveSurface)
+        }
         withExtendedLifetime(surface) {
             events.forEach { view.keyDown(with: $0) }
+            // Restore while the surface is still alive: `liveSurface` is a raw pointer.
+            restoreConfiguration()
         }
 
         XCTAssertEqual(interpretedKeyCodes, deadKeyEvents.map(\.keyCode))
@@ -118,34 +137,51 @@ extension DeadKeyCompositionRegressionTests {
         XCTAssertEqual(pressedKeycodes, [], "Dead-key handling must not leak raw key events")
     }
 
-    func installOptionAsAltConfiguration(_ value: String?) -> () -> Void {
-        guard let app = GhosttyApp.shared.app,
-              let config = GhosttyApp.shared.config else {
+    /// Installs a clone of the live Ghostty config with `macos-option-as-alt`
+    /// set to `value` (or unset for nil) and returns a closure that puts the
+    /// original config back. Loading into the live config directly fails: it
+    /// is already finalized, and the load ends in a crash.
+    func installOptionAsAltConfiguration(
+        _ value: String?,
+        surface: ghostty_surface_t? = nil
+    ) -> () -> Void {
+        guard let base = GhosttyApp.shared.config,
+              let clone = ghostty_config_clone(base) else {
             XCTFail("Expected Ghostty app configuration")
             return {}
         }
 
         let key = "macos-option-as-alt"
-        let keyLength = UInt(key.utf8.count)
-        var originalValue: UnsafePointer<Int8>?
-        let hadOriginalValue = ghostty_config_get(config, &originalValue, key, keyLength)
-        let original = hadOriginalValue ? originalValue.map { String(cString: $0) } : nil
-
-        func apply(_ setting: String?) {
-            let contents = setting.map { "\(key) = \($0)\n" } ?? "\(key) =\n"
-            contents.withCString { pointer in
-                ghostty_config_load_string(
-                    config,
-                    pointer,
-                    UInt(contents.utf8.count),
-                    "/__cmux_test__/option-as-alt.conf"
-                )
-            }
-            ghostty_config_finalize(config)
-            ghostty_app_update_config_without_surface_propagation(app, config)
+        let contents = value.map { "\(key) = \($0)\n" } ?? "\(key) =\n"
+        contents.withCString { pointer in
+            ghostty_config_load_string(
+                clone,
+                pointer,
+                UInt(contents.utf8.count),
+                "/__cmux_test__/option-as-alt.conf"
+            )
         }
-
-        apply(value)
-        return { apply(original) }
+        ghostty_config_finalize(clone)
+        guard let original = GhosttyApp.shared.swapConfigForTesting(clone) else {
+            XCTFail("Expected Ghostty app configuration")
+            return {}
+        }
+        // A surface keeps the configuration it was created with; the app swap
+        // above deliberately does not propagate to existing surfaces.
+        if let surface {
+            GhosttyApp.shared.suppressGhosttyReloadActions {
+                ghostty_surface_update_config(surface, clone)
+            }
+        }
+        return {
+            if let surface {
+                GhosttyApp.shared.suppressGhosttyReloadActions {
+                    ghostty_surface_update_config(surface, original)
+                }
+            }
+            if let installed = GhosttyApp.shared.swapConfigForTesting(original) {
+                ghostty_config_free(installed)
+            }
+        }
     }
 }

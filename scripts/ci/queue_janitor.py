@@ -85,7 +85,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
-from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label  # noqa: E402
+from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import GitHub as PoolClient  # noqa: E402
+import owned_warm_state  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -293,15 +295,16 @@ def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]
 
     ci.yml's marker names the pool label and every owned machine the run
     placed, root jobs and side lanes alike. Its root jobs' share is that peak
-    less the jobs it put on the pool label itself (the side lanes, which
-    start beside admission); a side lane not listed yet only reserves more.
+    less the jobs it put on the pool label itself or on its side label (the
+    side lanes, which start beside admission and take the side label when
+    the picker named one); a side lane not listed yet only reserves more.
     An E2E marker names the root label when the run took one, which is also
     one of the pool's machines.
     """
     pool, peak = marker
     if pool_label(pool) != pool:
         return [(pool, peak), (pool_label(pool), peak)]
-    side = sum(1 for job in owned_jobs if owned_label(job) == pool)
+    side = sum(1 for job in owned_jobs if owned_label(job) in (pool, side_label(pool)))
     return [(pool, peak)] + ([(root_label(pool), peak - side)] if root_label(pool) and peak > side else [])
 
 
@@ -421,16 +424,17 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
                         light_retry: bool = False) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
-    or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
+    Only attempt 1 of a same-repository pull request run of CI, of main's
+    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
+    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
     ios-screenshots.yml uploads the same marker), can. While
     CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
     rescue's full re-run picks again and may take the light tier
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
     of failed jobs publishes none, so with the variable off attempt 2 costs
     no listing. Later attempts never hold one. Its other macOS jobs say nothing:
-    swift-package-tests always runs on a Blacksmith pool beside a run on an
-    owned one.
+    swift-package-tests usually runs on a Blacksmith pool beside a run on an
+    owned one (only a run that builds no Release helper places it there).
     """
     if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
         return False
@@ -438,7 +442,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
         return False
     path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
-        return path.endswith(OWNED_DISPATCH_WORKFLOWS)
+        return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
+            path.endswith("/ci.yml") and run.get("head_branch") == "main")
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
@@ -533,6 +538,14 @@ def pool_load_snapshot(
                     oldest[pool] = created
     for pool, created in oldest.items():
         pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    # Which job each owned runner is running and since when: pr_runner_pool.py's warm routing
+    # estimates a busy warm runner's wait from it (warm_distance.remaining_seconds()).
+    running: dict[str, dict[str, str]] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if job.get("status") in RUNNING_JOB_STATUSES and job.get("runner_name") and owned_label(job):
+                running[str(job["runner_name"])] = {"job": str(job.get("name") or ""),
+                                                    "started_at": str(job.get("started_at") or "")}
     for pool, count in committed.items():
         pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                 "oldest_queued_minutes": 0})["committed"] = count
@@ -540,6 +553,7 @@ def pool_load_snapshot(
         "version": POOL_LOAD_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
+        "running": dict(sorted(running.items())),
         "settings": dict(settings or {}),
     }
 
@@ -1428,11 +1442,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     capability = capability_marker(run, names)
                     if capability:
                         capability_markers[run["id"]] = capability
-        args.pool_load.write_text(
-            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
-                                          capability_markers=capability_markers),
-                       indent=2) + "\n",
-            encoding="utf-8")
+        snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
+                                      capability_markers=capability_markers)
+        # Warm affinity on: which root runner kept a build of which main
+        # commits (owned_warm_state.py). A failure leaves `warm` out, and the
+        # picker then routes admission by the root label as before.
+        if os.environ.get("OWNED_WARM", "").strip() == "1":
+            try:
+                snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
+            except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
+                print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

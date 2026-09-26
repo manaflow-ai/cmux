@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## Unreleased
+
+### Fixed
+- The focused pane border follows a zoomed terminal or browser pane instead of remaining at its pre-zoom split size, including when window chrome changes the overlay reference coordinates ([#14646](https://github.com/manaflow-ai/cmux/pull/14646)).
+
 ## [0.64.25] - 2026-09-17
 
 ### Changed
