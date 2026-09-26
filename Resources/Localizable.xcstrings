@@ -363671,6 +363671,65 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste التفاف سطر فواصل الأسطر نسخ لصق ضم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste umbruch zeilenumbruch kopieren einfügen zusammenfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste ajuste de línea saltos de línea copiar pegar reunir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste retour à la ligne saut de ligne copier coller rejoindre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 折り返し 改行 ハード改行 コピー ペースト 結合"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 줄바꿈 강제 줄바꿈 자동 줄바꿈 복사 붙여넣기 잇기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 换行 硬换行 自动换行 复制 粘贴 合并"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste 換行 硬換行 自動換行 複製 貼上 接合"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.resume-commands": {
       "extractionState": "manual",
       "localizations": {
@@ -372087,6 +372146,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "確認選取後，所選終端機文字也會複製到系統剪貼簿。"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowHardWrapOnCopy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة ضم النص المقسّم يدويًا عند النسخ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hart umbrochenen Text beim Kopieren zusammenfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reflow Hard-Wrapped Text on Copy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reunir el texto con saltos de línea fijos al copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre les lignes coupées en dur lors de la copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー時にハード改行されたテキストを再結合"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 시 강제 줄바꿈된 텍스트 다시 잇기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制时重新合并硬换行文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製時重新接合硬換行文字"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowHardWrapOnCopy.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتفظ النسخ بفواصل الأسطر التي طبعها البرنامج. الصفوف التي يعلّمها Ghostty كالتفاف تلقائي تُنسخ دائمًا كسطر واحد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Kopieren bleiben vom Programm ausgegebene Zeilenumbrüche erhalten. Von Ghostty als weich umbrochen markierte Zeilen werden weiterhin als eine Zeile kopiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al copiar se conservan los saltos de línea que imprimió el programa. Las filas que Ghostty marca como ajuste automático se siguen copiando como una sola línea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copie conserve les sauts de ligne imprimés par le programme. Les lignes que Ghostty marque comme renvoyées automatiquement sont toujours copiées sur une seule ligne."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー時は、プログラムが出力した改行を保持します。Ghostty がソフト折り返しとしてマークした行は、引き続き1行としてコピーされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사할 때 프로그램이 출력한 줄바꿈은 유지됩니다. Ghostty가 자동 줄바꿈으로 표시한 행은 계속 한 줄로 복사됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制时保留程序输出的换行。Ghostty 标记为自动换行的行仍会复制为一行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製時保留程式輸出的換行。Ghostty 標記為自動換行的列仍會複製為單行。"
+          }
+        }
+      }
+    },
+    "settings.terminal.reflowHardWrapOnCopy.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد النسخ أيضًا ضم الأسطر التي ملأت عرض الطرفية، ويحذف مسافة الإزاحة القصيرة للمتابعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Kopieren werden auch Zeilen zusammengefügt, die die Terminalbreite ausgefüllt haben, und ein kurzer Fortsetzungseinzug wird entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy also rejoins lines that filled the terminal width, and drops a short continuation indent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al copiar también se reúnen las líneas que ocupaban todo el ancho del terminal y se quita una sangría corta de continuación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copie rejoint aussi les lignes qui remplissaient la largeur du terminal et supprime un court retrait de continuation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー時に、ターミナルの幅いっぱいまで埋まった行も結合し、短い継続インデントを取り除きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사할 때 터미널 너비를 채운 줄도 다시 잇고, 짧은 연속 들여쓰기를 제거합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制时也会合并填满终端宽度的行，并移除较短的续行缩进。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製時也會接合填滿終端機寬度的行，並移除短的接續縮排。"
           }
         }
       }
