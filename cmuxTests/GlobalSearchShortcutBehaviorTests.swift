@@ -416,6 +416,41 @@ extension GlobalSearchShortcutBehaviorTests {
         )
     }
 
+    @Test func dismissingThePaletteClosesItBeforeReturning() throws {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 22),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.isReleasedWhenClosed = false
+        let button = NSStatusBarButton(frame: NSRect(x: 0, y: 0, width: 40, height: 22))
+        hostWindow.contentView?.addSubview(button)
+        hostWindow.setFrameOrigin(NSPoint(x: -60_000, y: -60_000))
+        hostWindow.orderFrontRegardless()
+        defer { hostWindow.orderOut(nil) }
+
+        GlobalSearchCoordinator.shared.dismissPalette()
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+
+        // An animated close only finishes while the window server draws the
+        // popover. A close still pending leaves the palette "shown", and the
+        // next toggle then closes it again instead of showing it.
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(
+            !GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "Dismissing must not leave the palette waiting on a close animation"
+        )
+
+        GlobalSearchCoordinator.shared.togglePalette(anchor: button)
+        #expect(
+            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            "The next toggle after a dismissal must show the palette again"
+        )
+        GlobalSearchCoordinator.shared.dismissPalette()
+    }
+
     private func waitForVisibleSearchWindow(
         excluding hostWindow: NSWindow,
         timeout: TimeInterval = 3
