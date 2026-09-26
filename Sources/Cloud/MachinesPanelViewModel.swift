@@ -130,6 +130,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
     private var authScopeObservers: [NSObjectProtocol] = []
+    private var wakeObserver: NSObjectProtocol?
     private var featureFlagObserver: CloudFeatureAvailabilityObserver?
     var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
@@ -181,6 +182,9 @@ final class MachinesPanelViewModel: ObservableObject {
                     else if self.wantsPolling { self.startPolling() }
                 }
             }
+        }
+        wakeObserver = wakeNotificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.systemDidWake() }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
             isEnabled: isCloudEnabled,
@@ -264,18 +268,10 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
-        for observer in authScopeObservers {
+        for observer in authScopeObservers + [treeChangeObserver, unreadObserver, createChangeObserver].compactMap({ $0 }) {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let treeChangeObserver {
-            NotificationCenter.default.removeObserver(treeChangeObserver)
-        }
-        if let unreadObserver {
-            NotificationCenter.default.removeObserver(unreadObserver)
-        }
-        if let createChangeObserver {
-            NotificationCenter.default.removeObserver(createChangeObserver)
-        }
+        if let wakeObserver { wakeNotificationCenter.removeObserver(wakeObserver) }
     }
     /// Mirrors the coordinator's rows. A completion also re-reads the fleet so
     /// the real machine row replaces the pending one without waiting for the
