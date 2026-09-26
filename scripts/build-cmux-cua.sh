@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Append rather than prepend: tools the caller already put on PATH (a pinned
 # toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
 # must keep precedence over Homebrew's copies.
-export PATH="${PATH}:${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
+export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
 
 OUTPUT=""
 ARCHS_RAW=""

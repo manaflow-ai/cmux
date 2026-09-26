@@ -19,6 +19,16 @@
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
 
+# The effective uid, read once from the kernel. Bash's $EUID is not usable here:
+# macOS /bin/bash 3.2 takes EUID from the environment, and the uid decides which
+# owner the cmux-cua trust check and auth-token check accept. Cleared at startup
+# so the environment cannot seed it.
+cmux_codex_wrapper_uid=""
+cmux_codex_wrapper_effective_uid() {
+    [[ -n "$cmux_codex_wrapper_uid" ]] || cmux_codex_wrapper_uid="$(/usr/bin/id -u 2>/dev/null || true)"
+    [[ "$cmux_codex_wrapper_uid" =~ ^[0-9]+$ ]]
+}
+
 cmux_codex_wrapper_is_self_or_shim() {
     local candidate="$1"
     [[ -n "$candidate" ]] || return 1
@@ -126,72 +136,59 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-cmux_computer_use_group_or_world_writable_dir() {
-    # Group write is as disqualifying as world write on the OVERRIDE path:
-    # write permission on a directory allows renaming the driver away and
-    # dropping a replacement, regardless of the file's own permissions. The
-    # bundled path never runs this check, so macOS's root:admin 775 dirs
-    # (/Applications) do not affect normal installs.
-    local dir="$1"
+# Print "<owner uid> <octal permissions>" for each path, one line per path, in
+# a single stat process. The launch path used to spawn two stat processes (plus
+# two subshells) per ancestor directory; under load each spawn costs tens of
+# milliseconds of wall time before Codex starts.
+cmux_computer_use_stat_owner_modes() {
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
     [[ -x "$stat_bin" ]] || return 1
-    local mode
-    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
-    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
-    local group=$(( (mode / 10) % 10 ))
-    local other=$((mode % 10))
-    (( (group & 2) != 0 || (other & 2) != 0 ))
+    "$stat_bin" -f '%u %Lp' -- "$@" 2>/dev/null || "$stat_bin" -c '%u %a' -- "$@" 2>/dev/null
 }
 
-cmux_computer_use_dir_owner() {
-    local dir="$1"
-    local stat_bin=/usr/bin/stat
-    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
-    [[ -x "$stat_bin" ]] || return 1
-    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+# Succeed only when every "<owner> <mode>" line is owned by root or the current
+# user, is neither group- nor world-writable, and the line count matches.
+# Group write is as disqualifying as world write on the OVERRIDE path: write
+# permission on a directory allows renaming the driver away and dropping a
+# replacement, regardless of the file's own permissions. The bundled path never
+# runs this check, so macOS's root:admin 775 dirs (/Applications) do not affect
+# normal installs.
+cmux_computer_use_owner_modes_are_trusted() {
+    local output="$1"
+    local expected_count="$2"
+    local current_uid owner mode extra count=0
+    cmux_codex_wrapper_effective_uid || return 1
+    current_uid="$cmux_codex_wrapper_uid"
+    while read -r owner mode extra; do
+        [[ -z "$extra" && "$owner" =~ ^[0-9]+$ && "$mode" =~ ^[0-9]+$ ]] || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 )) || return 1
+        count=$((count + 1))
+    done <<< "$output"
+    (( count == expected_count ))
 }
 
-cmux_computer_use_trusted_path_ancestors() {
+# The client binary must be a regular file (canonicalization has already
+# resolved symlinks) and it and every ancestor directory must be owned by root
+# or the current user and be neither group- nor world-writable: with write
+# access another local user could swap the binary that runs under cmux's TCC
+# identity. One stat process covers the file and all of its ancestors.
+cmux_computer_use_trusted_client_path() {
     local path="$1"
-    local id_bin=/usr/bin/id
-    [[ -x "$id_bin" ]] || id_bin=/bin/id
-    [[ -x "$id_bin" ]] || return 1
-    local current_uid
-    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
     local dir="${path%/*}"
     [[ "$dir" = /* ]] || return 1
+    local -a paths=("$path")
     while :; do
-        local owner
-        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
-        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-        cmux_computer_use_group_or_world_writable_dir "$dir" && return 1
+        paths+=("$dir")
         [[ "$dir" == "/" ]] && break
         dir="${dir%/*}"
         [[ -n "$dir" ]] || dir="/"
     done
-}
-
-cmux_computer_use_trusted_executable_file() {
-    # The override binary itself must be a regular file (canonicalization has
-    # already resolved symlinks), owned by root or the current user, and not
-    # group- or other-writable: with group/other write, another local user
-    # could swap the binary that runs under cmux's TCC identity.
-    local path="$1"
-    local stat_bin=/usr/bin/stat
-    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
-    [[ -x "$stat_bin" ]] || return 1
-    local id_bin=/usr/bin/id
-    [[ -x "$id_bin" ]] || id_bin=/bin/id
-    [[ -x "$id_bin" ]] || return 1
-    [[ -f "$path" && ! -L "$path" ]] || return 1
-    local current_uid owner mode
-    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
-    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
-    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
-    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
-    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+    local output
+    output="$(cmux_computer_use_stat_owner_modes "${paths[@]}")" || return 1
+    cmux_computer_use_owner_modes_are_trusted "$output" "${#paths[@]}"
 }
 
 cmux_computer_use_canonical_executable() {
@@ -230,8 +227,7 @@ cmux_computer_use_resolve_client() {
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
     [[ -n "$installed_client" ]] || return 1
     client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
-    cmux_computer_use_trusted_path_ancestors "$client_real" || return 1
-    cmux_computer_use_trusted_executable_file "$client_real" || return 1
+    cmux_computer_use_trusted_client_path "$client_real" || return 1
     printf '%s' "$client_real"
 }
 
@@ -241,7 +237,7 @@ cmux_computer_use_auth_token() {
     if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
         metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
         read -r owner mode <<< "$metadata"
-        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+        if cmux_codex_wrapper_effective_uid && [[ "$owner" == "$cmux_codex_wrapper_uid" && "$mode" == "600" ]]; then
             IFS= read -r token < "$auth_file" || true
             if [[ -n "$token" ]]; then
                 printf '%s' "$token"
@@ -380,14 +376,21 @@ cmux_codex_emit_computer_use_args() {
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
     local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    # Read the uid in this shell first: the helpers below run in command
+    # substitutions, so a uid they cache would not survive back here.
+    cmux_codex_wrapper_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
-    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    # The common scope (a bundle id or tag) is already a clean slug; only
+    # sanitize through the three-process pipeline when it is not.
+    if [[ ! "$runtime_scope" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}[A-Za-z0-9_]$ ]]; then
+        runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    fi
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
-    runtime_uid="$(/usr/bin/id -u)"
+    runtime_uid="$cmux_codex_wrapper_uid"
     cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
     # The helper owns external onboarding. Mark that contract explicitly so

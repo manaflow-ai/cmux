@@ -1228,6 +1228,11 @@ while [[ $# -gt 0 ]]; do
         echo "error: --bundle-id requires a value" >&2
         exit 1
       fi
+      BUNDLE_ID_LOWER="$(printf '%s' "$BUNDLE_ID" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$BUNDLE_ID_LOWER" == "com.cmuxterm.app" || ( "$BUNDLE_ID_LOWER" == com.cmuxterm.app.* && "$BUNDLE_ID_LOWER" != com.cmuxterm.app.debug.* ) ]]; then
+        echo "error: --bundle-id $BUNDLE_ID is not a com.cmuxterm.app.debug.* id; reload.sh would quit a user's running cmux" >&2
+        exit 1
+      fi
       BUNDLE_SET=1
       shift 2
       ;;

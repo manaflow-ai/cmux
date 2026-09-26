@@ -127,14 +127,16 @@ class StateMachineTests(unittest.TestCase):
         self.assertNotIn("culprit", state["items"][0])
 
     def test_a_commit_without_the_test_counts_as_passing(self):
-        # The test was added at C[2] and broken at C[5].
+        # The test was added at C[4] and broken at C[5]; the first midpoint,
+        # C[2], lacks it, so the bisection must read absent as passing.
         def outcome(sha):
-            if sha in C and C.index(sha) < 2:
+            if sha in C and C.index(sha) < 4:
                 return "absent"
             return "fail" if sha == HEAD or (sha in C and C.index(sha) >= 5) else "pass"
         harness = Harness(outcome)
         state, runs = MODULE.empty_state(), {7: data()}
         drive(harness, state, runs, steps=20)
+        self.assertIn(C[2], [sha for _, sha in harness.dispatched])
         self.assertEqual(state["items"][0]["culprit"]["sha"], C[5])
 
     def test_a_missing_test_at_the_head_is_an_error(self):
@@ -279,6 +281,19 @@ class ClassifyTests(unittest.TestCase):
         # test-e2e.yml's action fails both steps when a selector does not resolve.
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests", "Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
+
+    def test_a_hung_gh_call_reads_as_a_pending_run(self):
+        from unittest import mock
+        import subprocess
+        seen = {}
+
+        def hang(command, **kwargs):
+            seen["timeout"] = kwargs.get("timeout")
+            raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=hang):
+            self.assertEqual(MODULE.poll_run("o/r", 7), "pending")
+        self.assertEqual(seen["timeout"], MODULE.GH_TIMEOUT_SECONDS)
 
     def test_every_e2e_job_that_runs_tests_names_both_steps(self):
         # The jobs API lists only top-level steps, never an action's own.

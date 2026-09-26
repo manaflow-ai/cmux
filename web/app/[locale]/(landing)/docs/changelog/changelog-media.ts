@@ -1,19 +1,46 @@
 /**
- * Supplementary media and narrative for changelog versions.
+ * Patch notes for changelog versions.
  *
  * CHANGELOG.md remains the source of truth for the raw list of changes.
- * This file adds titles, feature highlights, and narrative descriptions
- * for major releases. Versions not listed here render as plain bullet lists.
+ * This file adds the recap on top: a title, an optional hero, and feature
+ * cards that show what shipped and how to try it. Versions not listed here
+ * render as plain bullet lists.
  *
- * Images live in public/changelog/ and should be 2x (e.g. 1600×900 for a
- * 800px display width). Use PNG for UI screenshots, WebP for photos.
+ * Media convention (new releases):
+ * - Put files under public/changelog/<version>/, for example
+ *   /changelog/0.65.0/vault-search.png. Older releases keep their flat
+ *   /changelog/<version>-<name>.png paths.
+ * - Screenshots: 2x PNG (1600x900 for the 800px card width). Crop to the
+ *   feature, keep the window chrome, and do not include personal data.
+ * - Clips: 5-10 s loops, no audio, at most 2 MB each. Ship an H.264 mp4
+ *   (`src`) and a WebM (`webm`), plus a 2x PNG `poster` of a representative
+ *   frame. The poster is what readers with reduced motion see, and it sets
+ *   the card's aspect ratio before the clip loads.
+ * - `tryIt` is one line: a shortcut, a Settings path, or a CLI command.
+ *   Wrap commands and shortcuts in backticks so they render as code.
  */
+
+export interface FeatureVideo {
+  /** H.264 mp4 path relative to /public. */
+  src: string;
+  /** Optional WebM of the same clip, offered before the mp4. */
+  webm?: string;
+  /** 2x PNG still shown before playback and under reduced motion. */
+  poster?: string;
+}
 
 export interface FeatureHighlight {
   title: string;
   description: string;
-  /** Path relative to /public, e.g. "/changelog/0.61.0-command-palette.png" */
+  /** Path relative to /public, e.g. "/changelog/0.65.0/command-palette.png" */
   image?: string;
+  /** Short looping clip. Takes the media slot instead of `image`. */
+  video?: FeatureVideo;
+  /**
+   * How to try the feature: a shortcut, Settings path, or CLI command.
+   * Backticks render as code, e.g. "Run `cmux ssh user@host`".
+   */
+  tryIt?: string;
 }
 
 export interface VersionMedia {
@@ -21,7 +48,7 @@ export interface VersionMedia {
   title: string;
   /** Hero image shown at the top of the version entry. */
   hero?: string;
-  /** Feature highlights shown inline below the title. */
+  /** Feature highlights shown as cards below the title. */
   features?: FeatureHighlight[];
 }
 
@@ -33,16 +60,21 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "SSH Workspaces Connect Again",
         description:
           "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+        tryIt: "Run `cmux ssh user@host` to open a workspace on the remote machine.",
       },
       {
         title: "Steady Agent Layouts",
         description:
           "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+        tryIt:
+          "Run `cmux restore --surface <ref>` or `cmux fork --surface <ref>` on a saved agent session, then resize its pane.",
       },
       {
         title: "Light Mode Terminals",
         description:
           "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+        tryIt:
+          "Set Settings > App > Appearance to System, then switch macOS to Light.",
       },
     ],
   },

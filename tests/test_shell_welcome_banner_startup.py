@@ -103,7 +103,7 @@ def main() -> int:
             env[ENV_KEY] = str(token)
             env["TMUX"] = "/tmp/tmux-test/default,1,0"
             output = source(env)
-            if output.count(BANNER) != 0 or "after=unset" not in output:
+            if output.count(BANNER) != 0 or "after=unset" not in output or token.exists():
                 print(f"FAIL: {shell} printed the banner inside tmux")
                 print(output)
                 return 1

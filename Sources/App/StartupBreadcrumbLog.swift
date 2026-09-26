@@ -7,6 +7,8 @@ enum StartupBreadcrumbLog {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app", category: "StartupBreadcrumbLog")
     private static let reservedFieldKeys: Set<String> = [
         "timestamp",
+        "timestampMs",
+        "uptimeMs",
         "event",
         "pid",
         "bundleIdentifier",
@@ -17,14 +19,23 @@ enum StartupBreadcrumbLog {
     static func append(_ event: String, fields: [String: String] = [:]) {
         guard isEnabled else { return }
 
+        let now = Date()
         var payload: [String: Any] = [
-            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            // `timestamp` keeps its original second-resolution ISO 8601 form for
+            // existing readers; `timestampMs` and `uptimeMs` carry millisecond
+            // timing so gaps between breadcrumbs inside one second are visible.
+            "timestamp": ISO8601DateFormatter().string(from: now),
+            "timestampMs": milliseconds(sinceEpochOf: now),
             "event": event,
             "pid": ProcessInfo.processInfo.processIdentifier,
             "bundleIdentifier": Bundle.main.bundleIdentifier ?? "unknown",
             "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         ]
+
+        if let uptime = processUptimeMilliseconds(at: now) {
+            payload["uptimeMs"] = uptime
+        }
 
         for (key, value) in fields {
             let payloadKey = reservedFieldKeys.contains(key) ? "custom_\(key)" : key
@@ -55,6 +66,30 @@ enum StartupBreadcrumbLog {
         } catch {
             logger.fault("cmux startup breadcrumb failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Wall-clock time the kernel recorded for this process's launch, so
+    /// `uptimeMs` includes dyld and pre-`main` work, not just time since the
+    /// first breadcrumb.
+    private nonisolated static let processStartDate: Date? = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else {
+            return nil
+        }
+        let start = info.kp_proc.p_un.__p_starttime
+        guard start.tv_sec > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
+    }()
+
+    private static func milliseconds(sinceEpochOf date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    private static func processUptimeMilliseconds(at date: Date) -> Int64? {
+        guard let processStartDate else { return nil }
+        return Int64((date.timeIntervalSince(processStartDate) * 1000).rounded())
     }
 
     private static var isEnabled: Bool {

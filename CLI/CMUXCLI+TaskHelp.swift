@@ -220,6 +220,7 @@ extension CMUXCLI {
         new-window
         focus-window --window <id>
         close-window --window <id>
+        resize-window --window <id> [--width <points>] [--height <points>]
         move-workspace-to-window --workspace <id|ref> --window <id|ref>
         reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
         reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
@@ -428,7 +429,7 @@ extension CMUXCLI {
         set-hook [--list] [--unset <event>] | <event> <command>
         popup
         bind-key | unbind-key | copy-mode
-        set-buffer [--name <name>] <text>
+        set-buffer [--name <name>] [<text> | -]
         list-buffers
         paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]

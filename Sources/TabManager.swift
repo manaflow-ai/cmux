@@ -1389,7 +1389,12 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             var welcomeDelivery: WelcomeBannerDelivery?
             var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            // An explicit command runs via `shell -lc`, which never loads cmux's
+            // interactive shell integration, so it could not print the banner.
+            let hasInitialTerminalCommand = !(initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
             if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !hasInitialTerminalCommand
                 && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
                 let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
                 welcomeDelivery = launch.delivery
@@ -2486,12 +2491,11 @@ class TabManager: ObservableObject {
             // fixup.
             let promotedAnchorIds = workspaces.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
-            if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+            if selectedTabId == workspace.id,
+               let nextSelectedId = workspaces.selectionTargetAfterClose(closedIndex: index) {
+                // Keep the "focused row position" stable when possible; see
+                // WorkspacesModel.selectionTargetAfterClose for the rule.
+                selectedTabId = nextSelectedId
             }
 
             // A promoted anchor's resolved display title switches from its own
@@ -6365,6 +6369,7 @@ extension TabManager {
 
         hasher.combine(true)
         hashOptionalString(launchCommand.launcher, into: &hasher)
+        hashOptionalString(launchCommand.externalLauncher, into: &hasher)
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)

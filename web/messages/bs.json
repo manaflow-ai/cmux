@@ -1784,6 +1784,7 @@
       "metaTitle": "Dnevnik promjena",
       "versionTitle": "cmux {version} · Dnevnik promjena",
       "releaseNavLabel": "Izdanja oko cmux {version}",
+      "tryIt": "Isprobajte",
       "sections": {
         "added": "Dodano",
         "changed": "Promijenjeno",

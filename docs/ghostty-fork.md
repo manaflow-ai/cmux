@@ -12,6 +12,34 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Unfocused surface frame pacing
+
+- Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
+- Commit: `edefce778`
+- Summary: unfocusing a surface stops its display link, so an unfocused
+  surface used to render on every renderer wakeup. Its change-driven renders
+  are now spaced at least 33 ms apart (about 30 FPS). A wake inside the
+  interval keeps the terminal dirty and arms a one-shot timer whose render
+  picks up every change made meanwhile. The focused surface and the vsync path
+  are unaffected. This cuts WindowServer recompositing when several agents
+  stream into background panes, which is most expensive on high refresh
+  displays and behind glass or translucent windows.
+- Coverage: the Ghostty `Thread` unit test
+  `unfocused render pacer spaces unfocused frames`, run by
+  `build-ghosttykit.yml` before packaging. Hosted
+  [run 36248746801](https://github.com/manaflow-ai/cmux/actions/runs/36248746801)
+  passed 74 tests with this filter at `edefce778` (the same count as the
+  single-test CJK filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edefce7785c9f439966c68588db1edbd6b435203-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `d77a7bdf50c78787c2649b314cd9ca8990af823510531ad547e26f3a978f472d`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: the pacing check sits in `renderCallback` after the
+  hidden/unrealized early return. The paced timer uses
+  `unfocusedRenderTimerCallback`, which releases the pacer first so its own
+  render is never deferred again; keep that ordering or a deferred frame can
+  be lost until the next wakeup.
+
 ### CJK fallback ideograph sizing
 
 - Branch: `issue-4978-cjk-spacing`
@@ -44,7 +72,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `0068ece733`, the CJK fallback sizing fix
+The submodule pinned by this branch is `edefce7785`, the unfocused surface
+frame pacing change on top of `0068ece733`. The previous pin was
+`0068ece733`, the CJK fallback sizing fix
 on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
 the full two-cell terminal span, so Hangul glyphs selected through CoreText
 fallback do not leave a gap before the next terminal cell. The previous pin
