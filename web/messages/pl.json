@@ -1366,6 +1366,10 @@
           "indentGuides": "Rysuje pionowe prowadnice wcięć we wbudowanym edytorze plików.",
           "currentLineHighlight": "Podświetla wiersz z karetką, gdy nic nie jest zaznaczone.",
           "tabWidth": "Szerokość tabulatora w kolumnach dla wcięć i prowadnic wcięć."
+        },
+        "fileBrowser": {
+          "description": "Ustawienia eksploratora plików do ukrywania zbędnych plików i folderów. Wzorce globalne i projektowe są łączone.",
+          "exclude": "Wzorce glob dopasowywane do ścieżek względnych względem katalogu głównego obszaru roboczego. Wzorzec bez ukośnika pasuje do plików lub folderów na dowolnej głębokości. Obsługuje *, ? i **."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1377,7 +1381,8 @@
       "shortcutsWhenBooleanKeys": "klucze logiczne. Nieznany lub nieobecny klucz jest traktowany jako false; akceptowane są też literały true i false.",
       "shortcutsWhenTypedKeys": "klucze typowane do porównań: aktywny tryb prawego paska bocznego (łańcuch) oraz liczby paneli i obszarów roboczych (liczby całkowite).",
       "shortcutsWhenOperators": "operatory logiczne, porównania typowane, dopasowanie wyrażeniem regularnym i przynależność do listy. Porównania wiążą mocniej niż && i ||.",
-      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:"
+      "shortcutsWhenExample": "Na przykład poniższe sprawia, że Ctrl+1–9 wybiera obszary robocze wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny (pozostawiając Ctrl+1–5 przełącznikowi trybów paska bocznego), i ogranicza wybór powierzchni do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli:",
+      "exampleFileBrowserExclude": "Ukrywa zbędne elementy eksploratora plików (na przykład .git i node_modules)."
     },
     "customCommands": {
       "title": "Niestandardowe polecenia",

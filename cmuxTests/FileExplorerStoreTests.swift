@@ -166,6 +166,78 @@ struct FileExplorerStoreTests {
     // MARK: - Basic loading
 
     @Test
+    func configuredExcludePatternsHideMatchingRelativePaths() {
+        let root = "/tmp/project"
+        let patterns = [".git", "node_modules", "**/*.pyc", "Sources/Generated"]
+
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/.git", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/packages/node_modules", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/lib/cache/module.pyc", rootPath: root, patterns: patterns))
+        #expect(FileExplorerExcludeMatcher.matches(path: "/tmp/project/Sources/Generated", rootPath: root, patterns: patterns))
+        #expect(!FileExplorerExcludeMatcher.matches(path: "/tmp/project/.env", rootPath: root, patterns: patterns))
+        #expect(!FileExplorerExcludeMatcher.matches(path: "/tmp/project/Sources/Generated.swift", rootPath: root, patterns: patterns))
+    }
+
+    @Test
+    func configuredExcludePatternsFilterLoadedEntries() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/tmp/project"] = .success([
+            FileExplorerEntry(name: ".git", path: "/tmp/project/.git", isDirectory: true),
+            FileExplorerEntry(name: "Sources", path: "/tmp/project/Sources", isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "/tmp/project/README.md", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setExcludePatterns([".git"])
+        store.setRootPath("/tmp/project")
+
+        try await waitFor("filtered root nodes loaded") { store.rootNodes.count == 2 }
+
+        #expect(store.rootNodes.map(\.name) == ["Sources", "README.md"])
+    }
+
+    @Test
+    func exclusionReloadReconcilesSelectionsForExcludedFilesAndParents() async throws {
+        let rootPath = "/tmp/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let excludedFilePath = "\(sourcePath)/Generated.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "\(rootPath)/README.md", isDirectory: false),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Generated.swift", path: excludedFilePath, isDirectory: false),
+            FileExplorerEntry(name: "Keep.swift", path: "\(sourcePath)/Keep.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("source children loaded") { sourceNode.children?.count == 2 }
+        let generatedNode = try #require(sourceNode.children?.first { $0.path == excludedFilePath })
+        store.select(node: generatedNode)
+
+        store.setExcludePatterns(["Sources/Generated.swift"])
+        try await waitFor("excluded file selection reconciled") {
+            sourceNode.children?.map(\.path) == ["\(sourcePath)/Keep.swift"] &&
+                store.selectedPath == sourcePath && store.selectedPaths == [sourcePath]
+        }
+
+        store.setExcludePatterns(["Sources"])
+        try await waitFor("excluded parent selection reconciled") {
+            store.rootNodes.map(\.path) == ["\(rootPath)/README.md"] &&
+                store.selectedPath == "\(rootPath)/README.md" &&
+                store.selectedPaths == ["\(rootPath)/README.md"]
+        }
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([

@@ -1365,6 +1365,10 @@
           "indentGuides": "Dibuja guías verticales de sangría en el editor de archivos integrado.",
           "currentLineHighlight": "Resalta la línea del cursor cuando no hay selección.",
           "tabWidth": "Ancho de un tabulador, en columnas, para la sangría y las guías de sangría."
+        },
+        "fileBrowser": {
+          "description": "Configuración del explorador de archivos para ocultar archivos y carpetas innecesarios. Los patrones globales y del proyecto se combinan.",
+          "exclude": "Patrones glob aplicados a rutas relativas a la raíz del espacio de trabajo. Un patrón sin barra coincide con archivos o carpetas a cualquier profundidad. Admite *, ? y **."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1376,7 +1380,8 @@
       "shortcutsWhenBooleanKeys": "claves booleanas. Una clave desconocida o ausente se evalúa como false; también se aceptan los literales true y false.",
       "shortcutsWhenTypedKeys": "claves tipadas para comparaciones: el modo activo de la barra lateral derecha (cadena) y los recuentos de paneles y espacios de trabajo (enteros).",
       "shortcutsWhenOperators": "operadores booleanos, comparaciones tipadas, coincidencia por expresión regular y pertenencia a listas. Las comparaciones ligan más fuerte que && y ||.",
-      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:"
+      "shortcutsWhenExample": "Por ejemplo, esto hace que Ctrl+1–9 seleccione espacios de trabajo en todas partes salvo cuando la barra lateral derecha tiene el foco (dejando Ctrl+1–5 libre para el selector de modo de la barra lateral), y limita la selección de superficie a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles:",
+      "exampleFileBrowserExclude": "Ocultar entradas innecesarias del explorador de archivos (por ejemplo, .git y node_modules)."
     },
     "customCommands": {
       "title": "Comandos personalizados",

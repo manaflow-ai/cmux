@@ -2,6 +2,30 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `fileBrowser.exclude`
+
+Hide noisy files and folders from the Files explorer without changing what
+terminal commands can see. Patterns are matched against paths relative to the
+workspace root. A pattern without a slash matches a file or folder at any
+depth; `*`, `?`, and `**` provide glob matching.
+
+```json
+{
+  "fileBrowser": {
+    "exclude": [
+      ".git",
+      ".DS_Store",
+      "node_modules",
+      "**/*.pyc"
+    ]
+  }
+}
+```
+
+Patterns from the global config and the active project's `cmux.json` (or
+`.cmux/cmux.json`) are merged. The setting applies to local, SSH, and Cloud
+file explorers; it does not affect terminal commands or file contents.
+
 ## Automation socket trust boundary
 
 `cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This

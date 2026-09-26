@@ -2641,6 +2641,10 @@
           "description": "Right-sidebar file explorer (file tree) settings.",
           "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
         },
+        "fileBrowser": {
+          "description": "File explorer visibility settings for hiding noisy files and folders. Global and project patterns are merged.",
+          "exclude": "Glob patterns matched against paths relative to the workspace root. A pattern without a slash matches a file or folder at any depth. Supports *, ?, and **."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
@@ -2670,7 +2674,8 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:",
+      "exampleFileBrowserExclude": "Hide noisy file-browser entries (for example .git and node_modules)."
     },
     "customCommands": {
       "title": "Custom Commands",

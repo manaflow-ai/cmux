@@ -1365,6 +1365,10 @@
           "indentGuides": "Tegn loddrette innrykksguider i den innebygde fileditoren.",
           "currentLineHighlight": "Uthev linjen med innsettingspunktet når ingenting er merket.",
           "tabWidth": "Bredden på et tabulatorstopp i kolonner for innrykk og innrykksguider."
+        },
+        "fileBrowser": {
+          "description": "Filutforskerinnstillinger for å skjule støyende filer og mapper. Globale mønstre og prosjektmønstre slås sammen.",
+          "exclude": "Glob-mønstre som matches mot stier relative til arbeidsområdets rot. Et mønster uten skråstrek matcher filer eller mapper på alle nivåer. Støtter *, ? og **."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1376,7 +1380,8 @@
       "shortcutsWhenBooleanKeys": "boolske nøkler. En ukjent eller fraværende nøkkel leses som false; literalene true og false godtas også.",
       "shortcutsWhenTypedKeys": "typede nøkler for sammenligninger: høyre sidelinjes aktive modus (streng) samt antall paneler og arbeidsområder (heltall).",
       "shortcutsWhenOperators": "boolske operatorer, typede sammenligninger, regex-treff og listemedlemskap. Sammenligninger binder tettere enn && og ||.",
-      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:"
+      "shortcutsWhenExample": "Dette gjør for eksempel at Ctrl+1–9 velger arbeidsområder overalt unntatt når høyre sidelinje har fokus (slik at Ctrl+1–5 er ledig for sidelinjens modusvelger), og begrenser overflatevalg til Finn-sidelinjen når arbeidsområdet har flere paneler:",
+      "exampleFileBrowserExclude": "Skjul støyende filutforskeroppføringer (for eksempel .git og node_modules)."
     },
     "customCommands": {
       "title": "Egendefinerte kommandoer",
