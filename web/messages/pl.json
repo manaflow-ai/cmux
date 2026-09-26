@@ -1303,6 +1303,7 @@
           "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje."
         },
         "app": {
+          "filePreviewVimKeys": "Włącz nawigację Vim tylko do odczytu w podglądach plików tekstowych.",
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",

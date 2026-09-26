@@ -548,6 +548,12 @@
           "default": true,
           "description": "When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file."
         },
+        "filePreviewVimKeys": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.filePreviewVimKeys",
+          "description": "Enable read-only Vim navigation in text file previews."
+        },
         "openMarkdownInCmuxViewer": {
           "type": "boolean",
           "default": true,

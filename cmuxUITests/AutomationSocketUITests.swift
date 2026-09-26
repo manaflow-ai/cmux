@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -35,6 +36,55 @@ final class AutomationSocketUITests: XCTestCase {
         }
         temporaryRoots = []
         super.tearDown()
+    }
+
+    func testFilePreviewVimNavigationPreservesTextAndYanksSelection() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-vim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        temporaryRoots.append(root)
+        let file = root.appendingPathComponent("navigation.txt")
+        let source = "one two\nthree four\nfive six\n" + (1...200).map { "row\($0) content\n" }.joined()
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        let app = XCUIApplication.cmuxTestApplication()
+        configureTextBoxMentionLaunchEnvironment(app)
+        // Launch arguments produce strings, while the catalog deliberately accepts
+        // only Boolean values. Configure the app's isolated test defaults domain.
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsDomain))
+        let previousVimSetting = defaults.object(forKey: "filePreviewVimKeys")
+        defaults.set(true, forKey: "filePreviewVimKeys")
+        defaults.synchronize()
+        defer {
+            if let previousVimSetting { defaults.set(previousVimSetting, forKey: "filePreviewVimKeys") }
+            else { defaults.removeObject(forKey: "filePreviewVimKeys") }
+            defaults.synchronize()
+        }
+        app.launch()
+        defer { app.terminate() }
+        app.activate()
+        socketPath = try XCTUnwrap(resolveSocketPath(timeout: 15, allowTmpFallback: false))
+        XCTAssertNotNil(socketResult(method: "file.open", params: ["paths": [file.path], "focus": true]))
+        let editor = app.textViews["FilePreviewTextEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        NSPasteboard.general.clearContents()
+        app.typeText("gg2j0wvey")
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "six")
+        app.typeText("iddxpu")
+        XCTAssertEqual(editor.value as? String, source)
+        app.typeText("/three")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        NSPasteboard.general.clearContents()
+        app.typeText("vey")
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "three")
+        app.typeKey("d", modifierFlags: [.control])
+        NSPasteboard.general.clearContents()
+        app.typeText("0vey")
+        XCTAssertTrue(NSPasteboard.general.string(forType: .string)?.hasPrefix("row") == true)
+        XCTAssertEqual(editor.value as? String, source)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), source)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "File preview Vim navigation and read-only content"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testSocketToggleDisablesAndEnables() {

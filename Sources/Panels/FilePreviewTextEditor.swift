@@ -41,6 +41,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @LiveSetting(\.fileEditor.indentGuides) private var indentGuides
     @LiveSetting(\.fileEditor.currentLineHighlight) private var currentLineHighlight
     @LiveSetting(\.fileEditor.tabWidth) private var tabWidth
+    @LiveSetting(\.app.filePreviewVimKeys) private var filePreviewVimKeys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -73,6 +74,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
+        textView.updateVimNavigation(enabled: filePreviewVimKeys && panel is FilePreviewPanel)
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         Self.installChrome(on: scrollView, textView: textView)
         Self.applyTheme(
@@ -122,6 +124,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
+        textView.updateVimNavigation(enabled: filePreviewVimKeys && panel is FilePreviewPanel)
         Self.applyChromeSettings(
             to: scrollView,
             lineNumbers: lineNumbers,
@@ -138,6 +141,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             let visibleOrigin = scrollView.contentView.bounds.origin
             context.coordinator.isApplyingPanelUpdate = true
             textView.string = panel.textContent
+            textView.resetVimDocument()
             context.coordinator.isApplyingPanelUpdate = false
             context.coordinator.lastAppliedContentRevision = panel.textContentRevision
             let contentLength = (textView.string as NSString).length
@@ -402,6 +406,7 @@ extension SavingTextView {
         layoutManager.addTextContainer(textContainer)
 
         let textView = SavingTextView(frame: .zero, textContainer: textContainer, wordWrapSettings: wordWrapSettings)
+        textView.setAccessibilityIdentifier("FilePreviewTextEditor")
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -433,6 +438,49 @@ final class SavingTextView: NSTextView {
 
     let wordWrapSettings: FilePreviewWordWrapSettings
     weak var panel: (any FilePreviewTextEditingPanel)?
+    private var vimController: FilePreviewVimController?
+    private var editableBeforeVim = true
+    // NSTextView undo bypasses shouldChangeText and isEditable. Route focused
+    // preview undo to an empty manager while retaining its editing history.
+    private let readOnlyUndoManager = UndoManager()
+
+    override var undoManager: UndoManager? {
+        vimController == nil ? super.undoManager : readOnlyUndoManager
+    }
+
+    func updateVimNavigation(enabled: Bool) {
+        guard enabled != (vimController != nil) else { return }
+        if enabled, vimController == nil {
+            editableBeforeVim = isEditable
+            isEditable = false
+            vimController = FilePreviewVimController(textView: self)
+        } else if !enabled, vimController != nil {
+            vimController?.cancelPendingInput()
+            vimController = nil
+            isEditable = editableBeforeVim
+        }
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    override var shouldDrawInsertionPoint: Bool {
+        if vimController != nil {
+            return window?.firstResponder === self && selectedRange().length == 0
+        }
+        return super.shouldDrawInsertionPoint
+    }
+
+    func resetVimDocument() { vimController?.resetDocument() }
+
+    override func keyDown(with event: NSEvent) {
+        if vimController?.handle(event) == true { return }
+        super.keyDown(with: event)
+    }
+
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard vimController == nil else { return false }
+        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+    }
+
     /// Fired after the preview font size changes so highlighting can
     /// re-apply token weights at the new size. Zoom writes a uniform
     /// `.font` across storage; without a forced restyle, keywords stay
@@ -564,6 +612,7 @@ final class SavingTextView: NSTextView {
     }
 
     private func clearPendingShortcutChordPrefixes() {
+        vimController?.cancelPendingInput()
         pendingEditorShortcutChordPrefix = nil
     }
 

@@ -172,6 +172,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
         .init(
+            jsonKey: "filePreviewVimKeys",
+            defaultsKey: app.filePreviewVimKeys.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openMarkdownInCmuxViewer",
             defaultsKey: app.openMarkdownInCmuxViewer.userDefaultsKey
         ),

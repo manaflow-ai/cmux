@@ -17,3 +17,22 @@ directly with SwiftPM:
 ```bash
 swift test --package-path Packages/macOS/CmuxFilePreviewCore
 ```
+
+## Read-only Vim navigation
+
+`ReadOnlyVimNavigation(text:)` owns navigation state for an immutable text snapshot.
+`handle(_:)` updates UTF-16 cursor/selection coordinates and emits viewport or yank
+results; it exposes no operation that writes the source. The AppKit preview owns
+the interpreter and resets it when the document changes. Focus loss cancels pending
+counts, prefixes, and search input. Tests instantiate it directly with fixture text.
+
+The opt-in `app.filePreviewVimKeys` setting applies only to text file previews;
+Markdown source editing and non-text previews retain their existing behavior.
+Movement includes counts, h/j/k/l, w/b/e and W/B/E, 0/^/$, gg/G, f/F/t/T,
+paragraphs, Ctrl-D/U/F/B, H/M/L and zz/zt/zb. Search uses / or ?, Enter,
+and n/N. Marks use m followed by a character and apostrophe/backtick jumps;
+Ctrl-O/I traverse the per-preview jump list. v/V select characters/lines and y
+copies; Escape cancels selection or an unfinished command. Editing commands are
+ignored and the native text view is non-editable. Existing Command shortcuts
+retain precedence. Search patterns currently use Foundation regular expressions;
+this is a read-only navigation interpreter, not an embedded Vim runtime.

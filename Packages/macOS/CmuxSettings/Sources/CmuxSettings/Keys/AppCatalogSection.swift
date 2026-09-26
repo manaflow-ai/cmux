@@ -114,6 +114,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openSupportedFilesInCmux"
     )
 
+    /// Enables Vim-style, read-only navigation in text file previews.
+    public let filePreviewVimKeys = DefaultsKey<Bool>(
+        id: "app.filePreviewVimKeys",
+        defaultValue: false,
+        userDefaultsKey: "filePreviewVimKeys"
+    )
+
     /// Default `true` matches the runtime cmd-click router (legacy
     /// `CmdClickMarkdownRouteSettings.defaultValue`); the catalog briefly
     /// said `false`, which made the Settings toggle display OFF for users

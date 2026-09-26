@@ -35,6 +35,7 @@ public struct AppSection: View {
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
+    @State private var filePreviewVimKeys: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
@@ -101,6 +102,7 @@ public struct AppSection: View {
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
+        _filePreviewVimKeys = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.filePreviewVimKeys))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
@@ -160,7 +162,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, filePreviewVimKeys, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -403,6 +405,17 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.app.openSupportedFilesInCmux.subtitle", defaultValue: "Cmd-clicking readable files opens text, code, PDFs, images, audio, video, and Quick Look previews in cmux.")
             ) {
                 Toggle("", isOn: Binding(get: { openSupported.current }, set: { openSupported.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("app.filePreviewVimKeys"),
+                String(localized: "settings.app.filePreviewVimKeys", defaultValue: "Vim Navigation in File Previews"),
+                subtitle: String(localized: "settings.app.filePreviewVimKeys.subtitle", defaultValue: "Use read-only Vim movement, search, selection, and yank in text file previews.")
+            ) {
+                Toggle("", isOn: Binding(get: { filePreviewVimKeys.current }, set: { filePreviewVimKeys.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
