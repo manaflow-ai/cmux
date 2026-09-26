@@ -143,6 +143,52 @@ struct ExternalHostHostingTests {
         #expect(composite.workspaces.first?.name == "api renamed")
     }
 
+    @Test("Hiding the open host clears the selection instead of silently swapping it")
+    func hidingTheOpenHostClearsSelection() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        // A second host stays visible, so a fallback would have somewhere to
+        // land and the swap would go unnoticed.
+        let otherHostID = "cmux-cloud\u{1F}vm-2"
+        let other = RecordingHost(hostID: otherHostID, surfaceID: "cmux-cloud\u{1F}vm-2\u{1F}term-9")
+        composite.registerExternalHostSource(other)
+        composite.applyExternalHostWorkspaceState(
+            MacWorkspaceState(
+                macDeviceID: otherHostID,
+                displayName: "other",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: MobileWorkspacePreview.ID(rawValue: "cmux-cloud\u{1F}vm-2\u{1F}ws-9"),
+                        macDeviceID: otherHostID,
+                        name: "other work",
+                        terminals: []
+                    )
+                ],
+                status: .connected,
+                workspaceSnapshotIsAuthoritative: true
+            )
+        )
+        let openRow = try! #require(composite.workspaces.first { $0.macDeviceID == Self.hostID })
+        composite.selectedWorkspaceID = openRow.id
+
+        composite.setExternalHost(Self.hostID, hidden: true)
+
+        #expect(composite.selectedWorkspaceID == nil)
+        #expect(!composite.workspaces.contains { $0.macDeviceID == Self.hostID })
+    }
+
+    @Test("Hiding a host the user is not in leaves the selection alone")
+    func hidingAnotherHostKeepsSelection() {
+        let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)
+        let composite = Self.composite(with: host)
+        let openRow = try! #require(composite.workspaces.first)
+        composite.selectedWorkspaceID = openRow.id
+
+        composite.setExternalHost("cmux-cloud\u{1F}vm-absent", hidden: true)
+
+        #expect(composite.selectedWorkspaceID == openRow.id)
+    }
+
     @Test("The Computers screen sees the host, its liveness and its count")
     func summariesDescribeTheHost() {
         let host = RecordingHost(hostID: Self.hostID, surfaceID: Self.surfaceID)

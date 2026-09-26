@@ -77,9 +77,21 @@ extension MobileShellComposite {
     }
 
     /// Hides or reveals one external host's workspaces.
+    ///
+    /// Hiding the host whose workspace is open clears the selection first.
+    /// Otherwise the selected id would name a row that no longer exists and
+    /// ``selectedWorkspace`` would silently fall back to the first remaining
+    /// row, moving the user into another computer's workspace without saying
+    /// so. Clearing pops the detail back to the list, which is what a failed
+    /// cross-Mac open does for the same reason.
     public func setExternalHost(_ hostID: String, hidden: Bool) {
         guard externalHostOwnsHost(hostID) else { return }
         if hidden {
+            if let selectedWorkspaceID,
+               let row = workspaces.first(where: { $0.id == selectedWorkspaceID }),
+               row.macDeviceID == hostID {
+                setSelectedWorkspaceID(nil)
+            }
             hiddenExternalHostIDs.insert(hostID)
         } else {
             hiddenExternalHostIDs.remove(hostID)
