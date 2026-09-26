@@ -48,7 +48,7 @@ on:
           - CmuxMobileShell
           - CmuxMobileShellModel
       ios_version:
-        description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
+        description: "Optional simulator OS version, for example 18.5 or 26.3; empty keeps the default"
         required: false
         default: ""
         type: string
