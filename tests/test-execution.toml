@@ -606,6 +606,10 @@ path = "tests/test_issue_5164_starship_prompt_composition.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lan_product_source.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
