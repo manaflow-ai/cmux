@@ -436,6 +436,7 @@
 		C12791C00000000000000008 /* BrowserImportDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000007 /* BrowserImportDestinationResolver.swift */; };
 		FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
 		FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
+		03B3255E556256CFB124BA75 /* BrowserInlineHostAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F6EDA71D9E87FF87E7F2A8C /* BrowserInlineHostAttachmentTests.swift */; };
 		B75040040000000000000001 /* BrowserInsecureHTTPAlertTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */; };
 		B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */; };
 		B1F0C0020000000000000001 /* BrowserInspectorFocusHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */; };
@@ -543,6 +544,7 @@
 		0A0F00550000000000000003 /* CampfireSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000004 /* CampfireSupportTests.swift */; };
 		0A0F00580000000000000003 /* CampfireSupportTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00580000000000000004 /* CampfireSupportTestSupport.swift */; };
 		CA52B0010000000000000000 /* CanvasAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0010000000000000000 /* CanvasAction.swift */; };
+		61116A001122334455667702 /* CanvasBrowserRenderingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61116A001122334455667701 /* CanvasBrowserRenderingUITests.swift */; };
 		CA5CADF00000000000000002 /* CanvasDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5CADF00000000000000001 /* CanvasDebugMenuButtons.swift */; };
 		CA52B0050000000000000000 /* CanvasHostedPanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */; };
 		CA52B0080000000000000000 /* CanvasHostedPanelPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0080000000000000000 /* CanvasHostedPanelPresentation.swift */; };
@@ -4542,6 +4544,7 @@
 		C12791C00000000000000007 /* BrowserImportDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserImportDestinationResolver.swift; sourceTree = "<group>"; };
 		FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
 		FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
+		4F6EDA71D9E87FF87E7F2A8C /* BrowserInlineHostAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserInlineHostAttachmentTests.swift"; sourceTree = "<group>"; };
 		B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInsecureHTTPAlertTestSupport.swift; sourceTree = "<group>"; };
 		B1F0C0010000000000000002 /* BrowserInspectorFocusHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/BrowserInspectorFocusHandoff.swift; sourceTree = "<group>"; };
 		B1F0C0020000000000000002 /* BrowserInspectorFocusHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInspectorFocusHandoffTests.swift; sourceTree = "<group>"; };
@@ -4648,6 +4651,7 @@
 		0A0F00550000000000000004 /* CampfireSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CampfireSupportTests.swift; sourceTree = "<group>"; };
 		0A0F00580000000000000004 /* CampfireSupportTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CampfireSupportTestSupport.swift; sourceTree = "<group>"; };
 		CA52C0010000000000000000 /* CanvasAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasAction.swift"; sourceTree = "<group>"; };
+		61116A001122334455667701 /* CanvasBrowserRenderingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasBrowserRenderingUITests.swift; sourceTree = "<group>"; };
 		CA5CADF00000000000000001 /* CanvasDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasDebugMenuButtons.swift; sourceTree = "<group>"; };
 		CA52C0050000000000000000 /* CanvasHostedPanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasHostedPanelContentView.swift"; sourceTree = "<group>"; };
 		CA52C0080000000000000000 /* CanvasHostedPanelPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CanvasHostedPanelPresentation.swift"; sourceTree = "<group>"; };
@@ -8314,6 +8318,7 @@
 				81464EB0D515022903F26DD8 /* WorkspaceWorkingDirectorySpawnUITests.swift */,
 				8478B0000000000000000001 /* BrowserFixtureSocketTestCase+PendingRequest.swift */,
 				7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */,
+				61116A001122334455667701 /* CanvasBrowserRenderingUITests.swift */,
 				C13BE417A8C24EE79F00A101 /* BrowserNativeHoverUITests.swift */,
 				133720000000000000000001 /* BrowserNativeClickUITests.swift */,
 				8478A0000000000000000001 /* BrowserRecoveryHTTPServer.swift */,
@@ -12089,6 +12094,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				4F6EDA71D9E87FF87E7F2A8C /* BrowserInlineHostAttachmentTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
 			);
@@ -15500,6 +15506,7 @@
 				D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
 				8478A0000000000000000002 /* BrowserRecoveryHTTPServer.swift in Sources */,
 				7B5F1A2E9C0D4B6A8E217304 /* BrowserReliabilityRegressionUITests.swift in Sources */,
+				61116A001122334455667702 /* CanvasBrowserRenderingUITests.swift in Sources */,
 				B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */,
 				B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */,
 				B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
@@ -15676,6 +15683,7 @@
 				BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */,
 				BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */,
 				FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */,
+				03B3255E556256CFB124BA75 /* BrowserInlineHostAttachmentTests.swift in Sources */,
 				B75040040000000000000001 /* BrowserInsecureHTTPAlertTestSupport.swift in Sources */,
 				B1F0C0020000000000000001 /* BrowserInspectorFocusHandoffTests.swift in Sources */,
 				BCBC0A0E0000000000000E11 /* BrowserMediaActivityAggregationTests.swift in Sources */,
