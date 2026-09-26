@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
+          "leftMinWidth": "Minste bredde i punkter som det venstre sidepanelet (arbeidsområder) kan dras til. Reduser den for å frigjøre plass til terminalen uten å skjule sidepanelet. Begrenset til 120–260; standard er 240.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
         "fileExplorer": {

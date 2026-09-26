@@ -1309,7 +1309,8 @@
           "minimum": 120,
           "maximum": 260,
           "default": 240,
-          "description": "Smallest width in points the left (workspace) sidebar can be dragged to. Lower it to leave more room for the terminal without hiding the sidebar. Out-of-range values are clamped to 120-260."
+          "descriptionKey": "schemaDescriptions.sidebar.leftMinWidth",
+          "description": "Minimum width in points the left (workspace) sidebar can be dragged to. Lower it to reclaim space for the terminal without hiding the sidebar. Clamped to 120–260; defaults to 240."
         },
         "rightMaxWidth": {
           "type": "number",
