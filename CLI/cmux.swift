@@ -12130,7 +12130,7 @@ struct CMUXCLI {
                 passthrough = true
                 delimitedRemoteCommandArguments = []
                 index += 1
-            case "--port":
+            case "-p", "--port":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --port requires a value")
                 }
