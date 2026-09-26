@@ -129,6 +129,7 @@
 		A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */; };
 		C85350000000000000000103 /* AgentHookDeliveryQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85350000000000000000104 /* AgentHookDeliveryQueueTests.swift */; };
 		918100000000000000000101 /* AgentHookFailureStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000100 /* AgentHookFailureStage.swift */; };
+		A10127040000000000000001 /* AgentHookNotificationClassifierRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10127040000000000000002 /* AgentHookNotificationClassifierRegressionTests.swift */; };
 		A76110040000000000000001 /* AgentHookNotificationPolicy+Redaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110040000000000000002 /* AgentHookNotificationPolicy+Redaction.swift */; };
 		A76110040000000000000003 /* AgentHookNotificationPolicy+Redaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110040000000000000002 /* AgentHookNotificationPolicy+Redaction.swift */; };
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
@@ -4261,6 +4262,7 @@
 		A61E00010000000000000004 /* AgentHookDeliveryQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryQueue.swift; sourceTree = "<group>"; };
 		C85350000000000000000104 /* AgentHookDeliveryQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookDeliveryQueueTests.swift; sourceTree = "<group>"; };
 		918100000000000000000100 /* AgentHookFailureStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookFailureStage.swift; sourceTree = "<group>"; };
+		A10127040000000000000002 /* AgentHookNotificationClassifierRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationClassifierRegressionTests.swift; sourceTree = "<group>"; };
 		A76110040000000000000002 /* AgentHookNotificationPolicy+Redaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHookNotificationPolicy+Redaction.swift"; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
@@ -11918,6 +11920,7 @@
 				A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */,
 				A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */,
 				A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */,
+				A10127040000000000000002 /* AgentHookNotificationClassifierRegressionTests.swift */,
 				A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */,
 				7B74E6D94323FE9C5804E0B4 /* FeedWaiterRegistryTests.swift */,
 				D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */,
@@ -15640,6 +15643,7 @@
 				F65760250000000000000001 /* AgentHibernationTranscriptSnapshotRaceTests.swift in Sources */,
 				A10127030000000000000003 /* AgentHookAbnormalStopClassifier.swift in Sources */,
 				C85350000000000000000103 /* AgentHookDeliveryQueueTests.swift in Sources */,
+				A10127040000000000000001 /* AgentHookNotificationClassifierRegressionTests.swift in Sources */,
 				A76110040000000000000003 /* AgentHookNotificationPolicy+Redaction.swift in Sources */,
 				A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */,
 				A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */,
