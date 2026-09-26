@@ -147,6 +147,7 @@ class Decide(unittest.TestCase):
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
         self.assertEqual((values["build"], json.loads(values["pools"])), ("true", [LARGE, OLD]))
         self.assertEqual(json.loads(values["matrix"]), {"include": [{"pool": LARGE}, {"pool": OLD}]})
+        self.assertEqual(json.loads(values["far"]), [])
 
     def test_a_root_lane_is_its_own_matrix_entry_and_job(self):
         # An owned Mac's second compile slot builds in /private/tmp/cmux-ci-2,
@@ -187,9 +188,9 @@ class FarLane(unittest.TestCase):
 
     def test_a_running_seed_covers_its_commit_but_a_pending_one_does_not(self):
         # p1's seed is being built now (never cancelled), p2's is pending (may be replaced).
-        api = Api([run(3, "p2", status="queued", conclusion=None), run(2, "p1", status="in_progress", conclusion=None),
+        api = Api([run(3, "p2", status="pending", conclusion=None), run(2, "p1", status="in_progress", conclusion=None),
                    run(1, "p0")],
-                  {3: [seed_job(status="queued", conclusion=None, saved=False)],
+                  {3: [seed_job(status="pending", conclusion=None, saved=False)],
                    2: [seed_job(status="in_progress", conclusion=None, saved=False)], 1: [seed_job()]})
         far = []
         build, reasons = decide(api, ["p2", "p1", "p0"], {"HEAD": "v3", "p0": "v0"},
@@ -199,6 +200,15 @@ class FarLane(unittest.TestCase):
         # The skip still compares with a saved seed only (p0).
         self.assertIn("differ from p0", reasons[0])
 
+    def test_a_seed_past_its_pending_slot_covers_and_other_pools_do_not(self):
+        for status, covers in (("queued", True), ("waiting", True), ("pending", False)):
+            api = Api([run(2, "p1", status="in_progress", conclusion=None), run(1, "p0")],
+                      {2: [seed_job(status=status, conclusion=None, saved=False),
+                           seed_job(status="in_progress", conclusion=None, saved=False, pool=SMALL)],
+                       1: [seed_job()]})
+            reasons = decide(api, ["p1", "p0"], {"HEAD": "v2", "p0": "v0"}, tiers={"p1": "near", "p0": "far"})[1]
+            self.assertIn("near from p1" if covers else "far from p0", reasons[0], status)
+
     def test_no_covering_seed_is_far_and_an_error_is_near(self):
         far = []
         build, reasons = decide(Api([], {}), ["p1"], {"HEAD": "v1"}, far=far)
@@ -206,7 +216,7 @@ class FarLane(unittest.TestCase):
         self.assertIn("no seed covers", reasons[0])
 
         def broken(_revision):
-            raise subprocess.CalledProcessError(128, "git")
+            raise ValueError("a model with a bad near_app_swift_files")
         far = []
         build, reasons = seed_decide.decide(
             "push", REPO, [(LARGE, "x")], api=Api([run(2, "p1")], {2: [seed_job()]}), ancestors=lambda: ["p1"],

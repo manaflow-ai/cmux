@@ -33,12 +33,15 @@ app Swift files) behind main. warm_distance.py measured what such a start costs:
 within NEAR_APP_SWIFT_FILES app Swift files, with no package interface change
 and no hot file, p50 140 s; otherwise p50 401 s. So each pool that builds also
 gets a tier, from the nearest ancestor its seed covers (a saved seed, or a seed
-job running now, which is never cancelled) to this push, and `far` lists the
+job past its pending slot, which no push replaces) to this push, and `far` lists the
 pools whose tier is not near. seed-derived-data.yml queues a far seed in a
 second concurrency group per pool, so a newer near push never replaces it, and
 it starts beside a running near seed instead of behind it. A newer far push
 still replaces a pending far one (it holds the same change and more), so each
-pool runs at most two seeds and keeps at most two pending. No covering seed
+pool runs at most two seeds and keeps at most two pending. A far seed of an
+older commit may then save after a newer near one, which moves R2's newest
+pointer back; adoption walks history first, so only its fallback past the
+ancestor window sees that. No covering seed
 within the window is far; an error computing the tier is near, which is the
 single lane of before.
 
@@ -121,9 +124,15 @@ def saved(jobs: Sequence[dict], pool: str) -> bool:
     return False
 
 
+# A seed job in these states has left its concurrency group's pending slot, so no newer push replaces it:
+# running, waiting for a runner, or waiting on the ci-cache-writer environment. A job a newer push may still
+# replace is `pending`.
+COMMITTED = ("in_progress", "queued", "waiting")
+
+
 def running(jobs: Sequence[dict], pool: str) -> bool:
-    """Whether one seeder run's job for `pool` is running: it is never cancelled, so it will save or fail."""
-    return any(job.get("name") == seed_job_name(pool) and job.get("status") == "in_progress" for job in jobs)
+    """Whether one seeder run's job for `pool` is committed (COMMITTED): it will save or fail, never be replaced."""
+    return any(job.get("name") == seed_job_name(pool) and job.get("status") in COMMITTED for job in jobs)
 
 
 def warm_tier(ancestor: str) -> str:
@@ -169,7 +178,7 @@ class Seeds:
         return None
 
     def covering(self, pool: str, ancestors: Iterable[str]) -> str | None:
-        """The nearest ancestor whose seed for `pool` is saved or being built now, or None."""
+        """The nearest ancestor whose seed for `pool` is saved or committed (running or about to), or None."""
         for sha in ancestors:
             if any(saved(jobs, pool) or running(jobs, pool)
                    for jobs in (self.run_jobs(run) for run in self.by_sha.get(sha, []))):
@@ -230,9 +239,8 @@ def lane_reason(seeds: Seeds, pool: str, history: list[str], tier_of: Callable[[
     try:
         cover = seeds.covering(pool, history)
         tier = "far" if cover is None else tier_of(cover)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
-            json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
-        return f"Near lane: could not measure the distance ({error})."
+    except Exception as error:  # noqa: BLE001 - the lane is an optimisation; any failure keeps the near lane
+        return f"Near lane: could not measure the distance ({type(error).__name__}: {error})."
     if tier != "near" and far is not None:
         far.append(pool)
     where = f"no seed covers the last {ANCESTOR_LIMIT} commits" if cover is None else f"{tier} from {cover}"

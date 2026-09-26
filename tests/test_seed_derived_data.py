@@ -1070,21 +1070,29 @@ class Wiring(unittest.TestCase):
         self.assertIn("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", text)
         self.assertLess(text.index('"$helper" take "$root"'), text.index("scripts/ci/clear-dirs.sh"))
 
-        def run(status):
+        def run(status, placed=None):
             with tempfile.TemporaryDirectory() as tmp:
+                if placed:
+                    Path(tmp, "glaeda-canonical-root").write_text(placed + "\n")
                 helper = Path(tmp, "helper")
                 helper.write_text(f"#!/bin/bash\necho \"$@\" >> {tmp}/calls\nexit {status}\n")
                 helper.chmod(0o755)
                 script = (text.replace("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", str(helper))
                           .replace("scripts/ci/clear-dirs.sh", "true"))
                 env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(Path(tmp, "env")), "MATRIX_POOL": "p",
-                       "TRUSTED_POOL": "t", "CMUX_SEED_ROOT": "", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/cmux-ci"}
+                       "TRUSTED_POOL": "t", "CMUX_SEED_ROOT": "", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/cmux-ci",
+                       "RUNNER_TEMP": tmp}
                 out = subprocess.run(["bash", "-ceu", script], env=env, capture_output=True, text=True)
                 calls = Path(tmp, "calls").read_text().split() if Path(tmp, "calls").exists() else []
-                return out.returncode, calls
+                return out.returncode, calls, "" if "::warning" not in out.stdout else out.stdout
 
-        self.assertEqual(run(0), (0, ["take", "/private/tmp/cmux-ci", "--wait", "3000"]))
-        self.assertEqual(run(2)[0], 0)
+        self.assertEqual(run(0)[:2], (0, ["take", "/private/tmp/cmux-ci", "--wait", "600"]))
+        # 2: the hook placed the job; quiet when it placed it here, a warning when elsewhere.
+        self.assertEqual(run(2, placed="/private/tmp/cmux-ci")[::2], (0, ""))
+        code, _, out = run(2, placed="/private/tmp/cmux-ci-2")
+        self.assertEqual(code, 0)
+        self.assertIn("::warning::glaeda holds /private/tmp/cmux-ci-2 for this job, not /private/tmp/cmux-ci", out)
+        self.assertIn("::warning::glaeda holds no root", run(2)[2])
         self.assertNotEqual(run(1)[0], 0)
 
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
