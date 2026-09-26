@@ -21,6 +21,8 @@ import urllib.parse
 import zipfile
 from pathlib import Path
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TEAM_ID = "7WLXT3NR37"
