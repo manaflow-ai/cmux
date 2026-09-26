@@ -53,7 +53,9 @@ const irohPathKindsByCode = new Map<number, string>([
 const irohPathOperationsByCode = new Map<number, string>([
   [1, "opened"], [2, "closed"], [3, "selected"], [4, "lagged"],
 ]);
-const metadataOperations = new Set(["replay", "artifactScan", "artifactList", "model_list"]);
+const metadataOperations = new Set([
+  "replay", "artifactScan", "artifactList", "blankSurface", "model_list",
+]);
 const irohPathPropertyKeys = new Set(["path"]);
 const noAdditionalPropertyKeys = new Set<string>();
 
@@ -90,6 +92,7 @@ const allowedPropertyKeys = new Set([
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
   "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
+  "replay_in_flight", "retry_exhausted", "connected", "terminal_event_age_s",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
   "provider", "source", "effort_count",
 ]);
@@ -132,6 +135,18 @@ export type MobileNetworkOutcome = {
   readonly barrierActive?: boolean;
   /** Zero-based retry index within the replay episode. */
   readonly replayAttempt?: number;
+  /** A replay request was outstanding for this surface. */
+  readonly replayInFlight?: boolean;
+  /** The surface had spent its replay retry budget: nothing is coming. */
+  readonly retryExhausted?: boolean;
+  /** The app considered itself connected when this was recorded. */
+  readonly connected?: boolean;
+  /**
+   * Seconds since the last terminal event arrived, as a power-of-two bucket.
+   * Small beside a blank surface means the lane is alive and the surface
+   * stopped asking; large means the lane itself is the problem.
+   */
+  readonly terminalEventAgeS?: number;
   /**
    * Whether the app was on screen when this phase was recorded. A suspended
    * app runs no code, so elapsed time that spans suspension was never spent
@@ -546,7 +561,7 @@ function pathMetadataFields(metadata: Metadata): Pick<
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground" | "replayInFlight" | "retryExhausted" | "connected" | "terminalEventAgeS">;
 
 /** Mirrors `MobileTerminalReplayTrigger` in CMUXMobileCore. */
 const replayTriggers = new Set([
@@ -554,6 +569,7 @@ const replayTriggers = new Set([
   "revisionChainBreak", "historyChainBreak", "coldAttach", "failureRetry",
   "droppedFrame", "applyFenceFailure", "pendingInputDrop", "resubscribe",
   "screenTransition", "missingBaseline", "byteGap",
+  "retryExhausted", "barrierFailedOpen",
 ]);
 
 function validTimestamp(value: unknown): value is string {
@@ -644,20 +660,29 @@ function parseInitialConnectionFields(
 /// keep that function under the repository complexity limit.
 function parseReplayContextFields(
   properties: Record<string, unknown>,
-): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground"> | null {
+): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground" | "replayInFlight" | "retryExhausted" | "connected" | "terminalEventAgeS"> | null {
   const replayTrigger = optionalSetValue(properties.replay_trigger, replayTriggers);
   const surfaceBlank = optionalBoolean(properties.surface_blank);
   const barrierActive = optionalBoolean(properties.barrier_active);
   const appForeground = optionalBoolean(properties.app_foreground);
   const replayAttempt = optionalDiagnosticInteger(properties.replay_attempt, 0xff);
-  if (replayTrigger === false || replayAttempt === false) return null;
+  const replayInFlight = optionalBoolean(properties.replay_in_flight);
+  const retryExhausted = optionalBoolean(properties.retry_exhausted);
+  const connected = optionalBoolean(properties.connected);
+  const terminalEventAgeS = optionalDiagnosticInteger(properties.terminal_event_age_s, 0xffff);
+  if (replayTrigger === false || replayAttempt === false || terminalEventAgeS === false) return null;
   if (surfaceBlank === null || barrierActive === null || appForeground === null) return null;
+  if (replayInFlight === null || retryExhausted === null || connected === null) return null;
   return {
     ...(typeof replayTrigger === "string" ? { replayTrigger } : {}),
     ...(typeof surfaceBlank === "boolean" ? { surfaceBlank } : {}),
     ...(typeof barrierActive === "boolean" ? { barrierActive } : {}),
     ...(typeof replayAttempt === "number" ? { replayAttempt } : {}),
     ...(typeof appForeground === "boolean" ? { appForeground } : {}),
+    ...(typeof replayInFlight === "boolean" ? { replayInFlight } : {}),
+    ...(typeof retryExhausted === "boolean" ? { retryExhausted } : {}),
+    ...(typeof connected === "boolean" ? { connected } : {}),
+    ...(typeof terminalEventAgeS === "number" ? { terminalEventAgeS } : {}),
   };
 }
 
@@ -744,6 +769,10 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.surface_blank": observation.surfaceBlank,
       "cmux.mobile.barrier_active": observation.barrierActive,
       "cmux.mobile.replay_attempt": observation.replayAttempt,
+      "cmux.mobile.replay_in_flight": observation.replayInFlight,
+      "cmux.mobile.retry_exhausted": observation.retryExhausted,
+      "cmux.mobile.connected": observation.connected,
+      "cmux.mobile.terminal_event_age_s": observation.terminalEventAgeS,
       "cmux.mobile.app_foreground": observation.appForeground,
     },
     (span) => {

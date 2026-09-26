@@ -636,6 +636,12 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        // Acknowledgement, not delivery, is when content reached the screen.
+        // A full grid can be recorded and queued behind an unacknowledged
+        // chunk, and resolving on delivery would report a repaint that had
+        // not happened and suppress every later report for this surface.
+        lastTerminalOutputArrivedAt = appDiagnosticNow()
+        defer { evaluateTerminalBlankSurfaceWatchdog(surfaceID: surfaceID) }
         if queue.inFlightLatencyMetricsEligible {
             terminalLatencyObserver.outputApplied(surfaceID: surfaceID)
         }

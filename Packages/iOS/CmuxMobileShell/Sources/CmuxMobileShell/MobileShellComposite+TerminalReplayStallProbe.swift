@@ -91,7 +91,24 @@ extension MobileShellComposite {
                 || terminalMirrorHydrationNeededSurfaceIDs.contains(surfaceID),
             barrierActive: replayBarrierToken != nil
                 || terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
-            attempt: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
+            attempt: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
+            replayInFlight: terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+            retryExhausted: terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
+            isConnected: connectionState == .connected,
+            terminalEventAgeSeconds: terminalEventAgeSecondsForDiagnostics()
         )
+    }
+
+    /// Whole seconds since terminal output last actually arrived, or `nil`
+    /// when none ever has.
+    ///
+    /// This is the "is the lane alive" reading. A small age beside a blank
+    /// surface means the transport is carrying traffic and the surface simply
+    /// stopped asking; a large age beside a blank surface means the lane
+    /// itself is the problem. Without it those two states are identical in
+    /// Axiom and lead to opposite fixes.
+    func terminalEventAgeSecondsForDiagnostics() -> Int? {
+        guard let lastTerminalOutputArrivedAt else { return nil }
+        return Int(max(0, appDiagnosticNow().timeIntervalSince(lastTerminalOutputArrivedAt)))
     }
 }

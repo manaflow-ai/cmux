@@ -226,6 +226,13 @@ public final class MobileTerminalTraceReporter: Sendable {
             properties["surface_blank"] = .bool(context.surfaceIsBlank)
             properties["barrier_active"] = .bool(context.barrierActive)
             properties["replay_attempt"] = .int(context.attempt)
+            // Together these answer "why is nothing filling this surface".
+            properties["replay_in_flight"] = .bool(context.replayInFlight)
+            properties["retry_exhausted"] = .bool(context.retryExhausted)
+            properties["connected"] = .bool(context.isConnected)
+            if let age = context.terminalEventAgeSeconds {
+                properties["terminal_event_age_s"] = .int(age)
+            }
         }
         return properties
     }

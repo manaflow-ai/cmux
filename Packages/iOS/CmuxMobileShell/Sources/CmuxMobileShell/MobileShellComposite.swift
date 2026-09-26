@@ -1263,6 +1263,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
+    /// When terminal output last actually arrived for any surface.
+    ///
+    /// Deliberately separate from ``lastTerminalEventAt``, which the liveness
+    /// watchdog and a successful probe also set. Those make the lane look
+    /// alive without a single byte of content, which is precisely the
+    /// confusion the blank-surface diagnosis must not inherit.
+    var lastTerminalOutputArrivedAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
     @ObservationIgnored var terminalInputAckResubscribeRetrySurfaceID: String?
@@ -1592,6 +1599,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
+    /// Telemetry-only reports for a surface left blank with nothing repairing it.
+    var terminalBlankSurfaceWatchdogTasksBySurfaceID: [String: Task<Void, Never>]
+    var terminalBlankSurfaceWatchdogTraceIDsBySurfaceID: [String: DiagnosticTerminalTraceID]
+    var terminalBlankSurfaceWatchdogStartedAtBySurfaceID: [String: Date]
+    var terminalBlankSurfaceWatchdogContextsBySurfaceID: [String: MobileTerminalReplayTraceContext]
+    /// Why each surface most recently stopped asking for content.
+    var terminalSurfaceGaveUpTriggersBySurfaceID: [String: MobileTerminalReplayTrigger]
     /// Telemetry-only probes that stamp an outstanding replay as stalled.
     var terminalReplayStallProbeTasksBySurfaceID: [String: Task<Void, Never>]
     var terminalReplayBarrierWatchdogTasksBySurfaceID: [String: Task<Void, Never>]
@@ -2025,6 +2039,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogTasksBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogStartedAtBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogContextsBySurfaceID = [:]
+        self.terminalSurfaceGaveUpTriggersBySurfaceID = [:]
         self.terminalReplayStallProbeTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
@@ -11770,6 +11789,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalInputAckResubscribeRetry()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
+        lastTerminalOutputArrivedAt = nil
     }
 
     /// The one shared entry every pairing flow funnels through, so it is also the
@@ -14986,6 +15006,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
+        // An unmounted surface is nobody's blank screen. Closing here also
+        // clears the task mapping, without which a later blank episode on a
+        // remounted surface could never open a report.
+        resolveTerminalBlankSurfaceWatchdog(surfaceID: surfaceID, phase: .discarded)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
