@@ -5872,6 +5872,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             trimmed = reportedDirectory
         }
         let previousPresentedDirectory = presentedCurrentDirectory
+        let previousTitleDirectory = panelDirectories[panelId] ?? currentDirectory
+        let titleBeforeDirectoryUpdate = panelTitles[panelId]
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport &&
             (cloudDirectoryProvenanceRequired(panelId: panelId) ||
@@ -5888,6 +5890,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
+        if directoryChanged,
+           prefixesProgramTitlesWithDirectory,
+           panels[panelId]?.panelType == .terminal,
+           let titleBeforeDirectoryUpdate,
+           panels[panelId].map({ titleBeforeDirectoryUpdate != $0.displayTitle }) == true {
+            let rawTitle = Workspace.titleWithoutDirectoryPrefix(
+                titleBeforeDirectoryUpdate,
+                directory: previousTitleDirectory
+            )
+            _ = updatePanelTitle(panelId: panelId, title: rawTitle, stableTitle: rawTitle)
+        }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {

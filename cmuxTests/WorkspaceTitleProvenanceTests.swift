@@ -136,6 +136,26 @@ import Testing
         #expect(workspace.title == "app / Claude Code")
     }
 
+    @Test func programTitleUsesWorkspaceDirectoryBeforeShellReportsCwd() throws {
+        let suiteName = "WorkspaceTitleDirectoryFallback.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.prefixProgramTitlesWithDirectory")
+
+        let workspace = Workspace(
+            workingDirectory: "/tmp/app",
+            settings: UserDefaultsSettingsClient(defaults: defaults)
+        )
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/other"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ other / Claude Code")
+    }
+
     @Test func panelProvenanceMirrorsWorkspaceRules() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

@@ -154,9 +154,10 @@ extension Workspace {
         }
         let shouldPrefixTitle = panels[panelId]?.panelType == .terminal
             && remote == nil && prefixesProgramTitlesWithDirectory
+        let titleDirectory = shouldPrefixTitle ? directoryForProgramTitle(panelId: panelId) : nil
         let trimmed: String
         if shouldPrefixTitle {
-            let prefixedTitle = Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: panelDirectories[panelId])
+            let prefixedTitle = Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: titleDirectory)
             trimmed = AutomaticTerminalTitle(prefixedTitle)?.value ?? rawTrimmed
         } else {
             trimmed = rawTrimmed
@@ -169,7 +170,7 @@ extension Workspace {
         let rawStable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? rawTrimmed
         let stable: String
         if shouldPrefixTitle {
-            let prefixedStable = Self.titlePrefixedWithDirectoryName(rawStable, directory: panelDirectories[panelId])
+            let prefixedStable = Self.titlePrefixedWithDirectoryName(rawStable, directory: titleDirectory)
             stable = AutomaticTerminalTitle(prefixedStable)?.value ?? rawStable
         } else {
             stable = rawStable
@@ -208,6 +209,19 @@ extension Workspace {
         )
 #endif
         return true
+    }
+
+    /// Resolves the best local directory available while a program title arrives.
+    /// OSC 7 may not have populated `panelDirectories` yet, so startup and workspace
+    /// directories are valid fallbacks for the first title frame.
+    private func directoryForProgramTitle(panelId: UUID) -> String? {
+        [
+            panelDirectories[panelId],
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            currentDirectory,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
     }
 
     /// Pushes a title straight to the Bonsplit tab model without touching
@@ -260,6 +274,24 @@ extension Workspace {
             return title
         }
         return "\(marker)\(name) / \(body)"
+    }
+
+    nonisolated static func titleWithoutDirectoryPrefix(_ title: String, directory: String?) -> String {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else { return title }
+        let name = (directory as NSString).lastPathComponent
+        guard !name.isEmpty, name != "/" else { return title }
+        var marker = ""
+        var body = Substring(title)
+        if let first = title.first,
+           !first.isLetter, !first.isNumber, !first.isASCII,
+           title.dropFirst().first == " " {
+            marker = "\(first) "
+            body = title.dropFirst(2)
+        }
+        let prefix = "\(name) / "
+        guard body.hasPrefix(prefix) else { return title }
+        return "\(marker)\(body.dropFirst(prefix.count))"
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {
