@@ -604,13 +604,13 @@ class CanonicalRootTests(unittest.TestCase):
         self.assertIn('"$helper" take "$root" --wait 1800', TAKE_ROOT.read_text())
         text = WORKFLOW.read_text()
         # One job-owned replacement, in the step that takes the root first.
-        self.assertEqual(text.count('rm -rf "$COMPILE_DERIVED_DATA"'), 1)
+        self.assertEqual(text.count('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'), 1)
         step = self.step("Unpack products at the path CI compiled them")
-        self.assertLess(step.index("take-product-canonical-root.sh"), step.index('rm -rf "$COMPILE_DERIVED_DATA"'))
+        self.assertLess(step.index("take-product-canonical-root.sh"), step.index('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'))
         self.assertIn('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/take-product-canonical-root.sh"', step)
         # The products are unpacked beside the job, not over a root, until then.
         self.assertIn('-C "$staged"', step)
-        self.assertLess(step.index('rm -rf "$COMPILE_DERIVED_DATA"'), step.index('mv "$staged" "$COMPILE_DERIVED_DATA"'))
+        self.assertLess(step.index('"$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/clear-dirs.sh" "$COMPILE_DERIVED_DATA"'), step.index('mv "$staged" "$COMPILE_DERIVED_DATA"'))
         # canonical-resolve reads CMUX_CI_CANONICAL_ROOT, so it must agree.
         for name in ("CMUX_CI_CANONICAL_ROOT", "CANONICAL_ROOT", "COMPILE_DERIVED_DATA"):
             self.assertIn(f'echo "{name}=', step)
