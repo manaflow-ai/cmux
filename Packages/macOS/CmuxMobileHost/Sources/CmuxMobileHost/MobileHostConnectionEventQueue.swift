@@ -82,17 +82,6 @@ public struct MobileHostEventEnqueueResult: Sendable {
         simulatorFrameShedPanelIDs: [],
         overflowed: false
     )
-
-    public static let overflow = MobileHostEventEnqueueResult(
-        admitted: false,
-        startDrain: false,
-        renderGridResyncSurfaceIDs: [],
-        depthAfterEnqueue: nil,
-        shedEventCount: 0,
-        shedByteCount: 0,
-        simulatorFrameShedPanelIDs: [],
-        overflowed: true
-    )
 }
 
 private struct MobileHostEventShedSummary: Sendable {
@@ -205,8 +194,9 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             // and move it to the back so older events drain first.
             let nextByteCount = queuedByteCount - previous.frame.count + frame.count
             guard nextByteCount <= maximumByteCount else {
+                let result = recordOverflowLocked(shedSummary: MobileHostEventShedSummary(), resyncSurfaceIDs: [])
                 lock.unlock()
-                return .overflow
+                return result
             }
             queuedEvents.removeValue(forKey: eventID)
             let replacementID = UUID()
@@ -279,18 +269,9 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             )
         }
         if !hasRoomLocked(for: frame), topic == DeviceTerminalGridPublisher.eventTopic {
-            overflowed = true
-            let startDrain = !drainActive
-            if startDrain { drainActive = true }
+            let result = recordOverflowLocked(shedSummary: shedSummary, resyncSurfaceIDs: resyncSurfaceIDs)
             lock.unlock()
-            return MobileHostEventEnqueueResult(
-                admitted: false, startDrain: startDrain,
-                renderGridResyncSurfaceIDs: resyncSurfaceIDs,
-                depthAfterEnqueue: nil, shedEventCount: shedSummary.eventCount,
-                shedByteCount: shedSummary.byteCount,
-                simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs,
-                overflowed: true
-            )
+            return result
         }
         let eventID = UUID()
         queuedEvents[eventID] = QueuedEvent(
@@ -349,7 +330,9 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     public func finishDrain() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        if queuedEvents.isEmpty || isClosed {
+        // A pending overflow keeps the drain alive until it consumes the flag
+        // and closes the connection; otherwise no later drain would observe it.
+        if (queuedEvents.isEmpty && !overflowed) || isClosed {
             drainActive = false
             return false
         }
@@ -369,7 +352,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     public func claimDrain() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !isClosed, !drainActive, !queuedEvents.isEmpty else { return false }
+        guard !isClosed, !drainActive, !queuedEvents.isEmpty || overflowed else { return false }
         drainActive = true
         return true
     }
@@ -431,6 +414,26 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         guard overflowed else { return false }
         overflowed = false
         return true
+    }
+
+    /// Every overflow result goes through here: the pending flag is the only
+    /// signal the drain uses to close the connection, and the result claims
+    /// the drain when none is running so fan-out callers start one.
+    private func recordOverflowLocked(
+        shedSummary: MobileHostEventShedSummary,
+        resyncSurfaceIDs: Set<String>
+    ) -> MobileHostEventEnqueueResult {
+        overflowed = true
+        let startDrain = !drainActive
+        if startDrain { drainActive = true }
+        return MobileHostEventEnqueueResult(
+            admitted: false, startDrain: startDrain,
+            renderGridResyncSurfaceIDs: resyncSurfaceIDs,
+            depthAfterEnqueue: nil, shedEventCount: shedSummary.eventCount,
+            shedByteCount: shedSummary.byteCount,
+            simulatorFrameShedPanelIDs: shedSummary.simulatorFramePanelIDs,
+            overflowed: true
+        )
     }
 
     private func hasRoomLocked(for frame: Data) -> Bool {

@@ -2293,13 +2293,15 @@ actor MobileHostConnection {
     /// connection closes, lane negotiation pauses delivery, or a delivery
     /// fails (which closes the unusable control session).
     func drainQueuedEvents() async {
-        if eventQueue.consumeOverflow() {
-            await close(reason: "event queue overflow")
-            return
-        }
         while true {
             if isClosed || independentEventNegotiationInProgress {
                 eventQueue.abandonDrain()
+                return
+            }
+            // Fan-out that overflows while this drain runs cannot start
+            // another one, so the running drain owns the close.
+            if eventQueue.consumeOverflow() {
+                await close(reason: "event queue overflow")
                 return
             }
             guard let event = eventQueue.dequeue() else {
