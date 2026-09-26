@@ -248,9 +248,9 @@ candidate for it. With no Blacksmith pool to compare against, its jobs may
 wait up to the queue rounds and the bound (owned_room()). CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
 machines and root runners back for pull requests; with a reserve it takes
 an owned pool only whole, and only while its peak is free now (no queue
-allowance). Its side lanes (the Claude wrapper and
-remote daemon) route only for pull requests, so they are not in its plan.
-Main's CI concurrency group holds one run at a time, so main holds at most
+allowance). Its side lanes (the Claude wrapper, the remote daemon and the
+universal Release build) are in its plan like a pull request's, and read the
+pick through the same inputs. Main's CI concurrency group holds one run at a time, so main holds at most
 one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
 
 Anything uncertain keeps today's route: an event other than pull_request or
@@ -359,7 +359,10 @@ MAIN_BRANCH = "main"
 # suite with release_build false, which then peaks at all three side lanes
 # beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
 # the replay charge leaves out the package lane, which a compile-only run
-# carries only on a package change.
+# carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
+# package lane's alternative: it runs only on a full suite with release_build,
+# exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
+# run still has at most three side lanes.
 APP_HOST_SHARDS = 7
 SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
@@ -591,13 +594,16 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     that does not know) counts one shard, as before. swift-package-tests is a
     side lane only when package_lane_owned() says it may take the pool;
     `swift_packages` None (a caller that does not pass it) leaves it out.
+    release-build is a side lane on a full suite with `release_build` true;
+    None leaves it out.
     """
     full = flag(macos) and flag(full_suite)
     side = tuple(key for key, on in (("claude-wrapper", flag(claude_wrapper) or full),
                                      ("remote-daemon", flag(remote_daemon)),
                                      (SWIFT_PACKAGE_JOB, package_lane_owned(
                                          full=full, full_suite=full_suite, swift_packages=swift_packages,
-                                         release_build=release_build))) if on)
+                                         release_build=release_build)),
+                                     (RELEASE_BUILD_JOB, full and flag(release_build))) if on)
     if not (flag(macos) or flag(cli)):
         return RunJobs(False, (), side)
     unit = flag(macos) and flag(unit_suite) and not flag(unit_in_admission)
@@ -619,6 +625,11 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
 # Blacksmith macOS 15 image carries (the minis have Xcode 26.6 alone), so only
 # a run without that helper build places it on an owned pool.
 SWIFT_PACKAGE_JOB = "swift-package"
+# ci-macos.yml release-build: the unsigned universal Release app nightly signs,
+# into its own workspace DerivedData with the lane's Xcode 26.6 (glaeda's hook
+# classes it isolated: no GUI, product, canonical root or secrets). It runs
+# after admission and swift-package-tests on its own machine.
+RELEASE_BUILD_JOB = "release-build"
 
 
 def package_lane_owned(*, full: bool, full_suite: str | None, swift_packages: str | None,
@@ -641,12 +652,14 @@ def run_jobs(**routing: str | None) -> int:
 # Owned placement priority: the heavy compile, then GUI jobs (the longest
 # Blacksmith queues), then light jobs. GUI jobs need the mini's console
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
-LIGHT_JOBS = ("cli-product", "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
+# release-build is not light (a 15-minute universal compile), but it follows
+# cli-product: it is the side lane that saves the most Blacksmith time.
+LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
 ROOT_JOBS = "admission, shards, lag, cli-product"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
-SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB)
+SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
 
 
 def gui_job(key: str) -> bool:
@@ -2022,10 +2035,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"),
         swift_packages=env.get("RUN_SWIFT_PACKAGES"), release_build=env.get("RUN_RELEASE_BUILD"))
-    if on_main:
-        # The side lanes read the pick only on a pull request (ci.yml's
-        # claude-wrapper, remote-daemon.yml); main's keep their own route.
-        plan = dataclasses.replace(plan, side=())
     # What an owned pool must have free for the whole run: its owned-eligible
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
