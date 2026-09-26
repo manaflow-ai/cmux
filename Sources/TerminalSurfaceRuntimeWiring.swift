@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
@@ -102,6 +103,11 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         }
 
         func release() {
+            let teeContext = context.takeUnretainedValue()
+            TerminalScrollbackCheckpointActivity.shared.unregister(
+                surfaceID: teeContext.surfaceID,
+                gate: teeContext.scrollbackCheckpointActivity
+            )
             context.release()
         }
     }
@@ -115,7 +121,9 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity.shared
+                .register(surfaceID: surfaceID)
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,

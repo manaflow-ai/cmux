@@ -1265,6 +1265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
+    private var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    private let sessionScrollbackCheckpointQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
+        qos: .utility
+    )
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -3624,7 +3630,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        // After a crash the primary snapshot comes from the 8 s autosave, which
+        // never carries scrollback; recover it from the latest checkpoints. A
+        // clean exit already wrote scrollback, so checkpoints are ignored.
+        if previousSessionLaunchWasUnclean,
+           let sanitizedStartupSnapshot,
+           let checkpointStore = sessionScrollbackCheckpointStore() {
+            startupSessionSnapshot = checkpointStore.merging(into: sanitizedStartupSnapshot)
+        } else {
+            startupSessionSnapshot = sanitizedStartupSnapshot
+        }
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -4291,9 +4306,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             self.runSessionAutosaveTick(source: "timer")
+            self.sessionScrollbackCheckpointCoordinator?.tickIfDue()
         }
         sessionAutosaveTimer = timer
         timer.resume()
+        startSessionScrollbackCheckpointsIfNeeded(environment: env)
+    }
+
+    private func sessionScrollbackCheckpointStore() -> SessionScrollbackCheckpointStore? {
+        sessionSnapshotStore.defaultSnapshotFileURL().map {
+            SessionScrollbackCheckpointStore(primarySnapshotURL: $0)
+        }
+    }
+
+    private func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
+        guard sessionScrollbackCheckpointCoordinator == nil,
+              SessionScrollbackCheckpointPolicy.isEnabled(environment: environment),
+              let store = sessionScrollbackCheckpointStore() else { return }
+        let queue = sessionScrollbackCheckpointQueue
+        sessionScrollbackCheckpointCoordinator = SessionScrollbackCheckpointCoordinator(
+            environment: SessionScrollbackCheckpointCoordinator.Environment(
+                uptime: { ProcessInfo.processInfo.systemUptime },
+                wallClock: { Date().timeIntervalSince1970 },
+                canCheckpoint: { [weak self] in
+                    guard let self else { return false }
+                    return !self.isTerminatingApp
+                        && self.didAttemptStartupSessionRestore
+                        && !self.isApplyingSessionRestore
+                },
+                secondsSinceTyping: { [weak self] in
+                    guard let self, self.lastTypingActivityAt > 0 else { return nil }
+                    return ProcessInfo.processInfo.systemUptime - self.lastTypingActivityAt
+                },
+                candidates: { [weak self] in
+                    self?.sessionScrollbackCheckpointCandidates() ?? []
+                },
+                scheduleNextCapture: { work in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated { work() }
+                    }
+                },
+                persist: { batch in
+                    queue.async { store.apply(batch) }
+                }
+            )
+        )
     }
 
     private func stopSessionAutosaveTimer() {
