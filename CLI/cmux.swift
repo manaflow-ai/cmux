@@ -9336,6 +9336,14 @@ struct CMUXCLI {
             throw CLIError(message: "surface requires a subcommand. Try: cmux surface ls, cmux surface open <resource>, cmux surface resume show --json")
         }
         switch subcommand {
+        case "pip":
+            try runSurfacePipCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         case "resume":
             try runSurfaceResumeCommand(
                 commandArgs: Array(commandArgs.dropFirst()),
@@ -9356,6 +9364,72 @@ struct CMUXCLI {
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
         }
+    }
+
+    private func runSurfacePipCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
+        let (actionArg, rem1) = parseOption(rem0, name: "--action")
+        let (windowArg, rem2) = parseOption(rem1, name: "--window")
+        if let unknown = rem2.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unknownFlag", defaultValue: "surface pip: unknown flag '%@'"), unknown))
+        }
+        if let unexpected = rem2.first {
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unexpectedArgument", defaultValue: "surface pip: unexpected argument '%@'"), unexpected))
+        }
+        let action = actionArg ?? "toggle"
+        guard ["pop", "return", "toggle"].contains(action) else {
+            throw CLIError(message: String(localized: "cli.surfacePip.error.action", defaultValue: #"surface pip --action must be "pop", "return", or "toggle""#))
+        }
+
+        var params: [String: Any] = ["action": action]
+        let windowID = try normalizeWindowHandle(windowArg ?? windowOverride, client: client)
+        if let windowID { params["window_id"] = windowID }
+
+        // Let the socket's shared resolver choose the focused surface or the
+        // routed PiP floater when no explicit surface context is supplied.
+        let hasExplicitWindow = windowArg != nil || windowOverride != nil
+        let environment = ProcessInfo.processInfo.environment
+        let surfaceRaw = surfaceArg ?? (hasExplicitWindow ? nil : environment["CMUX_SURFACE_ID"])
+        if surfaceArg != nil || surfaceRaw != nil {
+            let workspaceID = try normalizeWorkspaceHandle(
+                hasExplicitWindow ? nil : environment["CMUX_WORKSPACE_ID"],
+                client: client,
+                windowHandle: windowID
+            )
+            guard let surfaceID = try normalizeSurfaceHandle(
+                surfaceRaw,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: windowID
+            ) else {
+                throw CLIError(message: String(localized: "cli.surfacePip.error.invalidSurface", defaultValue: "surface pip: invalid surface handle"))
+            }
+            params["surface_id"] = surfaceID
+        }
+
+        let payload = try client.sendV2(method: "surface.pip", params: params)
+        let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
+        let inPip = (payload["in_picture_in_picture"] as? Bool) == true
+        let fallbackFormat: String
+        if inPip {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.popped",
+                defaultValue: "Popped out %@ into Picture in Picture"
+            )
+        } else {
+            fallbackFormat = String(
+                localized: "cli.surfacePip.result.returned",
+                defaultValue: "Returned %@ from Picture in Picture"
+            )
+        }
+        let fallback = String(format: fallbackFormat, formattedSurface)
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
 
     private func runSurfaceResumeCommand(
@@ -19541,6 +19615,7 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
@@ -19553,6 +19628,8 @@ struct CMUXCLI {
 
             resume: attach restart command metadata to a terminal surface.
             Public CLI bindings are stored for inspection and manual restore.
+            pip: pop out, return, or toggle a terminal/browser surface. Without
+            --surface, the socket resolves the focused surface or routed PiP floater.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)

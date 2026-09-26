@@ -1905,7 +1905,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private weak var window: NSWindow?
-    private let hostView = WindowBrowserHostView(frame: .zero)
+    let hostView = WindowBrowserHostView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -1916,7 +1916,7 @@ final class WindowBrowserPortal: NSObject {
     private var nextHostedWebViewRefreshGeneration: UInt64 = 0
     private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
-    private struct Entry {
+    struct Entry {
         weak var webView: WKWebView?
         weak var containerView: WindowBrowserSlotView?
         weak var anchorView: NSView?
@@ -1945,7 +1945,7 @@ final class WindowBrowserPortal: NSObject {
         let delayedScheduler = MainActorDeferredActionScheduler()
     }
 
-    private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
+    var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
 #if DEBUG
@@ -2897,6 +2897,7 @@ final class WindowBrowserPortal: NSObject {
         guard entry.visibleInUI != effectiveVisibleInUI || entry.zPriority != zPriority else { return false }
         entry.visibleInUI = effectiveVisibleInUI; entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        refreshPortalZOrder()
         return true
     }
     func hideWebViews(forWorkspaceID workspaceID: UUID) {
@@ -2918,6 +2919,7 @@ final class WindowBrowserPortal: NSObject {
         let previous = (entry.visibleInUI, entry.zPriority, entry.containerView?.isHidden ?? true)
         entry.visibleInUI = false; entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
+        refreshPortalZOrder()
         synchronizeWebView(withId: webViewId, source: source)
         return previous.0 || previous.1 != 0 || previous.2 != (entriesByWebViewId[webViewId]?.containerView?.isHidden ?? true)
     }
@@ -3184,6 +3186,7 @@ final class WindowBrowserPortal: NSObject {
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
         )
+        refreshPortalZOrder()
         if let resolvedPaneDropContext {
             containerView.setPaneDropContext(resolvedPaneDropContext)
         } else if previousEntry == nil {
@@ -3259,6 +3262,7 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+            refreshPortalZOrder()
         } else if (becameVisible || priorityIncreased), hostView.subviews.last !== containerView {
 #if DEBUG
             cmuxDebugLog(
@@ -3268,6 +3272,7 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+            refreshPortalZOrder()
         }
 
         synchronizeWebView(

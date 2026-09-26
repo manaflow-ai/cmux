@@ -1822,8 +1822,8 @@ struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
     var windows: [SessionWindowSnapshot]
+    var pipSurfaces: [SessionPipSurfaceSnapshot]? = nil
 }
-
 extension AppSessionSnapshot: SessionSnapshotRepresenting {
     /// Whether the snapshot carries at least one window. The `CmuxSession` repository
     /// treats an empty-window snapshot as unusable (empty states remove the file instead

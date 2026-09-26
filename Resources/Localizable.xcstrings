@@ -114409,55 +114409,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <ID|参照|インデックス>] [--window <ID|参照|インデックス>]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <ID|引用|索引>] [--window <ID|引用|索引>]\n\nls / open / new-terminal：表面目录。本机与每台云端机器上的终端、VNC 屏幕和浏览器\n都是资源（`<machine>/<kind>/<key>`，例如 local/terminal/<uuid>、\nvivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）；窗格是它们的投影。除非加 --new，`open` 会复用\n已显示该资源的窗格；--pane 配合方向会把该窗格朝那一侧拆分，--tab 则给它加一个标签页。\n本机终端会移动到目标位置（它同时只显示一处）。\n`new-terminal` 会在该机器上创建终端（云端：在其 cmux-tui 会话中）。\n`cmux vm tree` 打印同一份目录。\n\nresume：为终端表面附加重启命令元数据。\n公开的 CLI 绑定会被存储，供查看和手动恢复。\n\n标志:\n  --workspace <id|ref|index>   工作区上下文（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     表面上下文（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区与表面引用/索引的窗口上下文\n  --cwd <path>             恢复时使用的工作目录（默认：$PWD）\n  --name <name>            该绑定的显示名称\n  --kind <kind>            绑定类型，例如 agent 或 tmux\n  --checkpoint <id>        提供方的检查点或会话 id\n  --checkpoint-id <id>     与 --checkpoint 相同，且优先级更高\n  --source <source>        绑定来源标签\n\n示例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Verwendung: cmux surface ls [<Maschine>|local] [--refresh] [--json]\n       cmux surface open <Ressource> [--workspace <ID|Ref|Index>] [--pane <ID|Ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <ID|local> [--cwd <Verzeichnis>] [--name <Name>] [--remote-workspace <ws_…>] [--workspace <ID|Ref|Index>] [--no-open] [-- <Befehl...>]\n       cmux surface resume set [Flags] -- <Argv...>\n       cmux surface resume set [Flags] --shell <Befehl>\n       cmux surface resume show [--json] [Flags]\n       cmux surface resume get [--json] [Flags]\n       cmux surface resume clear [Flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <ID|Ref|Index>] [--window <ID|Ref|Index>]\n\nls / open / new-terminal: Der Oberflächenkatalog. Terminals, VNC-Bildschirme und Browser\nauf diesem Mac und auf jeder Cloud-Maschine sind Ressourcen (`<Maschine>/<Art>/<Schlüssel>`,\nz. B. local/terminal/<UUID>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); Teilfenster projizieren sie. `open` verwendet das Teilfenster, das bereits\neine Ressource anzeigt, wieder, es sei denn, --new wird verwendet; --pane mit einer Richtungsangabe teilt dieses Teilfenster auf dieser Seite auf,\n--tab fügt ihm einen Tab hinzu. Ein lokales Terminal verschiebt sich an das Ziel (es wird einmal angezeigt).\n`new-terminal` erstellt ein Terminal auf der Maschine (Cloud: in ihrer cmux-tui-Sitzung).\n`cmux vm tree` gibt denselben Katalog aus.\n\nresume: Startbefehl-Metadaten an eine Terminal-Oberfläche anhängen.\nÖffentliche CLI-Bindungen werden zur Überprüfung und manuellen Wiederherstellung gespeichert.\n\nFlags:\n  --workspace <ID|Ref|Index>   Kontext des Arbeitsbereichs (Standard: $CMUX_WORKSPACE_ID)\n  --surface <ID|Ref|Index>     Kontext der Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <ID|Ref|Index>      Fensterkontext für Arbeitsbereichs- und Oberflächen-Referenzen/-Indizes\n  --cwd <Pfad>             Arbeitsverzeichnis für die Wiederherstellung (Standard: $PWD)\n  --name <Name>            Anzeigename für die Bindung\n  --kind <Art>            Art der Bindung, zum Beispiel agent oder tmux\n  --checkpoint <ID>        Anbieter-Prüfpunkt oder Sitzungs-ID\n  --checkpoint-id <ID>     Gleich wie --checkpoint und hat Vorrang\n  --source <Quelle>        Quelle der Bindung (Label)\n\nBeispiele:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <id|réf|index>] [--window <id|réf|index>]\n\nls / open / new-terminal : le catalogue des surfaces d’affichage. Les terminaux, écrans VNC et navigateurs\nsur Ce Mac et sur chaque machine cloud sont des ressources (`<machine>/<kind>/<key>`,\npar ex. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000) ; les volets les projettent. `open` réutilise le volet affichant\ndéjà une ressource sauf si --new ; --pane avec un côté divise ce volet de ce côté,\n--tab lui ajoute un onglet. Un terminal local se déplace vers la destination (il n’est affiché qu’une seule fois).\n`new-terminal` crée un terminal sur la machine (cloud : dans sa session cmux-tui).\n`cmux vm tree` affiche le même catalogue.\n\nresume : associe des métadonnées de commande de redémarrage à une surface d’affichage de terminal.\nLes liaisons CLI publiques sont stockées pour inspection et restauration manuelle.\n\nFlags :\n  --workspace <id|ref|index>   Contexte de l'espace de travail (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexte de la surface d'affichage (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de la fenêtre pour les réf/index d'espace de travail et de surface d'affichage\n  --cwd <path>             Répertoire de travail pour la restauration (par défaut : $PWD)\n  --name <name>            Nom d'affichage pour la liaison\n  --kind <kind>            Type de liaison, par exemple agent ou tmux\n  --checkpoint <id>        Point de contrôle du fournisseur ou ID de session\n  --checkpoint-id <id>     Identique à --checkpoint et a la priorité\n  --source <source>        Étiquette de la source de liaison\n\nExemples :\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "الاستخدام: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <معرّف|مرجع|فهرس>] [--window <معرّف|مرجع|فهرس>]\n\nls / open / new-terminal: كتالوج الأسطح. الطرفيات، وشاشات VNC، والمتصفحات\nعلى This Mac وعلى كل جهاز سحابي هي موارد (`<machine>/<kind>/<key>`،\nعلى سبيل المثال local/terminal/<uuid>، أو vivid-newt/terminal/term_2f9c…، أو vivid-newt/display/display:1،\nvivid-newt/browser/port:3000)؛ الأجزاء تعرضهم. يعيد الأمر `open` استخدام الجزء الذي يعرض\nموردًا بالفعل ما لم يتم تمرير --new؛ وتمرير --pane مع تحديد جانب يقسم ذلك الجزء على ذلك الجانب،\nوتمرير --tab يضيف علامة تبويب إليه. تنتقل الطرفية المحلية إلى الوجهة (تُعرض مرة واحدة).\nينشئ الأمر `new-terminal` طرفية على الجهاز (في السحابة: في جلسة cmux-tui الخاصة به).\nيطبع الأمر `cmux vm tree` الكتالوج نفسه.\n\nresume: إرفاق بيانات تعريف أمر إعادة التشغيل بسطح طرفية.\nتُخزن ارتباطات واجهة CLI العامة للفحص والاستعادة اليدوية.\n\nالعلامات:\n  --workspace <id|ref|index>   سياق مساحة العمل (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     سياق السطح (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع/فهارس مساحة العمل والسطح\n  --cwd <path>             مجلد العمل للاستعادة (الافتراضي: $PWD)\n  --name <name>            الاسم المعروض للارتباط\n  --kind <kind>            نوع الارتباط، على سبيل المثال agent أو tmux\n  --checkpoint <id>        نقطة تفتيش الموفر أو معرف الجلسة\n  --checkpoint-id <id>     مطابق لـ --checkpoint وله الأولوية\n  --source <source>        ملصق مصدر الارتباط\n\nأمثلة:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "Uso: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|índice>] [--window <id|ref|índice>]\n\nls / open / new-terminal: el catálogo de superficies. Terminales, pantallas VNC y navegadores\nen Este Mac y en cada máquina en la nube son recursos (`<machine>/<kind>/<key>`,\npor ejemplo, local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); los paneles los proyectan. `open` reutiliza el panel que ya\nmuestra un recurso a menos que se use --new; --pane con un lado divide ese panel en ese lado,\n--tab le añade una pestaña. Una terminal local se mueve al destino (se muestra una sola vez).\n`new-terminal` crea una terminal en la máquina (nube: en su sesión cmux-tui).\n`cmux vm tree` muestra el mismo catálogo.\n\nresume: asocia metadatos de comandos de reinicio a una superficie de terminal.\nLas vinculaciones públicas de la CLI se guardan para su inspección y restauración manual.\n\nOpciones:\n  --workspace <id|ref|index>   Contexto del espacio de trabajo (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Contexto de la superficie (predeterminado: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de la ventana para referencias/índices de espacios de trabajo y superficies\n  --cwd <path>             Directorio de trabajo para restaurar (predeterminado: $PWD)\n  --name <name>            Nombre para mostrar de la vinculación\n  --kind <kind>            Tipo de vinculación, por ejemplo agent o tmux\n  --checkpoint <id>        Punto de control del proveedor o id de sesión\n  --checkpoint-id <id>     Igual que --checkpoint y tiene precedencia\n  --source <source>        Etiqueta de origen de la vinculación\n\nEjemplos:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "用法：cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <ID|參照|索引>] [--window <ID|參照|索引>]\n\nls / open / new-terminal：介面目錄。這部 Mac 及所有雲端機器上的\n終端機、VNC 螢幕和瀏覽器皆為資源 (`<machine>/<kind>/<key>`，\n例如：local/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000)；窗格會對它們進行投影。`open` 會重複使用已經\n顯示該資源的窗格 (除非指定 --new)；附帶側邊方向的 --pane 會在該側分割該窗格，\n--tab 則會對其新增一個標籤頁。本機終端機會移動到目的地 (它只會顯示一次)。\n`new-terminal` 會在機器上建立一個終端機 (雲端：在其 cmux-tui 工作階段中)。\n`cmux vm tree` 會列印相同的目錄。\n\nresume：將重新啟動命令的中繼資料附加至終端機介面。\n公開的 CLI 綁定會儲存以供檢視和手動還原。\n\n旗標：\n  --workspace <id|ref|index>   工作區上下文 (預設值：$CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     介面上下文 (預設值：$CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區與介面引用/索引的視窗上下文\n  --cwd <path>             用於還原的工作目錄 (預設值：$PWD)\n  --name <name>            綁定的顯示名稱\n  --kind <kind>            綁定種類，例如 agent 或 tmux\n  --checkpoint <id>        提供者檢查點或工作階段識別碼\n  --checkpoint-id <id>     與 --checkpoint 相同且優先適用\n  --source <source>        綁定來源標籤\n\n範例：\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+            "value": "사용법: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n       cmux surface pip [--action <pop|return|toggle>] [--surface <ID|참조|인덱스>] [--window <ID|참조|인덱스>]\n\nls / open / new-terminal: 화면 카탈로그. 이 Mac 및 모든 클라우드 머신의 터미널, VNC 화면 및 브라우저는\n리소스(`<machine>/<kind>/<key>`,\n예: local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000)이며, 분할 창이 이를 보여줍니다. `open`은 --new가 없는 한 리소스를 이미 보여주고 있는 분할 창을\n재사용합니다. 방향이 지정된 --pane은 해당 방향으로 해당 분할 창을 분할하고,\n--tab은 여기에 탭을 추가합니다. 로컬 터미널은 대상 위치로 이동합니다 (한 번만 표시됨).\n`new-terminal`은 머신에 터미널을 생성합니다 (클라우드: cmux-tui 세션 내부).\n`cmux vm tree`도 동일한 카탈로그를 출력합니다.\n\nresume: 터미널 화면에 재시작 명령 메타데이터를 추가합니다.\n공공 CLI 바인딩은 검사 및 수동 복구를 위해 저장됩니다.\n\n플래그:\n  --workspace <id|ref|index>   작업 공간 컨텍스트 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     화면 컨텍스트 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간 및 화면 참조/인덱스를 위한 창 컨텍스트\n  --cwd <path>             복구용 작업 디렉토리 (기본값: $PWD)\n  --name <name>            바인딩에 표시할 이름\n  --kind <kind>            바인딩 종류 (예: agent 또는 tmux)\n  --checkpoint <id>        제공자 체크포인트 또는 세션 ID\n  --checkpoint-id <id>     --checkpoint와 동일하며 우선 적용됩니다\n  --source <source>        바인딩 소스 레이블\n\n예시:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         }
       }
@@ -556843,14 +556843,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -557340,129 +557380,129 @@
       }
     },
     "devices.options.hint": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Change these options in the ⋯ menu next to My Devices."
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
-                }
-            },
-            "km": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
-                }
-            }
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change these options in the ⋯ menu next to My Devices."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+          }
         }
+      }
     },
     "cli.sshTmux.error.nameRequiresTitle": {
       "extractionState": "manual",
@@ -557991,6 +558031,832 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "command.surfacePip.pop.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop Out Surface (Picture in Picture)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface als Bild-in-Bild öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détacher la surface (image dans l’image)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخراج السطح (صورة داخل صورة)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separar superficie (imagen en imagen)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以子母畫面分離表面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以画中画分离表面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면을 PIP로 분리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャーでサーフェスを切り離す"
+          }
+        }
+      }
+    },
+    "command.surfacePip.return.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return Surface from Picture in Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface aus Bild-in-Bild zurückholen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rapatrier la surface depuis l’image dans l’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة السطح من وضع صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devolver superficie desde imagen en imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從子母畫面返回表面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从画中画返回表面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIP에서 화면 되돌리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャーからサーフェスを戻す"
+          }
+        }
+      }
+    },
+    "command.surfacePip.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-in-Bild"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image dans l’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen en imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子母畫面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画中画"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 화면"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャー"
+          }
+        }
+      }
+    },
+    "shortcut.toggleSurfacePip.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Surface Picture in Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface-Bild-in-Bild umschalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer ou désactiver l’image dans l’image de la surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل صورة داخل صورة للسطح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar imagen en imagen de la superficie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換表面子母畫面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换表面画中画"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 PIP 전환"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスのピクチャーインピクチャーを切り替え"
+          }
+        }
+      }
+    },
+    "surfacePip.window.titleFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild-in-Bild"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image dans l’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen en imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子母畫面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画中画"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 화면"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャー"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.surfacePip.pop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop Out Surface (Picture in Picture)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface als Bild-in-Bild öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détacher la surface (image dans l’image)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخراج السطح (صورة داخل صورة)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separar superficie (imagen en imagen)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以子母畫面分離表面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以画中画分离表面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면을 PIP로 분리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャーでサーフェスを切り離す"
+          }
+        }
+      }
+    },
+    "browser.contextMenu.surfacePip.pop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop Out Surface (Picture in Picture)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface als Bild-in-Bild öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détacher la surface (image dans l’image)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخراج السطح (صورة داخل صورة)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separar superficie (imagen en imagen)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以子母畫面分離表面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以画中画分离表面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면을 PIP로 분리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャーでサーフェスを切り離す"
+          }
+        }
+      }
+    },
+    "surfacePip.returnButton.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return from Picture in Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Bild-in-Bild zurückkehren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir depuis l’image dans l’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العودة من وضع صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver desde imagen en imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從子母畫面返回"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从画中画返回"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIP에서 돌아가기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピクチャーインピクチャーから戻す"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: unknown flag '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 不明なフラグ '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: unbekanntes Flag „%@“"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip : option inconnue '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: علامة غير معروفة '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: opción desconocida '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：未知的旗標 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：未知标志 '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 알 수 없는 플래그 '%@'"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: unexpected argument '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 予期しない引数 '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: unerwartetes Argument „%@“"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip : argument inattendu '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: وسيطة غير متوقعة '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: argumento inesperado '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：未預期的引數 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：意外参数 '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 예기치 않은 인수 '%@'"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.error.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action must be \"pop\", \"return\", or \"toggle\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action は「pop」、「return」、または「toggle」である必要があります"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action muss „pop“, „return“ oder „toggle“ sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action doit être « pop », « return » ou « toggle »"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون surface pip --action هو \"pop\" أو \"return\" أو \"toggle\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action debe ser «pop», «return» o «toggle»"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action 必須是「pop」、「return」或「toggle」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action 必须是“pop”、“return”或“toggle”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip --action은 \"pop\", \"return\" 또는 \"toggle\"이어야 합니다"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.error.invalidSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: invalid surface handle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 無効なサーフェスハンドル"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: ungültige Oberflächenreferenz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip : référence de surface non valide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: معرّف السطح غير صالح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: referencia de superficie no válida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：介面參照無效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip：表面引用无效"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface pip: 잘못된 화면 핸들"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.result.popped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popped out %@ into Picture in Picture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をピクチャ・イン・ピクチャに切り離しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde als Bild-in-Bild ausgekoppelt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a été détachée en incrustation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم فصل %@ إلى صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se separó en imagen dentro de imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %@ 彈出為子母畫面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %@ 弹出为画中画"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 화면 속 화면으로 분리했습니다"
+          }
+        }
+      }
+    },
+    "cli.surfacePip.result.returned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Returned %@ from Picture in Picture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をピクチャ・イン・ピクチャから戻しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde aus Bild-in-Bild zurückgeführt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a été réintégrée depuis l’incrustation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة %@ من صورة داخل صورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ volvió desde imagen dentro de imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %@ 從子母畫面返回"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %@ 从画中画返回"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 화면 속 화면에서 반환했습니다"
           }
         }
       }

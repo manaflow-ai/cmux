@@ -333,6 +333,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "moveSurfaceToPaneUp", combos: [["⌥", "⌘", "⇧", "↑"]], description: { en: "Move surface to pane above", ja: "サーフェスを上のペインへ移動" } },
       { id: "moveSurfaceToPaneDown", combos: [["⌥", "⌘", "⇧", "↓"]], description: { en: "Move surface to pane below", ja: "サーフェスを下のペインへ移動" } },
       { id: "selectSurfaceByNumber", combos: [["⌃", "1…9"]], description: { en: "Select surface 1…9", ja: "サーフェス1…9を選択" } },
+      { id: "toggleSurfacePip", combos: [["⌃", "⌘", "P"]], description: { en: "Toggle surface Picture in Picture", ja: "サーフェスのピクチャインピクチャを切り替え" } },
       { id: "renameTab", combos: [["⌘", "R"]], description: { en: "Rename tab", ja: "タブ名を変更" } },
       { id: "closeTab", combos: [["⌘", "W"]], description: { en: "Close tab", ja: "タブを閉じる" } },
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
