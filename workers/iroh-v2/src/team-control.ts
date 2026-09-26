@@ -7,7 +7,7 @@ import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
-import { errorSummary, OperationError, publicError } from "./errors";
+import { failureDiagnostics, OperationError, publicError } from "./errors";
 import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
@@ -18,7 +18,7 @@ import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
-  authority: AuthoritySchema, expiresAt: timestamp,
+  authority: AuthoritySchema, expiresAt: timestamp, issueTicket: z.boolean().default(false),
 });
 const AttachmentSchema = z.strictObject({
   version: z.literal(1), session: SessionSchema, deviceKey: z.string().regex(/^[a-f0-9]{64}$/),
@@ -50,12 +50,16 @@ export class TeamControl extends DurableObject<Environment> {
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
     let requestId = "unidentified";
+    const pathname = new URL(request.url).pathname;
+    const route = ["/request", "/session", "/socket"].includes(pathname) ? pathname.slice(1) : "unknown";
+    let stage = "parse";
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
+      stage = incoming.path === "/request" ? "execute" : "open";
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
-        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt);
+        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
@@ -66,6 +70,7 @@ export class TeamControl extends DurableObject<Environment> {
       this.scheduleChanges(result, incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
+      stage = "accept";
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
       if (this.ctx.getWebSockets().length >= TEAM_SOCKET_LIMIT) throw new OperationError("rate_limited", 429, true, 5000);
       const session = result.session;
@@ -77,15 +82,18 @@ export class TeamControl extends DurableObject<Environment> {
         const client = pair[0], server = pair[1];
         this.ctx.acceptWebSocket(server, ["user:" + session.identity.userId, "device:" + deviceKey]);
         this.save(server, { version: 1, session, deviceKey, delivery: emptyDeliveryState(), outputRevision: 0, closed: false });
+        stage = "send";
         try { await this.enqueue(server, 0, () => this.send(server, result.response)); }
         catch (error) { this.close(server, "slow_consumer"); throw error; }
+        stage = "ready";
         // The replacement is accepted and ready before any previous socket closes.
         for (const old of this.ctx.getWebSockets("device:" + deviceKey)) if (old !== server) this.close(old, "session_replaced");
         return new Response(null, { status: 101, webSocket: client });
       } finally { this.opening.delete(session.sessionId); }
     } catch (error) {
       const failure = publicError(error);
-      observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
+      observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
+        route, stage, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }
@@ -126,7 +134,7 @@ export class TeamControl extends DurableObject<Environment> {
         } catch (error) {
           const failure = errorResponse(error, inputRequestId(input));
           status = failure.failure.status; code = failure.failure.code;
-          if (!(error instanceof OperationError)) cause = errorSummary(error);
+          cause = failureDiagnostics(error).cause;
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {
@@ -255,7 +263,7 @@ export class TeamControl extends DurableObject<Environment> {
     // The budget RPC yields. Re-check authority before private data leaves us.
     if (response.schemaId === "session.ready.v1") {
       const broker = this.broker(attachment.session.identity.teamId);
-      if (broker.dependencies.store.getDevice(attachment.session.identity)) broker.requiredDevice(attachment.session);
+      broker.validateSetup(attachment.session, response.challenge !== undefined);
       if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
     }
     if (["directory.result.v1", "relay.result.v1", "ticket.result.v1", "device.registered.v1"].includes(response.schemaId)) {
@@ -285,7 +293,10 @@ export class TeamControl extends DurableObject<Environment> {
         const record = broker.dependencies.store.getDevice(attachment.session.identity);
         // Broadcast revision invalidations, never another user's device record.
         if (record && change.revokedDeviceRecordId === record.deviceRecordId) {
-          await this.send(ws, { schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId, revision: change.revision });
+          await this.send(ws, {
+            schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId,
+            revision: change.revision, recoverable: change.revokedDeviceRecoverable === true,
+          });
           this.close(ws, "device_revoked");
         } else {
           try { broker.requiredDevice(attachment.session); }
