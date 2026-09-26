@@ -110,15 +110,16 @@ struct GhosttyRuntimeLifetimeTests {
         // The item the worker is running doesn't count against the queue's
         // limit, so let the worker take the blocker before filling the queue
         // behind it.
-        let blockerStarted = DispatchSemaphore(value: 0)
         let releaseBlocker = DispatchSemaphore(value: 0)
         defer { releaseBlocker.signal() }
-        let blockerQueued = queue.async {
-            blockerStarted.signal()
-            releaseBlocker.wait()
+        let blockerStarted = await withCheckedContinuation { (started: CheckedContinuation<Bool, Never>) in
+            let queued = queue.async {
+                started.resume(returning: true)
+                releaseBlocker.wait()
+            }
+            if !queued { started.resume(returning: false) }
         }
-        try #require(blockerQueued)
-        try #require(blockerStarted.wait(timeout: .now() + 5) == .success)
+        try #require(blockerStarted)
         var fillers = 0
         while fillers < 10_000, queue.async({}) {
             fillers += 1
