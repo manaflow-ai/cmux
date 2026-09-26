@@ -27,5 +27,8 @@ public struct TerminalRenderedFrameDeliveryReasons: OptionSet, Sendable {
     /// recovered yet (design-hover-diagnostics-v4-final.md §3.4's
     /// "render 後" trigger) — see `GhosttyNSView`'s
     /// `setExternalHoverDiagnosticsRenderTrackingActive`.
-    public static let externalHoverDiagnostics = Self(rawValue: 1 << 2)
+    public static let externalHoverDiagnostics = Self(rawValue: 1 << 3)
+    /// Retire predicted-echo glyphs whose character is now painted, and
+    /// reposition the rest. Requested only while a prediction is on screen.
+    public static let predictedEcho = Self(rawValue: 1 << 2)
 }
