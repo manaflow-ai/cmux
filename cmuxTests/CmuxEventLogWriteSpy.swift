@@ -5,6 +5,8 @@ final class CmuxEventLogWriteSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var sizes: [Int] = []
     private var onMainThread = false
+    // Retained so a closed handle's address cannot be reused by a later one.
+    private var handles: [FileHandle] = []
     private let failedCall: Int?
 
     init(failedCall: Int? = nil) {
@@ -17,6 +19,13 @@ final class CmuxEventLogWriteSpy: @unchecked Sendable {
         return sizes
     }
 
+    /// Identity of the handle passed to each write, in call order.
+    var handleIdentities: [ObjectIdentifier] {
+        lock.lock()
+        defer { lock.unlock() }
+        return handles.map(ObjectIdentifier.init)
+    }
+
     var wroteOnMainThread: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -26,6 +35,7 @@ final class CmuxEventLogWriteSpy: @unchecked Sendable {
     func write(_ handle: FileHandle, data: Data) throws {
         lock.lock()
         sizes.append(data.count)
+        handles.append(handle)
         onMainThread = onMainThread || Thread.isMainThread
         let shouldFail = sizes.count == failedCall
         lock.unlock()

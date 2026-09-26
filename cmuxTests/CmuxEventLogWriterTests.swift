@@ -180,6 +180,46 @@ struct CmuxEventLogWriterTests {
         #expect(try Data(contentsOf: url) == jsonl([#"{"seq":9}"#]))
     }
 
+    /// Every hook, feed, and sidebar event is flushed on its own. Reopening,
+    /// seeking, and stat'ing the log per flush made the event-log queue one of
+    /// the busiest background queues in an idle app sample.
+    @Test
+    func consecutiveFlushesReuseOneOpenHandle() throws {
+        let (writer, url, spy) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        flush([#"{"seq":1}"#], with: writer)
+        flush([#"{"seq":2}"#], with: writer)
+        flush([#"{"seq":3}"#], with: writer)
+
+        #expect(spy.writeSizes.count == 3)
+        #expect(Set(spy.handleIdentities).count == 1)
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":1}"#, #"{"seq":2}"#, #"{"seq":3}"#]))
+    }
+
+    /// Another cmux process (a tagged dev build shares `~/.cmuxterm/events.jsonl`)
+    /// can rotate or delete the log between flushes. The next flush must land in
+    /// the file now at the path, not the renamed or unlinked inode.
+    @Test(arguments: [false, true])
+    func externalRotationOrDeletionBetweenFlushesWritesToCurrentPath(deleteInsteadOfRotate: Bool) throws {
+        let (writer, url, _) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let rotatedURL = url.appendingPathExtension("external")
+
+        flush([#"{"seq":1}"#], with: writer)
+        if deleteInsteadOfRotate {
+            try FileManager.default.removeItem(at: url)
+        } else {
+            try FileManager.default.moveItem(at: url, to: rotatedURL)
+        }
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":2}"#]))
+        if !deleteInsteadOfRotate {
+            #expect(try Data(contentsOf: rotatedURL) == jsonl([#"{"seq":1}"#]))
+        }
+    }
+
     private func makeWriter(
         maxBytes: UInt64 = 16 * 1024 * 1024,
         spy: CmuxEventLogWriteSpy = CmuxEventLogWriteSpy()
