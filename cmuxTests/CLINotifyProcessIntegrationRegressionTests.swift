@@ -9434,12 +9434,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
-        agentLaunchEnvironment(
-            context: context,
-            kind: "codex",
-            executable: "/usr/local/bin/codex",
+        var environment = agentLaunchEnvironment(
+            context: context, kind: "codex", executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
+        return environment
     }
 
     private func agentLaunchEnvironment(

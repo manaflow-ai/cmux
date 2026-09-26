@@ -36481,8 +36481,9 @@ export default CMUXSessionRestore;
                         )
                     }
                 } else if abnormalStop != nil {
-                    let statusValue = abnormalStop?.subtitle
-                        ?? AgentHookAbnormalStopClass.generic.localizedSubtitle
+                    let statusValue = def.name == "codex"
+                        ? (abnormalStop?.subtitle ?? AgentHookAbnormalStopClass.generic.localizedSubtitle)
+                        : agentErrorStatusValue(for: def)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
                             "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
