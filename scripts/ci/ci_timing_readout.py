@@ -67,7 +67,8 @@ def segment(event: str, ref_name: str) -> str:
 
 
 def short_name(name: str) -> str:
-    return name.rsplit(" / ", 1)[-1]
+    """Drop the calling job's prefix: "macos / X" is X, "guards / tests / ci" is "tests / ci"."""
+    return name.split(" / ", 1)[-1]
 
 
 def cell(text: str) -> str:

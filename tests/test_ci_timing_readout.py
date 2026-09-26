@@ -91,6 +91,7 @@ class ReadoutTests(unittest.TestCase):
         self.assertIn("**4m00s (>p99), above p90**", text)
         self.assertNotIn("Checkout", text)  # under the step floor
         self.assertIn("guards / workflow-guard-tests / ci: run 1m27s", text)
+        self.assertEqual(readout.short_name("guards / workflow-guard-tests / ci"), "workflow-guard-tests / ci")
         self.assertIn("1 job reused from an earlier attempt", text)
         self.assertNotIn("—", text)
 
