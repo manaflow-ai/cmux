@@ -848,8 +848,8 @@ the expected text without connecting to a cmux socket.
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
-- `cmux welcome` -> `Toggle Left Sidebar`
-- `cmux welcome` -> `Toggle Right Sidebar`
+- `cmux welcome` -> `Command Palette`
+- `cmux welcome` -> `Settings > Keyboard Shortcuts`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
 - `cmux enable-browser --help` -> `Usage: cmux enable-browser [--json]`
