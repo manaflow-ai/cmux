@@ -26,7 +26,14 @@ When we change the fork, update this document and the parent submodule SHA.
   displays and behind glass or translucent windows.
 - Coverage: the Ghostty `Thread` unit test
   `unfocused render pacer spaces unfocused frames`, run by
-  `build-ghosttykit.yml` before packaging.
+  `build-ghosttykit.yml` before packaging. Hosted
+  [run 36248746801](https://github.com/manaflow-ai/cmux/actions/runs/36248746801)
+  passed 74 tests with this filter at `edefce778` (the same count as the
+  single-test CJK filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edefce7785c9f439966c68588db1edbd6b435203-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `d77a7bdf50c78787c2649b314cd9ca8990af823510531ad547e26f3a978f472d`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: the pacing check sits in `renderCallback` after the
   hidden/unrealized early return. The paced timer uses
   `unfocusedRenderTimerCallback`, which releases the pacer first so its own
