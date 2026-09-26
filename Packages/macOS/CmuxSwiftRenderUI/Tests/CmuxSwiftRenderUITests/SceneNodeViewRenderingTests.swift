@@ -37,7 +37,9 @@ struct SceneNodeViewRenderingTests {
         let menu = try #require(runtime.store.node(menuId))
         let buttonId = try #require(menu.children.first)
         let submenuId = try #require(menu.children.last)
-        #expect(runtime.store.node(submenuId)?.type == "menu")
+        let submenu = try #require(runtime.store.node(submenuId))
+        #expect(submenu.type == "menu")
+        #expect(submenu.children.compactMap { runtime.store.node($0)?.type } == ["button", "button"])
 
         // The sibling button is the control: if it renders, the harness works.
         let buttonSize = renderedSize(of: buttonId, in: runtime)
