@@ -16,7 +16,7 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
 
     func evaluateOmnibarPageFocusScript(
         _ script: String,
-        completion: @escaping @MainActor (Any?, (any Error)?) -> Void
+        completion: @escaping @MainActor @Sendable (Any?, (any Error)?) -> Void
     ) {
         guard let panel else {
             completion(nil, nil)
