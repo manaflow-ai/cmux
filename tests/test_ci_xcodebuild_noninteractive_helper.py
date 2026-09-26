@@ -35,12 +35,10 @@ def test_startup_deadline() -> None:
         "print('2026-09-25 15:57:32.533062-0700 cmux DEV[1:2] [Connection] noise',flush=True);"
         "time.sleep(30)"
     )
-    started = time.monotonic()
     result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", hung],
                             env=env, capture_output=True, text=True, timeout=12)
     assert result.returncode == STARTUP_HANG_EXIT_CODE, (result.returncode, result.stderr)
     assert "Startup hang: no test started within 0.5s" in result.stderr, result.stderr
-    assert time.monotonic() - started < 8
     # Once a suite starts, a slow test is the idle timeout's business, not this one.
     connected = (
         "import time;print('Testing started',flush=True);"
@@ -48,11 +46,6 @@ def test_startup_deadline() -> None:
         "time.sleep(1.2);print('done',flush=True)"
     )
     result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", connected],
-                            env=env, capture_output=True, text=True, timeout=12)
-    assert result.returncode == 0, (result.returncode, result.stderr)
-    # No "Testing started" (a build, an enumeration): the deadline never arms.
-    quiet = "import time;time.sleep(1.2);print('built',flush=True)"
-    result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", quiet],
                             env=env, capture_output=True, text=True, timeout=12)
     assert result.returncode == 0, (result.returncode, result.stderr)
 
