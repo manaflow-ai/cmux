@@ -12,6 +12,15 @@ final class GPUSpinnerNSView: NSView {
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
 
+    /// Sidebar rows hide an idle spinner instead of removing it, so hiding
+    /// must also stop the endless animation.
+    override var isHidden: Bool {
+        didSet {
+            guard isHidden != oldValue else { return }
+            updateAnimationState()
+        }
+    }
+
     var isPresentationActive = true {
         didSet {
             guard isPresentationActive != oldValue else { return }
@@ -187,6 +196,7 @@ final class GPUSpinnerNSView: NSView {
 
     private var shouldAnimate: Bool {
         guard isPresentationActive else { return false }
+        guard !isHiddenOrHasHiddenAncestor else { return false }
         guard let window else { return false }
         guard window.occlusionState.contains(.visible) else { return false }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
@@ -213,29 +223,52 @@ final class GPUSpinnerNSView: NSView {
 
     private func installAnimationIfNeeded() {
         guard contentLayer.animation(forKey: Self.animationKey) == nil else { return }
+        let duration = style == .macOSSpokes ? Self.cycleDuration : Self.arcDuration
+        contentLayer.add(
+            Self.makeRotationAnimation(style: style, beginTime: syncedBeginTime(duration: duration)),
+            forKey: Self.animationKey
+        )
+    }
+
+    /// Builds the endless rotation for `style`.
+    ///
+    /// Core Animation runs these animations in WindowServer, which otherwise
+    /// may recomposite an animating layer at the display's full refresh rate
+    /// (160 Hz on some external displays), and a translucent or glass window
+    /// makes each of those frames more expensive. The spokes only change ten
+    /// times a second, so they ask for 10-20 Hz; the continuous arc asks for
+    /// at most 60 Hz.
+    static func makeRotationAnimation(style: GPUSpinnerStyle, beginTime: CFTimeInterval) -> CAAnimation {
         switch style {
         case .macOSSpokes:
             // Discrete one-spoke steps, clockwise, matching the native cadence.
             let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-            let count = Self.spokeCount
+            let count = spokeCount
             animation.values = (0...count).map { -CGFloat($0) / CGFloat(count) * .pi * 2 }
             animation.keyTimes = (0...count).map { NSNumber(value: Double($0) / Double(count)) }
             animation.calculationMode = .discrete
-            animation.duration = Self.cycleDuration
+            animation.duration = cycleDuration
             animation.repeatCount = .infinity
             animation.isRemovedOnCompletion = false
-            animation.beginTime = syncedBeginTime(duration: Self.cycleDuration)
-            contentLayer.add(animation, forKey: Self.animationKey)
+            animation.beginTime = beginTime
+            let stepsPerSecond = Float(Double(count) / cycleDuration)
+            animation.preferredFrameRateRange = CAFrameRateRange(
+                minimum: stepsPerSecond,
+                maximum: stepsPerSecond * 2,
+                preferred: stepsPerSecond * 2
+            )
+            return animation
         case .arc:
             let animation = CABasicAnimation(keyPath: "transform.rotation.z")
             animation.fromValue = 0
             animation.toValue = CGFloat.pi * 2
-            animation.duration = Self.arcDuration
+            animation.duration = arcDuration
             animation.repeatCount = .infinity
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
             animation.isRemovedOnCompletion = false
-            animation.beginTime = syncedBeginTime(duration: Self.arcDuration)
-            contentLayer.add(animation, forKey: Self.animationKey)
+            animation.beginTime = beginTime
+            animation.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            return animation
         }
     }
 
