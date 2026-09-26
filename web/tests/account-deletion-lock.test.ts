@@ -1,3 +1,9 @@
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { deletePrivateNetworkingForAccountDeletion } from "../services/vms/privateNetwork";
+import { VmProviderGateway } from "../services/vms/providerGateway";
+import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
+
 import { describe, expect, test } from "bun:test";
 
 import type { cloudDb } from "../db/client";
@@ -120,4 +126,64 @@ describe("account deletion tombstone lock", () => {
       },
     );
   });
+});
+
+test("account deletion removes tunnel team attachments but keeps team networks", async () => {
+  const deletedAttachments: string[] = [];
+  const deletedNetworks: string[] = [];
+  const tunnel = {
+    id: "00000000-0000-4000-8000-000000000010",
+    userId: "user-1",
+    networkId: "00000000-0000-4000-8000-000000000011",
+    accessGrantId: "00000000-0000-4000-8000-000000000012",
+    provider: "freestyle" as const,
+    providerTunnelId: "tun-1",
+    deviceFingerprint: "device-1",
+    tunnelPurpose: "browser" as const,
+    deviceName: null,
+    clientPublicKey: "client",
+    addressV4: null,
+    addressV6: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastConfigIssuedAt: null,
+    revokedAt: null,
+  };
+  const teamNetwork = {
+    id: "00000000-0000-4000-8000-000000000013",
+    teamId: "team-1",
+    provider: "freestyle" as const,
+    providerNetworkId: "vpc-team",
+    slug: "team",
+    cidr: "10.5.0.0/24",
+    cidrV6: "fd05::/64",
+    createdByUserId: "user-1",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const repo = {
+    findNetwork: () => Effect.succeed(null),
+    upsertNetwork: () => Effect.succeed(null as never),
+    deleteNetwork: (id: string) => Effect.sync(() => { deletedNetworks.push(id); }),
+    listUserTunnels: () => Effect.succeed([tunnel]),
+    findTunnel: () => Effect.succeed(tunnel),
+    insertTunnel: () => Effect.succeed(tunnel),
+    updateTunnel: () => Effect.succeed(tunnel),
+    revokeTunnel: () => Effect.succeed(true),
+    findTeamNetwork: () => Effect.succeed(teamNetwork),
+    upsertTeamNetwork: () => Effect.succeed(teamNetwork),
+    listTeamNetworks: () => Effect.succeed([teamNetwork]),
+    listTunnelTeamNetworks: () => Effect.succeed([{ tunnelId: tunnel.id, teamNetworkId: teamNetwork.id, addressV4: null, addressV6: null, attachedAt: new Date(), teamNetwork }]),
+    insertTunnelTeamNetwork: () => Effect.succeed({} as never),
+    deleteTunnelTeamNetwork: (_tunnelId: string, teamNetworkId: string) => Effect.sync(() => { deletedAttachments.push(teamNetworkId); }),
+  } as unknown as VmRepositoryShape;
+  const gateway = {
+    supportsPrivateNetworking: () => true,
+    ensureNetwork: () => Effect.succeed({ id: "vpc-user", slug: "user", cidr: null, cidrV6: "fd00::/64" }),
+    deleteTunnel: () => Effect.void,
+    deleteNetwork: () => Effect.void,
+  } as never;
+  await Effect.runPromise(deletePrivateNetworkingForAccountDeletion("user-1").pipe(Effect.provide(Layer.mergeAll(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, gateway)) )));
+  expect(deletedAttachments).toEqual([teamNetwork.id]);
+  expect(deletedNetworks).toEqual([]);
 });

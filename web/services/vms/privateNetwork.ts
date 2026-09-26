@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
+import { trace } from "@opentelemetry/api";
+import { setSpanAttributes } from "../telemetry";
 import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
 import {
   VmAccessGrantRevokedError,
@@ -13,9 +15,14 @@ import { VmProviderGateway, type VmProviderGatewayShape } from "./providerGatewa
 import {
   VmRepository,
   type CloudVmNetworkRow,
+  type CloudVmTeamNetworkRow,
+  type CloudVmTunnelTeamNetworkRow,
   type CloudVmTunnelRow,
   type VmRepositoryShape,
 } from "./repository";
+import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
+import { isProviderTunnelNetworkOverlap } from "./providerErrors";
+import type { ProviderTunnel, ProviderTunnelAttachment } from "./drivers";
 
 /**
  * Private networking: one provider network per cmux account, and one WireGuard
@@ -61,6 +68,12 @@ export type VmTunnelDescriptor = {
     readonly cidr: string | null;
     readonly cidrV6: string | null;
   };
+  readonly networks: ReadonlyArray<{
+    readonly id: string;
+    readonly cidr: string | null;
+    readonly cidrV6: string | null;
+    readonly scope: "user" | "team";
+  }>;
   /** True when this call created the tunnel rather than reading an existing one. */
   readonly created: boolean;
   /** True when the client's key did not match the record and the tunnel's keys were replaced. */
@@ -97,6 +110,10 @@ export function isWireGuardPublicKey(value: unknown): value is string {
  */
 export function networkSlugForUser(userId: string): string {
   return `cmux-net-${accountHash("network", userId)}`;
+}
+
+export function networkSlugForTeam(teamId: string): string {
+  return `cmux-team-net-${accountHash("team-network", teamId)}`;
 }
 
 /** The provider-side slug for one of an account's computers. Same reasoning as the network slug. */
@@ -142,6 +159,8 @@ type PrivateNetworkingGateway = PrivateNetworkGateway & {
   readonly getTunnel: NonNullable<VmProviderGatewayShape["getTunnel"]>;
   readonly rotateTunnelKey: NonNullable<VmProviderGatewayShape["rotateTunnelKey"]>;
   readonly deleteTunnel: NonNullable<VmProviderGatewayShape["deleteTunnel"]>;
+  readonly attachTunnelNetwork?: NonNullable<VmProviderGatewayShape["attachTunnelNetwork"]>;
+  readonly detachTunnelNetwork?: NonNullable<VmProviderGatewayShape["detachTunnelNetwork"]>;
 };
 
 type PrivateNetworkRepo = {
@@ -189,7 +208,22 @@ function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: Pro
   const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
   if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
   const { ensureNetwork } = network;
-  return { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel };
+  return { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel, attachTunnelNetwork: gateway.attachTunnelNetwork, detachTunnelNetwork: gateway.detachTunnelNetwork };
+}
+
+type TeamNetworkRepo = {
+  readonly findTeamNetwork: NonNullable<VmRepositoryShape["findTeamNetwork"]>;
+  readonly upsertTeamNetwork: NonNullable<VmRepositoryShape["upsertTeamNetwork"]>;
+  readonly listTeamNetworks: NonNullable<VmRepositoryShape["listTeamNetworks"]>;
+  readonly listTunnelTeamNetworks: NonNullable<VmRepositoryShape["listTunnelTeamNetworks"]>;
+  readonly insertTunnelTeamNetwork: NonNullable<VmRepositoryShape["insertTunnelTeamNetwork"]>;
+  readonly deleteTunnelTeamNetwork: NonNullable<VmRepositoryShape["deleteTunnelTeamNetwork"]>;
+};
+
+function teamNetworkRepo(repo: VmRepositoryShape): TeamNetworkRepo | null {
+  const { findTeamNetwork, upsertTeamNetwork, listTeamNetworks, listTunnelTeamNetworks, insertTunnelTeamNetwork, deleteTunnelTeamNetwork } = repo;
+  if (!findTeamNetwork || !upsertTeamNetwork || !listTeamNetworks || !listTunnelTeamNetworks || !insertTunnelTeamNetwork || !deleteTunnelTeamNetwork) return null;
+  return { findTeamNetwork, upsertTeamNetwork, listTeamNetworks, listTunnelTeamNetworks, insertTunnelTeamNetwork, deleteTunnelTeamNetwork };
 }
 
 function privateNetworkRepo(repo: VmRepositoryShape): PrivateNetworkRepo | null {
@@ -284,29 +318,87 @@ function withAccessGrantMutationLease<A, E, R>(
  * Fails closed when private networking is unavailable. Cloud machines must not
  * be created with public ingress as a degraded path.
  */
+type TeamNetworkResolution = {
+  readonly network: CloudVmTeamNetworkRow | null;
+  readonly fallbackReason: "no_capability" | "solo_team" | "not_member" | "directory_error" | "directory_timeout" | null;
+};
+
+function resolveTeamNetwork(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
+  readonly provider: ProviderId;
+  readonly providers: PrivateNetworkGateway;
+  readonly repo: TeamNetworkRepo;
+}): Effect.Effect<TeamNetworkResolution, VmDatabaseError | import("./errors").VmProviderOperationError> {
+  return Effect.gen(function* () {
+    if (!input.billingTeamId || input.billingTeamId === input.userId) return { network: null, fallbackReason: "solo_team" as const };
+    if (!input.teamDirectory) return { network: null, fallbackReason: "no_capability" as const };
+    const existing = yield* input.repo.findTeamNetwork(input.billingTeamId, input.provider);
+    if (existing) return { network: existing, fallbackReason: null };
+    const result = yield* Effect.promise(() => listTeamMemberIdsWithTimeout(
+      input.teamDirectory!,
+      input.billingTeamId!,
+      input.directoryTimeoutMs,
+    ));
+    if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
+    if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
+    if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
+    if (!result.memberIds.includes(input.userId)) return { network: null, fallbackReason: "not_member" as const };
+    const slug = networkSlugForTeam(input.billingTeamId);
+    const network = yield* input.providers.ensureNetwork(input.provider, {
+      slug,
+      displayName: "cmux team machines",
+      membersRule: false,
+    });
+    const row = yield* input.repo.upsertTeamNetwork({
+      teamId: input.billingTeamId,
+      provider: input.provider,
+      providerNetworkId: network.id,
+      slug: network.slug ?? slug,
+      cidr: network.cidr,
+      cidrV6: network.cidrV6,
+      createdByUserId: input.userId,
+    });
+    return { network: row, fallbackReason: null };
+  });
+}
+
 export function resolveOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
+  readonly billingTeamId?: string | null;
+  readonly teamDirectory?: VmTeamDirectory;
+  readonly directoryTimeoutMs?: number;
 }): Effect.Effect<
-  CloudVmNetworkRow,
+  (CloudVmNetworkRow | CloudVmTeamNetworkRow) & { readonly memberIngress: boolean; readonly scope: "user" | "team" },
   VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
   VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
     const gateway = yield* VmProviderGateway;
     const providers = privateNetworkGateway(gateway, input.provider);
-    const repo = privateNetworkRepo(yield* VmRepository);
+    const repository = yield* VmRepository;
+    const repo = privateNetworkRepo(repository);
     const reason = privateNetworkUnavailableReason(input.provider, !!providers);
     if (!providers || !repo || reason) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({
-          provider: input.provider,
-          reason: reason ?? "the VM repository composition has no private-network state",
-        }),
-      );
+      return yield* Effect.fail(new VmPrivateNetworkUnavailableError({
+        provider: input.provider,
+        reason: reason ?? "the VM repository composition has no private-network state",
+      }));
     }
+    const teams = teamNetworkRepo(repository);
+    const teamResolution = teams
+      ? yield* resolveTeamNetwork({ ...input, providers, repo: teams })
+      : { network: null, fallbackReason: "no_capability" as const };
+    const span = trace.getActiveSpan();
+    if (span) setSpanAttributes(span, teamResolution.network
+      ? { "cmux.vm.network.scope": "team", "cmux.vm.network.team_fallback": false }
+      : { "cmux.vm.network.scope": "user", "cmux.vm.network.team_fallback": teamResolution.fallbackReason ?? "no_capability" });
+    if (teamResolution.network) return { ...teamResolution.network, memberIngress: true, scope: "team" as const };
     const existing = yield* repo.findNetwork(input.userId, input.provider);
-    if (existing) return existing;
+    if (existing) return { ...existing, memberIngress: false, scope: "user" as const };
 
     const slug = networkSlugForUser(input.userId);
     const network = yield* providers.ensureNetwork(input.provider, {
@@ -316,7 +408,7 @@ export function resolveOwnerNetwork(input: {
     // The provider call is idempotent by slug and the upsert is idempotent by
     // (user, provider), so two machines created at once converge on one row
     // and one network rather than racing to provision a second.
-    return yield* repo.upsertNetwork({
+    const row = yield* repo.upsertNetwork({
       userId: input.userId,
       provider: input.provider,
       providerNetworkId: network.id,
@@ -324,6 +416,7 @@ export function resolveOwnerNetwork(input: {
       cidr: network.cidr,
       cidrV6: network.cidrV6,
     });
+    return { ...row, memberIngress: false, scope: "user" as const };
   });
 }
 
@@ -337,7 +430,7 @@ export function requireOwnerNetwork(input: {
   VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
-    return yield* resolveOwnerNetwork(input);
+    return yield* resolveOwnerNetwork(input).pipe(Effect.map((network) => network as CloudVmNetworkRow));
   });
 }
 
@@ -370,6 +463,7 @@ export function enrollVmTunnel(input: {
   readonly stackSessionId?: string | null;
   readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
+  readonly teamIds?: readonly string[];
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -453,7 +547,8 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          return describeTunnel(current, row, network, { created: false, rotated });
+          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, repository: yield* VmRepository, tunnel: current, tunnelId: row.id, provider: input.provider, teamIds: input.teamIds ?? [] });
+          return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
         }
         // The control plane has a row for a tunnel the provider no longer has.
         yield* repo.revokeTunnel(existing.id);
@@ -478,7 +573,8 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated });
+      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, repository: yield* VmRepository, tunnel: created.tunnel, tunnelId: row.id, provider: input.provider, teamIds: input.teamIds ?? [] });
+      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
     }));
   });
 }
@@ -489,6 +585,7 @@ export function readVmTunnel(input: {
   readonly provider: ProviderId;
   readonly deviceFingerprint: string;
   readonly tunnelPurpose: "terminal" | "browser";
+  readonly teamIds?: readonly string[];
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -515,7 +612,8 @@ export function readVmTunnel(input: {
         new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }),
       );
     }
-    return describeTunnel(live, existing, network, { created: false, rotated: false });
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, repository: yield* VmRepository, tunnel: live, tunnelId: existing.id, provider: input.provider, teamIds: input.teamIds ?? [] });
+    return describeTunnel(live, existing, network, { created: false, rotated: false }, teamNetworks);
   });
 }
 
@@ -544,6 +642,11 @@ export function revokeVmTunnel(input: {
     // working with no record that it exists.
     yield* providers.deleteTunnel(input.provider, existing.providerTunnelId);
     const revoked = yield* repo.revokeTunnel(existing.id);
+    const teamRepo = teamNetworkRepo(yield* VmRepository);
+    if (teamRepo) {
+      const attachments = yield* teamRepo.listTunnelTeamNetworks(existing.id).pipe(Effect.catchAll(() => Effect.succeed([])));
+      yield* Effect.forEach(attachments, (attachment) => teamRepo.deleteTunnelTeamNetwork(existing.id, attachment.teamNetworkId).pipe(Effect.catchAll(() => Effect.void)), { concurrency: 2, discard: true });
+    }
     return { revoked } as const;
   });
 }
@@ -571,6 +674,11 @@ export function revokeVmAccessGrant(input: {
           yield* gateway.deleteTunnel(tunnel.provider, tunnel.providerTunnelId);
         }
         yield* repo.revokeTunnel(tunnel.id);
+        const teamRepo = teamNetworkRepo(yield* VmRepository);
+        if (teamRepo) {
+          const attachments = yield* teamRepo.listTunnelTeamNetworks(tunnel.id).pipe(Effect.catchAll(() => Effect.succeed([])));
+          yield* Effect.forEach(attachments, (attachment) => teamRepo.deleteTunnelTeamNetwork(tunnel.id, attachment.teamNetworkId).pipe(Effect.catchAll(() => Effect.void)), { concurrency: 2, discard: true });
+        }
       }
       const revoked = yield* repo.revokeAccessGrant(grant.id);
       return { revoked, stackSessionIds } as const;
@@ -666,6 +774,11 @@ export function deletePrivateNetworkingForAccountDeletion(userId: string) {
         yield* gateway.deleteTunnel(row.provider, row.providerTunnelId);
       }
       yield* repo.revokeTunnel(row.id);
+      const teamRepo = teamNetworkRepo(repoFull);
+      if (teamRepo) {
+        const attachments = yield* teamRepo.listTunnelTeamNetworks(row.id).pipe(Effect.catchAll(() => Effect.succeed([])));
+        yield* Effect.forEach(attachments, (attachment) => teamRepo.deleteTunnelTeamNetwork(row.id, attachment.teamNetworkId).pipe(Effect.catchAll(() => Effect.void)), { concurrency: 2, discard: true });
+      }
       tunnels += 1;
     }
 
@@ -734,11 +847,95 @@ function requirePrivateAccessRepo(provider: ProviderId) {
   });
 }
 
+function attachTeamNetwork(input: {
+  readonly providers: PrivateNetworkingGateway;
+  readonly repo: TeamNetworkRepo;
+  readonly tunnel: ProviderTunnel;
+  readonly tunnelId: string;
+  readonly provider: ProviderId;
+  readonly network: CloudVmTeamNetworkRow;
+  readonly prior: CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow } | undefined;
+}): Effect.Effect<boolean, never> {
+  const operation = Effect.gen(function* () {
+    let attachment: ProviderTunnelAttachment | undefined;
+    if (!input.tunnel.attachments?.some((item) => item.networkId === input.network.providerNetworkId)) {
+      if (!input.providers.attachTunnelNetwork) return false;
+      attachment = yield* input.providers.attachTunnelNetwork(input.provider, input.tunnel.id, input.network.providerNetworkId);
+    } else {
+      attachment = input.tunnel.attachments.find((item) => item.networkId === input.network.providerNetworkId);
+    }
+    if (input.prior && input.tunnel.attachments?.some((item) => item.networkId === input.network.providerNetworkId)) return true;
+    yield* input.repo.insertTunnelTeamNetwork({
+      tunnelId: input.tunnelId,
+      teamNetworkId: input.network.id,
+      addressV4: attachment?.addressV4 ?? input.prior?.addressV4,
+      addressV6: attachment?.addressV6 ?? input.prior?.addressV6,
+    });
+    return true;
+  });
+  return operation.pipe(Effect.catchAll((error) =>
+    Effect.logWarning("Cloud team tunnel attachment skipped", {
+      networkId: input.network.id,
+      overlap: isProviderTunnelNetworkOverlap(error),
+      error,
+    }).pipe(Effect.as(false)),
+  ));
+}
+
+function detachStaleTeamNetwork(input: {
+  readonly providers: PrivateNetworkingGateway;
+  readonly repo: TeamNetworkRepo;
+  readonly tunnel: ProviderTunnel;
+  readonly tunnelId: string;
+  readonly provider: ProviderId;
+  readonly attachment: CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow };
+}): Effect.Effect<boolean, never> {
+  const operation = Effect.gen(function* () {
+    yield* input.providers.detachTunnelNetwork?.(input.provider, input.tunnel.id, input.attachment.teamNetwork.providerNetworkId) ?? Effect.void;
+    yield* input.repo.deleteTunnelTeamNetwork(input.tunnelId, input.attachment.teamNetworkId);
+    return true;
+  });
+  return operation.pipe(Effect.catchAll((error) =>
+    Effect.logWarning("Cloud stale team tunnel attachment cleanup skipped", {
+      teamNetworkId: input.attachment.teamNetworkId,
+      error,
+    }).pipe(Effect.as(false)),
+  ));
+}
+
+function reconcileTunnelTeamNetworks(input: {
+  readonly providers: PrivateNetworkingGateway;
+  readonly repository: VmRepositoryShape;
+  readonly tunnel: ProviderTunnel;
+  readonly tunnelId: string;
+  readonly provider: ProviderId;
+  readonly teamIds: readonly string[];
+}): Effect.Effect<CloudVmTeamNetworkRow[], never> {
+  return Effect.gen(function* () {
+    const repo = teamNetworkRepo(input.repository);
+    if (!repo || !input.providers.attachTunnelNetwork) return [];
+    const recorded = yield* repo.listTunnelTeamNetworks(input.tunnelId).pipe(Effect.catchAll(() => Effect.succeed([] as Array<CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow }>)));
+    const desiredResult = yield* repo.listTeamNetworks(input.teamIds, input.provider).pipe(Effect.either);
+    if (desiredResult._tag === "Left") return recorded.flatMap((row) => [row.teamNetwork]);
+    const desired = desiredResult.right;
+    const attached: CloudVmTeamNetworkRow[] = [];
+    for (const network of desired) {
+      const prior = recorded.find((row) => row.teamNetworkId === network.id);
+      if (yield* attachTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, network, prior })) attached.push(network);
+    }
+    for (const row of recorded) {
+      if (!desired.some((network) => network.id === row.teamNetworkId)) yield* detachStaleTeamNetwork({ providers: input.providers, repo, tunnel: input.tunnel, tunnelId: input.tunnelId, provider: input.provider, attachment: row });
+    }
+    return attached;
+  });
+}
+
 function describeTunnel(
   tunnel: import("./drivers").ProviderTunnel,
   row: CloudVmTunnelRow,
   network: CloudVmNetworkRow,
   flags: { readonly created: boolean; readonly rotated: boolean },
+  teamNetworks: readonly CloudVmTeamNetworkRow[] = [],
 ): VmTunnelDescriptor {
   return {
     accessGrantId: row.accessGrantId,
@@ -760,6 +957,10 @@ function describeTunnel(
       cidr: network.cidr,
       cidrV6: network.cidrV6,
     },
+    networks: [
+      { id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: "user" as const },
+      ...teamNetworks.map((team) => ({ id: team.providerNetworkId, cidr: team.cidr, cidrV6: team.cidrV6, scope: "team" as const })),
+    ],
     created: flags.created,
     rotated: flags.rotated,
   };

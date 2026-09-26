@@ -123,6 +123,7 @@ export type CreateOptions = {
 /** Enough of a provider network to attach a machine or a tunnel to it. */
 export type ProviderNetworkRef = {
   readonly id: string;
+  readonly memberIngress?: boolean;
 };
 
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
@@ -387,7 +388,18 @@ export type ProviderTunnel = {
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
   readonly addressV4: string | null;
   readonly addressV6: string | null;
+  readonly attachments?: readonly ProviderTunnelAttachment[];
 };
+
+export type ProviderTunnelAttachment = {
+  readonly networkId: string;
+  readonly addressV4: string | null;
+  readonly addressV6: string | null;
+};
+
+export class ProviderTunnelNetworkOverlapError extends Error {
+  readonly kind = "network_overlap" as const;
+}
 
 /** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
 export type ProviderTunnelCreateResult = {
@@ -418,7 +430,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
@@ -439,6 +451,8 @@ export interface VMPrivateNetworking {
   rotateTunnelKey(tunnelId: string, clientPublicKey: string, networkId: string): Promise<ProviderTunnel>;
   /** Delete a tunnel. Must succeed when it is already gone. */
   deleteTunnel(tunnelId: string): Promise<void>;
+  attachTunnelNetwork?(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment>;
+  detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
 }
 
 export interface VMProvider {

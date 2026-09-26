@@ -13,6 +13,8 @@ import {
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNetworks,
+  cloudVmTeamNetworks,
+  cloudVmTunnelTeamNetworks,
   cloudVmAccessGrants,
   cloudVmAccessGrantSessions,
   cloudVmSessions,
@@ -76,6 +78,8 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 };
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
+export type CloudVmTeamNetworkRow = typeof cloudVmTeamNetworks.$inferSelect;
+export type CloudVmTunnelTeamNetworkRow = typeof cloudVmTunnelTeamNetworks.$inferSelect;
 export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
 export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
@@ -146,6 +150,21 @@ export type VmRepositoryShape = {
     readonly cidr?: string | null;
     readonly cidrV6?: string | null;
   }) => Effect.Effect<CloudVmNetworkRow, VmDatabaseError>;
+  readonly findTeamNetwork?: (teamId: string, provider: ProviderId) => Effect.Effect<CloudVmTeamNetworkRow | null, VmDatabaseError>;
+  readonly upsertTeamNetwork?: (input: {
+    readonly teamId: string;
+    readonly provider: ProviderId;
+    readonly providerNetworkId: string;
+    readonly slug?: string | null;
+    readonly cidr?: string | null;
+    readonly cidrV6?: string | null;
+    readonly createdByUserId: string;
+  }) => Effect.Effect<CloudVmTeamNetworkRow, VmDatabaseError>;
+  readonly listTeamNetworks?: (teamIds: readonly string[], provider: ProviderId) => Effect.Effect<CloudVmTeamNetworkRow[], VmDatabaseError>;
+  readonly listTunnelTeamNetworks?: (tunnelId: string) => Effect.Effect<Array<CloudVmTunnelTeamNetworkRow & { readonly teamNetwork: CloudVmTeamNetworkRow }>, VmDatabaseError>;
+  readonly insertTunnelTeamNetwork?: (input: { tunnelId: string; teamNetworkId: string; addressV4?: string | null; addressV6?: string | null }) => Effect.Effect<CloudVmTunnelTeamNetworkRow, VmDatabaseError>;
+  readonly deleteTunnelTeamNetwork?: (tunnelId: string, teamNetworkId: string) => Effect.Effect<void, VmDatabaseError>;
+  readonly listTeamNetworkAttachmentsPage?: (input: { limit: number; afterTeamNetworkId?: string }) => Effect.Effect<Array<CloudVmTeamNetworkRow & { attachments: Array<{ tunnelId: string; providerTunnelId: string; userId: string; revokedAt: Date | null }> }>, VmDatabaseError>;
   readonly deleteNetwork?: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly findAccessGrant?: (input: {
     readonly userId: string;
@@ -1093,6 +1112,10 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
   return `network:${input.provider}:${input.userId}`;
 }
 
+function teamNetworkUpsertLockKey(input: { readonly teamId: string; readonly provider: ProviderId }): string {
+  return `team-network:${input.provider}:${input.teamId}`;
+}
+
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
@@ -1143,6 +1166,73 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         return row;
       });
     }),
+
+  findTeamNetwork: (teamId, provider) =>
+    dbEffect("findTeamNetwork", async () => {
+      const [row] = await cloudDb().select().from(cloudVmTeamNetworks)
+        .where(and(eq(cloudVmTeamNetworks.teamId, teamId), eq(cloudVmTeamNetworks.provider, provider))).limit(1);
+      return row ?? null;
+    }),
+
+  upsertTeamNetwork: (input) =>
+    dbEffect("upsertTeamNetwork", async () => {
+      return cloudDb().transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${teamNetworkUpsertLockKey(input)}, 0))`);
+        const [row] = await tx.insert(cloudVmTeamNetworks).values({
+          teamId: input.teamId,
+          provider: input.provider,
+          providerNetworkId: input.providerNetworkId,
+          slug: input.slug ?? null,
+          cidr: input.cidr ?? null,
+          cidrV6: input.cidrV6 ?? null,
+          createdByUserId: input.createdByUserId,
+        }).onConflictDoUpdate({
+          target: [cloudVmTeamNetworks.teamId, cloudVmTeamNetworks.provider],
+          set: { providerNetworkId: input.providerNetworkId, slug: input.slug ?? null, cidr: input.cidr ?? null, cidrV6: input.cidrV6 ?? null, updatedAt: new Date() },
+        }).returning();
+        if (!row) throw new Error("upsertTeamNetwork returned no row");
+        return row;
+      });
+    }),
+
+  listTeamNetworks: (teamIds, provider) => dbEffect("listTeamNetworks", async () => {
+    if (teamIds.length === 0) return [];
+    return cloudDb().select().from(cloudVmTeamNetworks).where(and(inArray(cloudVmTeamNetworks.teamId, [...teamIds]), eq(cloudVmTeamNetworks.provider, provider)));
+  }),
+
+  listTunnelTeamNetworks: (tunnelId) => dbEffect("listTunnelTeamNetworks", async () => {
+    return cloudDb().select({ attachment: cloudVmTunnelTeamNetworks, teamNetwork: cloudVmTeamNetworks })
+      .from(cloudVmTunnelTeamNetworks)
+      .innerJoin(cloudVmTeamNetworks, eq(cloudVmTeamNetworks.id, cloudVmTunnelTeamNetworks.teamNetworkId))
+      .where(eq(cloudVmTunnelTeamNetworks.tunnelId, tunnelId))
+      .then((rows) => rows.map(({ attachment, teamNetwork }) => ({ ...attachment, teamNetwork })));
+  }),
+
+  insertTunnelTeamNetwork: (input) => dbEffect("insertTunnelTeamNetwork", async () => {
+    const [row] = await cloudDb().insert(cloudVmTunnelTeamNetworks).values({
+      tunnelId: input.tunnelId, teamNetworkId: input.teamNetworkId, addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null,
+    }).onConflictDoUpdate({ target: [cloudVmTunnelTeamNetworks.tunnelId, cloudVmTunnelTeamNetworks.teamNetworkId], set: { addressV4: input.addressV4 ?? null, addressV6: input.addressV6 ?? null } }).returning();
+    if (!row) throw new Error("insertTunnelTeamNetwork returned no row");
+    return row;
+  }),
+
+  deleteTunnelTeamNetwork: (tunnelId, teamNetworkId) => dbEffect("deleteTunnelTeamNetwork", async () => {
+    await cloudDb().delete(cloudVmTunnelTeamNetworks).where(and(eq(cloudVmTunnelTeamNetworks.tunnelId, tunnelId), eq(cloudVmTunnelTeamNetworks.teamNetworkId, teamNetworkId)));
+  }),
+
+  listTeamNetworkAttachmentsPage: (input) => dbEffect("listTeamNetworkAttachmentsPage", async () => {
+    const networks = await cloudDb().select().from(cloudVmTeamNetworks)
+      .where(input.afterTeamNetworkId ? gt(cloudVmTeamNetworks.id, input.afterTeamNetworkId) : undefined)
+      .orderBy(asc(cloudVmTeamNetworks.id)).limit(input.limit);
+    const result = [];
+    for (const network of networks) {
+      const attachments = await cloudDb().select({ tunnelId: cloudVmTunnelTeamNetworks.tunnelId, providerTunnelId: cloudVmTunnels.providerTunnelId, userId: cloudVmTunnels.userId, revokedAt: cloudVmTunnels.revokedAt })
+        .from(cloudVmTunnelTeamNetworks).innerJoin(cloudVmTunnels, eq(cloudVmTunnels.id, cloudVmTunnelTeamNetworks.tunnelId))
+        .where(eq(cloudVmTunnelTeamNetworks.teamNetworkId, network.id));
+      result.push({ ...network, attachments });
+    }
+    return result;
+  }),
 
   deleteNetwork: (id) =>
     dbEffect("deleteNetwork", async () => {

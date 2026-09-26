@@ -1,4 +1,5 @@
 import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../../services/vms/auth";
 import {
   jsonResponse,
@@ -79,6 +80,7 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         modelPlane: vmModelPlaneGatewayFor({
           teamId: entitlements.billingTeamId,
           stackUserId: user.id,

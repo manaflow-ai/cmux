@@ -57,7 +57,7 @@ public actor CloudMachineLinkManager {
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
-    private let hub: CloudWireGuardHub?
+    let hub: CloudWireGuardHub?
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]

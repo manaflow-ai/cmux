@@ -1,4 +1,5 @@
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
@@ -292,6 +293,7 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
+        teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),

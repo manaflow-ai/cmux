@@ -1,3 +1,4 @@
+import { ProviderTunnelNetworkOverlapError } from "./drivers/types";
 const providerSubjectPattern =
   "(?:vm|virtual machine|sandbox|sandboxes|instance|container|machine|environment|resource)";
 const providerIdentitySubjectPattern =
@@ -136,4 +137,17 @@ export function isProviderIdentityNotFoundError(err: unknown): boolean {
   if (["not_found", "notfound", "404"].includes(code)) return true;
   if (hasProviderIdentityMissingDetail(candidate)) return true;
   return candidate.cause ? isProviderIdentityNotFoundError(candidate.cause) : false;
+}
+
+export function isProviderTunnelNetworkOverlap(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof ProviderTunnelNetworkOverlapError) return true;
+    const candidate = current as { readonly kind?: unknown; readonly cause?: unknown };
+    if (candidate.kind === "network_overlap") return true;
+    current = candidate.cause;
+  }
+  return false;
 }
