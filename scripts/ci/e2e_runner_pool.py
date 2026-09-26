@@ -256,13 +256,8 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
     pools = [label for label in limits.order if e2e_pool(label)]
     if not pools:
         return pr_runner_pool.Choice("", "", f"{ORDER_VARIABLE} names no macOS 26 pool")
-    snapshot, capacity = load.snapshot, dict(owned_slots or {})
+    snapshot, capacity = live_view(load, owned_slots)
     live = load.live_owned is not None
-    if live:
-        # Idle runners replace the snapshot's owned counts, and online ones
-        # the slot counts, as pull request CI reads them (pr_runner_pool.choose).
-        snapshot, capacity = pr_runner_pool.live_pools(snapshot, load.live_owned or {}, capacity, {},
-                                                       load.live_online)
     placed: dict[str, int] = {}
     owned_since: dict[str, int] = {}
     for label, count in load.e2e_since.items():
@@ -304,6 +299,22 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
     if live and pr_runner_pool.persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     return choice
+
+
+def live_view(load: PoolLoad, owned_slots: Mapping[str, int] | None) -> tuple[Mapping[str, Any], dict[str, int]]:
+    """The snapshot and owned capacities decide() reads: the owned counts read live when the runners were.
+
+    Idle runners replace the snapshot's owned counts, and online ones the
+    slot counts, as pull request CI reads them (pr_runner_pool.choose). No
+    older runs are passed (`older={}`): a fully busy owned label is not
+    charged the queued jobs of pull request runs from before the live
+    window, so it may look shorter than it is; ci-owned-pool-rescue.yml
+    moves a job that then waits too long.
+    """
+    capacity = dict(owned_slots or {})
+    if load.live_owned is None:
+        return load.snapshot, capacity
+    return pr_runner_pool.live_pools(load.snapshot, load.live_owned or {}, capacity, {}, load.live_online)
 
 
 def pr_routing_off(snapshot: Mapping[str, Any]) -> str | None:
@@ -357,7 +368,9 @@ def auto_runner(
             log(f"{choice.reason}; staying on {SMALL_RUNNER}")
             return default
         shown = [label for label in limits.order if pr_runner_pool.persistent(label)] + list(E2E_POOLS)
-        queue = "; ".join(pr_runner_pool.describe(load.snapshot, label, owned_slots) for label in shown)
+        # The counts decide() read: live for the owned labels when the runners were read.
+        seen, capacity = live_view(load, owned_slots)
+        queue = "; ".join(pr_runner_pool.describe(seen, label, capacity) for label in shown)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {SMALL_RUNNER}")
         return default
@@ -455,7 +468,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def measure() -> PoolLoad | None:
         if not token or not repo:
             raise RuntimeError("GH_TOKEN and GH_REPO are required")
-        idle, online = read_live_owned(repo, env, args.owned, args.pr_xcode_app) or (None, None)
+        # A run no owned pool may take (a UI filter without owned_ui) reads no runners.
+        owned = args.owned if owned_target(args.test_filter, args.owned_ui) else ""
+        idle, online = read_live_owned(repo, env, owned, args.pr_xcode_app) or (None, None)
         return measure_load(pr_runner_pool.GitHub(token, repo), now=now,
                             exclude_run_id=int(run_id) if run_id.isdigit() else None,
                             live_owned=idle, live_online=online)
