@@ -11223,17 +11223,27 @@ struct CMUXCLI {
             }
 
         case "set-color":
-            let (hexOpt, rem0) = parseOption(rest, name: "--hex")
+            let (hexOpt, rem1) = parseOption(rest, name: "--hex")
+            // --color is an alias for --hex (mirrors the `custom_color`
+            // response field the RPC accepts under the `color` key).
+            // Always consume --color so it cannot be mistaken for the group id
+            // when both flags are passed; --hex wins.
+            let (colorOpt, rem0) = parseOption(rem1, name: "--color")
             params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex with no value (or `--hex ""`) as a clear.
-            params["hex"] = hexOpt ?? ""
+            // Treat --hex/--color with no value (or `""`) as a clear.
+            params["hex"] = hexOpt ?? colorOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "set-icon":
-            let (symbolOpt, rem0) = parseOption(rest, name: "--symbol")
+            let (symbolOpt, rem1) = parseOption(rest, name: "--symbol")
+            // --icon is an alias for --symbol (mirrors the `icon_symbol`
+            // response field the RPC accepts under the `icon` key).
+            // Always consume --icon so it cannot be mistaken for the group id
+            // when both flags are passed; --symbol wins.
+            let (iconOpt, rem0) = parseOption(rem1, name: "--icon")
             params["group_id"] = try resolveGroupId(in: rem0)
-            params["symbol"] = symbolOpt ?? ""
+            params["symbol"] = symbolOpt ?? iconOpt ?? ""
             let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
             printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
