@@ -254,8 +254,12 @@ extension VMClientReadCoalescingTests {
         wakes.post(name: NSWorkspace.didWakeNotification, object: nil)
         try await listEventually { model.isRecoveringList }
         await CloudRefreshURLProtocol.configure(.normal)
+        await CloudRefreshURLProtocol.releasePendingResponses()
+        // The read that spanned the sleep failed; the wake's read is still out.
+        try await listEventually { await Self.listRequests() == 3 }
+        #expect(model.listStatus == .reconnecting)
         await CloudRefreshURLProtocol.releaseResponses()
-        try await listEventually { await Self.listRequests() == 3 && !model.isLoading }
+        try await listEventually { !model.isLoading }
         #expect(model.listStatus == nil)
         #expect(model.lastErrorDescription == nil)
         #expect(model.machines.count == 1)

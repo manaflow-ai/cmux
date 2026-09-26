@@ -65,9 +65,9 @@ extension MachinesPanelViewModel {
     func stopPolling() { wantsPolling = false; pausePolling() }
 
     /// A wake is a return: a read that spanned the sleep, or the poll that fires
-    /// on wake, can fail before the service answers again. Only a live list,
-    /// one that is polling, recovers; a hidden or offline panel recovers when
-    /// it is shown or back online.
+    /// on wake, can fail before the service answers again. Only a list that is
+    /// polling recovers; a hidden panel recovers when it is shown. Offline, the
+    /// coordinator refuses the read and the list keeps waiting for the network.
     func systemDidWake() {
         guard pollTask != nil else { return }
         recoverList()

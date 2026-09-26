@@ -11,6 +11,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     private let requestID = UUID()
     static func holdResponses() async { await responses.hold() }
     static func releaseResponses() async { await responses.release() }
+    /// Answers the requests already waiting; requests that start later stay held.
+    static func releasePendingResponses() async { await responses.releasePending() }
     static func configure(_ behavior: Behavior) async { await responses.configure(behavior) }
     static func waitUntilStarted(_ count: Int = 1) async { await responses.waitUntilStarted(count) }
     static func currentStopCount() async -> Int { await responses.stopCount }
@@ -31,6 +33,9 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
         func hold() { held = true }
         func release() {
             held = false
+            releasePending()
+        }
+        func releasePending() {
             let pending = responseWaiters
             responseWaiters.removeAll()
             for waiter in pending.values { waiter.resume() }
