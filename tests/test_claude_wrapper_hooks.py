@@ -37,7 +37,7 @@ def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
             f'cmux_cli="{executable}"',
             'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi',
             f'agent_pid="${{{pid_key}:-${{PPID:-}}}}"',
-            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; fi; else echo \'{{}}\'; fi',
+            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || {{ cat >/dev/null; echo \'{{}}\'; }}; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || {{ cat >/dev/null; echo \'{{}}\'; }}; fi; else cat >/dev/null; echo \'{{}}\'; fi',
         ]
     )
 
@@ -825,6 +825,267 @@ def test_semantically_empty_generated_settings_keep_decision_hook_fallback(
             f"empty generated settings {generated_settings}: PermissionRequest decision hook was lost: {hooks}",
             failures,
         )
+
+
+def node_validation_probe(log_path: Path):
+    """Prepend a `node` shim that records each generated-settings validation.
+
+    The wrapper validates generated settings with `node -e <script>`; the
+    script is the only node invocation that names cron-create-guard.
+    """
+    real_node = shutil.which("node")
+
+    def setup(tmp: Path, env: dict) -> None:
+        sandbox_home = tmp / "home"
+        sandbox_home.mkdir()
+        env["HOME"] = str(sandbox_home)
+        shim_dir = tmp / "node-shim"
+        shim_dir.mkdir()
+        make_executable(
+            shim_dir / "node",
+            f"""#!/usr/bin/env bash
+if [[ "${{1:-}}" == "-e" && "${{2:-}}" == *cron-create-guard* ]]; then
+  printf 'validate\\n' >> {json.dumps(str(log_path))}
+fi
+exec {json.dumps(real_node)} "$@"
+""",
+        )
+        env["PATH"] = f"{shim_dir}:{env['PATH']}"
+
+    return setup
+
+
+def run_generated_settings_case(generated: str) -> tuple[int, list[str], str, str, int]:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-validation-log-") as log_dir:
+        log_path = Path(log_dir) / "node-validations.log"
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            generated_hook_settings=generated,
+            setup_sandbox=node_validation_probe(log_path),
+        )
+        validations = len(read_lines(log_path))
+    settings_text = ""
+    if "--settings" in real_argv:
+        index = real_argv.index("--settings")
+        if index + 1 < len(real_argv):
+            settings_path = Path(real_argv[index + 1])
+            if settings_path.is_file():
+                settings_text = settings_path.read_text(encoding="utf-8")
+                settings_path.unlink()
+    return code, real_argv, stderr, settings_text, validations
+
+
+def test_standard_generated_settings_skip_node_validation(failures: list[str]) -> None:
+    standard = generated_claude_hook_settings()
+    code, _real_argv, stderr, settings_text, validations = run_generated_settings_case(standard)
+    expect(code == 0, f"standard settings: wrapper exited {code}: {stderr}", failures)
+    expect(
+        settings_text == standard,
+        "standard settings: Claude must receive the bundled CLI document byte for byte",
+        failures,
+    )
+    expect(
+        validations == 0,
+        f"standard settings: the exact bundled CLI document should skip Node validation, ran {validations}",
+        failures,
+    )
+
+
+def test_nonstandard_generated_settings_still_validated_by_node(failures: list[str]) -> None:
+    standard = generated_claude_hook_settings()
+    document = json.loads(standard)
+
+    # Valid documents that differ from the standard bytes must still be
+    # judged by Node, and Node accepts them unchanged.
+    accepted = {
+        "trailing space": standard + " ",
+        "leading space": " " + standard,
+        "reindented": json.dumps(document, indent=2, sort_keys=True),
+        "unsorted keys": json.dumps(dict(reversed(list(document.items()))), separators=(",", ":")),
+        "extra key": standard[:-1] + ',"extra":true}',
+    }
+    for name, generated in accepted.items():
+        code, _real_argv, stderr, settings_text, validations = run_generated_settings_case(generated)
+        expect(code == 0, f"nonstandard [{name}]: wrapper exited {code}: {stderr}", failures)
+        expect(validations == 1, f"nonstandard [{name}]: expected one Node validation, ran {validations}", failures)
+        expect(
+            settings_text == generated.rstrip("\n"),
+            f"nonstandard [{name}]: Node-accepted settings should pass through unchanged",
+            failures,
+        )
+
+    def mutated(mutate) -> str:
+        value = json.loads(standard)
+        mutate(value)
+        return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+    def async_permission(value: dict) -> None:
+        value["hooks"]["PermissionRequest"][0]["hooks"][0]["async"] = True
+
+    def drop_cron_guard(value: dict) -> None:
+        value["hooks"]["PreToolUse"] = value["hooks"]["PreToolUse"][1:]
+
+    def drop_session_start(value: dict) -> None:
+        del value["hooks"]["SessionStart"]
+
+    # Documents that fail Node's requirements fall back to the decision hooks.
+    rejected = {
+        "async PermissionRequest": mutated(async_permission),
+        "no cron guard": mutated(drop_cron_guard),
+        "notifications disabled without SessionStart": mutated(drop_session_start),
+        "truncated": standard[:-1],
+        "trailing garbage": standard + "x",
+    }
+    for name, generated in rejected.items():
+        code, _real_argv, stderr, settings_text, validations = run_generated_settings_case(generated)
+        expect(code == 0, f"rejected [{name}]: wrapper exited {code}: {stderr}", failures)
+        expect(validations == 1, f"rejected [{name}]: expected one Node validation, ran {validations}", failures)
+        settings = json.loads(settings_text) if settings_text else {}
+        expect(
+            set(settings.get("hooks", {})) == {"PreToolUse", "PermissionRequest"}
+            and "preferredNotifChannel" not in settings,
+            f"rejected [{name}]: expected the decision-hook fallback, got {settings_text[:200]!r}",
+            failures,
+        )
+
+
+def test_speculative_hook_settings_are_discarded_on_passthrough(failures: list[str]) -> None:
+    # The settings generator starts before the ping. Every passthrough must
+    # stop it and remove its output file without waiting for the watchdog.
+    # `frobnicate` is only known as a subcommand through help discovery, so
+    # the generator starts and the passthrough has to discard it; `doctor` is
+    # a known subcommand, so the generator never starts.
+    help_output = "Usage: claude [options] [command]\n\nCommands:\n  frobnicate  Discovered command\n"
+    for socket_state, argv, expect_started in (
+        # A failed ping can discard the job before the generator runs.
+        ("stale", ["hello"], None),
+        ("live", ["frobnicate"], True),
+        ("live", ["doctor"], False),
+    ):
+        with tempfile.TemporaryDirectory(prefix="cmux-claude-speculative-") as td:
+            private_tmp = Path(td) / "tmp"
+            private_tmp.mkdir()
+            pid_log = Path(td) / "generator.pid"
+
+            def setup(tmp: Path, env: dict, pid_log: Path = pid_log) -> None:
+                sandbox_home = tmp / "home"
+                sandbox_home.mkdir()
+                env["HOME"] = str(sandbox_home)
+                make_executable(
+                    Path(env["CMUX_BUNDLED_CLI_PATH"]),
+                    f"""#!/usr/bin/env bash
+if [[ "${{1:-}}" == "hooks" && "${{3:-}}" == "inject-settings" ]]; then
+  printf '%s\\n' "$$" > {json.dumps(str(pid_log))}
+  exec /bin/sleep 5
+fi
+exit 0
+""",
+                )
+
+            started = time.monotonic()
+            code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+                socket_state=socket_state,
+                argv=argv,
+                tmpdir=str(private_tmp),
+                setup_sandbox=setup,
+                help_output=help_output,
+            )
+            elapsed = time.monotonic() - started
+            context = f"speculative settings [{socket_state} {argv}]"
+            expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
+            expect(real_argv == argv, f"{context}: expected passthrough argv, got {real_argv}", failures)
+            leftovers = sorted(path.name for path in private_tmp.glob("cmux-claude-hook-settings.*"))
+            expect(leftovers == [], f"{context}: generator output left behind: {leftovers}", failures)
+            pids = read_lines(pid_log)
+            expect(
+                expect_started is None or bool(pids) == expect_started,
+                f"{context}: expected generator started={expect_started}, got pids {pids}",
+                failures,
+            )
+            if pids:
+                try:
+                    os.kill(int(pids[0]), 0)
+                    alive = True
+                except ProcessLookupError:
+                    alive = False
+                expect(not alive, f"{context}: generator {pids[0]} still running after passthrough", failures)
+            expect(elapsed < 4.5, f"{context}: passthrough waited on the generator ({elapsed:.1f}s)", failures)
+
+
+def test_managed_defaults_domain_matches_per_key_reads(failures: list[str]) -> None:
+    # One whole-domain `defaults read` must reach the same decision the
+    # previous two per-key reads did: skip computer use when
+    # disableSideloadFlags reads as 1 or a policyHelper key exists.
+    defaults = Path("/usr/bin/defaults")
+    if not defaults.exists():
+        return
+    cases = {
+        "bool true": {"disableSideloadFlags": True},
+        "int 1": {"disableSideloadFlags": 1},
+        "string 1": {"disableSideloadFlags": "1"},
+        "real 1.0": {"disableSideloadFlags": 1.0},
+        "bool false": {"disableSideloadFlags": False},
+        "string true": {"disableSideloadFlags": "true"},
+        "real 1.5": {"disableSideloadFlags": 1.5},
+        "string 01": {"disableSideloadFlags": "01"},
+        "string 1 newline": {"disableSideloadFlags": "1\n"},
+        "string 1 two newlines": {"disableSideloadFlags": "1\n\n"},
+        "string 1 backslash n": {"disableSideloadFlags": "1\\n"},
+        "string 1 tab newline": {"disableSideloadFlags": "1\t\n"},
+        "string 1 newline 1": {"disableSideloadFlags": "1\n1"},
+        "string 1 quote": {"disableSideloadFlags": '1"'},
+        "string 1 space": {"disableSideloadFlags": "1 "},
+        "array [1]": {"disableSideloadFlags": [1]},
+        "policyHelper dict": {"policyHelper": {"path": "/usr/local/bin/helper"}},
+        "policyHelper empty string": {"policyHelper": ""},
+        "nested flag": {"other": {"disableSideloadFlags": True}},
+        "nested policyHelper": {"other": {"policyHelper": {"path": "/x"}}},
+        "similar key": {"disableSideloadFlagsX": True, "policyHelperX": 1},
+        "string mentions keys": {"note": "a\n    policyHelper = 1;\n    disableSideloadFlags = 1;"},
+        "empty domain": {},
+        "missing domain": None,
+    }
+    saw_skip = saw_inject = False
+    for name, payload in cases.items():
+        with tempfile.TemporaryDirectory(prefix="cmux-claude-defaults-") as td:
+            # `defaults read <path>` reads <path>.plist.
+            domain = Path(td) / "managed-policy"
+            if payload is not None:
+                with (Path(td) / "managed-policy.plist").open("wb") as file:
+                    plistlib.dump(payload, file)
+            flag = subprocess.run(
+                [str(defaults), "read", str(domain), "disableSideloadFlags"],
+                capture_output=True, text=True, check=False,
+            ).stdout.rstrip("\n")
+            helper = subprocess.run(
+                [str(defaults), "read", str(domain), "policyHelper"],
+                capture_output=True, text=True, check=False,
+            ).returncode
+            expected_skip = flag == "1" or helper == 0
+            saw_skip |= expected_skip
+            saw_inject |= not expected_skip
+
+            base_setup = computer_use_sandbox()
+
+            def setup(tmp: Path, env: dict, domain: Path = domain) -> None:
+                base_setup(tmp, env)
+                env["CMUX_CLAUDE_SKIP_DEFAULTS"] = "0"
+                env["CMUX_CLAUDE_MANAGED_DEFAULTS_DOMAIN"] = str(domain)
+
+            code, real_argv, _, stderr, *_ = run_wrapper(
+                socket_state="live",
+                argv=["hello"],
+                setup_sandbox=setup,
+            )
+        expect(code == 0, f"managed defaults [{name}]: wrapper exited {code}: {stderr}", failures)
+        injected = injected_mcp_config_index(real_argv) is not None
+        expect(
+            injected != expected_skip,
+            f"managed defaults [{name}]: per-key reads say skip={expected_skip}, wrapper injected={injected}",
+            failures,
+        )
+    expect(saw_skip and saw_inject, "managed defaults: cases must cover both decisions", failures)
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
@@ -3012,6 +3273,10 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
+    test_standard_generated_settings_skip_node_validation(failures)
+    test_nonstandard_generated_settings_still_validated_by_node(failures)
+    test_speculative_hook_settings_are_discarded_on_passthrough(failures)
+    test_managed_defaults_domain_matches_per_key_reads(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
