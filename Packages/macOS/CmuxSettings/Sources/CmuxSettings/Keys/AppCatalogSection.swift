@@ -149,6 +149,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
+    /// Sparkle's scheduled update-check interval. A zero value disables
+    /// background checks while leaving manual checks available.
+    public let updateCheckFrequency = DefaultsKey<UpdateCheckFrequency>(
+        id: "app.updateCheckFrequency",
+        defaultValue: .hourly,
+        userDefaultsKey: "SUScheduledCheckInterval"
+    )
+
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,

@@ -55,6 +55,10 @@ final class HostSettingsActions: SettingsHostActions {
     /// task behind.
     private var notificationSoundPreviewTask: Task<Void, Never>?
 
+    func updateCheckFrequencyDidChange() {
+        AppDelegate.shared?.updateCheckFrequencyDidChange()
+    }
+
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,

@@ -107,6 +107,13 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
     }
 
+    @Test func updateCheckFrequencyUsesSparkleStorageKey() {
+        let key = SettingCatalog().app.updateCheckFrequency
+        #expect(key.defaultValue == .hourly)
+        #expect(key.userDefaultsKey == "SUScheduledCheckInterval")
+        #expect(UpdateCheckFrequency.never.rawValue == 0)
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
