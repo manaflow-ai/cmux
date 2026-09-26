@@ -183,12 +183,18 @@ final class MobileSSHChannelTerminal: MobileSSHAttachedTerminal {
 
 /// Shells opened from this phone. Nothing persists: each workspace is one
 /// login shell that ends when its channel closes. Ids are `1`, `2`, ...
+///
+/// A shell's current directory is whatever it last reported with OSC 7 in
+/// its own output (see ``MobileSSHWorkingDirectoryReport``); a shell that
+/// never reports one leaves the Files browser at the home folder.
 @MainActor
-final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
+final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider, MobileSSHCurrentDirectoryProviding {
     /// `nil` only in tests, where shells cannot attach.
     private let connection: SSHConnection?
     private var workspaces: [MobileSSHWorkspace] = []
     private var counter = 0
+    /// OSC 7 readers of attached shells, by terminal id.
+    private var directoryReports: [String: MobileSSHWorkingDirectoryReport] = [:]
 
     init(connection: SSHConnection?) {
         self.connection = connection
@@ -207,6 +213,23 @@ final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
 
     func closeWorkspace(id: String) async throws {
         workspaces.removeAll { $0.id == id }
+        directoryReports[id] = nil
+    }
+
+    func currentDirectory(terminalID: String) async -> String? {
+        directoryReports[terminalID]?.directory
+    }
+
+    /// Reads OSC 7 directory reports from a shell's output, in stream order.
+    func observeOutput(_ event: MobileSSHAttachEvent, terminalID: String) {
+        switch event {
+        case .output(let data), .snapshot(let data):
+            directoryReports[terminalID, default: MobileSSHWorkingDirectoryReport()].consume(data)
+        case .ended:
+            directoryReports[terminalID] = nil
+        case .remoteGrid:
+            break
+        }
     }
 
     func attach(
@@ -221,7 +244,9 @@ final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
             environment: ["LANG": "en_US.UTF-8"],
             start: .shell
         )
+        directoryReports[terminalID] = MobileSSHWorkingDirectoryReport()
         return MobileSSHChannelTerminal(channel: channel) { [weak self] event in
+            self?.observeOutput(event, terminalID: terminalID)
             if case .ended = event { self?.workspaces.removeAll { $0.id == terminalID } }
             events(event)
         }

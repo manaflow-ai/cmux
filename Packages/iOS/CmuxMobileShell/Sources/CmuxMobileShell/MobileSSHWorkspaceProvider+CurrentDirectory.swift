@@ -5,9 +5,9 @@ import Foundation
 ///
 /// A separate refinement rather than a requirement on
 /// ``MobileSSHWorkspaceProvider``: providers opt in by conforming (tmux via
-/// `#{pane_current_path}`, cmux-tui via `process-info`). Providers that do
-/// not conform (plain shells) report `nil`, and the browser starts in the
-/// remote home folder, which is where a plain shell starts.
+/// `#{pane_current_path}`, cmux-tui via `process-info`, plain shells via the
+/// OSC 7 reports in their output). A `nil` answer (unknown) starts the
+/// browser in the remote home folder, which is where a login shell starts.
 @MainActor
 protocol MobileSSHCurrentDirectoryProviding: MobileSSHWorkspaceProvider {
     /// The absolute remote path of the terminal's current directory, or

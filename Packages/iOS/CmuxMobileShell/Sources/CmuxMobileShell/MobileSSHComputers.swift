@@ -549,9 +549,10 @@ public final class MobileSSHComputers {
 
     /// The current directory of an SSH terminal's shell, for the Files chip:
     /// asks the host's provider (cmux-tui `process-info`, tmux
-    /// `#{pane_current_path}`). `nil` when the provider cannot tell (plain
-    /// shells) or the host is not connected; the file browser then starts in
-    /// the remote home folder, where a plain shell starts.
+    /// `#{pane_current_path}`, a plain shell's last OSC 7 report). `nil` when
+    /// the provider cannot tell (a shell that never reports its folder) or
+    /// the host is not connected; the file browser then starts in the remote
+    /// home folder, where a login shell starts.
     public func currentDirectory(surfaceID: String) async -> String? {
         guard let hostID = MobileSSHIdentifier(surfaceID).hostID,
               let local = MobileSSHLocalID(scopedID: surfaceID),
