@@ -71,6 +71,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
 
+      - name: Validate guard failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guard_attribution.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_reverse_test_impact.py
@@ -383,6 +387,10 @@ jobs:
       - name: Validate PR catch-up merge and its workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_catch_up_pr.py
+
+      - name: Validate merge-main's green base and guard failure labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_main.py
 
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
