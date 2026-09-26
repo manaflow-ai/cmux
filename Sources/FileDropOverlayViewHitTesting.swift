@@ -231,7 +231,7 @@ extension FileDropOverlayView {
         return rootView.hitTest(point)
     }
 
-    private func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
+    func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
         var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let textView = view as? NSTextView, textView.isEditable {
