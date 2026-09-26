@@ -82,8 +82,8 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         }
         XCTAssertTrue(opened, "Expected \(opener) to open the New Machine sheet")
         XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3))
-        // One click, one flow: a second presentation would stack a second sheet
-        // or a second Create button.
+        // One click shows one sheet. The presenter also drops a repeat request
+        // while a sheet is up, so this checks the outcome, not the call count.
         XCTAssertEqual(app.sheets.count, 1, "\(opener) must open exactly one New Machine sheet")
         XCTAssertEqual(create.count, 1, "\(opener) must open exactly one New Machine sheet")
     }
@@ -123,7 +123,8 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         options.issueMatcher = { issue in
-            [issue.compactDescription, issue.detailedDescription ?? ""]
+            [issue.compactDescription, issue.detailedDescription, issue.associatedError?.localizedDescription]
+                .compactMap { $0 }
                 .joined(separator: "\n")
                 .contains("Failed to activate application")
         }

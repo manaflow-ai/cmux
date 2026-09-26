@@ -123,10 +123,10 @@ struct CloudTreeHeaderActionsTests {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
-        let plusHost = try #require(try Self.controls(in: tree.cell(for: tree.cloudSection)) as? CloudTreeRowControlsHostingView)
-        let menuHost = try #require(
-            try Self.controls(in: tree.cell(for: tree.devicesSection)) as? CloudTreeRowControlsHostingView
-        )
+        let cloudHeader = try tree.cell(for: tree.cloudSection)
+        let devicesHeader = try tree.cell(for: tree.devicesSection)
+        let plusHost = try #require(try Self.controls(in: cloudHeader) as? CloudTreeRowControlsHostingView)
+        let menuHost = try #require(try Self.controls(in: devicesHeader) as? CloudTreeRowControlsHostingView)
         // An in-process test has no assistive client to turn on SwiftUI's
         // accessibility output for these hosted controls.
         for host in [plusHost, menuHost] {
@@ -140,8 +140,9 @@ struct CloudTreeHeaderActionsTests {
         let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
             fixture.container.layoutSubtreeIfNeeded()
             fixture.window.displayIfNeeded()
-            plus = Self.accessibilityElement("CloudMachinesNewMachineButton", in: plusHost)
-            menu = Self.accessibilityElement("DevicesOptionsMenu", in: menuHost)
+            // Walk from the row, as VoiceOver reaches the controls.
+            plus = Self.accessibilityElement("CloudMachinesNewMachineButton", in: cloudHeader)
+            menu = Self.accessibilityElement("DevicesOptionsMenu", in: devicesHeader)
             return plus != nil && menu != nil
         }
         try #require(published, "Faded header controls must stay in the accessibility tree")
@@ -273,8 +274,6 @@ struct CloudTreeHeaderActionsTests {
               attributes.contains(attribute.rawValue) else { return nil }
         return element.perform(legacy, with: attribute.rawValue)?.takeUnretainedValue()
     }
-
-    /// Presses `element` as VoiceOver would, through whichever API it answers.
 
     /// `count` other Macs that are online and trusted, as the device catalog lists them.
     static func onlineMacs(_ count: Int) -> [SurfaceMachineInfo] {
