@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 SOURCE = Path(__file__).resolve().parents[1]

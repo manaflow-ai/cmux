@@ -20,6 +20,7 @@ import unittest
 from pathlib import Path
 
 import yaml
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ios_upload_batch_decision.py"

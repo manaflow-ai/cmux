@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import git_fixture_env
 from test_review_runner import check_review_runner_contract
 
 
@@ -140,6 +141,7 @@ def clean_git_env() -> dict[str, str]:
     for key in list(env):
         if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             env.pop(key)
+    git_fixture_env.without_auto_maintenance(env)
     return env
 
 

@@ -23,6 +23,31 @@ RESTART = (
     "summary will include totals from previous launches."
 )
 RESTART_BUDGET_EXIT_CODE = 123
+STARTUP_HANG_EXIT_CODE = 122
+
+
+def test_startup_deadline() -> None:
+    """A runner that never connects ends at the startup deadline, not xcodebuild's ~700s."""
+    env = dict(os.environ, CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS="0.5")
+    # App-host log noise after "Testing started" must not count as a connected runner.
+    hung = (
+        "import time;print('Testing started',flush=True);"
+        "print('2026-09-25 15:57:32.533062-0700 cmux DEV[1:2] [Connection] noise',flush=True);"
+        "time.sleep(30)"
+    )
+    result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", hung],
+                            env=env, capture_output=True, text=True, timeout=12)
+    assert result.returncode == STARTUP_HANG_EXIT_CODE, (result.returncode, result.stderr)
+    assert "Startup hang: no test started within 0.5s" in result.stderr, result.stderr
+    # Once a suite starts, a slow test is the idle timeout's business, not this one.
+    connected = (
+        "import time;print('Testing started',flush=True);"
+        "print(\"Test Suite 'Selected tests' started at 2026-09-25\",flush=True);"
+        "time.sleep(1.2);print('done',flush=True)"
+    )
+    result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", connected],
+                            env=env, capture_output=True, text=True, timeout=12)
+    assert result.returncode == 0, (result.returncode, result.stderr)
 
 
 def test_compiler_timeout_evidence() -> None:
@@ -68,6 +93,7 @@ def test_compiler_timeout_evidence() -> None:
 
 def main() -> int:
     test_compiler_timeout_evidence()
+    test_startup_deadline()
     child = textwrap.dedent(
         f"""
         import sys
