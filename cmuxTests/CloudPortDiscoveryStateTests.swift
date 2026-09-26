@@ -58,6 +58,32 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.state == .empty(.noListeningService) && discovery.scan?.ports == [])
     }
 
+    @Test("A rescan keeps the settled inventory visible and survives a routine summary poll")
+    func rescanKeepsSettledState() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let first = discovery.beginScan()
+        _ = discovery.complete(CloudPortScanResult(ports: [3000]), request: first, at: now, socketPath: "first")
+        let rescan = discovery.beginScan()
+        #expect(discovery.state == .available)
+        discovery.reconcile(supportsPreviews: true, isAwake: true, privateAddress: "10.0.0.7")
+        let completed = discovery.complete(CloudPortScanResult(ports: [3000, 8000]), request: rescan, at: now, socketPath: "first")
+        #expect(completed)
+        #expect(discovery.state == .available && discovery.scan?.ports == [3000, 8000])
+    }
+
+    @Test("A fresh cached scan settles a repeated request instead of leaving it loading")
+    func cachedScanSettlesRequest() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let request = discovery.beginScan()
+        _ = discovery.complete(CloudPortScanResult(ports: [3000]), request: request, at: now, socketPath: "first")
+        discovery.request()
+        #expect(discovery.state == .loading)
+        #expect(discovery.cachedScan(at: now.addingTimeInterval(5), socketPath: "first", force: false)?.ports == [3000])
+        #expect(discovery.state == .available)
+    }
+
     @Test("Capabilities and private-route prerequisites outrank link errors")
     func blockerMatrix() {
         var discovery = CloudPortDiscovery()

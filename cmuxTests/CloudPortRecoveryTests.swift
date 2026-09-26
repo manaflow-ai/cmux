@@ -50,19 +50,25 @@ struct CloudPortRecoveryTests {
     func sshLoopbackRouteAdmitsDiscovery() async {
         let catalog = SurfaceCatalog()
         let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
-        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
-            terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
-            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
-            localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: nil,
-            preserveAfterTerminalExit: true
-        ))
-        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(sshConnection()), links: links, catalog: catalog)
         catalog.register(provider)
         #expect(provider.info.privateAddress == "127.0.0.1")
         #expect(provider.info.portDiscoveryState == .notRequested)
         provider.requestPortDiscovery()
         #expect(provider.portDiscovery.mayScan)
         #expect(provider.info.portDiscoveryState == .loading)
+        await provider.stop()
+    }
+
+    @Test("A requested scan settles when the machine's link cannot connect")
+    func failedLinkSettlesDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(sshConnection()), links: UnreachableLinks(), catalog: catalog)
+        catalog.register(provider)
+        provider.requestPortDiscovery()
+        #expect(provider.info.portDiscoveryState == .loading)
+        await provider.refreshCurrentGraph(force: true)
+        #expect(provider.info.portDiscoveryState == .unavailable(.link))
         await provider.stop()
     }
 
@@ -151,6 +157,15 @@ struct CloudPortRecoveryTests {
         await model.retire()
     }
 
+    private func sshConnection() -> SSHTuiConnection {
+        SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: nil,
+            preserveAfterTerminalExit: true
+        ))
+    }
+
     private func summary(id: String = "port-owner", address: String? = nil) -> VMSummary {
         VMSummary(id: id, provider: "freestyle", status: "running", image: "fixture", createdAt: 0,
             base: nil, addressIPv4: address)
@@ -161,4 +176,15 @@ struct CloudPortRecoveryTests {
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
         return condition()
     }
+}
+
+/// A carrier that never connects, so every refresh takes the link-failure path.
+private actor UnreachableLinks: RemoteTuiLinkManaging {
+    nonisolated let operations: CloudOperationRecorder? = nil
+    func connected(machineID: String) async throws -> CloudMachineLink.Connected { throw URLError(.cannotConnectToHost) }
+    func link(machineID: String) async -> CloudMachineLink? { nil }
+    func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus? { nil }
+    func privateAddresses(for machineID: String) async -> [String] { [] }
+    func setPrivateAddresses(_ addresses: [String], for machineID: String) async {}
+    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
 }
