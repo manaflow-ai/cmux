@@ -4,17 +4,15 @@ import Foundation
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; visible sections appear in the
-/// taxonomy and the search index filters across them. Legacy raw-value
-/// aliases may remain here for deep-link compatibility without owning a pane.
+/// its own SwiftUI view in `Sections/`; the taxonomy groups them for the
+/// sidebar and the search index filters across them. Raw values are
+/// persisted and accepted by `cmux settings open`, so never rename one.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
-    /// Legacy raw-value target; the visible destination is ``mobile``.
-    case computers
     case app
     case terminal
     case textBox
@@ -22,6 +20,10 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
+    /// Devices: this Mac's discovery and incoming access, plus the account's
+    /// other Macs. Backs the Cloud sidebar's My Devices feature; the raw value
+    /// predates the rename and stays `computers`.
+    case computers
     /// Cloud Machines: persistent cloud VM plan and entry points.
     case cloudMachines
     /// Iroh relay policy, custom relays, and private-network routes.
@@ -58,7 +60,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var title: String {
         switch self {
         case .account: return String(localized: "settings.section.account", defaultValue: "Account")
-        case .computers: return String(localized: "settings.section.computers", defaultValue: "Computers")
+        case .computers: return String(localized: "settings.section.devices", defaultValue: "Devices")
         case .app: return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
@@ -114,7 +116,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
-        case .computers: return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+        case .computers:
+            return String(
+                localized: "settings.devices.keywords",
+                defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces"
+            )
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"

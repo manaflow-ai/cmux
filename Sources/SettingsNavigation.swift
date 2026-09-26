@@ -2,13 +2,14 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
-    /// Legacy deep-link target; the visible destination is Mobile.
-    case computers
     case app
     case terminal
     case textBox
     case sleepyMode
     case mobile
+    /// Devices (My Devices). The raw value predates the rename and stays
+    /// because persisted navigation targets and `cmux settings open` send it.
+    case computers
     case cloudMachines
     case networking
     case sidebarAppearance
@@ -26,35 +27,10 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    /// Canonical visible destination for this navigation target.
-    var canonicalTarget: Self {
-        switch self {
-        case .computers:
-            return .mobile
-        default:
-            return self
-        }
-    }
-
-    /// Targets represented by a visible Settings sidebar destination.
-    static var visibleCases: [Self] {
-        allCases.filter { $0 != .computers }
-    }
-
-    /// Default scroll anchor for an external navigation request.
-    var defaultAnchorID: String {
-        switch self {
-        case .computers:
-            return "setting:mobile:computers"
-        default:
-            return SettingsSearchIndex.sectionID(for: self)
-        }
-    }
-
     var title: String {
         switch self {
         case .computers:
-            return String(localized: "settings.section.computers", defaultValue: "Computers")
+            return String(localized: "settings.section.devices", defaultValue: "Devices")
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
@@ -148,7 +124,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     var searchText: String {
         switch self {
         case .computers:
-            return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
+            return String(localized: "settings.devices.keywords", defaultValue: "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces")
         case .account:
             return "\(title) sign in team sync"
         case .app:
@@ -205,7 +181,7 @@ enum SettingsNavigationRequest {
             object: nil,
             userInfo: [
                 targetKey: target.rawValue,
-                anchorKey: anchorID ?? target.defaultAnchorID,
+                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target),
                 highlightKey: highlight
             ]
         )
@@ -226,7 +202,7 @@ enum SettingsNavigationRequest {
         let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
         return SettingsNavigationDestination(
             target: target,
-            anchorID: anchorID ?? target.defaultAnchorID,
+            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
             shouldHighlight: shouldHighlight
         )
     }

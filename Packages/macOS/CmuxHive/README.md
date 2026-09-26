@@ -1,6 +1,6 @@
 # CmuxHive
 
-The macOS pairing boundary for Computers settings and the native Devices sidebar.
+The macOS pairing boundary for Settings › Devices and the native Devices sidebar.
 It reuses the existing macOS-capable mobile RPC, transport, and paired-Mac store
 packages without depending on the iOS shell or introducing another terminal renderer.
 

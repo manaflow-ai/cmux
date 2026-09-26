@@ -3,7 +3,7 @@ import CmuxMobileRPC
 import CmuxSurfaceCatalogModel
 import Foundation
 
-/// A Mac the person paired in Settings › Computers, as the directory lists it:
+/// A Mac the person paired in Settings › Devices, as the directory lists it:
 /// local-first, so it is listed and dialable even when the registry and the
 /// presence stream are unavailable, with the saved routes as dial candidates.
 struct DevicePairedDevice: Equatable, Sendable {
@@ -16,7 +16,7 @@ struct DevicePairedDevice: Equatable, Sendable {
 }
 
 /// The explicit-authorization seam between the Devices runtime and the pairing
-/// store (Settings › Computers). Discovery (the registry, presence) proposes a
+/// store (Settings › Devices). Discovery (the registry, presence) proposes a
 /// device's routes; only this source can authorize dialing one, with the
 /// device-bound grant it recorded when the person paired that Mac. Nothing in
 /// the runtime derives an authorization from a discovered route.

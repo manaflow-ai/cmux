@@ -26,7 +26,7 @@ struct DeviceDirectoryMerge {
         /// Whether the sync collection has delivered a complete snapshot; until
         /// then a missing owner is "unknown", never "someone else".
         var ownersKnown = false
-        /// Macs the person paired (Settings › Computers): listed and dialable
+        /// Macs the person paired (Settings › Devices): listed and dialable
         /// even when the registry and presence are unavailable (local-first).
         var paired: [DevicePairedDevice] = []
         /// Records from the previous merge, kept so an instance presence forgets

@@ -555816,121 +555816,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A different Mac answered at this address. Pair it again from Settings › Mobile › Computers."
+            "value": "A different Mac answered at this address. Pair it again from Settings › Devices."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استجاب جهاز Mac مختلف على هذا العنوان. أعد إقرانه من الإعدادات › المحمول › أجهزة الكمبيوتر."
+            "value": "استجاب جهاز Mac مختلف على هذا العنوان. أعد إقرانه من الإعدادات › الأجهزة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein anderer Mac hat unter dieser Adresse geantwortet. Kopple ihn erneut unter Einstellungen › Mobil › Computer."
+            "value": "Ein anderer Mac hat unter dieser Adresse geantwortet. Kopple ihn erneut unter Einstellungen › Geräte."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otro Mac ha respondido en esta dirección. Vuelve a enlazarlo desde Ajustes › Móvil › Ordenadores."
+            "value": "Otro Mac ha respondido en esta dirección. Vuelve a enlazarlo desde Ajustes › Dispositivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un autre Mac a répondu à cette adresse. Associez-le à nouveau dans Réglages › Mobile › Ordinateurs."
+            "value": "Un autre Mac a répondu à cette adresse. Associez-le à nouveau dans Réglages › Appareils."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアドレスでは別のMacが応答しました。設定 › モバイル › コンピュータから再度ペアリングしてください。"
+            "value": "このアドレスでは別のMacが応答しました。設定 › デバイスから再度ペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 모바일 › 컴퓨터에서 다시 페어링하세요."
+            "value": "이 주소에서 다른 Mac이 응답했습니다. 설정 › 기기에서 다시 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一台 Mac 响应了此地址。请前往设置 › 移动端 › 电脑重新配对。"
+            "value": "另一台 Mac 响应了此地址。请前往设置 › 设备重新配对。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一部 Mac 回應了此位址。請前往設定 › 行動裝置 › 電腦重新配對。"
+            "value": "另一部 Mac 回應了此位址。請前往設定 › 裝置重新配對。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drugi Mac je odgovorio na ovoj adresi. Ponovo ga uparite u Postavke › Mobile › Računari."
+            "value": "Drugi Mac je odgovorio na ovoj adresi. Ponovo ga uparite u Postavke › Uređaji."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En anden Mac svarede på denne adresse. Dan par med den igen under Indstillinger › Mobile › Computere."
+            "value": "En anden Mac svarede på denne adresse. Dan par med den igen under Indstillinger › Enheder."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un altro Mac ha risposto a questo indirizzo. Abbinalo di nuovo da Impostazioni › Mobile › Computer."
+            "value": "Un altro Mac ha risposto a questo indirizzo. Abbinalo di nuovo da Impostazioni › Dispositivi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac ផ្សេងបានឆ្លើយតបនៅអាសយដ្ឋាននេះ។ សូមផ្គូផ្គងវាម្តងទៀតពី Settings › Mobile › កុំព្យូទ័រ។"
+            "value": "Mac ផ្សេងបានឆ្លើយតបនៅអាសយដ្ឋាននេះ។ សូមផ្គូផ្គងវាម្តងទៀតពី Settings › ឧបករណ៍។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En annen Mac svarte på denne adressen. Koble den sammen på nytt under Innstillinger › Mobile › Datamaskiner."
+            "value": "En annen Mac svarte på denne adressen. Koble den sammen på nytt under Innstillinger › Enheter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inny Mac odpowiedział pod tym adresem. Sparuj go ponownie w Ustawienia › Mobile › Komputery."
+            "value": "Inny Mac odpowiedział pod tym adresem. Sparuj go ponownie w Ustawienia › Urządzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Outro Mac respondeu neste endereço. Emparelhe-o novamente em Ajustes › Mobile › Computadores."
+            "value": "Outro Mac respondeu neste endereço. Emparelhe-o novamente em Ajustes › Dispositivos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "По этому адресу ответил другой Mac. Повторно создайте пару с ним в разделе Настройки › Mobile › Компьютеры."
+            "value": "По этому адресу ответил другой Mac. Повторно создайте пару с ним в разделе Настройки › Устройства."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac เครื่องอื่นตอบกลับที่ที่อยู่นี้ ให้จับคู่เครื่องนั้นอีกครั้งใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+            "value": "Mac เครื่องอื่นตอบกลับที่ที่อยู่นี้ ให้จับคู่เครื่องนั้นอีกครั้งใน การตั้งค่า › อุปกรณ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu adreste farklı bir Mac yanıt verdi. Ayarlar › Mobile › Bilgisayarlar bölümünden yeniden eşleyin."
+            "value": "Bu adreste farklı bir Mac yanıt verdi. Ayarlar › Cihazlar bölümünden yeniden eşleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "За цією адресою відповів інший Mac. Знову створіть із ним пару в розділі Налаштування › Mobile › Комп’ютери."
+            "value": "За цією адресою відповів інший Mac. Знову створіть із ним пару в розділі Налаштування › Пристрої."
           }
         }
       }
@@ -556000,121 +556000,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
+            "value": "Pair this Mac in Settings › Devices to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › الأجهزة للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Geräte, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Dispositivos para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Appareils pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
+            "value": "接続するには、設定 › デバイスでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 기기에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
+            "value": "请在设置 › 设备中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+            "value": "請在設定 › 裝置中配對此 Mac 以連線。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+            "value": "Uparite ovaj Mac u Postavke › Uređaji da biste se povezali."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+            "value": "Dan par med denne Mac under Indstillinger › Enheder for at oprette forbindelse."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Dispositivi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › ឧបករណ៍។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+            "value": "Koble denne Macen sammen under Innstillinger › Enheter for å koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Urządzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+            "value": "Emparelhe este Mac em Ajustes › Dispositivos para se conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Устройства."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › อุปกรณ์ เพื่อเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Cihazlar bölümünde eşleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Пристрої."
           }
         }
       }
@@ -556184,121 +556184,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair this Mac in Settings › Mobile › Computers to connect."
+            "value": "Pair this Mac in Settings › Devices to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أقرن جهاز Mac هذا في الإعدادات › المحمول › أجهزة الكمبيوتر للاتصال."
+            "value": "أقرن جهاز Mac هذا في الإعدادات › الأجهزة للاتصال."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopple diesen Mac unter Einstellungen › Mobil › Computer, um eine Verbindung herzustellen."
+            "value": "Kopple diesen Mac unter Einstellungen › Geräte, um eine Verbindung herzustellen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enlaza este Mac en Ajustes › Móvil › Ordenadores para conectarte."
+            "value": "Enlaza este Mac en Ajustes › Dispositivos para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Associez ce Mac dans Réglages › Mobile › Ordinateurs pour vous connecter."
+            "value": "Associez ce Mac dans Réglages › Appareils pour vous connecter."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続するには、設定 › モバイル › コンピュータでこのMacをペアリングしてください。"
+            "value": "接続するには、設定 › デバイスでこのMacをペアリングしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하려면 설정 › 모바일 › 컴퓨터에서 이 Mac을 페어링하세요."
+            "value": "연결하려면 설정 › 기기에서 이 Mac을 페어링하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在设置 › 移动端 › 电脑中配对这台 Mac 以连接。"
+            "value": "请在设置 › 设备中配对这台 Mac 以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在設定 › 行動裝置 › 電腦中配對此 Mac 以連線。"
+            "value": "請在設定 › 裝置中配對此 Mac 以連線。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uparite ovaj Mac u Postavke › Mobile › Računari da biste se povezali."
+            "value": "Uparite ovaj Mac u Postavke › Uređaji da biste se povezali."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dan par med denne Mac under Indstillinger › Mobile › Computere for at oprette forbindelse."
+            "value": "Dan par med denne Mac under Indstillinger › Enheder for at oprette forbindelse."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Per connetterti, abbina questo Mac in Impostazioni › Mobile › Computer."
+            "value": "Per connetterti, abbina questo Mac in Impostazioni › Dispositivi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › Mobile › កុំព្យូទ័រ។"
+            "value": "ដើម្បីភ្ជាប់ សូមផ្គូផ្គង Mac នេះនៅ Settings › ឧបករណ៍។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koble denne Macen sammen under Innstillinger › Mobile › Datamaskiner for å koble til."
+            "value": "Koble denne Macen sammen under Innstillinger › Enheter for å koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Mobile › Komputery."
+            "value": "Aby się połączyć, sparuj tego Maca w Ustawienia › Urządzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Emparelhe este Mac em Ajustes › Mobile › Computadores para se conectar."
+            "value": "Emparelhe este Mac em Ajustes › Dispositivos para se conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Mobile › Компьютеры."
+            "value": "Для подключения создайте пару с этим Mac в разделе Настройки › Устройства."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › Mobile › คอมพิวเตอร์ เพื่อเชื่อมต่อ"
+            "value": "จับคู่ Mac เครื่องนี้ใน การตั้งค่า › อุปกรณ์ เพื่อเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlanmak için bu Mac’i Ayarlar › Mobile › Bilgisayarlar bölümünde eşleyin."
+            "value": "Bağlanmak için bu Mac’i Ayarlar › Cihazlar bölümünde eşleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Mobile › Комп’ютери."
+            "value": "Щоб підключитися, створіть пару з цим Mac у розділі Налаштування › Пристрої."
           }
         }
       }
@@ -557089,252 +557089,127 @@
         }
       }
     },
-    "settings.section.computers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computers"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أجهزة الكمبيوتر"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ordenadores"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ordinateurs"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンピュータ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "컴퓨터"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "电脑"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "電腦"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Računari"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computere"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កុំព្យូទ័រ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Datamaskiner"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Komputery"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computadores"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Компьютеры"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คอมพิวเตอร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bilgisayarlar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Комп’ютери"
-          }
-        }
-      }
-    },
     "devices.empty.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."
+            "value": "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول إلى cmux على جهاز Mac آخر واجعله قابلاً للاكتشاف في الإعدادات › المحمول › أجهزة الكمبيوتر."
+            "value": "سجّل الدخول إلى cmux على جهاز Mac آخر واجعله قابلاً للاكتشاف في الإعدادات › الأجهزة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich auf einem anderen Mac bei cmux an und mache ihn unter Einstellungen › Mobil › Computer auffindbar."
+            "value": "Melde dich auf einem anderen Mac bei cmux an und mache ihn unter Einstellungen › Geräte auffindbar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión en cmux en otro Mac y haz que sea detectable en Ajustes › Móvil › Ordenadores."
+            "value": "Inicia sesión en cmux en otro Mac y haz que sea detectable en Ajustes › Dispositivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous à cmux sur un autre Mac et rendez-le détectable dans Réglages › Mobile › Ordinateurs."
+            "value": "Connectez-vous à cmux sur un autre Mac et rendez-le détectable dans Réglages › Appareils."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のMacでcmuxにサインインし、設定 › モバイル › コンピュータで検出可能にしてください。"
+            "value": "別のMacでcmuxにサインインし、設定 › デバイスで検出可能にしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac에서 cmux에 로그인한 후 설정 › 모바일 › 컴퓨터에서 다른 기기가 검색할 수 있도록 설정하세요."
+            "value": "다른 Mac에서 cmux에 로그인한 후 설정 › 기기에서 다른 기기가 검색할 수 있도록 설정하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在另一台 Mac 上登录 cmux，并在设置 › 移动端 › 电脑中将其设为可被发现。"
+            "value": "在另一台 Mac 上登录 cmux，并在设置 › 设备中将其设为可被发现。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在另一部 Mac 登入 cmux，並在設定 › 行動裝置 › 電腦中將其設為可被發現。"
+            "value": "在另一部 Mac 登入 cmux，並在設定 › 裝置中將其設為可被發現。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prijavite se u cmux na drugom Macu i omogućite njegovo otkrivanje u Postavke › Mobile › Računari."
+            "value": "Prijavite se u cmux na drugom Macu i omogućite njegovo otkrivanje u Postavke › Uređaji."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Log ind på cmux på en anden Mac, og gør den synlig under Indstillinger › Mobile › Computere."
+            "value": "Log ind på cmux på en anden Mac, og gør den synlig under Indstillinger › Enheder."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accedi a cmux su un altro Mac e rendilo individuabile in Impostazioni › Mobile › Computer."
+            "value": "Accedi a cmux su un altro Mac e rendilo individuabile in Impostazioni › Dispositivi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចូលគណនី cmux នៅលើ Mac មួយទៀត ហើយអនុញ្ញាតឱ្យឧបករណ៍ផ្សេងរកឃើញវានៅ Settings › Mobile › កុំព្យូទ័រ។"
+            "value": "ចូលគណនី cmux នៅលើ Mac មួយទៀត ហើយអនុញ្ញាតឱ្យឧបករណ៍ផ្សេងរកឃើញវានៅ Settings › ឧបករណ៍។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logg på cmux på en annen Mac, og gjør den synlig under Innstillinger › Mobile › Datamaskiner."
+            "value": "Logg på cmux på en annen Mac, og gjør den synlig under Innstillinger › Enheter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaloguj się do cmux na innym Macu i włącz jego wykrywanie w Ustawienia › Mobile › Komputery."
+            "value": "Zaloguj się do cmux na innym Macu i włącz jego wykrywanie w Ustawienia › Urządzenia."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entre no cmux em outro Mac e torne-o detectável em Ajustes › Mobile › Computadores."
+            "value": "Entre no cmux em outro Mac e torne-o detectável em Ajustes › Dispositivos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Войдите в cmux на другом Mac и включите его обнаружение в разделе Настройки › Mobile › Компьютеры."
+            "value": "Войдите в cmux на другом Mac и включите его обнаружение в разделе Настройки › Устройства."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ลงชื่อเข้าใช้ cmux บน Mac อีกเครื่อง แล้วเปิดให้ค้นพบเครื่องนั้นได้ใน การตั้งค่า › Mobile › คอมพิวเตอร์"
+            "value": "ลงชื่อเข้าใช้ cmux บน Mac อีกเครื่อง แล้วเปิดให้ค้นพบเครื่องนั้นได้ใน การตั้งค่า › อุปกรณ์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başka bir Mac’te cmux’a giriş yapın ve Ayarlar › Mobile › Bilgisayarlar bölümünden o Mac’i keşfedilebilir hâle getirin."
+            "value": "Başka bir Mac’te cmux’a giriş yapın ve Ayarlar › Cihazlar bölümünden o Mac’i keşfedilebilir hâle getirin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Увійдіть у cmux на іншому Mac і зробіть його доступним для виявлення в розділі Налаштування › Mobile › Комп’ютери."
+            "value": "Увійдіть у cmux на іншому Mac і зробіть його доступним для виявлення в розділі Налаштування › Пристрої."
           }
         }
       }
@@ -557991,6 +557866,1776 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "devices.discovery.settingsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Discover other Macs to see your devices."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل «اكتشاف أجهزة Mac الأخرى» لعرض أجهزتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte „Andere Macs finden“ ein, um deine Geräte zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa «Descubrir otros Mac» para ver tus dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez « Rechercher d’autres Mac » pour voir vos appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスを表示するには、「ほかのMacを検出」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기를 보려면 '다른 Mac 검색'을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“发现其他 Mac”以查看你的设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟「尋找其他 Mac」以查看您的裝置。"
+          }
+        }
+      }
+    },
+    "settings.devices.cloudRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Cloud Machines in Settings › Beta Features to use My Devices."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل «أجهزة سحابية» في الإعدادات › ميزات تجريبية لاستخدام «أجهزتي»."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere Cloud-Maschinen unter Einstellungen › Beta-Funktionen, um Meine Geräte zu verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa Máquinas en la nube en Ajustes › Características beta para usar Mis dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez Machines cloud dans Réglages › Fonctionnalités bêta pour utiliser Mes appareils."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイスを使うには、設定 › ベータ機能でクラウドマシンをオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기를 사용하려면 설정 › 베타 기능에서 클라우드 머신을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在设置 › 测试版功能中打开“云端机器”以使用“我的设备”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在設定 › Beta 功能中開啟「雲端機器」以使用「我的裝置」。"
+          }
+        }
+      }
+    },
+    "devices.discovery.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find and connect to other Macs signed in to your account. Turning this off disconnects their panes without closing their terminals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابحث عن أجهزة Mac الأخرى المسجّل دخولها إلى حسابك واتصل بها. يؤدي إيقاف هذا الخيار إلى قطع اتصال أجزائها دون إغلاق طرفياتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finde andere Macs, die bei deinem Konto angemeldet sind, und verbinde dich mit ihnen. Wenn du dies ausschaltest, werden ihre Bereiche getrennt, ohne ihre Terminals zu schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encuentra otros Mac con sesión iniciada en tu cuenta y conéctate a ellos. Al desactivarlo, se desconectan sus paneles sin cerrar sus terminales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouvez les autres Mac connectés à votre compte et connectez-vous à eux. Désactiver cette option déconnecte leurs volets sans fermer leurs terminaux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じアカウントでサインインしているほかのMacを見つけて接続します。オフにすると、ターミナルを閉じずにそれらのペインの接続を解除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정에 로그인된 다른 Mac을 찾아 연결합니다. 이 옵션을 끄면 터미널을 닫지 않고 해당 분할 창의 연결이 끊어집니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找并连接到已登录你账户的其他 Mac。关闭此选项会断开其窗格的连接，但不会关闭其终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找並連線到已登入您帳號的其他 Mac。關閉此選項會中斷其窗格的連線，但不會關閉其終端機。"
+          }
+        }
+      }
+    },
+    "devices.incoming.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning this off removes this Mac from discovery and disconnects incoming sessions. You can still connect to your other Macs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إيقاف هذا الخيار إلى إزالة جهاز Mac هذا من الاكتشاف وقطع الجلسات الواردة. لا يزال بإمكانك الاتصال بأجهزة Mac الأخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du dies ausschaltest, kann dieser Mac nicht mehr gefunden werden und eingehende Sitzungen werden getrennt. Du kannst dich weiterhin mit deinen anderen Macs verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al desactivarlo, este Mac deja de ser detectable y se desconectan las sesiones entrantes. Aún puedes conectarte a tus otros Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver cette option retire ce Mac de la détection et déconnecte les sessions entrantes. Vous pouvez toujours vous connecter à vos autres Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、このMacは検出されなくなり、受信中のセッションは切断されます。ほかのMacには引き続き接続できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 옵션을 끄면 이 Mac이 검색 대상에서 제외되고 수신 세션의 연결이 끊어집니다. 다른 Mac에는 계속 연결할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭此选项会使这台 Mac 无法被发现，并断开传入的会话。你仍可连接到你的其他 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉此選項會讓此 Mac 無法被探索，並中斷傳入的工作階段。您仍可連線到您的其他 Mac。"
+          }
+        }
+      }
+    },
+    "settings.devices.keywords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces الأجهزة أجهزتي أجهزة الكمبيوتر اكتشاف قابل للاكتشاف وصول وارد إقران مساحات عمل بعيدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces geräte meine geräte computer finden auffindbar eingehender zugriff koppeln entfernte arbeitsbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces dispositivos mis dispositivos ordenadores computadoras descubrir detectable acceso entrante enlazar espacios de trabajo remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces appareils mes appareils ordinateurs détection détectable accès entrant jumelage espaces de travail distants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces デバイス マイデバイス コンピュータ 検出 検出可能 受信アクセス ペアリング リモートワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces 기기 내 기기 컴퓨터 검색 수신 접근 페어링 원격 작업 공간"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces 设备 我的设备 电脑 发现 可被发现 传入访问 配对 远程工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "devices my devices computers macs mac discovery discover discoverable incoming access tailscale pairing remote workspaces 裝置 我的裝置 電腦 探索 尋找 可被發現 傳入存取 配對 遠端工作區"
+          }
+        }
+      }
+    },
+    "settings.section.devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appareils"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置"
+          }
+        }
+      }
+    },
+    "devices.yourMacs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Macs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Mac الخاصة بك"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Macs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのMac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的 Mac"
+          }
+        }
+      }
+    },
+    "devices.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devices Settings…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات الأجهزة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte-Einstellungen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes de dispositivos…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages des appareils…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス設定…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 설정…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备设置…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置設定…"
+          }
+        }
+      }
+    },
+    "settings.computers.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고침"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理"
+          }
+        }
+      }
+    },
+    "settings.computers.signIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to the same account on both Macs to discover and connect to them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى الحساب نفسه على جهازي Mac لاكتشافهما والاتصال بهما."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich auf beiden Macs mit demselben Konto an, um sie zu finden und dich mit ihnen zu verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión con la misma cuenta en ambos Mac para descubrirlos y conectarte a ellos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous au même compte sur les deux Mac pour les détecter et vous y connecter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方のMacで同じアカウントにサインインすると、検出して接続できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 Mac에서 같은 계정으로 로그인하면 서로 검색하고 연결할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在两台 Mac 上登录同一账户，即可发现并连接到它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在兩部 Mac 上登入同一個帳號，即可探索並連線到它們。"
+          }
+        }
+      }
+    },
+    "settings.computers.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開"
+          }
+        }
+      }
+    },
+    "settings.computers.unpair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء الإقران"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplung aufheben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenlazar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissocier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを解除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 해제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消配对"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消配對"
+          }
+        }
+      }
+    },
+    "settings.computers.unpair.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair this Mac? Its local workspaces will not be changed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إلغاء إقران جهاز Mac هذا؟ لن تتغير مساحات العمل المحلية الخاصة به."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplung mit diesem Mac aufheben? Seine lokalen Arbeitsbereiche bleiben unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desenlazar este Mac? Sus espacios de trabajo locales no cambiarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissocier ce Mac ? Ses espaces de travail locaux ne seront pas modifiés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのペアリングを解除しますか？ローカルのワークスペースは変更されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 페어링을 해제하시겠습니까? 로컬 작업 공간은 변경되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取消配对这台 Mac 吗？其本地工作区不会更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要取消配對此 Mac 嗎？其本機工作區不會變更。"
+          }
+        }
+      }
+    },
+    "settings.computers.online": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل بالإنترنت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線上"
+          }
+        }
+      }
+    },
+    "settings.computers.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線"
+          }
+        }
+      }
+    },
+    "settings.computers.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for connection"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في انتظار الاتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 대기 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待連線"
+          }
+        }
+      }
+    },
+    "settings.computers.invalidPairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a pairing link or a numeric Tailscale IP and port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل رابط إقران أو عنوان IP رقميًا لـ Tailscale ومنفذًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Kopplungslink oder eine numerische Tailscale-IP mit Port ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un enlace de emparejamiento o una IP numérica de Tailscale y un puerto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un lien d’association ou une adresse IP Tailscale numérique et un port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングリンク、または数値形式のTailscale IPとポートを入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링 링크 또는 숫자 형식의 Tailscale IP와 포트를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入配对链接，或数字格式的 Tailscale IP 和端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入配對連結，或數字格式的 Tailscale IP 與連接埠。"
+          }
+        }
+      }
+    },
+    "settings.computers.tailscaleRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the other Mac’s pairing code with a numeric Tailscale IP address and port."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم رمز الإقران الخاص بجهاز Mac الآخر مع عنوان IP رقمي لـ Tailscale ومنفذ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende den Kopplungscode des anderen Macs mit einer numerischen Tailscale-IP-Adresse und einem Port."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el código de emparejamiento del otro Mac con una dirección IP numérica de Tailscale y un puerto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez le code d’association de l’autre Mac avec une adresse IP Tailscale numérique et un port."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方のMacのペアリングコードを、数値形式のTailscale IPアドレスとポートとともに使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac의 페어링 코드를 숫자 형식의 Tailscale IP 주소 및 포트와 함께 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用另一台 Mac 的配对码，并搭配数字格式的 Tailscale IP 地址和端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用另一部 Mac 的配對碼，搭配數字格式的 Tailscale IP 位址與連接埠。"
+          }
+        }
+      }
+    },
+    "settings.computers.selfPairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code belongs to this Mac. Enter the other Mac’s pairing code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتمي هذا الرمز إلى جهاز Mac هذا. أدخل رمز الإقران الخاص بجهاز Mac الآخر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Code gehört zu diesem Mac. Gib den Kopplungscode des anderen Macs ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este código pertenece a este Mac. Introduce el código de emparejamiento del otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce code appartient à ce Mac. Saisissez le code d’association de l’autre Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコードはこのMacのものです。もう一方のMacのペアリングコードを入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 코드는 이 Mac의 코드입니다. 다른 Mac의 페어링 코드를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代码属于这台 Mac。请输入另一台 Mac 的配对码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代碼屬於這部 Mac。請輸入另一部 Mac 的配對碼。"
+          }
+        }
+      }
+    },
+    "settings.computers.identityFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac’s authenticated identity could not be verified. Update cmux on both Macs and copy a fresh pairing code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التحقق من الهوية الموثّقة لجهاز Mac. حدّث cmux على جهازي Mac وانسخ رمز إقران جديدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die authentifizierte Identität des Macs konnte nicht überprüft werden. Aktualisiere cmux auf beiden Macs und kopiere einen neuen Kopplungscode."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo verificar la identidad autenticada del Mac. Actualiza cmux en ambos Mac y copia un código de emparejamiento nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identité authentifiée du Mac n’a pas pu être vérifiée. Mettez à jour cmux sur les deux Mac et copiez un nouveau code d’association."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの認証済みIDを確認できませんでした。両方のMacでcmuxをアップデートし、新しいペアリングコードをコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 인증된 ID를 확인할 수 없습니다. 두 Mac 모두에서 cmux를 업데이트하고 새 페어링 코드를 복사하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法验证这台 Mac 的已认证身份。请在两台 Mac 上更新 cmux，并复制新的配对码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法驗證這部 Mac 的已認證身分。請在兩部 Mac 上更新 cmux，並複製新的配對碼。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the current pairing attempt to finish."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتظر حتى تنتهي محاولة الإقران الحالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte, bis der aktuelle Kopplungsversuch abgeschlossen ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espera a que termine el intento de emparejamiento actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attendez la fin de la tentative d’association en cours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のペアリングが完了するまでお待ちください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 페어링 시도가 끝날 때까지 기다리세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请等待当前的配对尝试完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請等待目前的配對嘗試完成。"
+          }
+        }
+      }
+    },
+    "settings.computers.storageFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your paired Macs could not be loaded. Check available disk space and restart cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل أجهزة Mac المقترنة. تحقق من مساحة القرص المتاحة وأعد تشغيل cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine gekoppelten Macs konnten nicht geladen werden. Prüfe den verfügbaren Speicherplatz und starte cmux neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar tus Mac enlazados. Comprueba el espacio disponible en disco y reinicia cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos Mac associés n’ont pas pu être chargés. Vérifiez l’espace disque disponible et redémarrez cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みのMacを読み込めませんでした。ディスクの空き容量を確認して、cmuxを再起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac을 불러올 수 없습니다. 사용 가능한 디스크 공간을 확인하고 cmux를 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法载入已配对的 Mac。请检查可用磁盘空间并重新启动 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入已配對的 Mac。請檢查可用磁碟空間並重新啟動 cmux。"
+          }
+        }
+      }
+    },
+    "settings.computers.operationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The computer operation failed. Check that both Macs are signed in and online, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت العملية على الكمبيوتر. تحقق من أن جهازي Mac مسجّلا الدخول ومتصلان بالإنترنت، ثم حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Vorgang auf dem Computer ist fehlgeschlagen. Prüfe, ob beide Macs angemeldet und online sind, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La operación en el equipo falló. Comprueba que ambos Mac tengan la sesión iniciada y estén en línea, e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’opération sur l’ordinateur a échoué. Vérifiez que les deux Mac sont connectés à votre compte et en ligne, puis réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータの操作に失敗しました。両方のMacがサインイン済みでオンラインであることを確認してから、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 작업에 실패했습니다. 두 Mac 모두 로그인되어 있고 온라인 상태인지 확인한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑操作失败。请确认两台 Mac 都已登录且在线，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作失敗。請確認兩部 Mac 都已登入且在線上，然後再試一次。"
+          }
+        }
+      }
+    },
+    "devices.show.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示"
+          }
+        }
+      }
+    },
+    "devices.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in My Devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار في أجهزتي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In „Meine Geräte“ einblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en Mis dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans Mes appareils"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイスに表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“我的设备”中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「我的裝置」中顯示"
+          }
+        }
+      }
+    },
+    "devices.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide from My Devices"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء من أجهزتي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus „Meine Geräte“ ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar de Mis dispositivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer dans Mes appareils"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイデバイスから隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기에서 숨기기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从“我的设备”中隐藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從「我的裝置」中隱藏"
+          }
+        }
+      }
+    },
+    "devices.actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac options"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac-Optionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones del Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options du Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 옵션"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 選項"
+          }
+        }
+      }
+    },
+    "devices.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden from sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخفي من الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Seitenleiste ausgeblendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculto en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masqué dans la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーで非表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 숨겨짐"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从边栏隐藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從側邊欄隱藏"
+          }
+        }
+      }
+    },
+    "devices.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線"
+          }
+        }
+      }
+    },
+    "devices.registry.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not refresh your Macs. Check your connection and try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحديث أجهزة Mac الخاصة بك. تحقق من اتصالك وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Macs konnten nicht aktualisiert werden. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron actualizar tus Mac. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’actualiser vos Mac. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの一覧を更新できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 목록을 새로 고칠 수 없습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法刷新你的 Mac。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新整理您的 Mac。請檢查連線後再試一次。"
           }
         }
       }

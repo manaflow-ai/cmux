@@ -37,6 +37,7 @@ final class HiveComputersService {
     private var loadTask: Task<Void, Never>?
     private var directoryObserver: NSObjectProtocol?
     private var catalogObserver: NSObjectProtocol?
+    private var unavailableReasonObservers: [NSObjectProtocol] = []
     private var lastSnapshot: ComputersSettingsSnapshot?
     private var error: String?
     private var continuations: [UUID: AsyncStream<ComputersSettingsSnapshot>.Continuation] = [:]
@@ -63,6 +64,15 @@ final class HiveComputersService {
         }
         availabilityObserver = CloudFeatureAvailabilityObserver(isEnabled: { DevicesFeature.isAvailable() }) { [weak self] _ in
             self?.observeAccount()
+        }
+        // The availability observer fires only when Devices flips on or off;
+        // these re-publish so the unavailable reason follows the Beta toggle
+        // and the Cloud flag while Devices stays off.
+        for observer in unavailableReasonObservers { NotificationCenter.default.removeObserver(observer) }
+        unavailableReasonObservers = [.cmuxFeatureFlagsDidChange, RightSidebarBetaFeatureSettings.didChangeNotification, ManagedDevicePolicy.didChangeNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.publish() }
+            }
         }
         observeAccount()
         observePreferences()
@@ -268,7 +278,8 @@ final class HiveComputersService {
             },
             isSignedIn: identity != nil, error: error ?? directory?.registryError,
             discoveryEnabled: registry.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard),
-            incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? false
+            incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? false,
+            unavailableMessage: Self.unavailableMessage
         )
     }
 
@@ -288,8 +299,25 @@ final class HiveComputersService {
         String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to discover and connect to them.")
     }
 
+    /// Why pairing or opening a Mac is refused, following the same gate as
+    /// `DevicesFeature.isEnabled`.
     private static var disabledMessage: String {
-        String(localized: "settings.computers.enableDevices", defaultValue: "Enable Devices in Beta Features to connect to your other Macs.")
+        if let unavailableMessage { return unavailableMessage }
+        if ManagedDevicePolicy().isDeviceDiscoveryDisabled {
+            return String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
+        }
+        return String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices.")
+    }
+
+    /// Why the account's Macs cannot be listed at all, or `nil` while
+    /// Devices is available. My Devices rides on Cloud Machines, so this is
+    /// the Cloud gate's reason: managed policy, the Beta opt-in, or the flag.
+    private static var unavailableMessage: String? {
+        guard !DevicesFeature.isAvailable() else { return nil }
+        if !ManagedDevicePolicy().isEnforced(.disableCloud), !CloudMachinesFeature.localOptIn(defaults: .standard) {
+            return String(localized: "settings.devices.cloudRequired", defaultValue: "Turn on Cloud Machines in Settings › Beta Features to use My Devices.")
+        }
+        return CloudMachinesFeature.disabledMessage
     }
 
     private static func message(for error: any Error) -> String {
