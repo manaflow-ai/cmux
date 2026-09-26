@@ -825,4 +825,29 @@ struct NotificationsPopoverAnchorPolicyTests {
             NotificationsAnchorRegistry.shared.closestAnchor(in: window, to: pointNearBell) === plusAnchor
         )
     }
+
+    @Test
+    func testNotificationAnchorRegistryDoesNotReturnHiddenAnchor() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 100),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            Issue.record("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 90, y: 60, width: 20, height: 20))
+        contentView.addSubview(anchor)
+        NotificationsAnchorRegistry.shared.register(anchor)
+        anchor.isHidden = true
+
+        #expect(
+            NotificationsAnchorRegistry.shared.visibleAnchor(in: window) == nil,
+            "A hidden titlebar accessory anchor must not be selected for keyboard-opened notifications."
+        )
+    }
 }
