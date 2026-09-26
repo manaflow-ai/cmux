@@ -13,6 +13,8 @@ from unittest import mock
 
 import yaml
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import seed_derived_data as seed  # noqa: E402

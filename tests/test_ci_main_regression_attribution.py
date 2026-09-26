@@ -5,6 +5,7 @@ import json
 import pathlib
 import sys
 import unittest
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/main_regression_attribution.py"
