@@ -6,11 +6,18 @@ extension CloudMachineLinkManager {
     /// The probe sends no daemon request and closes its stream before the real
     /// encrypted link starts. Failed probes propagate to the caller's retry policy,
     /// so the next attempt considers every current family again.
+    ///
+    /// `timeout` is the caller's remaining connect budget. A link passes what is
+    /// left of its own deadline, so address selection and the link share one
+    /// budget. Selection used to stop at the connector's default 15 s while the
+    /// link allowed 60 s: a machine restored from a cold snapshot opened its
+    /// listener at ~13 s after create and New Machine failed in selection.
     public func resolvedPrivateRoute(
         machineID: String,
         through hub: CloudWireGuardHub.Ready,
         fallbackRoute: String? = nil,
-        addresses freshAddresses: [String] = []
+        addresses freshAddresses: [String] = [],
+        timeout: Duration? = nil
     ) async throws -> String {
         try Task.checkCancellation()
         let freshAddresses = freshAddresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -41,7 +48,9 @@ extension CloudMachineLinkManager {
             let host = primary.contains(":") ? "[\(primary)]" : primary
             return "ws://\(host):1337/v1/link"
         }
-        let connected = try await CloudHubConnector().connect(
+        var connector = CloudHubConnector()
+        if let timeout { connector.timeout = timeout }
+        let connected = try await connector.connect(
             endpoint: .unix(path: hub.socketPath),
             target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
             queue: DispatchQueue.global(qos: .userInitiated)

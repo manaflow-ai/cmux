@@ -102,6 +102,26 @@ struct CloudPrivateRouteSelectionTests {
                 == "ws://[fd00::2]:1337/v1/link")
     }
 
+    @Test("Address selection uses the caller's connect budget, not a separate shorter deadline")
+    func selectionHonorsTheCallersConnectBudget() async throws {
+        let path = "/tmp/cmux-route-\(UUID().uuidString).sock"
+        let hub = try CloudLoopbackPortForwardTests.FakeSocksHub(unixSocketPath: path)
+        try await hub.start()
+        defer { hub.stop() }
+        hub.silent = true
+        let manager = manager()
+        await manager.setPrivateAddresses(["10.16.0.2", "fd00::2"], for: "vm-test")
+        let ready = CloudWireGuardHub.Ready(socketPath: path, routes: ["10.16.0.0/24", "fd00::/8"])
+        let started = ContinuousClock.now
+
+        await #expect(throws: (any Error).self) {
+            try await manager.resolvedPrivateRoute(machineID: "vm-test", through: ready, timeout: .milliseconds(400))
+        }
+        // The link passes its remaining budget here; selection must end on it,
+        // not on the connector's own 15 s default.
+        #expect(ContinuousClock.now - started < .seconds(3))
+    }
+
     @Test("A legacy route outside the enrolled network is rejected by the shared resolver")
     func unenrolledLegacyRouteIsRejected() async {
         await #expect(throws: (any Error).self) {

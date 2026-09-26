@@ -74,6 +74,12 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
+
+    /// Time left before `deadline`, never less than one second so the final
+    /// step still gets a real attempt instead of an immediate timeout.
+    static func remaining(until deadline: ContinuousClock.Instant) -> Duration {
+        max(deadline - ContinuousClock.now, .seconds(1))
+    }
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -244,10 +250,14 @@ public actor CloudMachineLinkManager {
             guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
             let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
+            // One deadline covers address selection and the link connect.
+            let connectDeadline = ContinuousClock.now + connectTimeout
             let reachableRoute: String
             do {
                 try Task.checkCancellation()
-                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
+                reachableRoute = try await CloudOperationContext.phase(.route) {
+                    try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready, timeout: connectTimeout)
+                }
             } catch {
                 await releaseLease()
                 throw error
@@ -261,7 +271,7 @@ public actor CloudMachineLinkManager {
                     route: reachableRoute,
                     session: session,
                     carrier: carrier,
-                    timeout: connectTimeout,
+                    timeout: Self.remaining(until: connectDeadline),
                     wireguardHubSocket: claim.ready.socketPath,
                     releaseHubLease: releaseLease
                 )
@@ -379,7 +389,7 @@ public actor CloudMachineLinkManager {
             let claim = try await hub.acquire()
             let route: String
             do {
-                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready, timeout: connectTimeout)
                 try Task.checkCancellation()
             } catch {
                 await hub.release(claim.lease)
