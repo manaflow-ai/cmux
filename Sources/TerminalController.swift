@@ -5988,8 +5988,16 @@ class TerminalController {
     }
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        guard let email = params["email"] as? String else {
-            return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
+        // Email is optional: a missing or empty one submits anonymously, but a
+        // present non-string value is still a malformed request.
+        let email: String
+        switch params["email"] {
+        case nil, is NSNull:
+            email = ""
+        case let value as String:
+            email = value
+        default:
+            return .err(code: "invalid_params", message: "email must be a string", data: ["field": "email"])
         }
         guard let body = params["body"] as? String else {
             return .err(code: "invalid_params", message: "Missing body", data: ["field": "body"])

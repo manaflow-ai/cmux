@@ -29,8 +29,9 @@ public struct FeedbackComposerBridge {
         NotificationCenter.default.post(name: .feedbackComposerRequested, object: window)
     }
 
-    /// Validates and submits feedback, persisting the email on success. Returns
-    /// the attachment count that was uploaded.
+    /// Validates and submits feedback, persisting the email on success. An empty
+    /// email submits anonymously (no reply address) and leaves the saved email
+    /// alone. Returns the attachment count that was uploaded.
     public func submit(
         email: String,
         message: String,
@@ -39,7 +40,7 @@ public struct FeedbackComposerBridge {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard isValidEmail(trimmedEmail) else {
+        guard trimmedEmail.isEmpty || isValidEmail(trimmedEmail) else {
             throw FeedbackComposerBridgeError.invalidEmail
         }
         guard normalizedMessage.isEmpty == false else {
@@ -71,7 +72,9 @@ public struct FeedbackComposerBridge {
             throw FeedbackComposerBridgeError.submissionFailed(Self.userFacingMessage(for: error))
         }
 
-        userDefaults.set(trimmedEmail, forKey: settings.storedEmailKey)
+        if trimmedEmail.isEmpty == false {
+            userDefaults.set(trimmedEmail, forKey: settings.storedEmailKey)
+        }
         return attachments.count
     }
 

@@ -23,8 +23,12 @@ const allowedImageTypes = new Set([
   "image/webp",
 ]);
 
+// Anonymous submissions send an empty email and get no reply-to; a non-empty
+// value must still be a valid address.
+const anonymousSender = "anonymous";
+
 const feedbackSchema = z.object({
-  email: z.string().trim().email().max(320),
+  email: z.union([z.literal(""), z.string().email().max(320)]),
   message: z.string().trim().min(1).max(4000),
   buildType: z.string().trim().max(20).optional().default(""),
   appVersion: z.string().trim().max(120).optional().default(""),
@@ -148,7 +152,7 @@ export async function POST(request: Request) {
       const { error } = await resend.emails.send({
         from: `Manaflow <${feedbackConfig.fromEmail}>`,
         to: [feedbackRecipient],
-        replyTo: email,
+        ...(email ? { replyTo: email } : {}),
         subject,
         text: buildTextBody({
           email,
@@ -299,7 +303,7 @@ function buildSubject(
   ].filter(Boolean);
   const stamp = stampParts.length > 0 ? ` [${stampParts.join(" ")}]` : "";
 
-  return `cmux feedback from ${email}${stamp}: ${summary}`;
+  return `cmux feedback from ${email || anonymousSender}${stamp}: ${summary}`;
 }
 
 function buildTextBody(input: {
@@ -331,7 +335,7 @@ function buildTextBody(input: {
         ].join("\n");
 
   return [
-    `From: ${input.email}`,
+    `From: ${input.email || anonymousSender}`,
     `Build type: ${input.buildType || "unknown"}`,
     `App version: ${input.appVersion || "unknown"}`,
     `App build: ${input.appBuild || "unknown"}`,
@@ -383,7 +387,7 @@ function buildHtmlBody(input: {
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;line-height:1.5">
       <h1 style="font-size:18px;margin:0 0 16px">cmux feedback</h1>
-      <p><strong>From:</strong> ${escapeHtml(input.email)}</p>
+      <p><strong>From:</strong> ${escapeHtml(input.email || anonymousSender)}</p>
       <p><strong>Build type:</strong> ${escapeHtml(input.buildType || "unknown")}</p>
       <p><strong>App version:</strong> ${escapeHtml(input.appVersion || "unknown")}</p>
       <p><strong>App build:</strong> ${escapeHtml(input.appBuild || "unknown")}</p>
