@@ -1412,6 +1412,8 @@
       "customActionsDesc": "إدخال <actions>actions</actions> هو الشيء القابل لإعادة الاستخدام الذي يشغله cmux. استخدم الإجراءات عندما تريد إتاحة السلوك نفسه من لوحة الأوامر أو شريط تبويبات السطح أو الاختصارات أو قائمة زر الإضافة. أبقِ <commands>commands</commands> للأوامر الطرفية القابلة لإعادة الاستخدام وتخطيطات مساحات العمل. اضبط <palette>palette</palette> على false عندما يجب إخفاء الإجراء من لوحة الأوامر.",
       "actionTypes": "أنواع الإجراءات",
       "actionTypeBuiltin": "ينشئ اسما بديلا لإجراء cmux مدمج مثل cmux.newTerminal أو cmux.newBrowser أو cmux.splitRight أو cmux.splitDown.",
+      "actionTypeBuiltinCopy": "إجراءات النسخ المضمّنة: ينسخ cmux.copyWorkingDirectory دليل العمل الخاص بالطرفية، وينسخ cmux.copyProjectRoot جذر مستودع git الخاص به (أو دليل العمل خارج أي مستودع)، وينسخ cmux.copyScreen الشاشة المرئية.",
+      "actionTypeBuiltinCopyRemote": "في مساحة عمل SSH أو سحابية أو tmux بعيدة، ينسخ cmux.copyProjectRoot دليل العمل البعيد، لأن cmux لا يستطيع البحث عن مستودع git على المضيف الآخر.",
       "actionTypeCommand": "يشغّل نصا طرفيا. استخدم target لاختيار الطرفية الحالية أو تبويب جديد في اللوحة الحالية.",
       "actionTypeAgent": "يشغّل وكيل برمجة مدعوما. يدعم اليوم codex و claude، مع وسائط اختيارية.",
       "actionTypeWorkspaceCommand": "يشغّل تعريف مساحة عمل مسمى من commands. استخدمه للتخطيطات متعددة اللوحات، ومجلدات العمل المخصصة، وأوامر البدء.",

@@ -14616,6 +14616,17 @@ extension Workspace: BonsplitDelegate {
                 }
             case .newSimulator:
                 _ = newSimulatorSurface(inPane: pane, focus: true)
+            case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+                if let copyAction = builtInAction.terminalCopyAction {
+                    // Target the tab selected in the pane whose button was
+                    // clicked, not whichever pane happens to have focus.
+                    TerminalCopyActionRunner.run(
+                        copyAction,
+                        workspace: self,
+                        panelId: bonsplitController.selectedTab(inPane: pane)
+                            .flatMap { panelIdFromSurfaceId($0.id) }
+                    )
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

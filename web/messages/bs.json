@@ -1412,6 +1412,8 @@
       "customActionsDesc": "Unos <actions>actions</actions> je ponovo upotrebljiva stvar koju cmux izvršava. Koristite akcije kada isto ponašanje treba biti dostupno iz Command Palette, površinske trake tabova, prečica ili menija plus dugmeta. Zadržite <commands>commands</commands> za ponovo upotrebljive shell komande i rasporede radnih prostora. Postavite <palette>palette</palette> na false kada akcija ne treba biti u Command Palette.",
       "actionTypes": "Tipovi akcija",
       "actionTypeBuiltin": "Alias za ugrađenu cmux akciju kao što su cmux.newTerminal, cmux.newBrowser, cmux.splitRight ili cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Ugrađene akcije kopiranja: cmux.copyWorkingDirectory kopira radni direktorij terminala, cmux.copyProjectRoot kopira korijen njegovog git repozitorija (ili radni direktorij izvan repozitorija), a cmux.copyScreen kopira vidljivi ekran.",
+      "actionTypeBuiltinCopyRemote": "U SSH, cloud ili udaljenom tmux radnom prostoru cmux.copyProjectRoot kopira udaljeni radni direktorij, jer cmux ne može pronaći git repozitorij na drugom hostu.",
       "actionTypeCommand": "Pokreće shell tekst u terminalu. Koristite target da izaberete trenutni terminal ili novi tab u trenutnom panelu.",
       "actionTypeAgent": "Pokreće podržanog programerskog agenta. Trenutno podržava codex i claude, uz opcionalne argumente.",
       "actionTypeWorkspaceCommand": "Pokreće imenovanu definiciju radnog prostora iz commands. Koristite za rasporede s više panela, prilagođene radne direktorije i početne komande.",

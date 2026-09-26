@@ -727,6 +727,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         ) === expectedInputPanel)
         #expect(harness.workspace.focusedTerminalPanel === containerPanel)
         #expect(harness.workspace.focusedTerminalInputTarget()?.panel === expectedInputPanel)
+        // Copy actions target the focused container, and must read the active
+        // inner pane's screen and remote cwd, never skipping to a local walk.
+        #expect(harness.workspace.copyActionTerminal(panelId: containerPanelId)?.panel === expectedInputPanel)
+        #expect(
+            harness.workspace.copyActionDirectoryTarget(panelId: containerPanelId)
+                == TerminalCopyDirectoryTarget(path: "/srv/project", isLocal: false)
+        )
         #expect(
             AppDelegate.resolveTerminalPanelForTextSend(
                 in: harness.workspace,

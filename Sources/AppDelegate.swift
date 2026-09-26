@@ -17772,6 +17772,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .copyWorkingDirectory, .copyProjectRoot, .copyScreen:
+                guard let copyAction = builtIn.terminalCopyAction else { return false }
+                // The runner beeps when there is nothing to copy. Report the
+                // action as handled either way so a bound shortcut is consumed
+                // instead of falling through to the terminal after the beep.
+                let workspace = context.tabManager.selectedWorkspace
+                if TerminalCopyActionRunner.run(
+                    copyAction,
+                    workspace: workspace,
+                    panelId: workspace?.focusedPanelId
+                ) {
+                    onExecuted?()
+                }
+                return true
             }
         case .command, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

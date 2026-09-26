@@ -1412,6 +1412,8 @@
       "customActionsDesc": "<actions>actions</actions> girdisi, cmux’un çalıştırdığı yeniden kullanılabilir davranıştır. Aynı davranışın Command Palette, yüzey sekme çubuğu, kısayollar veya artı düğmesi menüsünden kullanılmasını istediğinizde eylemleri kullanın. Yeniden kullanılabilir shell komutları ve çalışma alanı düzenleri için <commands>commands</commands> kullanmaya devam edin. Bir eylem Command Palette içinde görünmemeliyse <palette>palette</palette> değerini false yapın.",
       "actionTypes": "Eylem türleri",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight veya cmux.splitDown gibi yerleşik bir cmux eylemi için alias oluşturur.",
+      "actionTypeBuiltinCopy": "Yerleşik kopyalama eylemleri: cmux.copyWorkingDirectory terminalin çalışma dizinini, cmux.copyProjectRoot git deposunun kökünü (depo dışında çalışma dizinini) ve cmux.copyScreen görünür ekranı kopyalar.",
+      "actionTypeBuiltinCopyRemote": "SSH, bulut veya uzak tmux çalışma alanında cmux, diğer ana makinedeki git deposunu bulamadığı için cmux.copyProjectRoot uzak çalışma dizinini kopyalar.",
       "actionTypeCommand": "Terminalde shell metni çalıştırır. Geçerli terminali veya geçerli bölmedeki yeni sekmeyi seçmek için target kullanın.",
       "actionTypeAgent": "Desteklenen bir kodlama ajanı başlatır. Bugün codex ve claude desteklenir, isteğe bağlı argümanlarla.",
       "actionTypeWorkspaceCommand": "commands içinden adlandırılmış bir çalışma alanı tanımını çalıştırır. Çok bölmeli düzenler, özel çalışma dizinleri ve başlangıç komutları için kullanın.",
