@@ -14684,7 +14684,7 @@ class TerminalController {
             )
         }
         if let error = mobileTerminalAliasValidationError(params: request.params) {
-            return error
+            return mobileHostResult(error)
         }
         guard let surfaceID = mobileCanonicalTerminalTarget(params: request.params)?.surfaceID else {
             return await mobileHostHandleRPCUnordered(
@@ -14699,11 +14699,11 @@ class TerminalController {
             token: orderingToken,
             inputSequence: inputSequence
         ) else {
-            return .err(
+            return mobileHostResult(.err(
                 code: "stale_input",
                 message: Self.terminalInputOrderingStaleMessage,
                 data: ["surface_id": surfaceID.uuidString]
-            )
+            ))
         }
 
         await ticket.waitForTurn()
@@ -14711,11 +14711,11 @@ class TerminalController {
             MobileHostService.shared.terminalInputOrdering.finish(ticket)
         }
         guard MobileHostService.shared.terminalInputOrdering.isCurrent(ticket) else {
-            return .err(
+            return mobileHostResult(.err(
                 code: "stale_input",
                 message: Self.terminalInputOrderingStaleMessage,
                 data: ["surface_id": surfaceID.uuidString]
-            )
+            ))
         }
         var pinnedParams = request.params
         pinnedParams.removeValue(forKey: "terminal_id")
