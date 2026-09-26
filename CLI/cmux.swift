@@ -5302,6 +5302,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -7494,6 +7495,15 @@ struct CMUXCLI {
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+
+        case "paste":
+            try runPasteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -19886,12 +19896,13 @@ struct CMUXCLI {
             """
         case "paste-buffer":
             return """
-            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+            Usage: cmux paste-buffer [--name <name>] [--bracketed] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
             Paste a named tmux-compat buffer into a surface.
 
             Flags:
               --name <name>         Buffer name (default: default)
+              --bracketed           Deliver the buffer as one bracketed paste, like Cmd+V, instead of keystrokes
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>    Surface context (default: focused surface)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
@@ -19927,6 +19938,8 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "paste":
+            return Self.pasteHelp
         case "send":
             return """
             Usage: cmux send [flags] [--] <text>
@@ -27419,29 +27432,16 @@ struct CMUXCLI {
             throw CLIError(message: "\(command) is not supported yet in cmux CLI parity mode")
 
         case "set-buffer":
-            let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
-            let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
-            // Store the text exactly as given, like tmux: trailing newlines and
+            // Store the text exactly as given: trailing newlines and
             // indentation are part of what paste-buffer should deliver. With no
-            // text argument, or a lone "-", read the text from stdin so output
-            // can be piped in (`cmd | cmux set-buffer`).
-            let textArgs = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
-            let content: String
-            if textArgs.isEmpty || textArgs == ["-"] {
-                guard isatty(STDIN_FILENO) != 1 else {
-                    throw CLIError(message: "set-buffer requires text")
-                }
-                let data = FileHandle.standardInput.readDataToEndOfFile()
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: String(
-                        localized: "cli.setBuffer.error.invalidUTF8",
-                        defaultValue: "set-buffer: stdin is not valid UTF-8 text"
-                    ))
-                }
-                content = text
-            } else {
-                content = textArgs.joined(separator: " ")
-            }
+            // text argument, or a lone "-", take the text from stdin so output
+            // can be piped in (`cmd | cmux set-buffer`), the way tmux's
+            // `load-buffer -` does. Stdin was already drained before the socket
+            // connected (prepareStandardInputBeforeSocket).
+            let (name, textArgs, readsStandardInput) = setBufferTextArguments(commandArgs)
+            let content = try readsStandardInput
+                ? setBufferTextFromStandardInput()
+                : textArgs.joined(separator: " ")
             guard !content.isEmpty else {
                 throw CLIError(message: "set-buffer requires text")
             }
@@ -27472,14 +27472,20 @@ struct CMUXCLI {
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
+            // --bracketed delivers the buffer as one paste (like Cmd+V) instead
+            // of keystrokes, so newlines stay in the text and vim-mode prompts
+            // do not eat the first character.
+            try Self.ensureTextFitsSocketRequest(buffer, command: "paste-buffer")
+            let bracketed = hasFlag(commandArgs, name: "--bracketed")
             var params: [String: Any] = ["text": buffer]
+            if bracketed { params["submit_key"] = "none" }
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: bracketed ? "terminal.paste" : "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":
