@@ -181,11 +181,11 @@ extension CMUXCLI {
           preset <name>                           Apply the settings stored at settingPresets.<name> in cmux.json.
           get <key>                               Print sidebar-font-size or surface-tab-bar-font-size.
           set <key> <points>                      Set sidebar-font-size (10-20 pt) or surface-tab-bar-font-size (8-24 pt), then reload if cmux is running.
+          sidebar-font-size [points]              Get or set the left sidebar text size.
+          surface-tab-bar-font-size [points]      Get or set the workspace tab bar text size.
 
         Setting changes are validated against the cmux.json schema before anything is written. A running
         cmux applies them automatically; no reload is needed.
-          sidebar-font-size [points]              Get or set the left sidebar text size.
-          surface-tab-bar-font-size [points]      Get or set the workspace tab bar text size.
 
         Config files:
           \(Self.primarySettingsDisplayPath)

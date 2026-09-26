@@ -128,13 +128,15 @@ struct CmuxSettingChangeTests {
         let file = try fixture(baseConfig)
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let before = try Data(contentsOf: file)
-        await #expect {
+        let error = await #expect(throws: JSONConfigMutationError.self) {
             _ = try await JSONConfigStore(fileURL: file)
                 .apply(.set(path: "terminal.scrollSpeed", value: .number(99)))
-        } throws: { error in
-            guard case JSONConfigMutationError.invalidCandidate(let issues) = error else { return false }
-            return issues.contains { $0.path.contains("scrollSpeed") }
         }
+        guard case .invalidCandidate(let issues)? = error else {
+            Issue.record("expected invalidCandidate, got \(String(describing: error))")
+            return
+        }
+        #expect(issues.contains { $0.path.contains("scrollSpeed") })
         await #expect(throws: JSONConfigMutationError.self) {
             _ = try await JSONConfigStore(fileURL: file)
                 .apply(.set(path: "fileEditor.wordWrap", value: .string("yes")))
@@ -188,7 +190,8 @@ struct CmuxSettingChangeTests {
         {
           "settingPresets": {
             "sneaky": { "actions": { "x": { "type": "command", "command": "echo" } } },
-            "empty": {}
+            "empty": {},
+            "hollow": { "sidebar": {} }
           }
         }
 
@@ -204,6 +207,11 @@ struct CmuxSettingChangeTests {
         }
         await #expect(throws: CmuxSettingChangeError.invalidPreset("empty")) {
             _ = try await store.apply(.preset(name: "empty"))
+        }
+        // An empty nested object merges nothing; it must not replace the
+        // whole sidebar section.
+        await #expect(throws: CmuxSettingChangeError.invalidPreset("hollow")) {
+            _ = try await store.apply(.preset(name: "hollow"))
         }
         #expect(try Data(contentsOf: file) == before)
     }

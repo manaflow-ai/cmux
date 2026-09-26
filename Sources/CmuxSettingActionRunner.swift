@@ -5,9 +5,10 @@ import Foundation
 /// Which config files may declare `"type": "setting"` actions.
 enum CmuxSettingActionTrust {
     /// Setting actions rewrite the global cmux.json, so they only run when the
-    /// user's own global config declared them. `nil` is a code-defined action.
+    /// user's global config, or a pack it references, declared them. A
+    /// missing source fails closed.
     static func allowsSettingAction(actionSourcePath: String?, globalConfigPath: String) -> Bool {
-        guard let actionSourcePath else { return true }
+        guard let actionSourcePath else { return false }
         return standardized(actionSourcePath) == standardized(globalConfigPath)
     }
 

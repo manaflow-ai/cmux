@@ -76,6 +76,9 @@ struct CmuxSettingChangePlanner {
             }
             var edits: [Edit] = []
             try appendLeafEdits(of: settings, prefix: [], into: &edits)
+            guard !edits.isEmpty else {
+                throw CmuxSettingChangeError.invalidPreset(name)
+            }
             return edits
         }
     }
@@ -90,7 +93,9 @@ struct CmuxSettingChangePlanner {
         for key in object.keys.sorted() {
             let components = prefix + [key]
             let value = object[key]!
-            if let child = value as? [String: Any], !child.isEmpty {
+            if let child = value as? [String: Any] {
+                // An empty object merges nothing. Writing it as a leaf would
+                // replace the whole section, comments included.
                 try appendLeafEdits(of: child, prefix: components, into: &edits)
             } else {
                 edits.append(Edit(path: try settingPath(components), value: value))

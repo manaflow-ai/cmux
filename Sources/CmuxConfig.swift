@@ -2639,7 +2639,8 @@ final class CmuxConfigStore: ObservableObject {
         func apply(_ entries: [String: ActionEntry]) {
             for (id, entry) in entries {
                 // A setting action rewrites the global cmux.json, so only the
-                // user's own global config may declare one. A project config or
+                // user's global config (and packs it references, which inherit
+                // its source path) may declare one. A project config or project
                 // pack could otherwise ship a harmless-looking button that flips
                 // a security setting such as automation.socketControlMode.
                 if case .setting = entry.definition.action,
