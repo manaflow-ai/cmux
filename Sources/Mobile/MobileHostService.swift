@@ -665,8 +665,10 @@ final class MobileHostService {
             }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             // An overflow is closed by the drain, which consumes it first.
+            // The hop runs once per claimed drain, not per event.
             if result.startDrain {
-                connection.startEventDrain(lane: result.drainLane)
+                let lane = result.drainLane
+                Task { await connection.startEventDrain(lane: lane) }
             }
         }
         if !resyncSurfaceIDs.isEmpty {
@@ -1466,14 +1468,10 @@ actor MobileHostConnection {
         let task: Task<Void, Never>
     }
 
-    private struct EventDrainTasks: Sendable {
-        var nextToken: UInt64 = 0
-        var tasksByLane: [MobileHostEventLane: EventDrainTask] = [:]
-    }
-
     /// The drain each lane's queue claim admitted, kept so `close()` cancels
     /// it. Tokens let a finished drain clear only its own handle.
-    private nonisolated let eventDrainTasks = OSAllocatedUnfairLock(initialState: EventDrainTasks())
+    private var eventDrainTasksByLane: [MobileHostEventLane: EventDrainTask] = [:]
+    private var nextEventDrainToken: UInt64 = 0
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
     /// Whether the event queue currently routes render-grid frames onto
@@ -1627,10 +1625,8 @@ actor MobileHostConnection {
         // payload. A drain parked in a write is cancelled rather than left to
         // outlive the connection; one between writes exits on its own.
         eventQueue.close()
-        let drainTasks = eventDrainTasks.withLock { state -> [Task<Void, Never>] in
-            defer { state.tasksByLane.removeAll() }
-            return state.tasksByLane.values.map { $0.task }
-        }
+        let drainTasks = eventDrainTasksByLane.values.map(\.task)
+        eventDrainTasksByLane.removeAll()
         for task in drainTasks {
             task.cancel()
         }
@@ -2335,29 +2331,33 @@ actor MobileHostConnection {
         return false
     }
 
-    /// Starts the drain a queue claim admitted for `lane` and keeps its handle
-    /// so `close()` can cancel it. The claim admits one drain per lane at a
-    /// time; the handle is cleared when that drain returns, unless a newer
-    /// drain for the lane already replaced it.
-    nonisolated func startEventDrain(lane: MobileHostEventLane) {
-        eventDrainTasks.withLock { state in
-            state.nextToken &+= 1
-            let token = state.nextToken
-            state.tasksByLane[lane] = EventDrainTask(
-                token: token,
-                task: Task { [weak self] in
-                    await self?.drainQueuedEvents(lane: lane)
-                    self?.finishEventDrainTask(lane: lane, token: token)
-                }
-            )
+    /// The only place a drain starts. Every queue claim (the fan-out's,
+    /// `sendEvent`'s, lane negotiation's) lands here, so the handle is
+    /// recorded in the same actor turn that checks `isClosed`: a claim that
+    /// arrives after `close()` is released instead of starting a drain that
+    /// `close()` can no longer cancel. The claim admits one drain per lane at
+    /// a time.
+    func startEventDrain(lane: MobileHostEventLane) {
+        guard !isClosed else {
+            eventQueue.abandonDrain(lane: lane)
+            return
         }
+        nextEventDrainToken &+= 1
+        let token = nextEventDrainToken
+        eventDrainTasksByLane[lane] = EventDrainTask(
+            token: token,
+            task: Task { [weak self] in
+                await self?.runEventDrain(lane: lane, token: token)
+            }
+        )
     }
 
-    private nonisolated func finishEventDrainTask(lane: MobileHostEventLane, token: UInt64) {
-        eventDrainTasks.withLock { state in
-            if state.tasksByLane[lane]?.token == token {
-                state.tasksByLane.removeValue(forKey: lane)
-            }
+    /// Runs one lane's drain, then clears its handle unless `close()` or a
+    /// newer drain for the lane already replaced it.
+    private func runEventDrain(lane: MobileHostEventLane, token: UInt64) async {
+        await drainQueuedEvents(lane: lane)
+        if eventDrainTasksByLane[lane]?.token == token {
+            eventDrainTasksByLane.removeValue(forKey: lane)
         }
     }
 

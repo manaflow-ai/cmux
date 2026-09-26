@@ -336,6 +336,44 @@ extension MobileHostAuthorizationTests {
         #expect(transport.stalledSendCount() == 0)
     }
 
+    /// A drain the static fan-out claims is owned by the connection like one
+    /// `sendEvent` claims, so closing the connection cancels it too.
+    @Test func testCloseCancelsFanOutEventDrainParkedInWrite() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        let transport = CloseIgnoringStalledSendTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
+            }
+        )
+        defer { transport.releaseStalledSends() }
+        #expect(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 10))
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+
+        MobileHostService.emitEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-fanout-drain-close", "full": true, "state_seq": 1]
+        )
+        await transport.waitUntilSendStalled()
+
+        await session.close(reason: "test cleanup")
+
+        #expect(transport.cancelledSendCount() == 1)
+        #expect(transport.stalledSendCount() == 0)
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
     /// Ordered events must survive congestion without forcing a reconnect.
     @Test func testStalledSubscriberPreservesOrderedEventsBeyondSheddingBudget() async throws {
         let transport = StalledSendMobileHostByteTransport()
