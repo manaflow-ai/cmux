@@ -3907,9 +3907,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleScreenChangeReconcileWhenIdle()
         }
         flushPendingStartupNavigationURLRequests()
-        // Restored scrollback now lives only in memory under the restored panel
-        // ids; write it back as checkpoints so a second crash keeps it.
-        sessionScrollbackCheckpointCoordinator?.seed(sessionScrollbackCheckpointRestoredSeeds())
+        // After a crash restore, the recovered scrollback lives only in memory
+        // under the restored panel ids; write it back as checkpoints so a second
+        // crash keeps it. A clean launch or manual reopen restored from a
+        // scrollback-bearing save, so the next checkpoint suffices there.
+        if !isManualReopen, previousSessionLaunchWasUnclean {
+            sessionScrollbackCheckpointCoordinator?.seed(sessionScrollbackCheckpointRestoredSeeds())
+        }
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.

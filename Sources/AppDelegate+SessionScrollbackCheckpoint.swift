@@ -111,25 +111,29 @@ enum TerminalScrollbackCheckpointExport {
     /// Main-thread half: Ghostty formats the terminal's scrollback into a temp
     /// file. Returns the off-main reader, or nil when the export failed.
     @MainActor
-    static func begin(terminal: TerminalPanel, lineLimit: Int) -> (@Sendable () -> String?)? {
+    static func begin(terminal: TerminalPanel, lineLimit: Int) -> SessionScrollbackCheckpointExport? {
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
             terminal.performInternalBindingAction("write_screen_file:copy,vt")
         }
         guard let path = TerminalController.normalizedExportedScreenPath(exportedPath) else { return nil }
         let fileURL = URL(fileURLWithPath: path)
-        return { TerminalScrollbackCheckpointExport.read(fileURL: fileURL, lineLimit: lineLimit) }
+        return SessionScrollbackCheckpointExport(
+            finish: { TerminalScrollbackCheckpointExport.read(fileURL: fileURL, lineLimit: lineLimit) },
+            discard: { TerminalScrollbackCheckpointExport.remove(fileURL: fileURL) }
+        )
+    }
+
+    nonisolated static func remove(fileURL: URL) {
+        guard TerminalController.shouldRemoveExportedScreenFile(fileURL: fileURL) else { return }
+        try? FileManager.default.removeItem(at: fileURL)
+        if TerminalController.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+        }
     }
 
     /// Off-main half; mirrors `readTerminalTextFromVTExportForSnapshot` after the export.
     nonisolated static func read(fileURL: URL, lineLimit: Int) -> String? {
-        defer {
-            if TerminalController.shouldRemoveExportedScreenFile(fileURL: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                if TerminalController.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
-                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
-                }
-            }
-        }
+        defer { remove(fileURL: fileURL) }
         guard let data = try? Data(contentsOf: fileURL),
               let raw = String(data: data, encoding: .utf8) else {
             return nil

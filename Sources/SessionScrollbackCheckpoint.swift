@@ -200,6 +200,14 @@ struct SessionScrollbackCheckpointCapture: Sendable {
     /// Produces the captured text off the main thread (reads and trims Ghostty's
     /// export file); nil when the capture failed.
     let finish: @Sendable () -> String?
+    /// Deletes the export file without reading it; used when the capture is dropped.
+    var discard: @Sendable () -> Void = {}
+}
+
+/// The main-thread half of a capture hands back both halves of the export.
+struct SessionScrollbackCheckpointExport: Sendable {
+    let finish: @Sendable () -> String?
+    let discard: @Sendable () -> Void
 }
 
 struct SessionScrollbackCheckpointWriteBatch: Sendable {
@@ -416,8 +424,8 @@ final class SessionScrollbackCheckpointCoordinator {
         let surfaceId: UUID
         let isEligible: Bool
         /// Main-thread half of the capture (Ghostty's VT export). Returns the
-        /// off-main half that reads and trims the export, or nil on failure.
-        let beginCapture: () -> (@Sendable () -> String?)?
+        /// off-main reader and a cheap discard for the export file, or nil on failure.
+        let beginCapture: () -> SessionScrollbackCheckpointExport?
     }
 
     struct Seed {
@@ -528,16 +536,23 @@ final class SessionScrollbackCheckpointCoordinator {
         spent: TimeInterval,
         plan: SessionScrollbackCheckpointPolicy.Plan
     ) {
+        guard environment.canCheckpoint() else {
+            // Quit or restore started: the utility queue may not run before
+            // exit, so drop the exports now (a synchronous unlink each) and
+            // leave those terminals pending. Quit writes its own scrollback.
+            for capture in captured {
+                capture.discard()
+                activity.markPending(surfaceID: capture.surfaceId)
+            }
+            isCheckpointInFlight = false
+            return
+        }
         guard let candidate = remaining.first,
-              environment.canCheckpoint(),
               spent < SessionScrollbackCheckpointPolicy.mainThreadCaptureBudget,
               SessionScrollbackCheckpointPolicy.isTypingQuiet(
                   secondsSinceTyping: environment.secondsSinceTyping()
               ) else {
-            // Captures already exported are persisted even when quit or restore
-            // interrupted the checkpoint (a later scrollback save still wins, and
-            // this cleans up their export files). Unstarted captures keep their
-            // pending flag for the next checkpoint.
+            // Unstarted captures keep their pending flag for the next checkpoint.
             environment.persist(SessionScrollbackCheckpointWriteBatch(
                 captures: captured,
                 removals: plan.removals,
@@ -549,15 +564,16 @@ final class SessionScrollbackCheckpointCoordinator {
 
         let start = environment.uptime()
         let outputSincePlan = activity.beginCapture(surfaceID: candidate.surfaceId)
-        let finish = candidate.beginCapture()
+        let export = candidate.beginCapture()
         let duration = max(0, environment.uptime() - start)
         var captured = captured
-        if let finish {
+        if let export {
             captured.append(SessionScrollbackCheckpointCapture(
                 panelId: candidate.panelId,
                 surfaceId: candidate.surfaceId,
                 capturedAt: environment.wallClock(),
-                finish: finish
+                finish: export.finish,
+                discard: export.discard
             ))
             lastCapturedAt[candidate.panelId] = start
             if outputSincePlan {

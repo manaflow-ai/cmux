@@ -115,6 +115,24 @@ struct TerminalScrollbackCheckpointActivityTests {
     }
 }
 
+/// Records discarded exports from any thread.
+private final class DiscardLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var panelIds = Set<UUID>()
+
+    func insert(_ panelId: UUID) {
+        lock.lock()
+        panelIds.insert(panelId)
+        lock.unlock()
+    }
+
+    var discarded: Set<UUID> {
+        lock.lock()
+        defer { lock.unlock() }
+        return panelIds
+    }
+}
+
 @MainActor
 @Suite("Session scrollback checkpoint coordinator")
 struct SessionScrollbackCheckpointCoordinatorTests {
@@ -133,6 +151,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         var beforeMainTurn: (() -> Void)?
         let activity = TerminalScrollbackCheckpointActivity()
         var flags: [UUID: TerminalScrollbackOutputFlags] = [:]
+        let discards = DiscardLog()
 
         func addTerminal(eligible: Bool = true, text: String? = "output") -> UUID {
             let panelId = UUID()
@@ -146,7 +165,10 @@ struct SessionScrollbackCheckpointCoordinatorTests {
                     self.uptime += self.captureCost
                     self.onCapture?(panelId)
                     guard let text else { return nil }
-                    return { text }
+                    return SessionScrollbackCheckpointExport(
+                        finish: { text },
+                        discard: { [discards] in discards.insert(panelId) }
+                    )
                 }
             ))
             return panelId
@@ -310,7 +332,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         #expect(harness.captureCounts[slow] == 2)
     }
 
-    @Test func checkpointInterruptedByQuitOrRestorePersistsExportedCapturesOnly() throws {
+    @Test func checkpointInterruptedByQuitOrRestoreDiscardsExportsSynchronously() throws {
         let harness = Harness()
         let panels = (0..<2).map { _ in harness.addTerminal() }
         harness.onCapture = { _ in harness.canCheckpoint = false }
@@ -319,11 +341,12 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(!coordinator.isCheckpointInFlight)
-        let batch = try #require(harness.batches.last)
-        #expect(batch.captures.count == 1)
-        let captured = try #require(batch.captures.first?.panelId)
-        for panel in panels where panel != captured {
-            #expect(harness.captureCounts[panel] == nil)
+        // Nothing reaches the utility queue, which may not run before exit.
+        #expect(harness.batches.isEmpty)
+        let exported = Set(panels.filter { harness.captureCounts[$0] == 1 })
+        #expect(exported.count == 1)
+        #expect(harness.discards.discarded == exported)
+        for panel in panels {
             #expect(harness.activity.hasPendingOutput(surfaceID: panel) == true)
         }
     }
