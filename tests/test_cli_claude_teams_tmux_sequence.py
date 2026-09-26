@@ -13,7 +13,12 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli, stable_tmux_numeric_id
+from claude_teams_test_utils import (
+    resolve_cmux_cli,
+    socket_request_method,
+    stable_tmux_numeric_id,
+    strip_capability_envelope,
+)
 
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -23,6 +28,8 @@ INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
 NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 EMPTY_DOCK_PANE_ID = "88888888-8888-4888-8888-888888888888"
+# Returned only if new-session -A wrongly creates instead of attaching.
+UNEXPECTED_WORKSPACE_ID = "99999999-9999-4999-8999-999999999999"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -41,6 +48,9 @@ class FakeCmuxState:
         self.lock = threading.Lock()
         self.requests: list[str] = []
         self.equalize_calls: list[dict[str, object]] = []
+        self.selected_workspaces: list[str] = []
+        self.created_workspaces: list[dict[str, object]] = []
+        self.closed_workspaces: list[str] = []
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
             "ref": "workspace:1",
@@ -210,6 +220,17 @@ class FakeCmuxState:
             if method == "workspace.equalize_splits":
                 self.equalize_calls.append(dict(params))
                 return {"ok": True}
+            if method == "workspace.create":
+                self.created_workspaces.append(dict(params))
+                return {"workspace_id": UNEXPECTED_WORKSPACE_ID}
+            if method == "workspace.rename":
+                return {"ok": True}
+            if method == "workspace.select":
+                self.selected_workspaces.append(str(params.get("workspace_id") or ""))
+                return {"ok": True}
+            if method == "workspace.close":
+                self.closed_workspaces.append(str(params.get("workspace_id") or ""))
+                return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
             raise RuntimeError(f"Unsupported fake cmux method: {method}")
@@ -247,11 +268,23 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            request = json.loads(line.decode("utf-8"))
+            decoded_line = strip_capability_envelope(line.decode("utf-8").rstrip("\r\n"))
+            if decoded_line is None:
+                self.wfile.write(b"ERROR: malformed capability envelope\n")
+                self.wfile.flush()
+                continue
+
+            request = json.loads(decoded_line)
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
+
             response = {
                 "ok": True,
                 "result": self.server.state.handle(  # type: ignore[attr-defined]
-                    request["method"],
+                    method,
                     request.get("params", {}),
                 ),
                 "id": request.get("id"),
@@ -286,6 +319,7 @@ def main() -> int:
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
+        prefix_log = tmp / "prefix.log"
 
         make_executable(
             real_bin / "claude",
@@ -300,6 +334,10 @@ printf '%s\\n' "$split_pane" > "$FAKE_SPLIT_PANE_LOG"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
+tmux show-options -g prefix > "$FAKE_PREFIX_LOG"
+tmux new-session -A -d -s 'demo-team'
+tmux switch-client -t "$window_target"
+tmux kill-session -t "$window_target"
 """,
         )
 
@@ -314,6 +352,7 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
+        env["FAKE_PREFIX_LOG"] = str(prefix_log)
 
         try:
             proc = subprocess.run(
@@ -384,6 +423,32 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(
                 "FAIL: expected split-window and main-vertical selection to "
                 f"equalize the teammate column, got {state.equalize_calls!r}"
+            )
+            return 1
+
+        prefix = read_text(prefix_log)
+        if prefix != "prefix C-b":
+            print(f"FAIL: expected show-options -g prefix to print 'prefix C-b', got {prefix!r}")
+            return 1
+
+        if state.created_workspaces:
+            print(
+                "FAIL: expected new-session -A to attach to the existing session, "
+                f"but it created a workspace: {state.created_workspaces!r}"
+            )
+            return 1
+
+        if state.selected_workspaces != [INITIAL_WORKSPACE_ID]:
+            print(
+                "FAIL: expected switch-client to select the session's workspace once and "
+                f"new-session -A -d to select nothing, got {state.selected_workspaces!r}"
+            )
+            return 1
+
+        if state.closed_workspaces != [INITIAL_WORKSPACE_ID]:
+            print(
+                "FAIL: expected kill-session to close the session's workspace, "
+                f"got {state.closed_workspaces!r}"
             )
             return 1
 

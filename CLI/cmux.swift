@@ -26209,8 +26209,25 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-n", "-s"],
                 boolFlags: ["-A", "-d", "-P"]
             )
-            if parsed.hasFlag("-A") {
-                throw CLIError(message: "new-session -A is not supported in cmux claude-teams mode")
+            // -A attaches to the named session when it already exists. tmux ignores the
+            // shell command on that path, and -d keeps the client where it is.
+            if parsed.hasFlag("-A"),
+               let name = parsed.value("-s"),
+               let existingWorkspaceId = try? tmuxResolveWorkspaceTarget(name, client: client) {
+                if !parsed.hasFlag("-d") {
+                    _ = try client.sendV2(method: "workspace.select", params: [
+                        "workspace_id": existingWorkspaceId
+                    ])
+                }
+                if parsed.hasFlag("-P") {
+                    let context = try tmuxFormatContext(workspaceId: existingWorkspaceId, client: client)
+                    print(tmuxRenderFormat(
+                        parsed.value("-F"),
+                        context: context,
+                        fallback: "@\(existingWorkspaceId)"
+                    ))
+                }
+                return
             }
             var params: [String: Any] = ["focus": false]
             if let cwd = parsed.value("-c") {
@@ -26420,7 +26437,7 @@ struct CMUXCLI {
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
 
-        case "select-window", "selectw":
+        case "select-window", "selectw", "switch-client":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
@@ -26436,7 +26453,8 @@ struct CMUXCLI {
                 "pane_id": target.paneId
             ])
 
-        case "kill-window", "killw":
+        // tmux sessions resolve to cmux workspaces, so kill-session closes the same target.
+        case "kill-window", "killw", "kill-session":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
@@ -26713,10 +26731,9 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
+            guard let value = Self.tmuxCompatShowOptionValues[optionName] else {
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
-            let value = "on"
             if parsed.hasFlag("-v") {
                 print(value)
             } else {
@@ -26810,6 +26827,13 @@ struct CMUXCLI {
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
     }
+
+    /// Options cmux answers for tmux-compat callers. cmux runs no tmux server, so each
+    /// value is what a default tmux client reports.
+    private static let tmuxCompatShowOptionValues = [
+        "extended-keys": "on",
+        "prefix": "C-b"
+    ]
 
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
         try withLockedTmuxCompatStoreIfChanged { store in
