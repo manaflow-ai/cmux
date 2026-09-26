@@ -558424,6 +558424,65 @@
           }
         }
       }
+    },
+    "cli.setBuffer.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: stdin is not valid UTF-8 text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: محتوى stdin ليس نص UTF-8 صالحًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: stdin ist kein gültiger UTF-8-Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: stdin no es texto UTF-8 válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer : stdin n’est pas un texte UTF-8 valide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: stdin が有効な UTF-8 テキストではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer: stdin이 유효한 UTF-8 텍스트가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer：stdin 不是有效的 UTF-8 文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set-buffer：stdin 不是有效的 UTF-8 文字"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
