@@ -218,6 +218,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
+    ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
 })

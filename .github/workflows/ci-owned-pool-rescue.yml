@@ -34,7 +34,8 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 #   (#12149). Its direct dispatches are rare (no run from 2026-09-23 to 09-25).
 # - The side lanes (app-host-test-rerun, auth-refresh-tests,
 #   cloud-command-deadlines, cloud-machine-tests, cloud-task-local-tests,
-#   cmux-tui, iroh-v2, relay-tls, remote-daemon, terminal-hang-diagnostics)
+#   cmux-tui, iroh-v2, relay-tls, reload-build, remote-daemon,
+#   terminal-hang-diagnostics)
 #   have no picker: while vars.CI_SIDE_LANE_RUNNER names a glaeda-side-*
 #   label, every trusted attempt-1 run of theirs (a same-repository pull
 #   request, a push, a schedule or a workflow_dispatch) is on the fleet, so a
@@ -61,6 +62,7 @@ on:
       - cmux-tui
       - IROH v2
       - Relay TLS system trust
+      - reload-build
       - SSH remote daemon
       - Terminal hang diagnostics
     types: [requested]
@@ -95,7 +97,7 @@ env:
     .github/workflows/cloud-machine-tests.yml .github/workflows/cloud-task-local-tests.yml
     .github/workflows/cmux-tui.yml
     .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
-    .github/workflows/remote-daemon.yml
+    .github/workflows/reload-build.yml .github/workflows/remote-daemon.yml
     .github/workflows/terminal-hang-diagnostics.yml
 
 concurrency:
