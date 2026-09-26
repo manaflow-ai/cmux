@@ -835,7 +835,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     : palette.semantic(.secondaryLabelColor, opacity: 0.2),
                 fillColor: model.isActive
                     ? palette.selectedForeground(0.8)
-                    : cmuxAccentNSColor(for: palette.colorScheme),
+                    : palette.semantic(.controlAccentColor),
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)

@@ -697,7 +697,7 @@ extension FeedCoordinator {
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
-            color: "#4C8DFF",
+            color: NSColor.controlAccentColor.hexString(),
             timestamp: Date()
         ), key: statusKey, panelId: panelId)
 
