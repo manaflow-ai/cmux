@@ -164,7 +164,7 @@ public struct VoiceOrchestratorToolExecutor {
                 parametersJSON: #"""
                 {"type":"object","properties":{\#
                 "prompt":{"type":"string","description":"What the agent should do"},\#
-                "directory":{"type":"string","description":"Working directory on the Mac; omit for the last used one"},\#
+                "directory":{"type":"string","description":"Working directory on the Mac. Omit unless the user names one: omitted uses the last-used or the Mac's default, like the app's new-workspace button. Never ask for it"},\#
                 "agent":{"type":"string","description":"Agent template: claude, codex, opencode, or shell; omit for the default"},\#
                 "name":{"type":"string","description":"Optional workspace name"}},\#
                 "required":["prompt"]}
@@ -724,12 +724,12 @@ public struct VoiceOrchestratorToolExecutor {
             return agent.map { "No agent template matches \"\($0)\". Available: \(names)." }
                 ?? "No task templates are available."
         }
+        // A nil directory is fully valid: the spec omits `working_directory`
+        // and the Mac applies its own default, exactly like the app's
+        // new-workspace button. Never ask the user for a directory.
         let resolvedDirectory = Self.nonEmpty(directory)
             ?? templateStore.lastDirectory(macDeviceID: macDeviceID)
             ?? template.defaultDirectory
-        guard let resolvedDirectory else {
-            return "No working directory: tell me which directory on the Mac to use."
-        }
         let composition = MobileTaskCommandComposer().compose(
             template: template,
             prompt: trimmedPrompt
@@ -750,12 +750,15 @@ public struct VoiceOrchestratorToolExecutor {
             // Learn the choices like the composer sheet does, so the next
             // spoken task inherits them as defaults instead of re-asking.
             templateStore.setLastTemplateID(template.id)
-            templateStore.setLastDirectory(resolvedDirectory, macDeviceID: macDeviceID)
-            templateStore.recordRecentDirectory(
-                resolvedDirectory, macDeviceID: macDeviceID, at: Date()
-            )
+            if let resolvedDirectory {
+                templateStore.setLastDirectory(resolvedDirectory, macDeviceID: macDeviceID)
+                templateStore.recordRecentDirectory(
+                    resolvedDirectory, macDeviceID: macDeviceID, at: Date()
+                )
+            }
             let title = spec.title ?? "the new task"
-            return "Started \(template.name) on \"\(title)\" in \(resolvedDirectory)."
+            let location = resolvedDirectory ?? "the Mac's default directory"
+            return "Started \(template.name) on \"\(title)\" in \(location)."
         case .failure:
             return "The Mac declined creating the task."
         }

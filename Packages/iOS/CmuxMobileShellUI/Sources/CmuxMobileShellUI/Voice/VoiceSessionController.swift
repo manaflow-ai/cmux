@@ -346,7 +346,7 @@ public final class VoiceSessionController {
                 let defaultDirectory = templateStore.lastDirectory(macDeviceID: macID)
                     ?? defaultTemplate?.defaultDirectory
                 lines.append(
-                    "Task defaults (create_task uses them when parameters are omitted): agent \(defaultTemplate?.name ?? "none"), directory \(defaultDirectory ?? "none saved yet — ask once, then it is remembered")."
+                    "Task defaults (create_task uses them when parameters are omitted): agent \(defaultTemplate?.name ?? "none"), directory \(defaultDirectory ?? "the Mac's own default"). A directory never needs to be asked for: omitting it behaves like the app's new-workspace button."
                 )
             }
         } else {
