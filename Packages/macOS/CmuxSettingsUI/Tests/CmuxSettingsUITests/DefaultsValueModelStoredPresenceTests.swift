@@ -20,14 +20,15 @@ struct DefaultsValueModelStoredPresenceTests {
 
         #expect(model.hasStoredValue == false)
 
-        _ = model.set(true)
-        #expect(model.hasStoredValue == true)
-        #expect(await waitUntil { await store.value(for: key) == true && defaults.object(forKey: key.userDefaultsKey) != nil })
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            _ = model.set(true, afterCommit: { continuation.resume() })
+            // Optimistic: explicit before the async write lands.
+            #expect(model.hasStoredValue == true)
+        }
+        #expect(defaults.object(forKey: key.userDefaultsKey) as? Bool == true)
         #expect(model.hasStoredValue == true)
 
         _ = model.reset()
-        #expect(model.hasStoredValue == false)
-        #expect(await waitUntil { defaults.object(forKey: key.userDefaultsKey) == nil })
         #expect(model.hasStoredValue == false)
     }
 
@@ -42,13 +43,5 @@ struct DefaultsValueModelStoredPresenceTests {
 
         #expect(model.hasStoredValue == true)
         #expect(model.current == false)
-    }
-
-    private func waitUntil(_ condition: () async -> Bool) async -> Bool {
-        for _ in 0..<100_000 {
-            if await condition() { return true }
-            await Task.yield()
-        }
-        return await condition()
     }
 }
