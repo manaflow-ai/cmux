@@ -34,14 +34,13 @@ final class DeviceTerminalMirrorSession {
         didSet {
             inputRouter.setEnabled(phase == .attached)
             attachment.update(connected: phase == .attached, connecting: phase == .attaching)
-            if phase == .detached, oldValue != .detached { onDetached?() }
         }
     }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
     var onAttached: (@MainActor () -> Void)?
-    /// Input typed while the source is unreachable must never replay after
-    /// reconnecting, so a pane that queues its own input drops it here.
-    var onDetached: (@MainActor () -> Void)?
+    /// The reserved pane's early input, held until an attach sticks. Stopping
+    /// the session discards it so a replacement owner never inherits it.
+    private var adoptedRelay: CloudOptimisticInputRelay?
 
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
@@ -129,7 +128,8 @@ final class DeviceTerminalMirrorSession {
         eventTask = nil
         inputRouter.invalidate()
         onAttached = nil
-        onDetached = nil
+        adoptedRelay?.discard()
+        adoptedRelay = nil
         surface?.clearAssignedGrid()
         surface = nil
     }
@@ -139,15 +139,17 @@ final class DeviceTerminalMirrorSession {
         scheduleAttach()
     }
 
-    /// Takes over a reserved pane's input. What was typed before the first
-    /// attach is delivered in order once an attach sticks; what is typed while
-    /// detached is dropped, as the router does for panes it created itself.
+    /// Takes over a reserved pane's input. What was typed before an attach
+    /// first sticks, including while a first attempt failed, belongs to this
+    /// remote surface and is delivered in order once one does. After that the
+    /// router drops input typed while detached, as it does for panes it
+    /// created itself, and stopping the session discards anything still held.
     func adopt(_ relay: CloudOptimisticInputRelay) {
+        adoptedRelay = relay
         onAttached = { [weak self] in
             guard let self else { return }
             relay.attach(self.inputRouter)
         }
-        onDetached = { relay.discard() }
     }
 
     // MARK: - Attach and bytes
