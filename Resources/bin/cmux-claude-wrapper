@@ -950,7 +950,80 @@ normalize_node_options_for_restore() {
     fi
 }
 
+cmux_claude_wrapper_resolve_symlinks() {
+    local path="$1" link hops=0
+    while [[ -L "$path" && $hops -lt 40 ]]; do
+        link="$(readlink "$path")" || break
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="$(dirname "$path")/$link" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    printf '%s' "$path"
+}
+
+cmux_claude_wrapper_target_is_native_executable() {
+    # Volta and mise shims are native launchers (symlinks to their own binary)
+    # that may run a Node claude, so they keep the restore preload.
+    case "$(basename "$(cmux_claude_wrapper_resolve_symlinks "$1")")" in
+        volta-shim|mise|rtx) return 1 ;;
+    esac
+    local magic
+    magic="$(LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')" || return 1
+    case "$magic" in
+        # Mach-O 64/32-bit, universal (fat), and ELF.
+        cffaedfe|cefaedfe|feedfacf|feedface|cafebabe|cafebabf|7f454c46) return 0 ;;
+    esac
+    return 1
+}
+
+# Removes the restore preload cmux injects, and the heap flag merge_node_options
+# places right after it, keeping every other option.
+strip_cmux_node_options() {
+    local -a tokens=()
+    local -a kept=()
+    local index=0
+    read -r -a tokens <<<"$1"
+    while (( index < ${#tokens[@]} )); do
+        if [[ "${tokens[$index]}" == --require=*/cmux-claude-node-options/restore-node-options.cjs ]]; then
+            index=$((index + 1))
+            if [[ "${tokens[$index]:-}" == "--max-old-space-size=4096" ]]; then
+                index=$((index + 1))
+            fi
+            continue
+        fi
+        kept+=("${tokens[$index]}")
+        index=$((index + 1))
+    done
+    if (( ${#kept[@]} > 0 )); then
+        printf '%s' "${kept[*]}"
+    fi
+}
+
 install_cmux_node_options() {
+    # A native claude never runs the --require restore module, so the injected
+    # NODE_OPTIONS would leak to every child it spawns, including sandboxed
+    # apps that cannot read the module. https://github.com/manaflow-ai/cmux/issues/14681
+    # An earlier cmux layer (claude-teams, a re-entering shim) may already have
+    # injected it, so do the module's restore here instead.
+    if cmux_claude_wrapper_target_is_native_executable "$1"; then
+        if [[ "${NODE_OPTIONS:-}" == *"/cmux-claude-node-options/restore-node-options.cjs"* ]]; then
+            if [[ "${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT:-}" == "1" ]]; then
+                export NODE_OPTIONS="${CMUX_ORIGINAL_NODE_OPTIONS:-}"
+            else
+                local remaining
+                remaining="$(strip_cmux_node_options "$NODE_OPTIONS")"
+                if [[ -n "$remaining" ]]; then
+                    export NODE_OPTIONS="$remaining"
+                else
+                    unset NODE_OPTIONS
+                fi
+            fi
+        fi
+        unset CMUX_ORIGINAL_NODE_OPTIONS CMUX_ORIGINAL_NODE_OPTIONS_PRESENT
+        return 0
+    fi
     local guard_path
     if guard_path="$(ensure_node_options_restore_module)"; then
         if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
@@ -1462,7 +1535,7 @@ if (( cmux_claude_wrapper_reexec_hops > 0 )); then
         export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
         export CMUX_AGENT_LAUNCH_CWD="$PWD"
     fi
-    install_cmux_node_options
+    install_cmux_node_options "$REAL_CLAUDE"
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
@@ -1504,7 +1577,7 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
 fi
-install_cmux_node_options
+install_cmux_node_options "$REAL_CLAUDE"
 
 # Build Claude settings JSON. The bundled CLI owns the lifecycle-hook delivery
 # contract so Claude and the installed agent integrations cannot drift. A

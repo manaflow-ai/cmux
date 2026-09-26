@@ -2834,6 +2834,156 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     expect(child_node_options == "__UNSET__", f"tmpdir failure: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
 
 
+NATIVE_FAKE_CLAUDE_C = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void write_value(const char *log_env, const char *value) {
+    const char *path = getenv(log_env);
+    FILE *file = path ? fopen(path, "w") : NULL;
+    if (file) {
+        fprintf(file, "%s\n", value);
+        fclose(file);
+    }
+}
+
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--help") == 0) {
+        const char *help = getenv("FAKE_REAL_HELP_OUTPUT");
+        fputs(help ? help : "", stdout);
+        return 0;
+    }
+    const char *node_options = getenv("NODE_OPTIONS");
+    write_value("FAKE_REAL_NODE_OPTIONS_LOG", node_options ? node_options : "__UNSET__");
+    write_value("FAKE_REAL_RUNTIME_NODE_OPTIONS_LOG", node_options ? node_options : "__UNSET__");
+    const char *args_path = getenv("FAKE_REAL_ARGS_LOG");
+    FILE *args = args_path ? fopen(args_path, "w") : NULL;
+    if (args) {
+        for (int i = 1; i < argc; i++) fprintf(args, "%s\n", argv[i]);
+        fclose(args);
+    }
+    return system("printf '%s\\n' \"${NODE_OPTIONS-__UNSET__}\" > \"$FAKE_REAL_CHILD_NODE_OPTIONS_LOG\"") == 0 ? 0 : 1;
+}
+"""
+
+
+def install_native_fake_claude(tmp: Path, env: dict[str, str]) -> None:
+    """Replace the shell-script fake claude with a compiled executable, the
+    shape of the native Claude Code install (a Mach-O/ELF, not a Node script)."""
+    (tmp / "home").mkdir(exist_ok=True)
+    env["HOME"] = str(tmp / "home")
+    source = tmp / "native-claude.c"
+    source.write_text(NATIVE_FAKE_CLAUDE_C, encoding="utf-8")
+    target = tmp / "real-bin" / "claude"
+    target.unlink()
+    compiled = subprocess.run(["cc", "-o", str(target), str(source)], capture_output=True, text=True)
+    if compiled.returncode != 0:
+        raise RuntimeError(f"cc failed to build the native fake claude: {compiled.stderr}")
+
+
+def install_native_fake_claude_with(extra_env: dict[str, str]):
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        install_native_fake_claude(tmp, env)
+        env.update(extra_env)
+    return setup
+
+
+def install_native_fake_claude_at_volta_path(*, as_shim: bool):
+    """Put the native fake at ~/.volta/bin/claude: either as Volta installs it
+    (a symlink to its `volta-shim` launcher) or as a plain native binary."""
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        install_native_fake_claude(tmp, env)
+        volta_bin = tmp / ".volta" / "bin"
+        volta_bin.mkdir(parents=True)
+        native = tmp / "real-bin" / "claude"
+        if as_shim:
+            native.rename(volta_bin / "volta-shim")
+            (volta_bin / "claude").symlink_to("volta-shim")
+        else:
+            native.rename(volta_bin / "claude")
+        env["PATH"] = env["PATH"].replace(str(tmp / "real-bin"), str(volta_bin))
+    return setup
+
+
+def test_live_socket_native_claude_skips_node_options_injection(failures: list[str]) -> None:
+    # https://github.com/manaflow-ai/cmux/issues/14681: a native claude never
+    # runs the --require restore module, so an injected NODE_OPTIONS leaked to
+    # every child it spawned (shells, apps opened with `open`).
+    code, real_argv, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=install_native_fake_claude,
+    )
+    expect(code == 0, f"native claude: wrapper exited {code}: {stderr}", failures)
+    expect("--session-id" in real_argv, f"native claude: missing --session-id in args: {real_argv}", failures)
+    expect(node_options == "__UNSET__", f"native claude: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"native claude: expected child NODE_OPTIONS unset, got {child_node_options!r}", failures)
+
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="--trace-warnings",
+        setup_sandbox=install_native_fake_claude,
+    )
+    expect(code == 0, f"native claude with user NODE_OPTIONS: wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "--trace-warnings", f"native claude: expected user NODE_OPTIONS untouched, got {node_options!r}", failures)
+    expect(child_node_options == "--trace-warnings", f"native claude: expected child to inherit user NODE_OPTIONS, got {child_node_options!r}", failures)
+
+    # An earlier cmux layer (claude-teams, a re-entering shim) already injected
+    # the restore preload; the wrapper undoes it since the module won't run.
+    injected = "--require=/tmp/x/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096"
+    for label, extra, expected in [
+        ("no original", {"CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0"}, "__UNSET__"),
+        ("original", {"CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1", "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-warnings"}, "--trace-warnings"),
+    ]:
+        code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=injected,
+            setup_sandbox=install_native_fake_claude_with(extra),
+        )
+        expect(code == 0, f"native claude inherited injection ({label}): wrapper exited {code}: {stderr}", failures)
+        expect(node_options == expected, f"native claude inherited injection ({label}): expected {expected!r}, got {node_options!r}", failures)
+        expect(child_node_options == expected, f"native claude inherited injection ({label}): expected child {expected!r}, got {child_node_options!r}", failures)
+
+    # Without the original-value marker, only cmux's preload and heap flag are
+    # removed; the user's own options survive.
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options=f"{injected} --trace-warnings",
+        setup_sandbox=install_native_fake_claude,
+    )
+    expect(code == 0, f"native claude inherited injection (no marker): wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected '--trace-warnings', got {node_options!r}", failures)
+    expect(child_node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected child '--trace-warnings', got {child_node_options!r}", failures)
+
+    # A Volta shim is a native launcher for what may be a Node claude, so it
+    # keeps the restore preload and heap cap.
+    code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=install_native_fake_claude_at_volta_path(as_shim=True),
+    )
+    expect(code == 0, f"volta shim: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "restore-node-options.cjs" in node_options and "--max-old-space-size=4096" in node_options,
+        f"volta shim: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
+
+    # A native claude that merely lives at a Volta path is still native.
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=install_native_fake_claude_at_volta_path(as_shim=False),
+    )
+    expect(code == 0, f"native claude at volta path: wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "__UNSET__", f"native claude at volta path: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"native claude at volta path: expected child NODE_OPTIONS unset, got {child_node_options!r}", failures)
+
+
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
     cases = [
         ("allow/plain", ["--allow-dangerously-skip-permissions", "hello"], True, "--allow-dangerously-skip-permissions"),
@@ -3057,6 +3207,7 @@ def main() -> int:
     test_live_socket_explicit_key_list_is_additive_to_vertex_auto_preserve(failures)
     test_live_socket_enforces_heap_cap_for_space_separated_flag(failures)
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
+    test_live_socket_native_claude_skips_node_options_injection(failures)
     test_live_socket_preserves_explicit_bypass_availability_flag(failures)
     test_live_socket_stale_mktemp_literal_does_not_warn(failures)
     test_missing_socket_skips_hook_injection(failures)
