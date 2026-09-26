@@ -134,6 +134,8 @@ public final class MobileSSHComputers {
     /// disconnected them or declined a first-connect question.
     @ObservationIgnored private var autoConnectSuppressed: Set<UUID> = []
     @ObservationIgnored private var autoConnectTasks: [UUID: Task<Void, Never>] = [:]
+    /// The latest queued write of a host's persisted auto-connect pause flag.
+    @ObservationIgnored private var autoConnectPauseWrite: Task<Void, Never>?
     static let replayCap = 4 * 1_024 * 1_024
 
     public init(directory: URL) {
@@ -796,12 +798,16 @@ public final class MobileSSHComputers {
 
     /// Updates the persisted pause flag. The in-memory record changes at
     /// once so ``canAutoConnect(hostID:)`` sees it before the write lands.
+    /// Writes run one after another, so a pause followed by a resume can
+    /// never land on disk in the opposite order.
     private func setAutoConnectPaused(_ paused: Bool, hostID: UUID) {
         guard let index = hosts.firstIndex(where: { $0.id == hostID }),
               hosts[index].isAutoConnectPaused != paused else { return }
         hosts[index].autoConnectPaused = paused ? true : nil
         let store = hostStore
-        Task {
+        let previous = autoConnectPauseWrite
+        autoConnectPauseWrite = Task {
+            await previous?.value
             guard var stored = await store.host(id: hostID) else { return }
             stored.autoConnectPaused = paused ? true : nil
             try? await store.upsert(stored)
@@ -810,6 +816,11 @@ public final class MobileSSHComputers {
                 hosts[index].autoConnectPaused = stored.autoConnectPaused
             }
         }
+    }
+
+    /// Returns once every pause-flag write queued so far has reached disk.
+    func autoConnectPauseWritesSettled() async {
+        await autoConnectPauseWrite?.value
     }
 
     func verifier(for host: SSHHostRecord) -> MobileSSHHostKeyVerifier {

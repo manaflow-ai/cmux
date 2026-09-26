@@ -35,11 +35,8 @@ import Testing
 
     /// Waits for the background write of the pause flag to reach disk.
     private func persistedPause(_ computers: MobileSSHComputers, hostID: UUID, equals expected: Bool) async -> Bool {
-        for _ in 0..<1_000 {
-            if await computers.hostStore.host(id: hostID)?.isAutoConnectPaused == expected { return true }
-            await Task.yield()
-        }
-        return false
+        await computers.autoConnectPauseWritesSettled()
+        return await computers.hostStore.host(id: hostID)?.isAutoConnectPaused == expected
     }
 
     /// A fresh runtime over the same directory, like the next app launch.
