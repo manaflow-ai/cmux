@@ -189,27 +189,13 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             return .rejected
         }
         if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey,
-           let eventID = gridEventIDs[coalesceKey], let previous = queuedEvents[eventID] {
-            // A Mac grid is an absolute snapshot. Replace the indexed entry
-            // and move it to the back so older events drain first.
-            let nextByteCount = queuedByteCount - previous.frame.count + frame.count
-            guard nextByteCount <= maximumByteCount else {
-                let result = recordOverflowLocked(shedSummary: MobileHostEventShedSummary(), resyncSurfaceIDs: [])
-                lock.unlock()
-                return result
-            }
-            queuedEvents.removeValue(forKey: eventID)
-            let replacementID = UUID()
-            queuedEvents[replacementID] = QueuedEvent(topic: topic, coalesceKey: coalesceKey, frame: frame, stateSeq: stateSeq)
-            queuedOrder.append(replacementID)
-            gridEventIDs[coalesceKey] = replacementID
-            queuedByteCount = nextByteCount
-            let startDrain = !drainActive
-            if startDrain { drainActive = true }
-            lock.unlock()
-            return MobileHostEventEnqueueResult(admitted: true, startDrain: startDrain,
-                renderGridResyncSurfaceIDs: [], depthAfterEnqueue: queuedEvents.count,
-                shedEventCount: 0, shedByteCount: 0, simulatorFrameShedPanelIDs: [], overflowed: false)
+           let eventID = gridEventIDs.removeValue(forKey: coalesceKey),
+           let previous = queuedEvents.removeValue(forKey: eventID) {
+            // A Mac grid is an absolute snapshot, so the new frame supersedes
+            // the queued one. Drop the old entry (dequeue skips its order slot)
+            // and admit the new frame at the back like any other grid frame,
+            // shedding droppable events before an overflow closes the lane.
+            queuedByteCount -= previous.frame.count
         }
         let isRenderGrid = topic == MobileHostEventTopicPolicy().renderGridTopic
         if isRenderGrid,
