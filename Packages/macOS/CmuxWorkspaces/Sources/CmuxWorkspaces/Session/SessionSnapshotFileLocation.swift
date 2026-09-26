@@ -8,7 +8,7 @@ public import Foundation
 /// on the bundle identifier keeps channels from clobbering each other; this
 /// type lets one install locate another install's files so a session can be
 /// moved between channels (`cmux restore-session --from nightly`).
-public enum SessionSnapshotFileLocation {
+public struct SessionSnapshotFileLocation: Sendable, Equatable {
     /// The stable channel's bundle identifier, also the fallback when the
     /// running bundle has none.
     public static let stableBundleIdentifier = "com.cmuxterm.app"
@@ -51,26 +51,33 @@ public enum SessionSnapshotFileLocation {
         return nil
     }
 
+    /// The user's Application Support directory the `cmux/` folder lives in.
+    public let appSupportDirectory: URL
+
+    /// Creates a location rooted at an Application Support directory.
+    ///
+    /// - Parameter appSupportDirectory: The user's Application Support
+    ///   directory (tests pass a temporary directory).
+    public init(appSupportDirectory: URL) {
+        self.appSupportDirectory = appSupportDirectory
+    }
+
     /// The primary snapshot file for `bundleIdentifier`.
     ///
-    /// - Parameters:
-    ///   - bundleIdentifier: The install's bundle identifier; nil or blank
-    ///     falls back to ``stableBundleIdentifier``.
-    ///   - appSupportDirectory: The user's Application Support directory.
+    /// - Parameter bundleIdentifier: The install's bundle identifier; nil or
+    ///   blank falls back to ``stableBundleIdentifier``.
     /// - Returns: `<appSupport>/cmux/session-<sanitized id>.json`.
-    public static func primaryFileURL(bundleIdentifier: String?, appSupportDirectory: URL) -> URL {
-        fileURL(bundleIdentifier: bundleIdentifier, appSupportDirectory: appSupportDirectory, suffix: "")
+    public func primaryFileURL(bundleIdentifier: String?) -> URL {
+        fileURL(bundleIdentifier: bundleIdentifier, suffix: "")
     }
 
     /// The manual-restore backup snapshot file for `bundleIdentifier`.
     ///
-    /// - Parameters:
-    ///   - bundleIdentifier: The install's bundle identifier; nil or blank
-    ///     falls back to ``stableBundleIdentifier``.
-    ///   - appSupportDirectory: The user's Application Support directory.
+    /// - Parameter bundleIdentifier: The install's bundle identifier; nil or
+    ///   blank falls back to ``stableBundleIdentifier``.
     /// - Returns: `<appSupport>/cmux/session-<sanitized id>-previous.json`.
-    public static func backupFileURL(bundleIdentifier: String?, appSupportDirectory: URL) -> URL {
-        fileURL(bundleIdentifier: bundleIdentifier, appSupportDirectory: appSupportDirectory, suffix: "-previous")
+    public func backupFileURL(bundleIdentifier: String?) -> URL {
+        fileURL(bundleIdentifier: bundleIdentifier, suffix: "-previous")
     }
 
     /// The side file that keeps a snapshot written by a newer schema version,
@@ -87,7 +94,7 @@ public enum SessionSnapshotFileLocation {
         return directory.appendingPathComponent("\(baseName).schema-v\(schemaVersion).json", isDirectory: false)
     }
 
-    static func fileURL(bundleIdentifier: String?, appSupportDirectory: URL, suffix: String) -> URL {
+    func fileURL(bundleIdentifier: String?, suffix: String) -> URL {
         let trimmed = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let bundleId = trimmed.isEmpty ? stableBundleIdentifier : bundleIdentifier!
         let safeBundleId = bundleId.replacingOccurrences(

@@ -95,9 +95,8 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     public func snapshotFileURL(bundleIdentifier: String) -> URL? {
         guard let appSupport = resolvedAppSupportDirectory() else { return nil }
-        return SessionSnapshotFileLocation.primaryFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupport
+        return SessionSnapshotFileLocation(appSupportDirectory: appSupport).primaryFileURL(
+            bundleIdentifier: bundleIdentifier
         )
     }
 
@@ -144,9 +143,8 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         let appSupport = resolvedAppSupportDirectory()
             ?? fileManager.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support", isDirectory: true)
-        let primaryURL = SessionSnapshotFileLocation.primaryFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupport
+        let primaryURL = SessionSnapshotFileLocation(appSupportDirectory: appSupport).primaryFileURL(
+            bundleIdentifier: bundleIdentifier
         )
         if isOwnPrimarySnapshot(primaryURL) {
             // Importing this install into itself would reopen the windows it
@@ -162,9 +160,8 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         }
         // Same fallback as startup restore: the `-previous` backup is the
         // recovery copy when the primary is missing or cannot be restored.
-        let backupURL = SessionSnapshotFileLocation.backupFileURL(
-            bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupport
+        let backupURL = SessionSnapshotFileLocation(appSupportDirectory: appSupport).backupFileURL(
+            bundleIdentifier: bundleIdentifier
         )
         switch importableSnapshot(fileURL: backupURL) {
         case .success(let imported):
@@ -345,9 +342,8 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     private func snapshotFileURL(suffix: String) -> URL? {
         guard let appSupport = resolvedAppSupportDirectory() else { return nil }
-        return SessionSnapshotFileLocation.fileURL(
+        return SessionSnapshotFileLocation(appSupportDirectory: appSupport).fileURL(
             bundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupport,
             suffix: suffix
         )
     }
