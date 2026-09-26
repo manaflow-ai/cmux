@@ -8063,6 +8063,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.browserOpenDefaultAndClose",
+                title: constant(String(localized: "browser.openExternallyAndClose", defaultValue: "Open in Default Browser and Close Tab")),
+                subtitle: browserPanelSubtitle,
+                keywords: ["open", "default", "external", "browser", "close", "handoff"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserFocusAddressBar",
                 title: constant(String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")),
                 subtitle: browserPanelSubtitle,
@@ -9141,6 +9150,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserOpenDefault") {
             if !performBrowserAction(.openInDefaultBrowser) {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserOpenDefaultAndClose") {
+            if !performBrowserAction(.openInDefaultBrowserAndClose) {
                 NSSound.beep()
             }
         }

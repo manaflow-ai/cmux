@@ -3,6 +3,7 @@ import Foundation
 
 final class BrowserRecoveryHTTPServer {
     let port: UInt16
+    private let requestPath: String?
 
     private let inputPipe = Pipe()
     private let outputPipe = Pipe()
@@ -10,8 +11,9 @@ final class BrowserRecoveryHTTPServer {
     private var process: Process?
     private var hasHeldRequest = false
 
-    init() throws {
+    init(requestPath: String? = nil) throws {
         self.port = try Self.availablePort()
+        self.requestPath = requestPath
     }
 
     deinit {
@@ -28,6 +30,7 @@ final class BrowserRecoveryHTTPServer {
             "-c",
             Self.serverScript,
             String(port),
+            requestPath ?? "",
         ]
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
@@ -129,9 +132,14 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 port = int(sys.argv[1])
+request_path = sys.argv[2]
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if request_path and self.path != request_path:
+            self.send_response(204)
+            self.end_headers()
+            return
         print('REQUEST', flush=True)
         if sys.stdin.readline().strip() != 'RELEASE':
             self.send_error(500)
