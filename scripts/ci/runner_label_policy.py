@@ -136,14 +136,18 @@ def pool_order_reason(order: str) -> str | None:
 
 
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
+# The light minis' side label for the smallest side-lane jobs (attempt 1);
+# held to the same rule as CI_SIDE_LANE_RUNNER.
+LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
+SIDE_LANE_VARIABLES = (SIDE_LANE_VARIABLE, LIGHT_LANE_VARIABLE)
 SIDE_LANE_PREFIX = "glaeda-side-"
 
 
 def side_lane_reason(label: str) -> str | None:
-    """Why CI_SIDE_LANE_RUNNER is not allowed, or None when it is fine.
+    """Why CI_SIDE_LANE_RUNNER or CI_LIGHT_LANE_RUNNER is not allowed, or None when it is fine.
 
-    The picker-less side lanes (ci-owned-pool-rescue.yml lists them) read this
-    variable as their whole runs-on, so it is the one runner variable that may
+    The picker-less side lanes (ci-owned-pool-rescue.yml lists them) read these
+    variables as their whole runs-on, so they are the runner variables that may
     name an owned side label, glaeda-side-<class>-xcode-<version>: the side
     runners a pool keeps beside its root runners. Anything else is held to the
     workflow policy like every other runner variable.
@@ -194,7 +198,7 @@ def drifted_runner_variables(
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
-        elif name == SIDE_LANE_VARIABLE:
+        elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif "RUNNER" not in name:
             continue

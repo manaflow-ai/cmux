@@ -32,11 +32,14 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # - ios-screenshots.yml: release.yml calls it with only `contents: read`, so a
 #   job there asking for Actions write would fail the release at parse time
 #   (#12149). Its direct dispatches are rare (no run from 2026-09-23 to 09-25).
-# - The side lanes (auth-refresh-tests, cloud-command-deadlines,
-#   cloud-machine-tests, cloud-task-local-tests, iroh-v2, relay-tls,
-#   terminal-hang-diagnostics) have no picker: while vars.CI_SIDE_LANE_RUNNER
-#   names a glaeda-side-* label, every same-repository attempt-1 pull request
-#   run of theirs is on the fleet, so a dispatch would save no run.
+# - The side lanes (app-host-test-rerun, auth-refresh-tests,
+#   cloud-command-deadlines, cloud-machine-tests, cloud-task-local-tests,
+#   cmux-tui, iroh-v2, relay-tls, reload-build, remote-daemon,
+#   terminal-hang-diagnostics)
+#   have no picker: while vars.CI_SIDE_LANE_RUNNER names a glaeda-side-*
+#   label, every trusted attempt-1 run of theirs (a same-repository pull
+#   request, a push, a schedule or a workflow_dispatch) is on the fleet, so a
+#   dispatch would save no run.
 # It needs actions: write, and its code comes from main. It runs whenever
 # owned pools are on (CI_PR_POOL_OWNED is 1), because a run on an owned pool
 # has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. The switch
@@ -51,12 +54,16 @@ on:
       - iOS App Store screenshots
       # Side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS): watched only while
       # vars.CI_SIDE_LANE_RUNNER routes them to the fleet.
+      - App-host test rerun
       - Auth and session lifecycle
       - Cloud command deadlines
       - Cloud machine lifecycle
       - Cloud task-local lifecycle
+      - cmux-tui
       - IROH v2
       - Relay TLS system trust
+      - reload-build
+      - SSH remote daemon
       - Terminal hang diagnostics
     types: [requested]
   workflow_dispatch:
@@ -85,9 +92,12 @@ env:
   # this path. The script confirms the run's own `path` again before acting.
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/ios-screenshots.yml
+    .github/workflows/app-host-test-rerun.yml
     .github/workflows/auth-refresh-tests.yml .github/workflows/cloud-command-deadlines.yml
     .github/workflows/cloud-machine-tests.yml .github/workflows/cloud-task-local-tests.yml
+    .github/workflows/cmux-tui.yml
     .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
+    .github/workflows/reload-build.yml .github/workflows/remote-daemon.yml
     .github/workflows/terminal-hang-diagnostics.yml
 
 concurrency:
@@ -98,7 +108,7 @@ concurrency:
 jobs:
   rescue:
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
     # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is

@@ -54,6 +54,13 @@ permissions:
   actions: read
 
 jobs:
+  # Only whether the tested revision is a branch head of this repository,
+  # which decides whether the rerun may take an owned Mac.
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   plan:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -110,13 +117,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   rerun:
-    needs: plan
+    needs: [plan, resolve-ref]
     # A fork has no Blacksmith installation and no runner variables; the owner
     # check comes first so a fork is never pointed at a label it cannot run.
     # Otherwise run on the Blacksmith pool whose macOS matches the one that
     # compiled the products (plan reads it from the source run's compile
-    # admission): only that image carries the products' Xcode.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    # admission): only that image carries the products' Xcode. Products built
+    # on macOS 26 (Blacksmith or the minis, both Xcode 26.6) rerun on the std
+    # minis' side runners first, as a side lane: attempts 1 and 2 there
+    # (ci-owned-pool-rescue.yml moves a stuck or refused one), then Blacksmith.
+    # Only products this repository's CI built, tested at a branch head of this
+    # repository: a fork's commit or artifacts never run on an owned Mac.
+    # glaeda's hook classes `rerun` as gui, and it takes its root itself.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (inputs.source_repository == github.repository && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"

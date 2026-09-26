@@ -621,24 +621,44 @@ Owned minis serve pull request runs through the pool picker instead; see
 
 ### Side lanes on owned minis
 
-Seven light macOS jobs outside `ci.yml` have no picker: iroh-v2 `client`,
-cloud-command-deadlines `command-regressions`, terminal-hang-diagnostics
-`portal-reconciliation` and `phase-attribution`, cloud-task-local-tests and
-cloud-machine-tests `lifecycle`, relay-tls `diagnostic-presentation`, and
-auth-refresh-tests. Each is `swift test` or `swiftc` into the workspace or a
-temporary directory, with no GUI, keychain, fixed port or canonical root.
-When `vars.CI_SIDE_LANE_RUNNER` names a `glaeda-side-<class>-xcode-<version>`
-label and `CI_PR_POOL_OWNED` is 1, attempt 1 of a same-repository pull request
-run takes that label. glaeda puts it only on a mini's non-root runners, so a
-side lane never holds a root runner a compile or app-host job is waiting for,
-and glaeda's hook classes these job ids as light. Forks, retries and other
-events keep the Blacksmith default. ci-owned-pool-rescue.yml watches these
-runs while the variable is set and re-runs a job that waits past
-`CI_OWNED_POOL_RESCUE_SECONDS`, or is refused, on Blacksmith.
+Macos jobs outside `ci.yml` have no picker. Each is a side lane: its runs-on
+reads `vars.CI_LIGHT_LANE_RUNNER` or `vars.CI_SIDE_LANE_RUNNER`, both
+`glaeda-side-<class>-xcode-<version>` labels. glaeda puts them only on a mini's
+non-root runners, so a side lane never holds a root runner a compile or
+app-host job is waiting for.
 
-relay-tls `system-keychain` (it changes the System keychain trust store),
-plain-paste-worker (macOS 15 only) and app-host-test-rerun (a fixed canonical
-root) stay on Blacksmith. Clear the variable to send every side lane back.
+- Light lanes (glaeda's hook classes them light: `swift test`, `swiftc` or
+  `go test` into the workspace or a temporary directory, with no GUI,
+  keychain, fixed port or canonical root): iroh-v2 `client`,
+  cloud-command-deadlines `command-regressions`, terminal-hang-diagnostics
+  `portal-reconciliation` and `phase-attribution`, cloud-task-local-tests and
+  cloud-machine-tests `lifecycle`, relay-tls `diagnostic-presentation`,
+  auth-refresh-tests, and a direct push or dispatch of remote-daemon.yml's
+  macOS tests. Attempt 1 takes `CI_LIGHT_LANE_RUNNER` (the light minis, plain
+  M4s that still beat a 6 vCPU Blacksmith machine), or `CI_SIDE_LANE_RUNNER`
+  when it is unset; attempt 2 takes `CI_SIDE_LANE_RUNNER` (the std minis).
+- Std lanes: `cmux-tui.yml`'s macOS `lint`, `test` and `cdp-browser-smoke`,
+  `reload-build.yml` (when its runner input is `auto` or the old Blacksmith
+  default), and `app-host-test-rerun.yml` for products this repository's CI
+  built on macOS 26. Attempts 1 and 2 take `CI_SIDE_LANE_RUNNER`.
+
+Both need `CI_PR_POOL_OWNED` to be 1 and a trusted run: a same-repository
+pull request, a push, a schedule or a workflow_dispatch (code from this
+repository's own branches, by people with write access). A dispatch that
+names another revision (reload-build, cloud-machine-tests, app-host-test-rerun
+`ref`) takes an owned Mac only when that revision is the head of a branch of
+this repository (`resolve-dispatch-ref.yml`'s `trusted_ref`), so a fork's
+commit or merge ref stays on Blacksmith; cloud-command-deadlines only without
+`source_ref`. A fork pull request
+takes the Blacksmith default before either variable is read, and merge_group,
+workflow_run and pull_request_target never take one. Attempt 3 and later
+take the Blacksmith default. ci-owned-pool-rescue.yml watches these runs while
+`CI_SIDE_LANE_RUNNER` is set and re-runs a job that waits past
+`CI_OWNED_POOL_RESCUE_SECONDS`, or is refused, on the next attempt's label.
+
+relay-tls `system-keychain` (it changes the System keychain trust store and
+selects Xcode 16.2) and plain-paste-worker (macOS 15 only) stay on Blacksmith.
+Clear both variables to send every side lane back.
 
 ### Which macOS jobs may take an owned Mac
 
@@ -655,13 +675,16 @@ overflow and ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
 | `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
 | `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker (the side label) | light |
 | `ci-macos.yml` `swift-package-tests` | owned side lane via the picker (the side label) when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
-| the seven side-lane workflows above | `CI_SIDE_LANE_RUNNER` on attempt 1 of a pull request | light; other events stay on Blacksmith |
+| the light side lanes above | `CI_LIGHT_LANE_RUNNER` on attempt 1, `CI_SIDE_LANE_RUNNER` on attempt 2, of a pull request, push, schedule or dispatch | light |
 | `test-e2e.yml` (and `dispatch-focused-test.py`) | owned via `e2e_runner_pool.py`; UI runs with `CI_E2E_OWNED_UI=1` | root jobs; Blacksmith when no root runner is free |
 | `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
-| `app-host-test-rerun.yml` `rerun` | Blacksmith | restores a product into a fixed canonical root; needs a root route and a glaeda class first |
-| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | Blacksmith | could move; glaeda classes unknown ids as compile (root), and these ids are generic |
+| `app-host-test-rerun.yml` `rerun` | `CI_SIDE_LANE_RUNNER` for macOS 26 products, attempts 1 and 2; macOS 15 products on Blacksmith macOS 15 | gui; it takes the product's root itself (`glaeda-canonical-root take`) |
+| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | `CI_SIDE_LANE_RUNNER`, attempts 1 and 2 | isolated (glaeda classes them by workflow and id) |
+| `cmux-tui.yml` release-path dogfood `build` (`cmux-tui-build-package.yml`) | Blacksmith macOS 15 | the release packaging build, shared with the release and nightly callers; its matrix is planned once, so a re-run could not leave the minis |
 | `ci-macos.yml` `release-build` | `MACOS_RUNNER_26` | could move; needs a picker key and a glaeda class |
-| low-volume dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks, `iroh-release-gate` version skew | Blacksmith or the caller's runner input | a few runs a week; benchmarks want a quiet machine |
+| `reload-build.yml` `build` | `CI_SIDE_LANE_RUNNER` when the runner input is `auto` or `blacksmith-6vcpu-macos-26`, attempts 1 and 2; any other label as given | isolated: a Debug build into the workspace |
+| low-volume GUI dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks | Blacksmith or the caller's runner input | 0 to 1 runs a week; they drive the app in the runner's own session, which a mini's runner lacks (E2E and the rerun use its console session) |
+| `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets |
