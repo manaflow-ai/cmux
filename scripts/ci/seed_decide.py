@@ -25,9 +25,27 @@ A pool may be a lane `LABEL@K`: the same runners, building in the second (or
 Kth) canonical root, /private/tmp/cmux-ci-K. That root is part of the seed
 key, so an owned Mac's second compile slot only adopts a seed built there.
 
+Far lanes. A pending seed that a newer push replaces is never built, which is
+fine when the newer push is near it, and costly after a change that recompiles
+the `cmux` module: on 2026-09-25 main took 271 pushes, 62 to 77% of each pool's
+seed jobs were replaced, and admission started p50 6 to 11 commits (14 to 28
+app Swift files) behind main. warm_distance.py measured what such a start costs:
+within NEAR_APP_SWIFT_FILES app Swift files, with no package interface change
+and no hot file, p50 140 s; otherwise p50 401 s. So each pool that builds also
+gets a tier, from the nearest ancestor its seed covers (a saved seed, or a seed
+job running now, which is never cancelled) to this push, and `far` lists the
+pools whose tier is not near. seed-derived-data.yml queues a far seed in a
+second concurrency group per pool, so a newer near push never replaces it, and
+it starts beside a running near seed instead of behind it. A newer far push
+still replaces a pending far one (it holds the same change and more), so each
+pool runs at most two seeds and keeps at most two pending. No covering seed
+within the window is far; an error computing the tier is near, which is the
+single lane of before.
+
 Outputs `pools`, the JSON list of pools to build, in the order given, `matrix`,
-the seed job's matrix over them (`pool`, plus `root` for a lane), and `build`,
-whether that list is empty.
+the seed job's matrix over them (`pool`, plus `root` for a lane), `build`,
+whether that list is empty, and `far`, the JSON list of those pools to seed in
+the far lane.
 """
 from __future__ import annotations
 
@@ -37,6 +55,9 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import warm_distance  # noqa: E402
 
 WORKFLOW = "seed-derived-data.yml"
 SEED_JOB = "seed"
@@ -100,6 +121,27 @@ def saved(jobs: Sequence[dict], pool: str) -> bool:
     return False
 
 
+def running(jobs: Sequence[dict], pool: str) -> bool:
+    """Whether one seeder run's job for `pool` is running: it is never cancelled, so it will save or fail."""
+    return any(job.get("name") == seed_job_name(pool) and job.get("status") == "in_progress" for job in jobs)
+
+
+def warm_tier(ancestor: str) -> str:
+    """warm_distance.py's tier of HEAD's tree against ANCESTOR's: near, far or rebuild.
+
+    Unknown package interface changes count as interface changes, as in
+    warm_distance.tier; a git failure raises, and the caller keeps the near lane.
+    """
+    names = subprocess.check_output(
+        ["git", "diff", "--name-only", "--no-renames", ancestor, "HEAD"], text=True, timeout=20)
+    paths = [path for path in names.splitlines() if warm_distance.app_swift(path)]
+    packages = [path for path in paths if warm_distance.package_swift(path)]
+    interface = warm_distance.diff_interface(Path.cwd(), ancestor, "HEAD", packages)
+    model = warm_distance.load_model()
+    hot = model.get("hot_files") or warm_distance.DEFAULT_HOT_FILES
+    return warm_distance.tier(warm_distance.features(paths, interface, hot), model)
+
+
 class Seeds:
     """main's seeder runs, with each run's jobs listed at most once."""
 
@@ -126,6 +168,14 @@ class Seeds:
                 return sha
         return None
 
+    def covering(self, pool: str, ancestors: Iterable[str]) -> str | None:
+        """The nearest ancestor whose seed for `pool` is saved or being built now, or None."""
+        for sha in ancestors:
+            if any(saved(jobs, pool) or running(jobs, pool)
+                   for jobs in (self.run_jobs(run) for run in self.by_sha.get(sha, []))):
+                return sha
+        return None
+
 
 def decide(
     event_name: str,
@@ -134,8 +184,14 @@ def decide(
     api: Api = gh_api,
     ancestors: Callable[[], list[str]] = lineage,
     fingerprint_of: Callable[[str, str], str] = fingerprint,
+    tier_of: Callable[[str], str] = warm_tier,
+    far: list[str] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """(pools to build, in order, one reason per pool) for (pool, Xcode) pairs."""
+    """(pools to build, in order, one reason per pool) for (pool, Xcode) pairs.
+
+    FAR, when given, receives the pools to build whose tier from their
+    covering seed is not near (the far lane).
+    """
     unique: list[tuple[str, str]] = []
     for pool, xcode in pools:
         if pool and pool not in [seen for seen, _ in unique]:
@@ -161,10 +217,26 @@ def decide(
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
                 json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
             reason, needed = f"could not find its nearest seed ({error}); building.", True
-        reasons.append(f"{pool}: {reason}")
         if needed:
             build.append(pool)
+            reason += " " + lane_reason(seeds, pool, history, tier_of, far)
+        reasons.append(f"{pool}: {reason}")
     return build, reasons
+
+
+def lane_reason(seeds: Seeds, pool: str, history: list[str], tier_of: Callable[[str], str],
+                far: list[str] | None) -> str:
+    """Put POOL in FAR when its tier from its covering seed is not near; say why."""
+    try:
+        cover = seeds.covering(pool, history)
+        tier = "far" if cover is None else tier_of(cover)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
+            json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
+        return f"Near lane: could not measure the distance ({error})."
+    if tier != "near" and far is not None:
+        far.append(pool)
+    where = f"no seed covers the last {ANCESTOR_LIMIT} commits" if cover is None else f"{tier} from {cover}"
+    return f"{'Far' if tier != 'near' else 'Near'} lane: {where}."
 
 
 def parse_pool(value: str) -> tuple[str, str]:
@@ -184,13 +256,14 @@ def main(argv: list[str]) -> int:
     for pool, _ in args.pool:
         if pool:
             lane(pool)
-    build, reasons = decide(args.event_name, args.repository, args.pool)
+    far: list[str] = []
+    build, reasons = decide(args.event_name, args.repository, args.pool, far=far)
     print("\n".join(reasons))
     if args.github_output:
         matrix = {"include": [lane(pool) for pool in build]}
         with open(args.github_output, "a", encoding="utf-8") as handle:
             handle.write(f"build={'true' if build else 'false'}\npools={json.dumps(build)}\n"
-                         f"matrix={json.dumps(matrix)}\n")
+                         f"matrix={json.dumps(matrix)}\nfar={json.dumps(far)}\n")
     return 0
 
 

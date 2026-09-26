@@ -7,7 +7,7 @@
     seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
     seed_derived_data.py scope PREFIX
     seed_derived_data.py prefetch STORE REVISION
-    seed_derived_data.py keep DERIVED_DATA KEY
+    seed_derived_data.py keep DERIVED_DATA KEY [PREFIX]
 
 nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
@@ -405,6 +405,20 @@ def stash(derived: Path, key: str) -> None:
     keep_local(cache, incoming, key)
 
 
+def record_source(store: Path, prefix: str) -> None:
+    """Write STORE's SEED_SOURCE for `prefetch`: the unscoped seed prefix this root adopts. Best effort."""
+    if not prefix.startswith("admission-derived-data-v1-"):
+        return
+    source = {"prefix": prefix, "runner_os": os.environ.get("RUNNER_OS", ""),
+              "runner_arch": os.environ.get("RUNNER_ARCH", ""),
+              "public_url": os.environ.get("CI_CACHE_R2_PUBLIC_URL", "")}
+    with contextlib.suppress(OSError):
+        store.mkdir(parents=True, exist_ok=True)
+        incoming = store / f".{SEED_SOURCE}.{os.getpid()}"
+        incoming.write_text(json.dumps(source) + "\n")
+        incoming.rename(store / SEED_SOURCE)
+
+
 def prefetch(store: Path, revision: str) -> dict[str, object]:
     """Download REVISION's nearest seed of this width into STORE/seeds, unless it is there."""
     try:
@@ -626,13 +640,20 @@ def main(argv: list[str]) -> int:
         # The newest-pointer fallback stays within this width.
         start(Path(argv[2]), exact, scoped(prefix), revision, distance)
         return 0
-    if len(argv) == 4 and argv[1] == "keep":
+    if len(argv) in (4, 5) and argv[1] == "keep":
         # The seed this job just built and saved: the next seed job on this Mac clones it instead of
         # downloading it back (seed-derived-data.yml on the trusted pool). A no-op without a local cache.
         try:
             stash(Path(argv[2]), argv[3])
         except (OSError, shutil.Error) as error:
             print(f"Could not keep the seed on this Mac: {error}")
+        cache = local_cache()
+        if len(argv) == 5 and cache is not None:
+            # A seed the other trusted Mac builds in between is not kept here, and the next seed job
+            # downloaded it (73 to 102 s against 16 to 20 s for a kept one, 2026-09-25). With the prefix
+            # recorded, glaeda-seed-prefetch fetches main's newest seed into this cache between jobs,
+            # as it does for compile admission's roots.
+            record_source(cache.parent, argv[4])
         return 0
     if len(argv) == 4 and argv[1] == "prefetch":
         print(json.dumps(prefetch(Path(argv[2]), argv[3])))

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """A main push skips the seed build only when a seed with its inputs exists."""
+import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 import unittest.mock
@@ -40,12 +42,15 @@ LARGE, SMALL, OLD = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "
 POOLS = [(LARGE, "Xcode.app"), (SMALL, "Xcode.app"), (OLD, "Xcode-15.app")]
 
 
-def decide(api, ancestors, prints, event="push", pools=((LARGE, "Xcode.app"),)):
-    """Pools to build; `prints` maps a revision, or (revision, xcode), to its fingerprint."""
+def decide(api, ancestors, prints, event="push", pools=((LARGE, "Xcode.app"),), tiers=None, far=None):
+    """Pools to build; `prints` maps a revision, or (revision, xcode), to its fingerprint, and
+    `tiers` a covering seed's revision to its warm tier against HEAD (near when absent)."""
     return seed_decide.decide(
         event, REPO, list(pools), api=api,
         ancestors=lambda: ancestors,
         fingerprint_of=lambda revision, xcode: prints.get((revision, xcode), prints.get(revision)),
+        tier_of=lambda revision: (tiers or {}).get(revision, "near"),
+        far=far,
     )
 
 
@@ -169,6 +174,90 @@ class Decide(unittest.TestCase):
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
         self.assertEqual(json.loads(values["matrix"]),
                          {"include": [{"pool": trusted}, {"pool": trusted, "root": "2"}]})
+
+
+class FarLane(unittest.TestCase):
+    def test_a_push_far_from_its_covering_seed_takes_the_far_lane(self):
+        api = Api([run(2, "p1")], {2: [seed_job()]})
+        for tier, lane in (("near", []), ("far", [LARGE]), ("rebuild", [LARGE])):
+            far = []
+            build, reasons = decide(api, ["p1"], {"HEAD": "v2", "p1": "v1"}, tiers={"p1": tier}, far=far)
+            self.assertEqual((build, far), ([LARGE], lane), reasons)
+            self.assertIn(f"{'Near' if tier == 'near' else 'Far'} lane: {tier} from p1", reasons[0])
+
+    def test_a_running_seed_covers_its_commit_but_a_pending_one_does_not(self):
+        # p1's seed is being built now (never cancelled), p2's is pending (may be replaced).
+        api = Api([run(3, "p2", status="queued", conclusion=None), run(2, "p1", status="in_progress", conclusion=None),
+                   run(1, "p0")],
+                  {3: [seed_job(status="queued", conclusion=None, saved=False)],
+                   2: [seed_job(status="in_progress", conclusion=None, saved=False)], 1: [seed_job()]})
+        far = []
+        build, reasons = decide(api, ["p2", "p1", "p0"], {"HEAD": "v3", "p0": "v0"},
+                                tiers={"p1": "near", "p0": "rebuild"}, far=far)
+        self.assertEqual((build, far), ([LARGE], []), reasons)
+        self.assertIn("near from p1", reasons[0])
+        # The skip still compares with a saved seed only (p0).
+        self.assertIn("differ from p0", reasons[0])
+
+    def test_no_covering_seed_is_far_and_an_error_is_near(self):
+        far = []
+        build, reasons = decide(Api([], {}), ["p1"], {"HEAD": "v1"}, far=far)
+        self.assertEqual((build, far), ([LARGE], [LARGE]), reasons)
+        self.assertIn("no seed covers", reasons[0])
+
+        def broken(_revision):
+            raise subprocess.CalledProcessError(128, "git")
+        far = []
+        build, reasons = seed_decide.decide(
+            "push", REPO, [(LARGE, "x")], api=Api([run(2, "p1")], {2: [seed_job()]}), ancestors=lambda: ["p1"],
+            fingerprint_of=lambda revision, _xcode: revision, tier_of=broken, far=far)
+        self.assertEqual((build, far), ([LARGE], []), reasons)
+        self.assertIn("Near lane: could not measure", reasons[0])
+
+    def test_skipped_and_dispatched_pools_never_take_the_far_lane(self):
+        api = Api([run(2, "p1")], {2: [seed_job()]})
+        far = []
+        self.assertEqual(decide(api, ["p1"], {"HEAD": "v1", "p1": "v1"}, tiers={"p1": "far"}, far=far)[0], [])
+        self.assertEqual(far, [])
+        decide(api, ["p1"], {"HEAD": "v1", "p1": "v1"}, event="workflow_dispatch", far=far)
+        self.assertEqual(far, [])
+
+    def test_each_lane_measures_from_its_own_covering_seed(self):
+        trusted = "glaeda-trusted-std-xcode-26.6"
+        api = Api([run(2, "p1"), run(1, "p2")], {2: [seed_job(pool=trusted)], 1: [seed_job(pool=f"{trusted}, 2")]})
+        far = []
+        build, _ = decide(api, ["p1", "p2"], {"HEAD": "v3", "p1": "v1", "p2": "v2"},
+                          pools=((trusted, "x"), (f"{trusted}@2", "x")), tiers={"p1": "near", "p2": "far"}, far=far)
+        self.assertEqual((build, far), ([trusted, f"{trusted}@2"], [f"{trusted}@2"]))
+
+    def test_the_tier_is_warm_distance_s_between_the_two_trees(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run([*git, "init", "-q"], check=True)
+            Path(tmp, "Sources").mkdir()
+            Path(tmp, "Packages/Kit").mkdir(parents=True)
+            Path(tmp, "Packages/Kit/K.swift").write_text("struct K {}\n")
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-qm", "base"], check=True)
+            base = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+
+            def commit(changes):
+                for name, text in changes.items():
+                    Path(tmp, name).write_text(text)
+                subprocess.run([*git, "add", "-A"], check=True)
+                subprocess.run([*git, "commit", "-qm", "c"], check=True)
+                cwd = os.getcwd()
+                os.chdir(tmp)
+                try:
+                    return seed_decide.warm_tier(base)
+                finally:
+                    os.chdir(cwd)
+
+            with unittest.mock.patch.object(seed_decide.warm_distance, "load_model", return_value={}):
+                self.assertEqual(commit({f"Sources/A{i}.swift": "a\n" for i in range(3)}), "near")
+                self.assertEqual(commit({f"Sources/B{i}.swift": "b\n" for i in range(3)}), "far")
+                self.assertEqual(commit({"Packages/Kit/K.swift": "public struct K {}\n"}), "rebuild")
 
 
 class Wiring(unittest.TestCase):

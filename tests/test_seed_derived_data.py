@@ -179,6 +179,32 @@ class SeedDerivedData(unittest.TestCase):
         finally:
             del os.environ["CMUX_SEED_LOCAL_CACHE"]
 
+    def test_a_seed_job_records_its_prefix_so_the_mac_prefetches_between_jobs(self):
+        """With a prefix, `keep` records it beside the root's cache, where
+        glaeda-seed-prefetch reads it, so a seed the other trusted Mac builds in
+        between is fetched into this cache before the next seed job needs it."""
+        self.derived.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        prefix = "admission-derived-data-v1-macOS-ARM64-fp-"
+        cache = self.root / "cmux-ci-2" / "seeds"
+        with mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(cache), "RUNNER_OS": "macOS",
+                                          "RUNNER_ARCH": "ARM64", "CI_CACHE_R2_PUBLIC_URL": "https://cache.test"}):
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), prefix + "j14-abc", prefix]), 0)
+        source = json.loads((self.root / "cmux-ci-2" / seed.SEED_SOURCE).read_text())
+        self.assertEqual(source, {"prefix": prefix, "runner_os": "macOS", "runner_arch": "ARM64",
+                                  "public_url": "https://cache.test"})
+        # prefetch reads exactly that record (and points the cache at it: restore the environment after).
+        with mock.patch.dict(os.environ), mock.patch.object(seed, "lineage", return_value=["head"]), \
+                mock.patch.object(seed, "seed_exists", return_value=False):
+            self.assertEqual(seed.prefetch(self.root / "cmux-ci-2", "head")["reason"],
+                             "no seed of this width in REVISION's history")
+        # Without a local cache nothing is recorded; a bad prefix is ignored.
+        (self.root / "cmux-ci-2" / seed.SEED_SOURCE).unlink()
+        self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k", prefix]), 0)
+        with mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(cache)}):
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k2", "../evil-"]), 0)
+        self.assertFalse((self.root / "cmux-ci-2" / seed.SEED_SOURCE).exists())
+
     def test_the_trusted_seed_job_keeps_its_seeds_between_save_and_the_product_steps(self):
         seeder = steps("seed-derived-data.yml", "seed")
         choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
@@ -197,6 +223,8 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn('cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"', choose["run"])
         self.assertIs(keep["continue-on-error"], True)
         self.assertEqual(keep["env"]["SEED_KEY"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        self.assertEqual(keep["env"]["SEED_PREFIX"], "${{ steps.key.outputs.prefix }}")
+        self.assertIn('keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"', keep["run"])
 
     def test_start_downloads_nothing_for_a_kept_seed(self):
         cache = self.root / "seeds"
@@ -607,6 +635,7 @@ def evaluate(expression, context):
     and '' are 0, and a string that is not a number never compares true.
     `&&` and `||` short-circuit, as in Actions, so `x && fromJSON(x)` never
     parses an empty x; fromJSON() and `[index]` read JSON arrays and objects.
+    contains() on an array compares whole elements, as in Actions.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -685,8 +714,11 @@ def evaluate(expression, context):
             needle = either()
             if take() != ")":
                 raise ValueError("unbalanced parentheses")
-            haystack = ("" if haystack is None else str(haystack)).lower()
             needle = ("" if needle is None else str(needle)).lower()
+            if token == "contains" and isinstance(haystack, list):
+                # An array holds the item when an element equals it, ignoring case.
+                return any(str(item).lower() == needle for item in haystack)
+            haystack = ("" if haystack is None else str(haystack)).lower()
             if token == "startsWith":
                 return haystack.startswith(needle)
             return haystack.endswith(needle) if token == "endsWith" else needle in haystack
@@ -998,6 +1030,62 @@ class Wiring(unittest.TestCase):
         self.assertNotEqual(prepare_root(label, "1")[0], 0)
         code, lines = prepare_root("blacksmith-12vcpu-macos-26", "")
         self.assertEqual((code, lines[0]), (0, "CMUX_COMPILE_ADMISSION_DERIVED_DATA=/root1/derived-data-compile-admission"))
+
+    def test_a_far_seed_queues_in_its_own_lane_per_pool_and_root(self):
+        """seed_decide.py's `far` puts a push far from its covering seed in a
+        second concurrency group, so a newer near push never replaces it; a
+        near push keeps the pool's one group, as before."""
+        workflow = load("seed-derived-data.yml")
+        self.assertEqual(workflow["jobs"]["decide"]["outputs"]["far"], "${{ steps.inputs.outputs.far }}")
+        job = workflow["jobs"]["seed"]
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+        label = "glaeda-trusted-std-xcode-26.6"
+
+        def group(pool, root, far):
+            context = github_context("push")
+            context["matrix"] = {"pool": pool, "root": root}
+            context["needs"] = {"decide": {"outputs": {"far": far}}}
+            # A string with several ${{ }} parts, each rendered as Actions does.
+            return re.sub(r"\$\{\{(.*?)\}\}", lambda part: str(evaluate(part.group(1), context) or ""),
+                          job["concurrency"]["group"])
+
+        self.assertEqual(group("blacksmith-12vcpu-macos-26", "", "[]"), "seed-derived-data-blacksmith-12vcpu-macos-26")
+        self.assertEqual(group("blacksmith-12vcpu-macos-26", "", '["blacksmith-12vcpu-macos-26"]'),
+                         "seed-derived-data-blacksmith-12vcpu-macos-26-far")
+        # A lane is named LABEL@K in decide's lists; root 1's far entry is not root 2's.
+        self.assertEqual(group(label, "2", f'["{label}"]'), f"seed-derived-data-{label}-root-2")
+        self.assertEqual(group(label, "2", f'["{label}@2"]'), f"seed-derived-data-{label}-root-2-far")
+        self.assertEqual(group(label, "", f'["{label}@2"]'), f"seed-derived-data-{label}")
+        # An output missing entirely (an older decide) is the near lane.
+        self.assertEqual(group(label, "", ""), f"seed-derived-data-{label}")
+
+    def test_a_seed_job_holds_its_canonical_root_on_an_owned_mac(self):
+        """The far lane can run two seeds of one root at once, so on an owned
+        Mac the job takes its root through glaeda's helper before clearing it;
+        a hook that already placed the job (exit 2) keeps today's behaviour,
+        and any other failure stops the job before it touches the root."""
+        import subprocess
+        _, prepare = named(load("seed-derived-data.yml")["jobs"]["seed"]["steps"], "Prepare admission build paths")
+        text = prepare["run"]
+        self.assertIn("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", text)
+        self.assertLess(text.index('"$helper" take "$root"'), text.index("scripts/ci/clear-dirs.sh"))
+
+        def run(status):
+            with tempfile.TemporaryDirectory() as tmp:
+                helper = Path(tmp, "helper")
+                helper.write_text(f"#!/bin/bash\necho \"$@\" >> {tmp}/calls\nexit {status}\n")
+                helper.chmod(0o755)
+                script = (text.replace("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root", str(helper))
+                          .replace("scripts/ci/clear-dirs.sh", "true"))
+                env = {"PATH": "/usr/bin:/bin", "GITHUB_ENV": str(Path(tmp, "env")), "MATRIX_POOL": "p",
+                       "TRUSTED_POOL": "t", "CMUX_SEED_ROOT": "", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/cmux-ci"}
+                out = subprocess.run(["bash", "-ceu", script], env=env, capture_output=True, text=True)
+                calls = Path(tmp, "calls").read_text().split() if Path(tmp, "calls").exists() else []
+                return out.returncode, calls
+
+        self.assertEqual(run(0), (0, ["take", "/private/tmp/cmux-ci", "--wait", "3000"]))
+        self.assertEqual(run(2)[0], 0)
+        self.assertNotEqual(run(1)[0], 0)
 
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
