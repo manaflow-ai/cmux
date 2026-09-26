@@ -220,6 +220,23 @@ struct CmuxEventLogWriterTests {
         }
     }
 
+    /// When another process rotates and has already created the next log, the
+    /// path exists but names a different inode. The writer must switch to it.
+    @Test
+    func externalRotationWithReplacementFileWritesToReplacement() throws {
+        let (writer, url, _) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let rotatedURL = url.appendingPathExtension("external")
+
+        flush([#"{"seq":1}"#], with: writer)
+        try FileManager.default.moveItem(at: url, to: rotatedURL)
+        #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":2}"#]))
+        #expect(try Data(contentsOf: rotatedURL) == jsonl([#"{"seq":1}"#]))
+    }
+
     /// Another cmux process can append to the shared log after this writer has
     /// positioned its handle but before its write lands. The append-only
     /// descriptor must keep both lines instead of overwriting the other writer's.
