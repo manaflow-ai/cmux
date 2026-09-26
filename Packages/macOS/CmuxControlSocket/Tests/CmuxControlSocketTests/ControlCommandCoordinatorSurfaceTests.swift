@@ -190,6 +190,38 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
     }
 
+    @Test func surfaceClosePayloadReportsTheClosedSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let targetID = UUID()
+        _ = coordinator.ensureRef(kind: .surface, uuid: UUID())
+        let targetRef = coordinator.ensureRef(kind: .surface, uuid: targetID)
+        context.closeResolution = .closed(windowID: nil, workspaceID: workspaceID, surfaceID: targetID)
+        // App teardown forgets a closed surface's ref before the reply is built.
+        context.onSurfaceClose = { [weak coordinator] in
+            coordinator?.removeRef(kind: .surface, uuid: targetID)
+        }
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(targetRef),
+            ]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected close payload, got \(result)")
+            return
+        }
+        #expect(payload["surface_id"] == .string(targetID.uuidString))
+        #expect(payload["surface_ref"] == .string(targetRef))
+        #expect(coordinator.resolveRef(targetRef) == nil)
+        #expect(coordinator.ensureRef(kind: .surface, uuid: UUID()) == "surface:3")
+    }
+
     @Test func surfaceCloseRejectsExplicitNullSurfaceID() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
