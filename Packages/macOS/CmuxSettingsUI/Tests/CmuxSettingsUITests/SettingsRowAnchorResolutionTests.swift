@@ -38,6 +38,7 @@ struct SettingsRowAnchorResolutionTests {
     static let rowConfigPaths: [String] = [
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
+        "app.equalizeSplitsOnCreate",
         "app.focusPaneOnFirstClick",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.globalFontMagnification",
@@ -178,6 +179,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:cloudMachines",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
+        "setting:betaFeatures:predictedEcho",
         "setting:customSidebars:enabled",
         "setting:computerUse:permissions",
         "setting:browser:history",
