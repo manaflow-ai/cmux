@@ -127,7 +127,7 @@ struct MobileTerminalLaneCoordinatorTests {
 
     @Test
     func outputLaneDoesNotFallBackToInputOnlyProvider() async throws {
-        await confirmation("output lanes never invoke the input-only provider", expectedCount: 0) { confirm in
+        try await confirmation("output lanes never invoke the input-only provider", expectedCount: 0) { confirm in
             let outputProvider = TerminalLaneTestProvider(lanes: [])
             let inputProvider = TerminalLaneTestProvider(lanes: [
                 TerminalLaneTestConnection(
