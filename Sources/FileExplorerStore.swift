@@ -1073,6 +1073,30 @@ final class FileExplorerStore: ObservableObject {
         directoryWatchPath = nil
     }
 
+    /// Keeps navigation selection anchored to nodes that remain visible after a reload.
+    private func reconcileSelectionAfterReloadIfReady() {
+        guard loadingPaths.isEmpty else { return }
+        let hasPendingExpandedLoad = nodesByPath.values.contains {
+            $0.isDirectory && expandedPaths.contains($0.path) && $0.children == nil
+        }
+        guard !hasPendingExpandedLoad else { return }
+
+        let visiblePaths = Set(nodesByPath.keys)
+        let retainedPaths = selectedPaths.intersection(visiblePaths)
+        if let selectedPath, visiblePaths.contains(selectedPath) {
+            self.selectedPaths = retainedPaths.isEmpty ? [selectedPath] : retainedPaths
+        } else if let retainedPath = retainedPaths.sorted().first {
+            selectedPath = retainedPath
+            selectedPaths = retainedPaths
+        } else if let fallbackPath = rootNodes.first?.path {
+            selectedPath = fallbackPath
+            selectedPaths = [fallbackPath]
+        } else {
+            selectedPath = nil
+            selectedPaths = []
+        }
+    }
+
     func setProvider(_ newProvider: FileExplorerProvider?, reloadIfAvailable: Bool = true) {
         #if DEBUG
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
@@ -1273,6 +1297,7 @@ final class FileExplorerStore: ObservableObject {
                 }
                 loadTasks[child.path] = childTask
             }
+            reconcileSelectionAfterReloadIfReady()
         } catch {
             if !Task.isCancelled {
                 if let parentNode {
