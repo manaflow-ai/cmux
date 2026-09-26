@@ -1337,7 +1337,8 @@ INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
           "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
           "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
-          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+          "-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}"
+          "-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (

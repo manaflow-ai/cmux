@@ -643,6 +643,7 @@
 		C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */; };
 		C11757000000000000000045 /* CLITestBundleAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000053 /* CLITestBundleAnchor.swift */; };
 		C11757000000000000000054 /* CLITestBundleAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000053 /* CLITestBundleAnchor.swift */; };
+		C117570000000000000000B2 /* CLITmuxCompatBufferContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */; };
 		B05553B10000000000000001 /* CLITmuxCompatRemoteSplitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */; };
 		7837E0057837E0057837E005 /* CLITmuxCompatResizePaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */; };
 		C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */; };
@@ -2815,6 +2816,7 @@
 		C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */; };
 		9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
+		5390FEF581C8C1348F35FF40 /* SessionSnapshotOverwriteGuardAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
 		D5E000000000000000000001 /* SessionTodoStatePersistenceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E000000000000000000002 /* SessionTodoStatePersistenceCoordinator.swift */; };
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
@@ -4745,6 +4747,7 @@
 		A7367002A1B2C3D4E5F60718 /* CLISSHSessionAttachAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISSHSessionAttachAnchorTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIStdioSIGPIPERegressionTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000053 /* CLITestBundleAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITestBundleAnchor.swift; sourceTree = "<group>"; };
+		C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatBufferContentTests.swift; sourceTree = "<group>"; };
 		B05553B10000000000000002 /* CLITmuxCompatRemoteSplitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatRemoteSplitTests.swift; sourceTree = "<group>"; };
 		7837E0067837E0067837E006 /* CLITmuxCompatResizePaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatResizePaneTests.swift; sourceTree = "<group>"; };
 		C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLITmuxCompatStoreConcurrencyTests.swift; sourceTree = "<group>"; };
@@ -6774,6 +6777,7 @@
 		C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreIdentityExclusions.swift; sourceTree = "<group>"; };
 		9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotCodingTrust.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
+		DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionSnapshotOverwriteGuardAppTests.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
 		D5E000000000000000000002 /* SessionTodoStatePersistenceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTodoStatePersistenceCoordinator.swift; sourceTree = "<group>"; };
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
@@ -8178,6 +8182,7 @@
 				C11757000000000000000019 /* CLISSHPTYResizeInputTests.swift */,
 				C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */,
 				C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */,
+				C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
 				C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */,
 				C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */,
@@ -12106,6 +12111,7 @@
 				266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */,
 				F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */,
 				7AAA9FEEAC85B8AB216861F2 /* GotoSplitActionTests.swift */,
+				DA19B32D9CDA472886E0646F /* SessionSnapshotOverwriteGuardAppTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -12848,6 +12854,7 @@
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
 				C11757000000000000000045 /* CLITestBundleAnchor.swift in Sources */,
+				C117570000000000000000B2 /* CLITmuxCompatBufferContentTests.swift in Sources */,
 				C11757000000000000000034 /* CLITmuxCompatStoreConcurrencyTests.swift in Sources */,
 				C11757000000000000000046 /* CLIWindowCommandMockServer.swift in Sources */,
 				C11757000000000000000035 /* CLIWindowHandleRoutingTests.swift in Sources */,
@@ -16424,6 +16431,7 @@
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
+				5390FEF581C8C1348F35FF40 /* SessionSnapshotOverwriteGuardAppTests.swift in Sources */,
 				077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */,
 				583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,

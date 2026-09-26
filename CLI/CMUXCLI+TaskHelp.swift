@@ -429,7 +429,7 @@ extension CMUXCLI {
         set-hook [--list] [--unset <event>] | <event> <command>
         popup
         bind-key | unbind-key | copy-mode
-        set-buffer [--name <name>] <text>
+        set-buffer [--name <name>] [<text> | -]
         list-buffers
         paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]

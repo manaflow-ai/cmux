@@ -526,7 +526,7 @@ tmux compatibility commands:
 | `set-hook` | Manage tmux-compat hook definitions. |
 | `popup` | Placeholder, currently unsupported. |
 | `bind-key`, `unbind-key`, `copy-mode` | Placeholders, currently unsupported. |
-| `set-buffer` | Set a tmux-compat buffer. |
+| `set-buffer` | Set a tmux-compat buffer to the given text exactly; reads stdin when no text (or `-`) is given. |
 | `paste-buffer` | Paste a tmux-compat buffer. |
 | `list-buffers` | List tmux-compat buffers. |
 | `respawn-pane` | Send a restart command to a surface. |
