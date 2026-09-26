@@ -2889,12 +2889,21 @@ def install_native_fake_claude_with(extra_env: dict[str, str]):
     return setup
 
 
-def install_native_fake_claude_as_volta_shim(tmp: Path, env: dict[str, str]) -> None:
-    install_native_fake_claude(tmp, env)
-    volta_bin = tmp / ".volta" / "bin"
-    volta_bin.mkdir(parents=True)
-    (tmp / "real-bin" / "claude").rename(volta_bin / "claude")
-    env["PATH"] = env["PATH"].replace(str(tmp / "real-bin"), str(volta_bin))
+def install_native_fake_claude_at_volta_path(*, as_shim: bool):
+    """Put the native fake at ~/.volta/bin/claude: either as Volta installs it
+    (a symlink to its `volta-shim` launcher) or as a plain native binary."""
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        install_native_fake_claude(tmp, env)
+        volta_bin = tmp / ".volta" / "bin"
+        volta_bin.mkdir(parents=True)
+        native = tmp / "real-bin" / "claude"
+        if as_shim:
+            native.rename(volta_bin / "volta-shim")
+            (volta_bin / "claude").symlink_to("volta-shim")
+        else:
+            native.rename(volta_bin / "claude")
+        env["PATH"] = env["PATH"].replace(str(tmp / "real-bin"), str(volta_bin))
+    return setup
 
 
 def test_live_socket_native_claude_skips_node_options_injection(failures: list[str]) -> None:
@@ -2938,12 +2947,24 @@ def test_live_socket_native_claude_skips_node_options_injection(failures: list[s
         expect(node_options == expected, f"native claude inherited injection ({label}): expected {expected!r}, got {node_options!r}", failures)
         expect(child_node_options == expected, f"native claude inherited injection ({label}): expected child {expected!r}, got {child_node_options!r}", failures)
 
-    # A version-manager shim is a native launcher for what may be a Node
-    # claude, so it keeps the restore preload and heap cap.
+    # Without the original-value marker, only cmux's preload and heap flag are
+    # removed; the user's own options survive.
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options=f"{injected} --trace-warnings",
+        setup_sandbox=install_native_fake_claude,
+    )
+    expect(code == 0, f"native claude inherited injection (no marker): wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected '--trace-warnings', got {node_options!r}", failures)
+    expect(child_node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected child '--trace-warnings', got {child_node_options!r}", failures)
+
+    # A Volta shim is a native launcher for what may be a Node claude, so it
+    # keeps the restore preload and heap cap.
     code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=install_native_fake_claude_as_volta_shim,
+        setup_sandbox=install_native_fake_claude_at_volta_path(as_shim=True),
     )
     expect(code == 0, f"volta shim: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -2951,6 +2972,16 @@ def test_live_socket_native_claude_skips_node_options_injection(failures: list[s
         f"volta shim: expected NODE_OPTIONS restore preload, got {node_options!r}",
         failures,
     )
+
+    # A native claude that merely lives at a Volta path is still native.
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=install_native_fake_claude_at_volta_path(as_shim=False),
+    )
+    expect(code == 0, f"native claude at volta path: wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "__UNSET__", f"native claude at volta path: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    expect(child_node_options == "__UNSET__", f"native claude at volta path: expected child NODE_OPTIONS unset, got {child_node_options!r}", failures)
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
