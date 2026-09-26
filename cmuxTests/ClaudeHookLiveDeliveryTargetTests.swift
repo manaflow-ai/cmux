@@ -61,7 +61,7 @@ struct ClaudeHookLiveDeliveryTargetTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
 
-        let record = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        let record = try #require(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
         #expect(record["autoNameUserOwned"] as? Bool == true)
     }
 
