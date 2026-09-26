@@ -335,9 +335,18 @@ cmux restore-session --from ~/session.json   # reopen an exported file
 The imported session opens as additional windows next to the ones you have, like
 `cmux restore-session`; the other install's saved file is only read. Agent resume carries
 over because hook session mappings in `~/.cmuxterm/` are shared by every install. Browser
-cookies and logins are per install and do not move. An imported file is restored with the
-same trust as your own saved session, including agent resume commands, so only import files
-you exported yourself. A snapshot saved by a newer cmux
+cookies and logins are per install and do not move.
+
+`--from <channel>` restores another install's own session file with the same trust as your
+own session, including automatic agent resume. `--from <path>` treats the file as untrusted:
+layout, working directories, scrollback, and browser tabs restore, but nothing in the file runs
+automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with the command
+cmux builds from the agent kind and session id, ignoring launch arguments stored in the file.
+Custom agent resume commands, resume bindings, and tmux start commands are kept for manual
+restore, the same as CLI-created bindings (a signed approved prefix still applies): the CLI
+reports how many were held back, and in each terminal `cmux surface resume show` shows the
+command and `cmux restore --surface` runs it. SSH/cloud connections and workspace environment
+variables from the file are dropped. A snapshot saved by a newer cmux
 (newer session format) is refused with an error; if a downgraded cmux finds one in its own
 session file, it keeps a copy next to it as `session-<bundle id>.schema-v<N>.json`.
 

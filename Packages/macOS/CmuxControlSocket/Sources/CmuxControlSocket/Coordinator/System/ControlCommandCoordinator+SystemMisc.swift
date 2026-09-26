@@ -57,11 +57,14 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Session context not attached", data: nil)
         }
         switch systemContext.controlSessionImport(source: source) {
-        case let .restored(sourcePath, windowCount):
+        case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount):
             return .ok(.object([
                 "restored": .bool(true),
                 "source_path": .string(sourcePath),
                 "window_count": .int(Int64(windowCount)),
+                "trusted": .bool(source.isTrusted),
+                "held_back_resume_count": .int(Int64(heldBackResumeCount)),
+                "dropped_remote_workspace_count": .int(Int64(droppedRemoteWorkspaceCount)),
             ]))
         case let .failed(code, message, path):
             return .err(code: code, message: message, data: .object(["path": orNull(path)]))

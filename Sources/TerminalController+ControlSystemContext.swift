@@ -259,7 +259,8 @@ extension TerminalController: ControlSystemContext {
     /// Imports another install's saved session (or a snapshot file) through
     /// the same path as `session.restore_previous`: the snapshot opens as
     /// additional windows next to the current ones, skipping workspaces and
-    /// panels that are already live. The source file is only read.
+    /// panels that are already live. The source file is only read. A file
+    /// import goes through `SessionSnapshotImportTrust` first.
     func controlSessionImport(source: ControlSessionImportSource) -> ControlSessionImportResolution {
         guard let appDelegate = AppDelegate.shared else {
             return .failed(code: "unavailable", message: "AppDelegate not available", path: nil)
@@ -293,14 +294,21 @@ extension TerminalController: ControlSystemContext {
                 path: error.fileURL.path
             )
         case .success(let imported):
+            // Another install's own session file keeps full trust. An
+            // arbitrary file restores its layout, but nothing it carries may
+            // run automatically (see SessionSnapshotImportTrust).
+            let (snapshot, trustReport) = SessionSnapshotImportTrust.snapshotForRestore(
+                imported.snapshot,
+                source: source
+            )
             // Count what restore will actually open: crash-diagnostic windows
             // are dropped and the window count is capped.
             let windowCount = min(
-                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: imported.snapshot)
+                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
                     .snapshot?.windows.count ?? 0,
                 SessionPersistencePolicy.maxWindowsPerSnapshot
             )
-            guard appDelegate.restorePreviousSessionSnapshot(imported.snapshot, shouldActivate: false) else {
+            guard appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false) else {
                 return .failed(
                     code: "invalid_state",
                     message: String(
@@ -313,7 +321,12 @@ extension TerminalController: ControlSystemContext {
                     path: imported.fileURL.path
                 )
             }
-            return .restored(sourcePath: imported.fileURL.path, windowCount: windowCount)
+            return .restored(
+                sourcePath: imported.fileURL.path,
+                windowCount: windowCount,
+                heldBackResumeCount: trustReport.heldBackResumeCount,
+                droppedRemoteWorkspaceCount: trustReport.droppedRemoteWorkspaceCount
+            )
         }
     }
 

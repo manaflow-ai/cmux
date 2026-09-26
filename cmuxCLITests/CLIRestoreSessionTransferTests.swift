@@ -50,10 +50,22 @@ final class CLIRestoreSessionTransferTests {
         let (result, payloads) = try runAgainstMockServer(
             label: "from-path",
             arguments: ["restore-session", "--from=exports/moved-session.json"],
-            reply: ["restored": true, "source_path": "/x/exports/moved-session.json", "window_count": 1]
+            reply: [
+                "restored": true,
+                "source_path": "/x/exports/moved-session.json",
+                "window_count": 1,
+                "trusted": false,
+                "held_back_resume_count": 2,
+                "dropped_remote_workspace_count": 0,
+            ]
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        #expect(lines.first == "OK /x/exports/moved-session.json")
+        #expect(lines.count == 2, Comment(rawValue: result.stdout))
+        #expect(lines.last?.contains("Held back automatic resume in 2 terminals") == true, Comment(rawValue: result.stdout))
+        #expect(lines.last?.contains("cmux restore --surface") == true, Comment(rawValue: result.stdout))
         let params = payloads.first?["params"] as? [String: Any]
         let path = try #require(params?["path"] as? String)
         #expect(path.hasPrefix("/"))

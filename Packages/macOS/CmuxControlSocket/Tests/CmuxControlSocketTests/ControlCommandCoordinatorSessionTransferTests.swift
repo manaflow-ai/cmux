@@ -17,7 +17,12 @@ struct ControlCommandCoordinatorSessionTransferTests {
 
     @Test func importFromChannelForwardsSourceAndReportsWindows() throws {
         let context = FakeSessionTransferControlCommandContext()
-        context.importResolution = .restored(sourcePath: "/support/cmux/session-com.cmuxterm.app.nightly.json", windowCount: 2)
+        context.importResolution = .restored(
+            sourcePath: "/support/cmux/session-com.cmuxterm.app.nightly.json",
+            windowCount: 2,
+            heldBackResumeCount: 0,
+            droppedRemoteWorkspaceCount: 0
+        )
 
         let result = call("session.import", ["source": .string(" nightly ")], context: context)
 
@@ -29,14 +34,29 @@ struct ControlCommandCoordinatorSessionTransferTests {
         #expect(payload["restored"] == .bool(true))
         #expect(payload["source_path"] == .string("/support/cmux/session-com.cmuxterm.app.nightly.json"))
         #expect(payload["window_count"] == .int(2))
+        #expect(payload["trusted"] == .bool(true))
+        #expect(payload["held_back_resume_count"] == .int(0))
     }
 
-    @Test func importFromAbsolutePathForwardsFileSource() {
+    @Test func importFromAbsolutePathForwardsFileSourceAndReportsHeldBackResumes() {
         let context = FakeSessionTransferControlCommandContext()
+        context.importResolution = .restored(
+            sourcePath: "/Users/me/session.json",
+            windowCount: 1,
+            heldBackResumeCount: 3,
+            droppedRemoteWorkspaceCount: 1
+        )
 
-        _ = call("session.import", ["path": .string("/Users/me/session.json")], context: context)
+        let result = call("session.import", ["path": .string("/Users/me/session.json")], context: context)
 
         #expect(context.importSources == [.file(path: "/Users/me/session.json")])
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected ok payload, got \(result)")
+            return
+        }
+        #expect(payload["trusted"] == .bool(false))
+        #expect(payload["held_back_resume_count"] == .int(3))
+        #expect(payload["dropped_remote_workspace_count"] == .int(1))
     }
 
     @Test(arguments: [
