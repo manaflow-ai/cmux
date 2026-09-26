@@ -5872,7 +5872,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             trimmed = reportedDirectory
         }
         let previousPresentedDirectory = presentedCurrentDirectory
-        let previousTitleDirectory = panelDirectories[panelId] ?? currentDirectory
+        let previousTitleDirectory = panelDirectories[panelId]
+            ?? terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ?? currentDirectory
         let titleBeforeDirectoryUpdate = panelTitles[panelId]
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport &&
