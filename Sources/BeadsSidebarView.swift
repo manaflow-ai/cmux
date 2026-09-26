@@ -6,7 +6,7 @@ struct BeadsSidebarView: View {
         ContentUnavailableView {
             Label(String(localized: "rightSidebar.mode.beads", defaultValue: "Beads"), systemImage: "checklist")
         } description: {
-            Text(String(localized: "rightSidebar.beads.unavailable", defaultValue: "Beads integration is not available yet."))
+            Text(String(localized: "rightSidebar.beads.unavailable", defaultValue: "This integration is not available yet."))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("RightSidebarBeads")
