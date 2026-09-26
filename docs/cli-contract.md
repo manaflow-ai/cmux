@@ -76,7 +76,7 @@ Environment:
 | `fork` | Replace the CLI with a provider fork process restored from structured surface state. |
 | `restore-session` | Restore the previously saved cmux session. |
 | `open` | Open files, directories, or URLs in cmux. |
-| `feedback` | Open feedback UI or submit feedback with `--email`, `--body`, and repeated `--image`. |
+| `feedback` | Open feedback UI or submit feedback with `--body`, repeated `--image`, and an optional `--email` (omit it to send anonymously). |
 | `feed` | Open the keyboard-first Feed TUI or manage persisted Feed workstream history. |
 | `themes` | List, set, clear, or interactively pick Ghostty themes. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |

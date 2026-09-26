@@ -5988,9 +5988,8 @@ class TerminalController {
     }
 
     private nonisolated func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
-        guard let email = params["email"] as? String else {
-            return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
-        }
+        // Email is optional: a missing or empty one submits anonymously.
+        let email = params["email"] as? String ?? ""
         guard let body = params["body"] as? String else {
             return .err(code: "invalid_params", message: "Missing body", data: ["field": "body"])
         }

@@ -8573,10 +8573,8 @@ struct CMUXCLI {
             return
         }
 
-        guard let email = emailOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
-              email.isEmpty == false else {
-            throw CLIError(message: "feedback requires --email <email> when sending feedback")
-        }
+        // --email is optional; without it the feedback is sent anonymously.
+        let email = emailOpt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard let body = bodyOpt, body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             throw CLIError(message: "feedback requires --body <text> when sending feedback")
         }
@@ -18545,14 +18543,14 @@ struct CMUXCLI {
         case "feedback":
             return """
             Usage: cmux feedback
-                   cmux feedback --email <email> --body <text> [--image <path> ...]
+                   cmux feedback [--email <email>] --body <text> [--image <path> ...]
 
             Without args, open the Send Feedback modal in the running app.
 
             With args, submit feedback through the app using the same feedback pipeline as the modal.
 
             Flags:
-              --email <email>   Contact email for follow-up
+              --email <email>   Contact email for follow-up (optional; omit to send anonymously)
               --body <text>     Feedback body
               --image <path>    Attach an image file, repeat for multiple images
 
