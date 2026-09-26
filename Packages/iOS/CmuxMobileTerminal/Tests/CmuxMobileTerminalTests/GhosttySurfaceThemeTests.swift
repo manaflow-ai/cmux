@@ -137,8 +137,7 @@ import UIKit
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1)))
-func reverseModeOSCResetsUseRawConfigDefaults() async throws {
+@Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
     var rawConfig = TerminalTheme.monokai
@@ -159,12 +158,6 @@ func reverseModeOSCResetsUseRawConfigDefaults() async throws {
         terminalConfigTheme: rawConfig
     )
     defer { view.prepareForDismantle() }
-    // The display link runs the output apply watchdog, which replaces the
-    // surface and fails the apply after two seconds. A simulator running the
-    // suite in parallel can take that long to apply one chunk. Stop the link
-    // so the apply only fails if it never finishes, which the time limit
-    // catches. Nothing here restarts the link on a view without a window.
-    view.stopDisplayLink()
     let resetWhileReversed = Data(
         ("\u{1B}]10;#123456\u{1B}\\" +
             "\u{1B}]11;#654321\u{1B}\\" +
@@ -174,7 +167,7 @@ func reverseModeOSCResetsUseRawConfigDefaults() async throws {
             "\u{1B}]111\u{1B}\\").utf8
     )
 
-    #expect(await view.processOutputAndWait(resetWhileReversed))
+    #expect(await view.processOutputAndWaitWithTestDeadline(resetWhileReversed))
     let frame = try exportThemeFrame(from: view)
 
     #expect(frame.terminalBackground?.lowercased() == rawConfig.foreground.lowercased())
@@ -192,30 +185,26 @@ func reverseModeOSCResetsUseRawConfigDefaults() async throws {
         terminalConfigTheme: try #require(frame.terminalConfigTheme)
     )
     defer { mirror.prepareForDismantle() }
-    mirror.stopDisplayLink()
 
-    #expect(await mirror.processOutputAndWait(frame.vtPatchBytes()))
+    #expect(await mirror.processOutputAndWaitWithTestDeadline(frame.vtPatchBytes()))
     let mirroredFrame = try exportThemeFrame(from: mirror, surfaceID: "reverse-reset-mirror")
     #expect(mirroredFrame.terminalTheme?.palette[200].lowercased() == "#abcdef")
     #expect(mirroredFrame.terminalConfigTheme?.palette[200].lowercased() == rawConfig.palette[200].lowercased())
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1)))
-func semanticCursorConfigAppliesBeforeReplayReset() async throws {
+@Test func semanticCursorConfigAppliesBeforeReplayReset() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
     let view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
     defer { view.prepareForDismantle() }
-    // Keep the output apply watchdog out of the test, as above.
-    view.stopDisplayLink()
     var semanticConfig = TerminalTheme.monokai
     semanticConfig.foreground = "#123456"
     semanticConfig.cursorColorSemantic = .foreground
     view.terminalConfigTheme = semanticConfig
 
     #expect(
-        await view.processOutputAndWait(
+        await view.processOutputAndWaitWithTestDeadline(
             Data("\u{1B}]112\u{1B}\\".utf8),
             terminalConfigTheme: semanticConfig
         )
@@ -227,8 +216,7 @@ func semanticCursorConfigAppliesBeforeReplayReset() async throws {
 }
 
 @MainActor
-@Test(.timeLimit(.minutes(1)))
-func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
+@Test func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
     let runtime = try GhosttyRuntime()
     let localColors = """
     bold-color = #ff0000
@@ -258,10 +246,8 @@ func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
         terminalConfigTheme: remoteTheme
     )
     defer { view.prepareForDismantle() }
-    // Keep the output apply watchdog out of the test, as above.
-    view.stopDisplayLink()
 
-    #expect(await view.processOutputAndWait(Data("\u{1B}[1mX".utf8)))
+    #expect(await view.processOutputAndWaitWithTestDeadline(Data("\u{1B}[1mX".utf8)))
     let frame = try exportThemeFrame(from: view, surfaceID: "local-optional-color-reset")
     let matchingStyle = frame.styles.first(where: { $0.bold })
     let boldStyle = try #require(matchingStyle)

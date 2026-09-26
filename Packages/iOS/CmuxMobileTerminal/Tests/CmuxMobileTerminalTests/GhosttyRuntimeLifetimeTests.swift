@@ -27,7 +27,7 @@ struct GhosttyRuntimeLifetimeTests {
         // Only the view refers to the runtime now, and its surface still
         // needs the app.
         try #require(weakRuntime != nil)
-        #expect(await view?.processOutputAndWait(Data("X".utf8)) == true)
+        #expect(await view?.processOutputAndWaitWithTestDeadline(Data("X".utf8)) == true)
 
         view?.prepareForDismantle()
         view?.disposeSurface()
