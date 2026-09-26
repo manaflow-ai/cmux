@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The geometry a machine workspace should open with on this Mac: the daemon screen's
@@ -6,7 +7,7 @@ import Foundation
 /// walks it so a clicked workspace row (or `cmux vm workspace open`) reproduces the
 /// machine's splits, ratios and tabs instead of a generic grid.
 indirect enum SurfaceProjectionLayout: Hashable, Sendable {
-    /// One local pane: `placements[0]` is what the pane shows, the rest are tabs in it.
+    /// One local pane in tab-bar order; the provider's selected tab is shown first.
     case leaf(placements: [SurfaceResourcePlacement])
     /// Two panes or subtrees side by side (`.right`) or stacked (`.down`). `ratio` is the
     /// first child's share of the split, already clamped to `0.1…0.9`.
@@ -40,8 +41,8 @@ indirect enum SurfaceProjectionLayout: Hashable, Sendable {
     }
 }
 
-/// A provider that can report a workspace's current geometry. Only the cmux-tui machine
-/// provider conforms; This Mac and test providers do not, and every caller treats a
+/// A provider that can report a workspace's current geometry. Cloud machines and
+/// connected Macs supply their authoritative pane trees; every caller treats a
 /// missing or failed answer as "open the way you always did".
 @MainActor
 protocol SurfaceProjectionLayoutProviding: AnyObject {
@@ -53,8 +54,8 @@ protocol SurfaceProjectionLayoutProviding: AnyObject {
 /// The daemon's `LayoutDocument` (spec `resource-operations-v2.json`) is walked node for
 /// node: a `leaf` is a pane and its tabs, a `split` keeps its direction and ratio, a
 /// `stack` becomes stacked panes with equal shares, and a `viewport` becomes side-by-side
-/// columns weighted by their widths. Only the focused screen's tree is geometry; tabs of
-/// the workspace's other screens are appended to the first pane. Tabs whose resource the
+/// columns weighted by their widths. Screens are composed side by side in daemon order,
+/// preserving each screen's tree and the sidebar's flat ordering. Tabs whose resource the
 /// catalog does not know are dropped, a pane left with no tab collapses into its sibling,
 /// and a document this translator does not understand yields `nil` rather than a guess.
 enum CloudWorkspaceLayoutTranslator {
@@ -80,35 +81,19 @@ enum CloudWorkspaceLayoutTranslator {
         workspaceID: String,
         resources: [SurfaceResource]
     ) -> SurfaceProjectionLayout? {
-        guard let tables = Tables(snapshot: snapshot, machine: machine, workspaceID: workspaceID, resources: resources),
-              let primary = tables.screens.first(where: { $0.focused }) ?? tables.screens.first,
-              let document = primary.layout else {
-            return nil
-        }
-        // `screens[].layout` is a LayoutDocument (`{version, screen_id, root, …}`); accept a
-        // bare node too, in case a build inlines the root.
-        let root: Any?
-        if let nested = document["root"] {
-            root = nested
-        } else if document["kind"] != nil {
-            root = document
-        } else {
-            root = nil
-        }
-        let tree: SurfaceProjectionLayout?
-        do {
-            tree = try build(root, screen: primary, tables: tables)
-        } catch {
-            return nil
-        }
-        guard let tree else { return nil }
-        var extras: [SurfaceResourcePlacement] = []
-        for screen in tables.screens where screen.id != primary.id {
-            for paneID in tables.paneIDsByScreen[screen.id] ?? [] {
-                extras += tables.placements(inPane: paneID, screen: screen)
+        guard let tables = Tables(snapshot: snapshot, machine: machine, workspaceID: workspaceID, resources: resources) else { return nil }
+        var trees: [SurfaceProjectionLayout] = []
+        for screen in tables.screens {
+            guard let document = screen.layout else { return nil }
+            var root = document["root"]
+            if root == nil, document["kind"] != nil { root = document }
+            do {
+                if let tree = try build(root, screen: screen, tables: tables) { trees.append(tree) }
+            } catch {
+                return nil
             }
         }
-        return tree.appendingToFirstLeaf(extras)
+        return stacked(trees, direction: .right, weights: Array(repeating: 1, count: trees.count))
     }
 
     // MARK: - Snapshot tables

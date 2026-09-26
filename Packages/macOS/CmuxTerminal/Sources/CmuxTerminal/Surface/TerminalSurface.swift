@@ -21,25 +21,6 @@ internal import CMUXDebugLog
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
 public final class TerminalSurface: Identifiable, ObservableObject {
-    /// The live find-in-terminal session state for one surface.
-    public final class SearchState: ObservableObject {
-        /// The current search needle.
-        @Published public var needle: String
-
-        /// The 1-based index of the selected match, if known.
-        @Published public var selected: UInt?
-
-        /// The total number of matches, if known.
-        @Published public var total: UInt?
-
-        /// Creates search state with an initial needle.
-        public init(needle: String = "") {
-            self.needle = needle
-            self.selected = nil
-            self.total = nil
-        }
-    }
-
     static let committedTextInputChunkByteLimit = 96
 
     /// `ESC[?7l`, disable DECAWM (autowrap). Injected around a mirror
@@ -52,6 +33,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
+    public typealias TextSendResult = CmuxTerminalCore.TextSendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
@@ -93,12 +75,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-
-    /// Presentation state for the current runtime renderer. This distinguishes a
-    /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving Ghostty's native rebuild transaction.
+    let terminalWork: TerminalSurfaceWorkDiagnostics
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-
+    /// Current renderer health; the direct callback below is the observation seam for hosts.
+    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+        didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
+    }
+    var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
+    let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
@@ -201,16 +185,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The tmux bootstrap command captured for respawn, if any.
     public let tmuxStartCommand: String?
 
-    /// Text written to the surface immediately after the first spawn, if any.
+    /// Startup text retained until the shell reports readiness.
     public let initialInput: String?
     var nextRuntimeInitialInput: String?
+    var startupInputGate = TerminalStartupInputGate()
     /// When true, a deferred restore was cancelled before its first runtime.
-    /// This suppresses the construction-time startup payload while retaining
-    /// the configured values for persistence/debug inspection.
+    /// Suppresses the payload while retaining its persistence/debug configuration.
     var suppressConfiguredInitialInput = false
-    /// The command to use when a deferred restore is cancelled, if it needs to
-    /// keep a transport attach alive without running the resume payload.
-    var startupRestoreAdmissionFallbackCommand: String?
     var startupRestoreAdmissionCommandOverride: String?
     var hasStartupRestoreAdmissionCommandOverride = false
     let initialEnvironmentOverrides: [String: String]
@@ -306,6 +287,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    /// The last pane size a host committed through ``commitPaneGeometry(_:)``.
+    /// The renderer grid and PTY size derive from this value and from nothing
+    /// else, so a frame the user cannot see never reaches the terminal.
+    @MainActor public internal(set) var committedPaneGeometry: TerminalPaneGeometry?
+    /// A runtime creation that waits for the first committed pane geometry so
+    /// the PTY's initial window size is the pane's real size.
+    var pendingRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -341,6 +329,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?
@@ -619,6 +608,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
+        self.terminalWork = dependencies.terminalWork
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -659,12 +649,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public func debugWaitAfterCommand() -> Bool {
         configTemplate?.waitAfterCommand ?? false
     }
-
     /// The ghostty launch context the surface was created with.
     public var launchContext: ghostty_surface_context_e {
         surfaceContext
     }
-
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
@@ -675,7 +663,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }
-
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
@@ -688,7 +675,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement = placement
         registry.updateFocusPlacement(for: self, placement)
     }
-
     /// Retires logical registry ownership once across explicit teardown and deinit.
     func retireSurfaceRegistryRegistrationIfNeeded() {
         guard ownsSurfaceRegistryRegistration else { return }
@@ -820,10 +806,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 extension TerminalSurface: TerminalSurfaceControlling {
     /// The stable identity of the terminal surface (callback seam).
     public var surfaceId: UUID { id }
-
     /// The workspace tab that owns the surface (callback seam).
     public var owningTabId: UUID { tabId }
-
     /// The live runtime surface pointer (callback seam).
     public var runtimeSurfacePointer: ghostty_surface_t? { surface }
 }
@@ -832,7 +816,6 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; lifecycle generations are registered separately so
 // the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
-
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the
 /// main actor for closing. `@unchecked Sendable` because the window is
 /// exclusively owned by the request from creation until `close()` runs.

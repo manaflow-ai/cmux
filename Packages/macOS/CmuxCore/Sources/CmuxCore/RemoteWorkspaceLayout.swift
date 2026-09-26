@@ -11,12 +11,10 @@ public struct RemoteWorkspaceLayout: Sendable {
     public let rows: [RemoteWorkspaceLayoutRow]
 
     /// Source-array indices in the same visual order as the workspace rows,
-    /// with every tab emitted as a sibling after its pane's focused tab.
+    /// with every tab emitted in its pane's tab order, independently of focus.
     /// Consumers that render a flat resource list should use this projection;
     /// ``rows`` remains available to callers that need pane grouping metadata.
-    public var flatPlacementIndices: [Int] {
-        rows.flatMap { [$0.shownIndex] + $0.hiddenIndices }
-    }
+    public let flatPlacementIndices: [Int]
 
     private enum ScreenIdentity: Hashable {
         case id(String)
@@ -67,10 +65,12 @@ public struct RemoteWorkspaceLayout: Sendable {
                 < (rightPlacement.screenIndex ?? Int.max, rightPlacement.paneIndex ?? Int.max, right.offset)
         }.map(\.element)
         var rows: [RemoteWorkspaceLayoutRow] = []
+        var ordered: [Int] = []
         for pane in orderedPanes {
             let tabs = pane.tabIndices.sorted { left, right in
                 (placements[left].tabIndex ?? Int.max, left) < (placements[right].tabIndex ?? Int.max, right)
             }
+            ordered.append(contentsOf: tabs)
             let shown = tabs.first { placements[$0].focused } ?? tabs[0]
             rows.append(RemoteWorkspaceLayoutRow(shownIndex: shown, hiddenIndices: tabs.filter { $0 != shown }))
         }
@@ -79,5 +79,6 @@ public struct RemoteWorkspaceLayout: Sendable {
         }
         rows.append(contentsOf: orderedLoose.map { RemoteWorkspaceLayoutRow(shownIndex: $0, hiddenIndices: []) })
         self.rows = rows
+        self.flatPlacementIndices = ordered + orderedLoose
     }
 }

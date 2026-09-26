@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -110,6 +112,7 @@ final class NewMachineModel {
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
+        if normalizedPlanId(planId) == "go" { return 4096 }
         if normalizedPlanId(planId) == maxPlanId {
             return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
         }
@@ -149,8 +152,12 @@ final class NewMachineModel {
     private(set) var lockedMemoryOptionsMb: [Int]
     /// The plan that sells the locked sizes; nil when nothing is locked.
     private(set) var memoryUpgradePlanId: String?
+    private(set) var memoryUpgradePlansByMb: [String: String]?
+    /// The server advertised a ladder, but every size is locked for this plan.
+    /// Creation must stay disabled until the server returns an allowed size.
+    private(set) var hasNoAllowedMemoryOptions = false
+    var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
-    var refreshPlan: (@MainActor () async -> Void)?
     private var storedMemoryMb: Int
     /// The selected size. A locked size never sticks: setting one snaps to
     /// the largest allowed size below it (or the smallest allowed size), so
@@ -169,15 +176,24 @@ final class NewMachineModel {
     var onFinished: (@MainActor (Outcome) -> Void)?
 
     private let submit: Submit
+    private let selectionWindowID: UUID?
+
+    func upgradePlan(for memoryMb: Int) -> String? {
+        if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
+        guard memoryUpgradePlanId != nil else { return nil }
+        if Self.normalizedPlanId(plan?.planId) == "go", memoryMb <= Self.standardPlanMaxMemoryMb { return "pro" }
+        return Self.maxPlanId
+    }
 
     func selectSize(_ memoryMb: Int) {
         if lockedMemoryOptionsMb.contains(memoryMb) {
-            guard memoryUpgradePlanId == Self.maxPlanId else { return }
+            guard let target = upgradePlan(for: memoryMb) else { return }
+            selectedUpgradePlanId = target
             showsMaxUpgrade = true
             PostHogAnalytics.shared.capture("cmux_vm_size_upgrade_prompted", properties: [
                 "requested_memory_mb": memoryMb,
                 "plan": plan?.planId ?? "unknown",
-                "target_plan": Self.maxPlanId,
+                "target_plan": target,
                 "source": "mac_new_machine_sheet",
                 "client": "mac"
             ])
@@ -194,12 +210,16 @@ final class NewMachineModel {
             memoryOptionsMb: limits.memoryOptionsMb,
             lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
+            selectionWindowID: selectionWindowID,
             submit: submit
         )
         plan = updated.plan
         availableMemoryOptionsMb = updated.availableMemoryOptionsMb
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
         memoryUpgradePlanId = updated.memoryUpgradePlanId
+        memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
+        hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
     }
 
@@ -214,8 +234,11 @@ final class NewMachineModel {
         memoryOptionsMb: [Int] = [],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
+        selectionWindowID: UUID? = nil,
         submit: @escaping Submit
     ) {
+        self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.mode = mode
         self.plan = plan
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
@@ -228,11 +251,15 @@ final class NewMachineModel {
         } else if let lockedMemoryOptionsMb {
             locked = Set(lockedMemoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         } else {
+            // Older control planes do not send lock metadata. Preserve the
+            // compatibility ladder for those responses; newer responses use
+            // the server's explicit locks above.
             locked = Self.mirroredLockedMemoryOptionsMb(planId: plan?.planId)
         }
         let allowed = serverOptions.filter { !locked.contains($0) }
         self.availableMemoryOptionsMb = allowed
         self.lockedMemoryOptionsMb = locked
+        self.hasNoAllowedMemoryOptions = mode == .newMachine && !serverOptions.isEmpty && allowed.isEmpty
         if locked.isEmpty {
             self.memoryUpgradePlanId = nil
         } else if let memoryUpgradePlanId, !Self.normalizedPlanId(memoryUpgradePlanId).isEmpty {
@@ -243,6 +270,7 @@ final class NewMachineModel {
                 : Self.maxPlanId
         }
         self.submit = submit
+        self.selectionWindowID = selectionWindowID
         self.storedMemoryMb = serverOptions.isEmpty
             ? Self.legacyPlanMachineMemoryMb
             : Self.defaultMemoryMb(planId: plan?.planId, options: allowed)
@@ -291,9 +319,27 @@ final class NewMachineModel {
         memoryUpgradePlanId.map(Self.planDisplayName)
     }
 
+    /// All plans represented by the locked rows, in ladder order.
+    private var lockedMemoryUpgradePlanNames: String? {
+        let planIDs = lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
+            .reduce(into: [String]()) { result, planID in
+                if !result.contains(planID) { result.append(planID) }
+            }
+        guard !planIDs.isEmpty else { return nil }
+        return ListFormatter.localizedString(byJoining: planIDs.map(Self.planDisplayName))
+    }
+
+    /// The highest plan represented by the locked rows, used by the summary
+    /// action so a mixed Go ladder always offers the complete upgrade.
+    var highestLockedMemoryUpgradePlanId: String? {
+        lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
+            .max { lhs, rhs in (lhs == "max" ? 2 : 1) < (rhs == "max" ? 2 : 1) }
+    }
+
     /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
     func lockedSizeMenuTitle(_ size: MachineSizeOption) -> String {
-        guard let memoryUpgradePlanName else { return size.menuTitle }
+        guard let target = upgradePlan(for: size.memoryMb) else { return size.menuTitle }
+        let memoryUpgradePlanName = Self.planDisplayName(target)
         let format = String(localized: "machines.new.size.locked.row", defaultValue: "%1$@ · Requires %2$@")
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
@@ -301,18 +347,18 @@ final class NewMachineModel {
     /// "32 GB and 64 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
-        guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanName else { return nil }
-        let sizes = lockedMemoryOptions.map { Self.memoryLabel(mb: $0) }
+        guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
+        let sizes = lockedMemoryOptions.compactMap { upgradePlan(for: $0) == nil ? nil : Self.memoryLabel(mb: $0) }
         let joined = ListFormatter.localizedString(byJoining: sizes)
         let format = String(localized: "machines.new.size.locked.note", defaultValue: "%1$@ machines need cmux %2$@.")
-        return String(format: format, joined, memoryUpgradePlanName)
+        return String(format: format, joined, memoryUpgradePlanNames)
     }
 
     /// "Upgrade to Max"; nil when nothing is locked.
     var memoryUpgradeButtonTitle: String? {
-        guard lockedSizesNoteText != nil, let memoryUpgradePlanName else { return nil }
+        guard lockedSizesNoteText != nil, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
         let format = String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@")
-        return String(format: format, memoryUpgradePlanName)
+        return String(format: format, memoryUpgradePlanNames)
     }
 
     /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
@@ -360,20 +406,24 @@ final class NewMachineModel {
     /// CLI never selects that workspace or moves keyboard focus out of the one
     /// the person is working in when it lands.
     var cliArguments: [String] {
+        var arguments: [String]
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", Self.machineKind.cliFlag]
+            arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
-            return arguments
         case .base(let workspaceID):
-            return [
+            arguments = [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
                 Self.machineKind.cliFlag,
                 "--focus", "false",
             ]
         }
+        if let selectionWindowID {
+            arguments += ["--window", selectionWindowID.uuidString]
+        }
+        return arguments
     }
 
     /// The request the coordinator tracks for this sheet's choices.
@@ -382,14 +432,15 @@ final class NewMachineModel {
             mode: mode,
             kind: Self.machineKind,
             name: nil,
-            arguments: cliArguments
+            arguments: cliArguments,
+            selectionWindowID: selectionWindowID
         )
     }
 
     /// Launches the create and finishes the sheet. Nothing here waits on the
     /// machine: control returns to the person as soon as the CLI is running.
     func create() {
-        guard outcome == nil else { return }
+        guard outcome == nil, !hasNoAllowedMemoryOptions else { return }
         errorText = nil
         guard submit(createRequest) else {
             errorText = String(

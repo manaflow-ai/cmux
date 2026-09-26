@@ -21,50 +21,24 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo and $480/yr with a 20% annual discount", () => {
+  test("prices Pro at $50/mo without a new annual offer", () => {
     expect(PRO_PRICING_USD.month).toEqual({
       billedAmount: 50,
       monthlyEquivalent: 50,
       discountPercent: 0,
       lookupKey: "cmux-pro-monthly-50",
     });
-    expect(PRO_PRICING_USD.year).toEqual({
-      billedAmount: 480,
-      monthlyEquivalent: 40,
-      discountPercent: 20,
-      lookupKey: "cmux-pro-yearly-480",
-    });
-    expect(PRO_PRICING_USD.year.billedAmount).toBe(
-      PRO_PRICING_USD.month.billedAmount *
-        12 *
-        (1 - PRO_PRICING_USD.year.discountPercent / 100),
-    );
-    expect(PRO_PRICING_USD.year.monthlyEquivalent * 12).toBe(
-      PRO_PRICING_USD.year.billedAmount,
-    );
+    expect("year" in PRO_PRICING_USD).toBe(false);
   });
 
-  test("prices Team at $60/user/mo and $576/user/yr with a 20% annual discount", () => {
+  test("prices Team at $60/user/mo without a new annual offer", () => {
     expect(TEAM_PRICING_USD.month).toEqual({
       billedAmount: 60,
       monthlyEquivalent: 60,
       discountPercent: 0,
       lookupKey: "cmux-team-monthly-60",
     });
-    expect(TEAM_PRICING_USD.year).toEqual({
-      billedAmount: 576,
-      monthlyEquivalent: 48,
-      discountPercent: 20,
-      lookupKey: "cmux-team-yearly-576",
-    });
-    expect(TEAM_PRICING_USD.year.billedAmount).toBe(
-      TEAM_PRICING_USD.month.billedAmount *
-        12 *
-        (1 - TEAM_PRICING_USD.year.discountPercent / 100),
-    );
-    expect(TEAM_PRICING_USD.year.monthlyEquivalent * 12).toBe(
-      TEAM_PRICING_USD.year.billedAmount,
-    );
+    expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
   test("prices Max at $200/mo, monthly only", () => {
@@ -83,10 +57,8 @@ describe("pricing plans", () => {
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
-      PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
-      TEAM_PRICING_USD.year,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);
@@ -96,8 +68,10 @@ describe("pricing plans", () => {
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",
+      "cmux-pro-yearly-480",
       "cmux-team-monthly",
       "cmux-team-yearly-336",
+      "cmux-team-yearly-576",
     ]);
   });
 
@@ -182,9 +156,13 @@ describe("VM defaults and pricing copy", () => {
   ] as const) {
     test(`${locale} Max copy sells the 32 GB and 64 GB machines Pro cannot start`, () => {
       const features = messages.pricing.max.features.join("\n");
-      expect(features).toContain("32 GB");
       expect(features).toContain("64 GB");
+      expect(features).toContain("16 vCPU");
       expect(features).toContain("50");
+      expect(features).toContain(locale === "en" ? "sharing" : "共有");
+      const sharedRow = messages.pricing.compare.rows.find(row => row.max.includes("16 vCPU"));
+      expect(sharedRow!.max).toContain(locale === "en" ? "shared across all VMs" : "共有");
+      expect(messages.dashboard.billing.max.upsell).toContain("16 vCPU");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
       expect(row!.max).toBe("64 GB RAM");
@@ -197,6 +175,8 @@ describe("VM defaults and pricing copy", () => {
       const faq = messages.pricing.faq.items.find(item => item.q === faqQuestion);
       expect(faq).toBeDefined();
       expect(faq!.a).toContain("$200");
+      expect(faq!.a).toContain("16 vCPU");
+      expect(faq!.a).toContain(locale === "en" ? "share a total" : "共有");
       expect(faq!.a).toContain("32 GB");
       expect(faq!.a).toContain("64 GB");
       expect(faq!.a).toContain("24 GB");
@@ -210,6 +190,7 @@ describe("VM defaults and pricing copy", () => {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
       expect(messages.pricing.pro.features.join("\n")).toContain("24 GB RAM and 6 vCPUs shared across all VMs");
+      expect(messages.pricing.max.features[0]).toBe("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
       expect(messages.pricing.compare.rows.find(row => row.label === "Resources shared across all Cloud VMs")).toBeDefined();
     }
   });

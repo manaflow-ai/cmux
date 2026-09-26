@@ -1,59 +1,81 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import Observation
 
-/// One VM port's explicit access choice. Opening or copying a URL never starts
-/// a forward. All browser panes for the port observe this same model.
+/// One shared service route. In-app browsers use an authenticated proxy
+/// through userspace WireGuard while retaining the VM address and port.
 @MainActor
 @Observable
-final class CloudPortAccessModel: Identifiable {
+final class CloudPortAccessModel {
     enum Phase: Equatable {
         case needsVPN
         case connecting
         case stopping
         case direct
+        case proxied(CloudBrowserProxyEndpoint)
         case forwarded(UInt16)
         case failed(String)
         case closed
     }
 
-    let id: CloudHubPortForwarder.Key
     private(set) var target: CloudPortForwardTarget
     private(set) var phase: Phase = .needsVPN
     private(set) var tunnelState: CloudTunnelState = .off
-    private(set) var prefersForwarding = false
-    let vpn: CloudVPNSetupModel
-    private let coordinator: CloudTunnelCoordinator?
+    let route: CloudPortAccessRoute
+    private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
+    private let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
     private var observation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
 
     init(
-        machineID: String,
         target: CloudPortForwardTarget,
         coordinator: CloudTunnelCoordinator?,
         wake: @escaping @MainActor () async throws -> Void,
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
-        stopForward: @escaping @MainActor () async -> Void
+        stopForward: @escaping @MainActor () async -> Void,
+        route: CloudPortAccessRoute = .privateNetwork,
+        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil
     ) {
-        id = CloudHubPortForwarder.Key(machineID: machineID, port: target.port)
         self.target = target
         self.coordinator = coordinator
-        vpn = CloudVPNSetupModel(coordinator: coordinator)
         self.wake = wake
         self.startForward = startForward
         self.stopForward = stopForward
+        self.route = startBrowserProxy == nil ? route : .browserProxy
+        self.startBrowserProxy = startBrowserProxy
     }
 
     var failureMessage: String? {
-        if case .failed(let message) = phase { return message }
-        return nil
+        switch phase {
+        case .failed(let message): return message
+        case .needsVPN where route == .privateNetwork:
+            if let coordinator, let blocker = CloudTunnelStatus(
+                backend: coordinator.backend, state: tunnelState, isPinned: false
+            ).privateRouteBlocker { return blocker }
+            return String(localized: "cloud.portAccess.privateNetworkRequired", defaultValue: "This HTTPS service requires a private network connection. Run cmux vpn up, then reload.")
+        case .closed: return String(localized: "cloud.ports.closed", defaultValue: "Closed")
+        default: return nil
+        }
     }
 
     var isReady: Bool {
-        switch phase { case .direct, .forwarded: return true; default: return false }
+        switch phase { case .direct, .forwarded, .proxied: return true; default: return false }
+    }
+
+    var browserProxy: CloudBrowserProxyEndpoint? {
+        if case .proxied(let endpoint) = phase { return endpoint }
+        return nil
+    }
+
+    var usesBrowserProxy: Bool { route == .browserProxy }
+
+    func connectBrowser(force: Bool = false) {
+        if force { retry() } else { connect() }
     }
 
     var localAddress: String? {
@@ -61,11 +83,11 @@ final class CloudPortAccessModel: Identifiable {
         return "127.0.0.1:\(port)"
     }
 
+    /// Starting observation never activates the system tunnel. HTTP is wholly
+    /// independent of it; only direct HTTPS routes need its state stream.
     func observe() {
-        guard observation == nil, phase != .closed else { return }
-        let coordinator = coordinator
+        guard route == .privateNetwork, observation == nil, phase != .closed, let coordinator else { return }
         observation = Task { [weak self] in
-            guard let coordinator else { return }
             for await state in await coordinator.stateUpdates() {
                 guard !Task.isCancelled else { return }
                 self?.acceptTunnelState(state)
@@ -73,13 +95,19 @@ final class CloudPortAccessModel: Identifiable {
         }
     }
 
+    func attach(coordinator: CloudTunnelCoordinator) {
+        guard self.coordinator == nil, phase != .closed else { return }
+        self.coordinator = coordinator
+        observe()
+    }
+
     func acceptTunnelState(_ state: CloudTunnelState) {
         guard phase != .closed else { return }
         tunnelState = state
-        guard !prefersForwarding, phase != .stopping else { return }
+        guard route == .privateNetwork, phase != .stopping else { return }
         if state == .up {
-            if phase == .needsVPN { connectDirect() }
-        } else {
+            if phase == .needsVPN { connect() }
+        } else if phase == .direct || phase == .connecting {
             generation += 1
             operation?.cancel()
             phase = .needsVPN
@@ -89,22 +117,42 @@ final class CloudPortAccessModel: Identifiable {
     func updateTarget(_ newTarget: CloudPortForwardTarget) {
         guard target != newTarget, phase != .closed else { return }
         target = newTarget
-        if prefersForwarding { forward() } else if tunnelState == .up { connectDirect() }
+        retry()
+    }
+
+    /// Every materialization, restore, and address-bar open uses this action.
+    /// Reusing a model cannot restart an in-flight or established connection.
+    func connect() {
+        guard phase == .needsVPN else { return }
+        start()
     }
 
     func retry() {
-        guard phase != .closed else { return }
-        if prefersForwarding { forward() } else if tunnelState == .up { connectDirect() }
+        guard phase != .closed, phase != .stopping else { return }
+        start()
     }
 
-    /// This is the sole product action that creates a loopback listener.
-    func forward() {
-        guard phase != .closed, phase != .stopping else { return }
-        prefersForwarding = true
-        run { [wake, startForward, target] in
-            try await wake()
-            try Task.checkCancellation()
-            return .forwarded(try await startForward(target))
+    private func start() {
+        switch route {
+        case .browserProxy:
+            guard let startBrowserProxy else { return }
+            run { [wake] in
+                try await wake()
+                try Task.checkCancellation()
+                return .proxied(try await startBrowserProxy())
+            }
+        case .loopback:
+            run { [wake, startForward, target] in
+                try await wake()
+                try Task.checkCancellation()
+                return .forwarded(try await startForward(target))
+            }
+        case .privateNetwork:
+            guard tunnelState == .up else { return }
+            run { [wake] in
+                try await wake()
+                return .direct
+            }
         }
     }
 
@@ -116,13 +164,10 @@ final class CloudPortAccessModel: Identifiable {
         operation = nil
         phase = .stopping
         let token = generation
-        // Wait for an in-flight start to relinquish its listener before close.
         await pending?.value
-        await stopForward()
+        if route == .loopback { await stopForward() }
         guard phase != .closed, generation == token else { return }
-        prefersForwarding = false
         phase = .needsVPN
-        if tunnelState == .up { connectDirect() }
     }
 
     func retire() async {
@@ -134,21 +179,14 @@ final class CloudPortAccessModel: Identifiable {
         operation?.cancel()
         operation = nil
         await pending?.value
-        await stopForward()
+        if route == .loopback { await stopForward() }
     }
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct: return CloudPortRoutePlan.privateURL(remoteURL.absoluteString, address: target.host)
-        case .forwarded(let port): return CloudPortRoutePlan.localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
+        case .direct, .proxied: return CloudPortRoutePolicy().privateURL(remoteURL.absoluteString, address: target.host)
+        case .forwarded(let port): return CloudPortRoutePolicy().localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
-        }
-    }
-
-    private func connectDirect() {
-        run { [wake] in
-            try await wake()
-            return .direct
         }
     }
 

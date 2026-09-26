@@ -47,6 +47,16 @@ afterEach(() => {
 });
 
 describe("Stripe catalog provisioning", () => {
+  test("offers only monthly prices in the plan-switch portal", async () => {
+    const result = await runProvision("test", "portal-switch-exists");
+    expect(result.exitCode).toBe(0);
+    const update = result.calls.find((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/billing_portal/configurations/bpc_switch"));
+    expect(update).toBeDefined();
+    expect(update!.args.join("\n")).not.toContain("price_pro_year_480");
+    expect(update!.args.join("\n")).toContain("price_pro_month_50");
+    expect(update!.args.join("\n")).toContain("price_max_month_200");
+  });
+
   test("sends credentials through stdin instead of process arguments", async () => {
     const result = await runProvision("test", "valid");
 
@@ -103,6 +113,7 @@ describe("Stripe catalog provisioning", () => {
         call.args.includes("lookup_keys[]=cmux-max-monthly-200"),
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
+    expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
     expect(
       result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
     ).toBe(false);
@@ -115,6 +126,7 @@ describe("Stripe catalog provisioning", () => {
     const portalArgs = portalCreate!.args.join("\n");
     expect(portalArgs).toContain("metadata[purpose]=personal_plan_switch");
     expect(portalArgs).toContain("features[subscription_update][default_allowed_updates][]=price");
+    expect(portalArgs).not.toContain("features[subscription_update][products][2]");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
@@ -348,8 +360,20 @@ const products = {
     active: true,
     metadata: { app: "cmux", plan: "max" },
   },
+  go: {
+    id: "prod_go",
+    name: "cmux Go",
+    active: true,
+    metadata: { app: "cmux", plan: "go" },
+  },
 };
 const prices = {
+  "cmux-go-monthly-10": {
+    id: "price_go_month_10",
+    unit_amount: 1000,
+    interval: "month",
+    product: "go",
+  },
   "cmux-pro-monthly-50": {
     id: "price_pro_month_50",
     unit_amount: 5000,
@@ -484,7 +508,9 @@ if (url.endsWith("/prices") && !isPost) {
       ? "prod_new_pro"
       : dataValue === "cmux Max"
         ? "prod_new_max"
-        : "prod_new_team",
+        : dataValue === "cmux Go"
+          ? "prod_new_go"
+          : "prod_new_team",
   });
 } else if (url.endsWith("/billing_portal/configurations") && !isPost) {
   if (args.includes("is_default=true")) {
