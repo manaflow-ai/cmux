@@ -17999,14 +17999,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let currentPid = ProcessInfo.processInfo.processIdentifier
-        var terminatedPids: [String] = []
+        let environment = ProcessInfo.processInfo.environment
+        var quitRequestedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            terminatedPids.append(String(app.processIdentifier))
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
+            switch SingleInstanceConflictPolicy(environment: environment).action(
+                currentBundleURL: Bundle.main.bundleURL,
+                existingBundleURL: app.bundleURL
+            ) {
+            case .yieldToExisting:
+                // Another bundle sharing this id (a local Release build, a
+                // tool-launched copy) must not kill the user's running app.
+                // Exit without a session save: both share the snapshot file.
+                StartupBreadcrumbLog.append(
+                    "singleInstance.enforce.yield",
+                    fields: [
+                        "bundleIdentifier": bundleId,
+                        "existingPid": String(app.processIdentifier),
+                        "existingBundlePath": app.bundleURL?.path ?? "nil"
+                    ]
+                )
+                NSLog(
+                    "cmux: another instance with bundle id %@ is running from %@; exiting instead of replacing it (set %@=1 to replace)",
+                    bundleId,
+                    app.bundleURL?.path ?? "an unknown path",
+                    SingleInstanceConflictPolicy.allowReplacingEnvironmentKey
+                )
+                app.activate(options: [.activateAllWindows])
+                // _exit: skip atexit handlers and static teardown while
+                // Ghostty and Sentry threads are still running.
+                _exit(0)
+            case .replaceExisting:
+                quitRequestedPids.append(String(app.processIdentifier))
+                // Graceful quit first so the older instance saves its session;
+                // force only if it is still running after the timeout.
+                app.terminate()
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + SingleInstanceConflictPolicy.gracefulTerminationTimeout
+                ) {
+                    if !app.isTerminated {
+                        _ = app.forceTerminate()
+                    }
+                }
             }
         }
         StartupBreadcrumbLog.append(
@@ -18014,7 +18049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fields: [
                 "bundleIdentifier": bundleId,
                 "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
+                "quitRequestedPids": quitRequestedPids.joined(separator: ",")
             ]
         )
     }
@@ -18049,6 +18084,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    .standardizedFileURL
                    .resolvingSymlinksInPath(),
                executableURL == embeddedCLIURL {
+                return
+            }
+            // A relaunch of this same bundle is meant to replace us (its
+            // enforceSingleInstance asks us to quit gracefully); let it live.
+            if let launchedBundleURL = app.bundleURL,
+               SingleInstanceConflictPolicy(environment: [:]).action(
+                   currentBundleURL: launchedBundleURL,
+                   existingBundleURL: Bundle.main.bundleURL
+               ) == .replaceExisting {
+                StartupBreadcrumbLog.append(
+                    "singleInstance.observe.sameBundleRelaunch",
+                    fields: ["duplicatePid": String(app.processIdentifier)]
+                )
                 return
             }
 
