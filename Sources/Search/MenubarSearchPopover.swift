@@ -398,5 +398,6 @@ private struct GlobalSearchResultRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 }

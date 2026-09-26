@@ -627,6 +627,7 @@ private struct GroupingButton: View {
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(mode.label)
@@ -797,6 +798,7 @@ struct IndexSectionView: View, Equatable {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .onGeometryChange(for: CGRect.self) { proxy in
             proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
         } action: { frame in
@@ -859,6 +861,7 @@ struct IndexSectionView: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     private var sectionIconView: some View {
@@ -2491,6 +2494,7 @@ struct SectionPopoverView: View {
                         CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11, tint: .secondary)
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                     .accessibilityLabel(String(localized: "historyPane.search.clear", defaultValue: "Clear search"))
                 }
             }

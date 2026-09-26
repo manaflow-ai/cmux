@@ -485,6 +485,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                     )
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .controlSize(.mini)
                 .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
             }
@@ -494,6 +495,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 Image(systemName: "info.circle")
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .controlSize(.small)
             .help(String(localized: "sidebar.extensions.details.help", defaultValue: "Show extension details"))
             .popover(isPresented: $isShowingExtensionDetails, arrowEdge: .top) {

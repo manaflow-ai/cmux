@@ -123,6 +123,7 @@ struct NotificationsPage: View {
                     notificationStore.clearAll()
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
             }
         }
         .padding(.horizontal, 16)
@@ -249,6 +250,7 @@ struct NotificationsPage: View {
                 }
             }
             .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
             .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
             .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
@@ -262,6 +264,7 @@ struct NotificationsPage: View {
                 }
             }
             .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
             .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         }
@@ -373,6 +376,7 @@ struct NotificationRow: View, Equatable {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .accessibilityIdentifier("NotificationRow.\(notification.id.uuidString)")
             .focusable()
             .focused(focusedNotificationId, equals: notification.id)
@@ -382,6 +386,7 @@ struct NotificationRow: View, Equatable {
                 CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14, tint: .secondary)
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
             // description, so the icon-only button needs an explicit label (the prior
             // SwiftUI system-symbol path used to supply one implicitly).

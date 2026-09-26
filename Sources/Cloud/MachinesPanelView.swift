@@ -291,6 +291,7 @@ struct MachinesPanelView: View {
             Spacer(minLength: 4)
             Button(actionTitle, action: action)
                 .buttonStyle(.link)
+            .backport.pointerStyle(.link)
                 .cmuxFont(size: 11)
                 .accessibilityIdentifier(actionIdentifier)
         }
@@ -431,6 +432,7 @@ struct MachinesPanelView: View {
                 .cmuxFont(size: 12)
         }
         .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
         .controlSize(.small)
         .padding(.top, 2)
         .accessibilityIdentifier("CloudMachinesSessionRejectedSignInButton")
@@ -461,6 +463,7 @@ struct MachinesPanelView: View {
                 .cmuxFont(size: 12)
         }
         .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
         .controlSize(.small)
         .padding(.top, 2)
         .accessibilityIdentifier("CloudMachinesRequiresProUpgradeButton")
@@ -663,6 +666,7 @@ struct MachinesPanelView: View {
                         .cmuxFont(size: 12)
                 }
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
@@ -677,6 +681,7 @@ struct MachinesPanelView: View {
                             .underline()
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)

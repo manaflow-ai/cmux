@@ -240,6 +240,7 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
             )
             .onHover { isHovering = $0 }
+            .backport.pointerStyle(.link)
     }
 
     private var foregroundOpacity: Double {
@@ -403,6 +404,7 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)

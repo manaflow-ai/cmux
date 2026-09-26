@@ -2512,6 +2512,7 @@ private struct FileExplorerStyleDebugView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .backport.pointerStyle(.link)
                 }
             }
 
@@ -3059,6 +3060,7 @@ private struct SidebarFooterOpticalBalanceStudy: View {
                 isOn: $showsCellGuides
             )
             .toggleStyle(.checkbox)
+            .backport.pointerStyle(.link)
             .cmuxFont(size: 11)
 
             Divider()
@@ -3275,6 +3277,7 @@ private struct SidebarFooterIconBalanceVariantCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .accessibilityIdentifier("SidebarFooterIconBalanceVariant-\(variant.id)")
     }
 }

@@ -74,6 +74,7 @@ struct FilePreviewPDFZoomChromeView: View {
             action: share
         )
         .frame(width: 40, height: 40)
+        .backport.pointerStyle(.link)
     }
 
     @ViewBuilder
@@ -143,6 +144,7 @@ struct FilePreviewPDFZoomChromeView: View {
             }
             .accessibilityLabel(label)
             .help(label)
+            .backport.pointerStyle(.link)
         }
     }
 

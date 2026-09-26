@@ -295,6 +295,7 @@ struct PanelHeaderIconButton: View {
             PanelHeaderIconGlyph(systemName: systemName)
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .foregroundColor(.secondary)
         .disabled(isDisabled)
         .help(label)

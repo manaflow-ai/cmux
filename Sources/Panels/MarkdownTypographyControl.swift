@@ -45,6 +45,7 @@ struct MarkdownTypographyControl: View {
             PanelHeaderIconGlyph(systemName: "textformat.size")
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .foregroundColor(.secondary)
         .help(buttonLabel)
         .accessibilityLabel(buttonLabel)
@@ -136,6 +137,7 @@ struct MarkdownTypographyControl: View {
                 }
             }
             .buttonStyle(.link)
+            .backport.pointerStyle(.link)
         }
         .padding(14)
         .frame(width: 272)

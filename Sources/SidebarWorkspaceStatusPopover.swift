@@ -246,6 +246,7 @@ struct SidebarWorkspaceStatusPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .onHover { hovering in
             if hovering { highlightedIndex = index }
         }

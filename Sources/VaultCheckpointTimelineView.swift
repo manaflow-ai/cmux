@@ -149,6 +149,7 @@ struct VaultCheckpointTimelineView: View {
                 )
             }
             .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
             .disabled(isLoading || derivation == nil || derivation?.isTruncated == true)
             .help(
                 derivation?.isTruncated == true
@@ -363,6 +364,7 @@ private struct VaultCheckpointRow: View, Equatable {
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                         .help(String(localized: "sessionIndex.checkpoints.copySha",
                                      defaultValue: "Copy commit SHA"))
                     }
@@ -424,6 +426,7 @@ private struct VaultCheckpointRow: View, Equatable {
             )
         }
         .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
         .disabled(!isForkEnabled)
         .help(String(localized: "sessionIndex.checkpoints.restoreHint",
                      defaultValue: "Restore rewinds by forking a new session — the original session is never modified"))

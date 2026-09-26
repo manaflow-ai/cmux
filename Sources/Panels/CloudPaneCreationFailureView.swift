@@ -296,6 +296,7 @@ struct CloudFailureCard: View {
             if let onRetry {
                 Button(String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
                     .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                     .controlSize(.small)
                     .fixedSize()
                     .accessibilityIdentifier("CloudPaneCreationFailureRetry")
@@ -360,6 +361,7 @@ struct CloudFailureCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .foregroundStyle(.secondary)
             .fixedSize()
             .keyboardShortcut(.cancelAction)

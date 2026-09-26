@@ -32,6 +32,7 @@ struct CloudTeamPickerRow: View {
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
         .popover(isPresented: $isPresented, arrowEdge: .top) {
             CloudTeamPicker(accountFlow: accountFlow)
         }

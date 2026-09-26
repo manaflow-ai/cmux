@@ -40,6 +40,7 @@ struct ProjectBuildSettingsTabView: View {
                     .cmuxFont(size: 12)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
+            .backport.pointerStyle(.link)
                     .cmuxFont(size: 11)
                 Text("\(rowCount) settings")
                     .cmuxFont(size: 11)

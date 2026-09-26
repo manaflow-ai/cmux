@@ -87,6 +87,7 @@ struct ProjectTargetsTabView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .backport.pointerStyle(.link)
     }
 
     @ViewBuilder
@@ -206,6 +207,7 @@ struct ProjectTargetsTabView: View {
                         .cmuxFont(size: 11, weight: .medium)
                 }
                 .buttonStyle(.plain)
+                .backport.pointerStyle(.link)
                 .foregroundStyle(Color.accentColor)
             }
         }

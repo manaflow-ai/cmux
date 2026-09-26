@@ -105,6 +105,7 @@ struct CloudTeamPicker: View {
                     Image(systemName: "checkmark").frame(width: 22, height: 22)
                 }
                 .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                 .disabled(newTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(String(localized: "sidebar.account.createTeamSubmit", defaultValue: "Create team"))
@@ -115,6 +116,7 @@ struct CloudTeamPicker: View {
                     Image(systemName: "xmark").frame(width: 22, height: 22)
                 }
                 .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(String(localized: "sidebar.account.createTeamCancel", defaultValue: "Cancel"))
             }

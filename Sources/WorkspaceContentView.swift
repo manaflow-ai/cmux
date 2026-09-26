@@ -842,6 +842,7 @@ struct EmptyPanelView: View {
             }
         }
         .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
 
         if let key = shortcut.keyEquivalent {
             button.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
