@@ -1138,6 +1138,7 @@
 		CE11E001000000000000000A /* CMUXCLI+VMEnvOps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E001000000000000000B /* CMUXCLI+VMEnvOps.swift */; };
 		CE11E0010000000000000008 /* CMUXCLI+VMEnvRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000009 /* CMUXCLI+VMEnvRunner.swift */; };
 		CE11E0010000000000000003 /* CMUXCLI+VMEnvSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */; };
+		CE11E0010000000000000005 /* CMUXCLI+VMEnvSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE11E0010000000000000004 /* CMUXCLI+VMEnvSpec.swift */; };
 		CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */; };		CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */; };
 		E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */; };
 		21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */; };
@@ -15980,6 +15981,7 @@
 					C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
 					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
 				068FDFC30E2B11E77FF01524 /* CMUXCLIVMEnvSpecTests.swift in Sources */,
+				CE11E0010000000000000005 /* CMUXCLI+VMEnvSpec.swift in Sources */,
 				A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
