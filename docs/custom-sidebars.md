@@ -307,9 +307,17 @@ with:
   `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
   `transcriptPath`, and `pid`. Use `workspaceId` as the roster key when a
   session may restart: `id` identifies the current agent session and can
-  change after a restart. Each agent may also include `children`, an array of
-  child runs. A child always has `id`, `running`, and `startedEpoch`; when
-  available it adds `label` and `endedEpoch`.
+  change after a restart. Each agent may also include `children` (nested
+  subagent runs under the session, oldest first; omitted when none). Each
+  `children[k]` has `id` (stable for the child's lifetime), `running` (Bool),
+  and `startedEpoch`; when available it adds `label` and `endedEpoch` (set
+  when the child settles; settled children are pruned after a short
+  retention). Headless OMP/Pi subagents run inside the parent's process, so
+  they appear here via `cmux hooks omp|pi subagent-start|subagent-stop` with
+  JSON `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes it by `agent_id` (or the oldest running child when the
+  id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).

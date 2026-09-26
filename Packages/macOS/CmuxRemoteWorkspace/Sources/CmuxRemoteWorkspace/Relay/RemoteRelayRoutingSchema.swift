@@ -44,6 +44,8 @@ struct RemoteRelayRoutingSchema {
     }
 
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        // `_cmux_remote_relay_authentication_code` is a retired resume MAC that
+        // old remote clients may still send; ingress strips it, so allow it here.
         let provenance: Set<String> = [
             RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey,
             "_cmux_remote_connection_id", "_cmux_remote_relay_authentication_code",
