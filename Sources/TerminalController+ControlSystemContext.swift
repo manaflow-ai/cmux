@@ -293,8 +293,11 @@ extension TerminalController: ControlSystemContext {
                 path: error.fileURL.path
             )
         case .success(let imported):
+            // Count what restore will actually open: crash-diagnostic windows
+            // are dropped and the window count is capped.
             let windowCount = min(
-                imported.snapshot.windows.count,
+                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: imported.snapshot)
+                    .snapshot?.windows.count ?? 0,
                 SessionPersistencePolicy.maxWindowsPerSnapshot
             )
             guard appDelegate.restorePreviousSessionSnapshot(imported.snapshot, shouldActivate: false) else {

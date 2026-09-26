@@ -59,8 +59,10 @@ struct SessionSnapshotTransferTests {
             ("RC", "com.cmuxterm.app.rc"),
             ("staging", "com.cmuxterm.app.staging"),
             ("debug", "com.cmuxterm.app.debug"),
-            ("debug:my-tag", "com.cmuxterm.app.debug.my-tag"),
-            ("dev:My-Tag", "com.cmuxterm.app.debug.My-Tag"),
+            ("debug:mytag", "com.cmuxterm.app.debug.mytag"),
+            // Same normalization as `scripts/reload.sh --tag`.
+            ("debug:my-tag", "com.cmuxterm.app.debug.my.tag"),
+            ("dev:My_Tag", "com.cmuxterm.app.debug.my.tag"),
             ("com.cmuxterm.app.nightly.isolated", "com.cmuxterm.app.nightly.isolated"),
         ]
     )
@@ -68,7 +70,7 @@ struct SessionSnapshotTransferTests {
         #expect(SessionSnapshotFileLocation.bundleIdentifier(forChannel: name) == expected)
     }
 
-    @Test("unknown channel names do not resolve", arguments: ["", "beta", "debug:", "org.example.app", "./session.json"])
+    @Test("unknown channel names do not resolve", arguments: ["", "beta", "debug:", "dev:--", "org.example.app", "./session.json"])
     func unknownChannels(name: String) {
         #expect(SessionSnapshotFileLocation.bundleIdentifier(forChannel: name) == nil)
     }
@@ -83,7 +85,7 @@ struct SessionSnapshotTransferTests {
             "nightly": "session-com.cmuxterm.app.nightly.json",
             "rc": "session-com.cmuxterm.app.rc.json",
             "staging": "session-com.cmuxterm.app.staging.json",
-            "debug:feature-x": "session-com.cmuxterm.app.debug.feature-x.json",
+            "debug:feature-x": "session-com.cmuxterm.app.debug.feature.x.json",
         ]
         for (channel, fileName) in expectations {
             let bundleId = try #require(SessionSnapshotFileLocation.bundleIdentifier(forChannel: channel))
@@ -303,6 +305,15 @@ struct SessionSnapshotTransferTests {
             appSupportDirectory: dir
         )
         #expect(try newerBuild.importableSnapshot(fileURL: sideURL).get().snapshot.windows.map(\.name) == ["future"])
+
+        // A newer backup left without a primary is kept before the sync removes it.
+        let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
+        try FileManager.default.removeItem(at: primaryURL)
+        try write(newerText, to: backupURL)
+        repository.syncManualRestoreSnapshotCache()
+        #expect(!FileManager.default.fileExists(atPath: backupURL.path))
+        let backupSide = SessionSnapshotFileLocation.newerSchemaSideFileURL(for: backupURL, schemaVersion: 2)
+        #expect(try String(contentsOf: backupSide, encoding: .utf8) == newerText)
 
         // Current and older snapshots need no side file.
         #expect(repository.save(snapshot("now"), fileURL: nil))

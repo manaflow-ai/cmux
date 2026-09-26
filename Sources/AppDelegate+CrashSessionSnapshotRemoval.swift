@@ -38,6 +38,7 @@ extension AppDelegate {
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
             if !preserveExistingBackup && !Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+                sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
                 sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
         case .unusable:

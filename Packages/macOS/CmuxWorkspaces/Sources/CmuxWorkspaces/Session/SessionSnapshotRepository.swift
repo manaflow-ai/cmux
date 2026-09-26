@@ -293,6 +293,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         case .loaded(let snapshot):
             _ = save(snapshot, fileURL: backupURL)
         case .missing:
+            preserveNewerSchemaSnapshot(fileURL: backupURL)
             removeSnapshot(fileURL: backupURL)
         case .unusable:
             // The primary snapshot exists but cannot be restored. Keep the

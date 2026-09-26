@@ -17,9 +17,12 @@ public enum SessionSnapshotFileLocation {
     ///
     /// Accepts `stable` (alias `release`), `nightly`, `rc`, `staging`,
     /// `debug` (the untagged Debug build), and `debug:<tag>` / `dev:<tag>`
-    /// for tagged Debug builds (`com.cmuxterm.app.debug.<tag>`). A value that
-    /// already is a cmux bundle identifier (`com.cmuxterm.app…`) is returned
-    /// unchanged. Names are case-insensitive; returns nil for anything else.
+    /// for tagged Debug builds. The tag is normalized the way
+    /// `scripts/reload.sh --tag` builds the bundle id (lowercased, every run
+    /// of other characters becomes `.`), so `debug:My-Tag` is
+    /// `com.cmuxterm.app.debug.my.tag`. A value that already is a cmux bundle
+    /// identifier (`com.cmuxterm.app…`) is returned unchanged. Names are
+    /// case-insensitive; returns nil for anything else.
     ///
     /// - Parameter name: The channel name or bundle identifier.
     /// - Returns: The bundle identifier, or nil when `name` is not a channel.
@@ -39,8 +42,9 @@ public enum SessionSnapshotFileLocation {
             break
         }
         for prefix in ["debug:", "dev:"] where lowered.hasPrefix(prefix) {
-            let tag = String(trimmed.dropFirst(prefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let tag = String(lowered.dropFirst(prefix.count))
+                .replacingOccurrences(of: "[^a-z0-9]+", with: ".", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             guard !tag.isEmpty else { return nil }
             return "\(stableBundleIdentifier).debug.\(tag)"
         }

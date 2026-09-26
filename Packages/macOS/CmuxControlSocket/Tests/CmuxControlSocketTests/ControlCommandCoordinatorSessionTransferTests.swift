@@ -10,7 +10,9 @@ struct ControlCommandCoordinatorSessionTransferTests {
         _ params: [String: JSONValue],
         context: FakeSessionTransferControlCommandContext
     ) -> ControlCallResult {
-        ControlCommandCoordinator(context: context).handle(ControlRequest(id: .int(1), method: method, params: params))
+        ControlCommandCoordinator(context: context)
+            .handle(ControlRequest(id: .int(1), method: method, params: params))
+            ?? .err(code: "unhandled", message: method, data: nil)
     }
 
     @Test func importFromChannelForwardsSourceAndReportsWindows() throws {
