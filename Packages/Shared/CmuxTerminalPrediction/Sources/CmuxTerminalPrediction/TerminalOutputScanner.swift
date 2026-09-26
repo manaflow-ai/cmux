@@ -215,3 +215,5 @@ public struct TerminalOutputScanner: Sendable {
         return .disruptive
     }
 }
+
+// Control run for #14860 (comment only; do not merge).
