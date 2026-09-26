@@ -4,6 +4,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
+    /// Restart-stable panel identity captured from the managed terminal environment.
+    var stableSurfaceId: String?
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?

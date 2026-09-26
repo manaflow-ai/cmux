@@ -394,6 +394,7 @@ struct DockSessionPersistenceTests {
 
         #expect(restoredOwnerID != persistedOwnerID)
         #expect(restoredTerminal.stableSurfaceId == stableSurfaceID)
+        #expect(restoredTerminal.surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID") == stableSurfaceID.uuidString)
         #expect(restoredAgent.kind == .codex)
         #expect(restoredAgent.sessionId == currentSessionID)
         if startupInput.contains("/cmux-r/") {

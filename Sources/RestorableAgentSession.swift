@@ -884,6 +884,7 @@ struct RestorableAgentSessionIndex: Sendable {
 
     struct Entry: Sendable {
         let snapshot: SessionRestorableAgentSnapshot
+        let stableSurfaceId: UUID?
         let lifecycle: AgentHibernationLifecycleState?
         let updatedAt: TimeInterval
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
@@ -905,6 +906,7 @@ struct RestorableAgentSessionIndex: Sendable {
         /// have persisted PID evidence can opt in explicitly.
         init(
             snapshot: SessionRestorableAgentSnapshot,
+            stableSurfaceId: UUID? = nil,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
@@ -919,6 +921,7 @@ struct RestorableAgentSessionIndex: Sendable {
             containsUnrelatedProcess: Bool
         ) {
             self.snapshot = snapshot
+            self.stableSurfaceId = stableSurfaceId
             self.lifecycle = lifecycle
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
@@ -1006,6 +1009,8 @@ struct RestorableAgentSessionIndex: Sendable {
     /// per-panel marker. Such panels are incomplete unless explicitly verified.
     private let hasUnboundedCodexIncompleteness: Bool
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
+    private let candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]]
+    private let boundedAmbiguousStableSurfaceIds: Set<UUID>
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
@@ -1308,6 +1313,7 @@ struct RestorableAgentSessionIndex: Sendable {
     func entryForStablePanel(
         workspaceId: UUID,
         panelId: UUID,
+        stableSurfaceId: UUID? = nil,
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -1318,9 +1324,23 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Entry? {
-        let candidates = candidatesByPanelId[panelId] ?? []
-        guard !candidates.isEmpty else { return nil }
+        // Current runtime evidence wins. Consult durable hook ownership only
+        // when this runtime panel has no matching record, as happens after a
+        // restored panel is assigned a new runtime UUID.
         guard !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
+        let runtimeCandidates = (candidatesByPanelId[panelId] ?? []).filter { _, entry in
+            stableSurfaceId == nil || entry.stableSurfaceId == nil ||
+                entry.stableSurfaceId == stableSurfaceId
+        }
+        let usesStableIdentity = runtimeCandidates.isEmpty && stableSurfaceId != nil
+        let candidates = usesStableIdentity
+            ? (stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] } ?? [])
+            : runtimeCandidates
+        guard !candidates.isEmpty else { return nil }
+        if usesStableIdentity {
+            guard let stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else { return nil }
+        }
 
         let candidatesWithEvidence = candidates.map { key, entry in
             (
@@ -1346,7 +1366,9 @@ struct RestorableAgentSessionIndex: Sendable {
                 (revalidateProcessEvidence || $0.entry.hasRecordedProcessID)
         }
         guard !hasUncertainCandidate else { return nil }
-        if let exact = liveCandidates.first(where: { $0.key.workspaceId == workspaceId }) {
+        if let exact = liveCandidates.first(where: {
+            $0.key == PanelKey(workspaceId: workspaceId, panelId: panelId)
+        }) {
             return exact.entry
         }
         if liveCandidates.count == 1 {
@@ -1354,17 +1376,20 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         // Multiple current owners cannot be resolved by a stable panel UUID.
         // Do not let a stale exact-owner record or a cached timestamp pick one.
-        guard liveCandidates.isEmpty,
-              !ambiguousPanelIds.contains(panelId),
-              !equalRankAmbiguousPanelIds.contains(panelId) else {
+        guard liveCandidates.isEmpty else { return nil }
+        if !usesStableIdentity,
+           ambiguousPanelIds.contains(panelId) || equalRankAmbiguousPanelIds.contains(panelId) {
             return nil
         }
-
-        return candidates
-            .map(\.1)
-            .max { lhs, rhs in
-                Self.shouldPreferStablePanelEntry(rhs, over: lhs)
-            }
+        guard let selected = candidates.map(\.1).max(by: { lhs, rhs in
+            Self.shouldPreferStablePanelEntry(rhs, over: lhs)
+        }) else { return nil }
+        // A durable identity can have historical runtime owners. Equal-ranked
+        // records are ambiguous; dictionary iteration must never choose one.
+        guard candidates.filter({ $0.1.updatedAt == selected.updatedAt }).count == 1 else {
+            return nil
+        }
+        return selected
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -2059,6 +2084,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }()
                 let entry = Entry(
                     snapshot: snapshot,
+                    stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                     lifecycle: effectiveRecord.agentLifecycle,
                     updatedAt: effectiveRecord.updatedAt,
                     processLiveness: processObservation.liveness,
@@ -3523,6 +3549,24 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         self.candidatesByPanelId = candidatesByPanelId
+        var candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousStableSurfaceIds: Set<UUID> = []
+        for (key, entry) in entriesByPanel {
+            guard let stableSurfaceId = entry.stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else {
+                continue
+            }
+            var candidates = candidatesByStableSurfaceId[stableSurfaceId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousStableSurfaceIds.insert(stableSurfaceId)
+                candidatesByStableSurfaceId.removeValue(forKey: stableSurfaceId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByStableSurfaceId[stableSurfaceId] = candidates
+        }
+        self.candidatesByStableSurfaceId = candidatesByStableSurfaceId
+        self.boundedAmbiguousStableSurfaceIds = boundedAmbiguousStableSurfaceIds
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds

@@ -121,6 +121,7 @@ extension Workspace {
                 tmuxStartCommand: replacementTmuxStartCommand,
                 initialEnvironmentOverrides: initialEnvironmentOverrides,
                 additionalEnvironment: additionalEnvironment,
+                stableSurfaceId: oldPanel.stableSurfaceId,
                 focusPlacement: focusPlacement
             )
         }
