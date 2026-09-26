@@ -16955,7 +16955,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
+                .safeHelp(entry.sidebarToolTip(linkURL: url) ?? url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())

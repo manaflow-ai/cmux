@@ -117,6 +117,78 @@ struct AgentUsageSamplerTests {
         #expect(abs(try #require(snapshot.estimatedCost).usd - 0.0299) < 1e-9)
     }
 
+    private func writeSession(in directory: URL, subagentCount: Int) throws -> URL {
+        let url = directory.appendingPathComponent("session.jsonl")
+        try Data((Fixture.claudeAssistant(id: "msg_main", input: 0, cacheRead: 1000, output: 0) + "\n").utf8).write(to: url)
+        let subagents = directory.appendingPathComponent("session/subagents")
+        try FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+        for index in 0..<subagentCount {
+            // Each subagent message costs 1000 output tokens at $25/MTok = $0.025.
+            let line = Fixture.claudeAssistant(id: "msg_sub\(index)", input: 0, output: 1000, isSidechain: true)
+            try Data((line + "\n").utf8).write(to: subagents.appendingPathComponent("agent-\(index).jsonl"))
+        }
+        return url
+    }
+
+    @Test func subagentReadsRespectTheSessionBudgetAndSkipUnchangedFiles() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try writeSession(in: directory, subagentCount: 2)
+        // One byte of budget: the main file (exempt) spends it, so each
+        // sample reads at most one changed subagent file.
+        let sampler = AgentUsageSampler(reader: AgentUsageTranscriptReader(sessionByteBudget: 1))
+
+        let first = try #require(await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost)
+        #expect(first.isLowerBound)
+        #expect(abs(first.usd - 0.0005) < 1e-9)
+
+        let second = try #require(await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost)
+        #expect(second.isLowerBound)
+        #expect(abs(second.usd - 0.0255) < 1e-9)
+
+        // Unchanged files are skipped by stat alone, so the budget reaches
+        // the last file and the total becomes exact.
+        let third = try #require(await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost)
+        #expect(!third.isLowerBound)
+        #expect(abs(third.usd - 0.0505) < 1e-9)
+    }
+
+    @Test func subagentFilesBeyondTheCapMakeCostALowerBound() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try writeSession(in: directory, subagentCount: 3)
+        let sampler = AgentUsageSampler(reader: AgentUsageTranscriptReader(maxSubagentFiles: 2))
+
+        let cost = try #require(await sampler.sample(transcriptPath: url.path, source: .claude)?.estimatedCost)
+        #expect(cost.isLowerBound)
+        #expect(abs(cost.usd - 0.0505) < 1e-9)
+    }
+
+    @Test func tailWithoutAModelIsExtendedOnce() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("s.jsonl")
+        let filler = Array(repeating: Fixture.claudeUserToolResult(), count: 60).joined(separator: "\n")
+        let text = Fixture.claudeAssistant(id: "msg_a", input: 1, cacheRead: 500, output: 1) + "\n" + filler + "\n"
+        try Data(text.utf8).write(to: url)
+        let reader = AgentUsageTranscriptReader(fullScanLimit: 2000, tailBytes: 500, extendedTailBytes: 1_000_000)
+        let snapshot = try #require(await AgentUsageSampler(reader: reader).sample(transcriptPath: url.path, source: .claude))
+        #expect(snapshot.contextTokens == 501)
+        #expect(snapshot.estimatedCost == nil)
+    }
+
+    @Test func concurrentSamplesOfOneTranscriptBothReturnUsage() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("s.jsonl")
+        try Data((Fixture.claudeAssistant(id: "msg_a", input: 1, cacheRead: 10, output: 1) + "\n").utf8).write(to: url)
+        let sampler = AgentUsageSampler(maxConcurrentReads: 1)
+        async let first = sampler.sample(transcriptPath: url.path, source: .claude)
+        async let second = sampler.sample(transcriptPath: url.path, source: .claude)
+        let results = await [first, second]
+        #expect(results.allSatisfy { $0?.contextTokens == 11 })
+    }
+
     @Test func forgottenTranscriptStartsFromScratch() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

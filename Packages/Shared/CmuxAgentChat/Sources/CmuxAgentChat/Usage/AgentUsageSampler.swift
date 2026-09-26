@@ -1,12 +1,16 @@
+import Dispatch
 import Foundation
 
 /// Samples coding-agent usage from transcript files off the main actor.
 ///
 /// Each transcript is read incrementally by ``AgentUsageTranscriptReader``:
 /// the first sample scans the file once (only its tail when it is very
-/// large), and later samples read only appended bytes. The actor only
-/// bookkeeps cursors; the reading itself runs in a detached task per
-/// transcript, so a large file never delays another session's sample.
+/// large), and later samples read only appended bytes, within a per-sample
+/// byte budget. The actor only bookkeeps cursors. The blocking reads run on
+/// a dedicated dispatch queue, never on the cooperative thread pool, and at
+/// most ``maxConcurrentReads`` run at a time; further samples wait their
+/// turn. A second sample of a transcript that is already being read waits
+/// for that read and then reads again, so no request is dropped.
 ///
 /// The sampler performs no polling and owns no timers; callers invoke
 /// ``sample(transcriptPath:source:)`` when an agent hook event says the
@@ -27,13 +31,27 @@ public actor AgentUsageSampler {
         let keyEpoch: UInt64
     }
 
+    /// Reads allowed to run at once.
+    public let maxConcurrentReads: Int
+
     private var sessions: [Key: AgentUsageTranscriptReader.SessionCursor] = [:]
     private var inFlight: Set<Key> = []
+    private var keyWaiters: [Key: [CheckedContinuation<Void, Never>]] = [:]
+    private var activeReads = 0
+    private var readWaiters: [CheckedContinuation<Void, Never>] = []
     private var epoch: UInt64 = 0
     private var keyEpochs: [Key: UInt64] = [:]
     private var useCounter: UInt64 = 0
     private let maxTrackedTranscripts: Int
     private let reader: AgentUsageTranscriptReader
+    // Blocking file reads are handed to this queue so they never occupy a
+    // cooperative-pool thread. It only runs work; it guards no state (all
+    // state lives in the actor), and `maxConcurrentReads` bounds its load.
+    private let readQueue = DispatchQueue(
+        label: "com.cmux.agent-usage.transcript-reads",
+        qos: .utility,
+        attributes: .concurrent
+    )
 
     /// Creates a sampler with the default read limits.
     ///
@@ -41,13 +59,23 @@ public actor AgentUsageSampler {
     ///   - maxTrackedTranscripts: How many sessions keep incremental state;
     ///     the least recently sampled is dropped beyond this. A dropped
     ///     session is re-read on its next sample (bounded by the tail limit).
+    ///   - maxConcurrentReads: Transcript reads allowed to run at once.
     ///   - catalog: Model table for display names, windows and prices.
-    public init(maxTrackedTranscripts: Int = 64, catalog: AgentModelCatalog = AgentModelCatalog()) {
-        self.init(maxTrackedTranscripts: maxTrackedTranscripts, reader: AgentUsageTranscriptReader(catalog: catalog))
+    public init(
+        maxTrackedTranscripts: Int = 64,
+        maxConcurrentReads: Int = 2,
+        catalog: AgentModelCatalog = AgentModelCatalog()
+    ) {
+        self.init(
+            maxTrackedTranscripts: maxTrackedTranscripts,
+            maxConcurrentReads: maxConcurrentReads,
+            reader: AgentUsageTranscriptReader(catalog: catalog)
+        )
     }
 
-    init(maxTrackedTranscripts: Int = 64, reader: AgentUsageTranscriptReader) {
+    init(maxTrackedTranscripts: Int = 64, maxConcurrentReads: Int = 2, reader: AgentUsageTranscriptReader) {
         self.maxTrackedTranscripts = max(1, maxTrackedTranscripts)
+        self.maxConcurrentReads = max(1, maxConcurrentReads)
         self.reader = reader
     }
 
@@ -56,20 +84,31 @@ public actor AgentUsageSampler {
     /// - Parameters:
     ///   - transcriptPath: Absolute path of the agent transcript JSONL.
     ///   - source: The transcript format.
-    /// - Returns: The usage snapshot, or `nil` when there is nothing new to
-    ///   report: the file is unreadable or carries no model yet, a sample of
-    ///   the same transcript is already running, or the transcript was
-    ///   forgotten/reset while this sample ran.
+    /// - Returns: The usage snapshot, or `nil` when there is nothing to
+    ///   report: the file is unreadable or carries no model yet, or the
+    ///   transcript was forgotten/reset while this sample ran.
     public func sample(transcriptPath: String, source: AgentUsageSource) async -> AgentUsageSnapshot? {
         let key = Key(path: transcriptPath, source: source)
-        guard inFlight.insert(key).inserted else { return nil }
-        defer { inFlight.remove(key) }
+        while inFlight.contains(key) {
+            await withCheckedContinuation { keyWaiters[key, default: []].append($0) }
+        }
+        inFlight.insert(key)
+        defer {
+            inFlight.remove(key)
+            for waiter in keyWaiters.removeValue(forKey: key) ?? [] { waiter.resume() }
+        }
+        await acquireReadSlot()
+        defer { releaseReadSlot() }
+
         let generation = generation(for: key)
         let previous = sessions[key] ?? AgentUsageTranscriptReader.SessionCursor()
         let reader = self.reader
-        let (updated, snapshot) = await Task.detached(priority: .utility) {
-            await reader.advanceSession(previous, path: transcriptPath, source: source)
-        }.value
+        let readQueue = self.readQueue
+        let (updated, snapshot) = await withCheckedContinuation { continuation in
+            readQueue.async {
+                continuation.resume(returning: reader.advanceSession(previous, path: transcriptPath, source: source))
+            }
+        }
         guard generation == self.generation(for: key) else { return nil }
         useCounter &+= 1
         var stored = updated
@@ -98,11 +137,30 @@ public actor AgentUsageSampler {
     }
 
     /// Drops all incremental state (for example when the feature is turned
-    /// off); samples still running are discarded.
+    /// off). Reads already running finish (each is bounded) but their
+    /// results are discarded; a sample requested afterwards waits for them
+    /// and then reads from scratch.
     public func reset() {
         sessions.removeAll()
         keyEpochs.removeAll()
         epoch &+= 1
+    }
+
+    private func acquireReadSlot() async {
+        if activeReads < maxConcurrentReads {
+            activeReads += 1
+            return
+        }
+        // The slot is handed over directly by `releaseReadSlot`.
+        await withCheckedContinuation { readWaiters.append($0) }
+    }
+
+    private func releaseReadSlot() {
+        if readWaiters.isEmpty {
+            activeReads -= 1
+        } else {
+            readWaiters.removeFirst().resume()
+        }
     }
 
     private func generation(for key: Key) -> Generation {

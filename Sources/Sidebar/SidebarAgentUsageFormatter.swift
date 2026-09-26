@@ -20,13 +20,12 @@ struct SidebarAgentUsageFormatter {
         self.locale = locale
     }
 
-    /// Tooltip for an entry that shows an estimated cost.
-    static var costHelpText: String {
-        String(
-            localized: "sidebar.agentUsage.costHelp",
-            defaultValue: "Cost is an API list-price estimate, not your subscription bill."
-        )
-    }
+    /// Tooltip for an entry that shows an estimated cost (resolved once;
+    /// the app language only changes across launches).
+    static let costHelpText = String(
+        localized: "sidebar.agentUsage.costHelp",
+        defaultValue: "Cost is an API list-price estimate, not your subscription bill."
+    )
 
     /// The compact usage summary, e.g. `Opus 4.8 · 42% · ~$1.20`.
     ///

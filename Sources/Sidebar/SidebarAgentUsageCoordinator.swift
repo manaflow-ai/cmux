@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxSettings
 import CmuxSidebar
 import Foundation
 
@@ -59,6 +60,9 @@ final class SidebarAgentUsageCoordinator {
     private var epochCounter: UInt64 = 0
     private var lastKnownEnabled: Bool
     private var observationTasks: [Task<Void, Never>] = []
+    /// The sampler reset issued by the last disable; flushes wait for it so
+    /// a quick off→on cannot have its fresh read discarded by a late reset.
+    private var resetTask: Task<Void, Never>?
 
     /// Creates a coordinator.
     ///
@@ -110,10 +114,15 @@ final class SidebarAgentUsageCoordinator {
         Self.isEnabled(defaults: defaults)
     }
 
+    /// Reads only the three settings that gate usage (this runs on every
+    /// `UserDefaults` change notification). Usage renders inside the
+    /// metadata rows, so hidden rows mean no reads.
     private static func isEnabled(defaults: UserDefaults) -> Bool {
-        let visibility = SidebarWorkspaceDetailDefaults.auxiliaryDetailVisibility(defaults: defaults)
-        // Usage renders inside the metadata rows; no rows, no reads.
-        return visibility.showsAgentUsage && visibility.showsMetadata
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let sidebar = SidebarCatalogSection()
+        return settings.value(for: sidebar.showAgentUsage)
+            && settings.value(for: sidebar.showCustomMetadata)
+            && !settings.value(for: sidebar.hideAllDetails)
     }
 
     /// Reacts to a settings change: samples every known session when usage
@@ -213,6 +222,7 @@ final class SidebarAgentUsageCoordinator {
         }
         guard isEnabled, let record = sessions[sessionID], let path = record.transcriptPath else { return }
         readingSessionIDs.insert(sessionID)
+        await resetTask?.value
         let snapshot = await sampler.sample(transcriptPath: path, source: record.source)
         // The setting may have flipped, or the session ended or restarted,
         // while sampling; `nil` means "nothing new" and keeps what is shown.
@@ -260,7 +270,11 @@ final class SidebarAgentUsageCoordinator {
             metadataLookup(row.workspaceID)?.updateAgentUsage(nil, forStatusKey: row.source.sidebarStatusKey)
         }
         rowsShowingUsage.removeAll()
-        Task { [sampler] in await sampler.reset() }
+        let previousReset = resetTask
+        resetTask = Task { [sampler] in
+            await previousReset?.value
+            await sampler.reset()
+        }
     }
 
     /// Waits until no sample is scheduled or running (tests use this to

@@ -11,6 +11,11 @@ struct AgentUsageFileCursor: Sendable {
     var byteOffset: UInt64 = 0
     /// Inode of the file when last read (from `fstat` on the open fd).
     var inode: UInt64?
+    /// Size and modification time (ns) from the last read's `fstat`; when a
+    /// plain `stat` still matches them (and the inode), the file is skipped
+    /// without being opened.
+    var statSize: UInt64 = 0
+    var modificationNanos: Int64 = 0
     /// The first bytes of the file when last read. A mismatch means the file
     /// was rewritten in place, even if it is now larger.
     var head = Data()
