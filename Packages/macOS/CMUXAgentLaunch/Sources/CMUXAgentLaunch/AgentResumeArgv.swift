@@ -89,7 +89,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// restore must retain the captured Codex executable instead of assuming a
     /// separate `codex` is available on `PATH`.
     public static func codexWrapperShellExecutableToken(fallbackExecutable: String) -> String {
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' \(posixSingleQuoted(fallbackExecutable)))\""
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' \(ManagedAgentWrapperDescriptor.posixSingleQuoted(fallbackExecutable)))\""
     }
 
     /// The shell token that resolves cmux's Hermes wrapper at restore time.
