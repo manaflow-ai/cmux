@@ -61,18 +61,17 @@ struct GhosttyRuntimeLifetimeTests {
             weakView = view
         }
         try #require(weakRuntime != nil)
-        #expect(await view?.processOutputAndWait(Data("X".utf8)) == true)
+        try #require(view?.surface != nil)
 
-        // Hold the output queue so the free waits behind this item.
+        // Everything up to the release runs in one main-actor turn. Output, or
+        // a display-link frame, would queue work that holds the queue strongly
+        // until it next goes idle, which keeps it alive whether or not the
+        // free holds it.
         let releaseBlocker = DispatchSemaphore(value: 0)
-        let blockerStarted = await withCheckedContinuation { (started: CheckedContinuation<Bool, Never>) in
-            let queued = view?.outputQueue.async {
-                started.resume(returning: true)
-                releaseBlocker.wait()
-            }
-            if queued != true { started.resume(returning: false) }
-        }
-        try #require(blockerStarted)
+        defer { releaseBlocker.signal() }
+        // Hold the output queue so the free waits behind this item.
+        let blockerQueued = view?.outputQueue.async { releaseBlocker.wait() }
+        try #require(blockerQueued == true)
 
         view?.prepareForDismantle()
         view?.disposeSurface()
