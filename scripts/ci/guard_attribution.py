@@ -85,10 +85,10 @@ MAX_BASELINE_RUNS = 12
 MAX_BISECT_COMMITS = 40
 # Commits run one by one; a longer range is halved instead.
 MAX_LINEAR_COMMITS = 8
-# One run of a few guard steps; the fast guard's own job timeout.
-PROBE_TIMEOUT_S = 300
+# One run of a few guard steps (seconds normally). Budget + 3 probes stays under the 20 min job.
+PROBE_TIMEOUT_S = 150
 # analyze stops bisecting after this long so the report still posts (job timeout 20 min).
-BISECT_BUDGET_S = 11 * 60
+BISECT_BUDGET_S = 7 * 60
 MAX_RENDERED_STEPS = 10
 MAX_COMMENT_CHARS = 60000
 MAX_MESSAGE_LINES = 14
@@ -694,12 +694,22 @@ def first_failing(commits: list[str], steps: set[str], probe: Probe, base_passes
     else:
         for step in list(pending):
             low, high = 0, len(commits) - 1  # commits[high] fails
+            unknown = None
             while low < high and not late():
                 middle = (low + high) // 2
-                if probe(commits[middle], {step}).get(step) is False:
+                result = probe(commits[middle], {step}).get(step)
+                if result is None:  # timed out or unplannable: never read as a pass
+                    unknown = commits[middle]
+                    break
+                if result is False:
                     high = middle
                 else:
                     low = middle + 1
+            if unknown:
+                pending.discard(step)
+                verdicts[step] = {"sha": None, "method": f"bisecting {len(commits)} commits stopped: the step "
+                                                         f"could not be run at {unknown[:10]}"}
+                continue
             if low < high:
                 continue  # out of time
             pending.discard(step)
@@ -804,6 +814,7 @@ def analyze_fast_main(gh: GitHub | None, run: Mapping, root: Path, log: str, hea
     if known and green_since(runs, root, data.get("sha"), red_sha):
         # A green run the report missed (a dropped pending run): this is a new breakage.
         known = {}
+        report["reset"] = True
     commands = step_commands(Tree(root, red_sha))
     new = [f for f in failures if f.step not in known]
     ranges: dict[tuple[str, ...], tuple[set[str], bool]] = {}
@@ -1048,7 +1059,12 @@ def render_issue(report: Mapping, steps_state: Mapping[str, Mapping], fix_prs: M
     out.append("")
     out.append("Opened and closed by `scripts/ci/guard_attribution.py` (ci-guard-attribution.yml); it closes when "
                "the workflow is green on main again.")
-    data = {"kind": kind, "sha": report.get("sha"), "steps": dict(steps_state),
+    slim = {name: {"culprit": {k: v for k, v in (state.get("culprit") or {}).items()
+                               if k in ("sha", "pr", "author", "merger", "method")},
+                   "fix": {"hints": [h[:500] for h in ((state.get("fix") or {}).get("hints") or [])[:3]]},
+                   "fix_pr": state.get("fix_pr")}
+            for name, state in list(steps_state.items())[:40]}
+    data = {"kind": kind, "sha": report.get("sha"), "steps": slim,
             "run_url": report.get("run_url")}
     marker = DATA_PREFIX + json.dumps(data, separators=(",", ":")).replace("-->", "--\\u003e") + " -->"
     return cap("\n".join(out) + "\n") + marker + "\n"
@@ -1135,7 +1151,7 @@ def report_main(writer: Writer, gh: GitHub | None, repo: str, report: Mapping, f
                                  f"({report.get('run_url')}). Closing."})
             writer.call("PATCH", f"repos/{repo}/issues/{issue['number']}", {"state": "closed", "state_reason": "completed"})
         return
-    previous = issue_data(issue)
+    previous = {} if report.get("reset") else issue_data(issue)
     steps_state: dict[str, dict] = {}
     for step in report.get("steps") or []:
         steps_state[step["step"]] = {"culprit": step.get("culprit"),

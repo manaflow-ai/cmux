@@ -216,6 +216,12 @@ class FirstFailingCommit(unittest.TestCase):
         verdict = ga.first_failing(commits, {"a"}, self.probe_for({"a": 9}, commits), True)
         self.assertIsNone(verdict["a"]["sha"])
 
+    def test_an_unrunnable_probe_is_never_read_as_a_pass(self) -> None:
+        commits = [f"c{i}" for i in range(ga.MAX_LINEAR_COMMITS * 4)]
+        verdict = ga.first_failing(commits, {"a"}, lambda sha, steps: {s: None for s in steps}, True)
+        self.assertIsNone(verdict["a"]["sha"])
+        self.assertIn("could not be run", verdict["a"]["method"])
+
     def test_a_long_range_is_halved(self) -> None:
         commits = [f"c{i}" for i in range(ga.MAX_BISECT_COMMITS * 3)]
         calls: list[str] = []
