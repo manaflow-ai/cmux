@@ -32,7 +32,7 @@ public struct WindowAppearanceResolver {
                 cornerRadius: settings.sidebarCornerRadius,
                 blurOpacity: settings.sidebarBlurOpacity,
                 // The snapshot initializer replaces this compatibility value
-                // with the terminal authority below.
+                // with the resolved sidebar scheme.
                 colorScheme: settings.colorScheme
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
@@ -50,7 +50,8 @@ public struct WindowAppearanceResolver {
                 backgroundColor: terminalAppearance.backgroundColor,
                 opacity: terminalAppearance.backgroundOpacity,
                 ambientScheme: settings.colorScheme
-            )
+            ),
+            ambientColorScheme: settings.colorScheme
         )
     }
 

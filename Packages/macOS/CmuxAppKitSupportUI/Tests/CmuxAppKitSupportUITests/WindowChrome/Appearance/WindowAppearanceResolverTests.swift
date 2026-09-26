@@ -72,8 +72,9 @@ import Testing
 
         #expect(snapshot.resolvedColorScheme == expectedScheme)
         #expect(snapshot.chromeColorScheme == expectedScheme)
-        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+        // A separate sidebar follows the ambient scheme (makeSettings: .dark).
+        #expect(snapshot.sidebarContentColorScheme == .dark)
+        #expect(snapshot.sidebarSettings.colorScheme == .dark)
     }
 
     @Test(arguments: [
@@ -115,8 +116,8 @@ import Testing
 
         #expect(snapshot.resolvedColorScheme == expectedScheme)
         #expect(snapshot.chromeColorScheme == expectedScheme)
-        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+        #expect(snapshot.sidebarContentColorScheme == ambientScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == ambientScheme)
     }
 
     /// A separate sidebar draws a material that resolves against the app
