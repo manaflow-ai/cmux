@@ -174,7 +174,7 @@ public struct MobileAuthComposition {
             isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
-        let pushIdentity = try? PhonePushKeyStore.current(
+        let pushIdentity = try? PhonePushKeyMaterial.current(
             bundleID: bundle.bundleIdentifier ?? "",
             accessGroup: keychainAccessGroup
         )
@@ -187,7 +187,7 @@ public struct MobileAuthComposition {
             pushKeyID: pushIdentity?.keyID,
             pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
             pushIdentityProvider: {
-                guard let identity = try? PhonePushKeyStore.current(
+                guard let identity = try? PhonePushKeyMaterial.current(
                     bundleID: bundle.bundleIdentifier ?? "",
                     accessGroup: keychainAccessGroup
                 ) else { return nil }
@@ -200,10 +200,6 @@ public struct MobileAuthComposition {
             session: .shared
         )
         deferredSignIn.set {
-            let accountID = await MainActor.run { coordinator.currentUser?.id }
-            if let accountID {
-                PhonePushActiveAccountStore.set(accountID)
-            }
             await push.syncTokenIfPossible()
         }
         self.coordinator = coordinator
@@ -224,16 +220,12 @@ public struct MobileAuthComposition {
         let pushRegistration = self.pushRegistration
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator) {
-                if let accountID = coordinator.currentUser?.id {
-                    PhonePushActiveAccountStore.set(accountID)
-                } else {
-                    PhonePushActiveAccountStore.clear()
-                }
                 Task {
                     await pushRegistration.syncTokenIfPossible()
                 }
             }
         }
+        taskOwner.mirrorActiveAccount(from: coordinator)
         coordinator.start()
         taskOwner.observeRestore(using: coordinator)
     }
@@ -406,8 +398,10 @@ public struct MobileAuthComposition {
         return previous != resolvedProjectID
     }
 
+    /// The Simulator only ever mints sandbox device tokens, so a Release build
+    /// running there must register as sandbox or APNs rejects every push.
     private static var apnsEnvironment: String {
-        #if DEBUG
+        #if DEBUG || targetEnvironment(simulator)
         "sandbox"
         #else
         "production"
@@ -438,7 +432,7 @@ public struct MobileAuthComposition {
     }
 
     private static func keychainAccessGroup(in bundle: Bundle) -> String? {
-        MobileKeychainAccessGroupPolicy.resolve(
+        String.cmuxKeychainAccessGroup(from:
             bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         )
     }
@@ -470,6 +464,7 @@ private final class MobileAuthTaskOwner {
     private let shouldObserveCachedRestore: Bool
     private var restoreTask: Task<Void, Never>?
     private var revalidationTask: Task<Void, Never>?
+    private var activeAccountMirrorTask: Task<Void, Never>?
 
     init(
         diagnosticLog: DiagnosticLog?,
@@ -482,6 +477,17 @@ private final class MobileAuthTaskOwner {
     func recordRestoreStarted() {
         guard shouldObserveCachedRestore else { return }
         diagnosticLog?.recordAppEvent(.authRestoreStarted)
+    }
+
+    /// The notification service extension reads the active account from the
+    /// shared keychain. Mirroring the auth stream covers a restored session at
+    /// launch, sign-in, account switches, and sign-out through one path.
+    func mirrorActiveAccount(from coordinator: AuthCoordinator) {
+        activeAccountMirrorTask?.cancel()
+        let identities = coordinator.authenticatedSessionIdentities()
+        activeAccountMirrorTask = Task { @MainActor in
+            await PhonePushActiveAccountStore().mirror(identities)
+        }
     }
 
     func observeRestore(using coordinator: AuthCoordinator) {
@@ -515,5 +521,6 @@ private final class MobileAuthTaskOwner {
     deinit {
         restoreTask?.cancel()
         revalidationTask?.cancel()
+        activeAccountMirrorTask?.cancel()
     }
 }

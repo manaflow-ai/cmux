@@ -18,8 +18,10 @@ struct WorkspaceSwitchRendererProtectionTests {
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: snapshot)
 
         #expect(workspace.tmuxLayoutSnapshot == before)
-        await Task.yield()
-        await Task.yield()
+        let didPublishSnapshot = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            workspace.tmuxLayoutSnapshot == snapshot
+        }
+        #expect(didPublishSnapshot)
         #expect(workspace.tmuxLayoutSnapshot == snapshot)
     }
 

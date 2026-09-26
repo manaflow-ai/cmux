@@ -1,10 +1,23 @@
 import CmuxSidebar
+import CmuxSurfaceCatalogModel
 import Foundation
 
-/// Value-only Cloud provenance for both left-sidebar renderers and accessibility.
+/// Value-only remote provenance for both left-sidebar renderers and accessibility.
 struct CloudWorkspaceSidebarPresentation {
     let machineLabel: String
     let directoryCandidates: [String]
+    let isDeviceWorkspace: Bool
+
+    @MainActor
+    static func deviceLabel(workspace: Workspace) -> String? {
+        let state = workspace.cloudBindingState
+        let machines = Set(state.projectedResources.values.map(\.machine).filter { $0.deviceInstance != nil })
+        guard !machines.isEmpty else { return nil }
+        let names = machines.sorted { $0.rawValue < $1.rawValue }.map { state.machineNames[$0.rawValue] ?? $0.rawValue }
+        return String.localizedStringWithFormat(
+            String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
+        )
+    }
 
     static var unavailableDirectory: String {
         String(localized: "sidebar.cloudWorkspace.directoryUnavailable", defaultValue: "Directory unavailable")
@@ -15,6 +28,8 @@ struct CloudWorkspaceSidebarPresentation {
         let state = workspace.cloudBindingState
         var machineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
+        isDeviceWorkspace = machineIDs.isEmpty
+        machineIDs.formUnion(state.projectedResources.values.compactMap { $0.machine.isDevice ? $0.machine.rawValue : nil })
         guard !machineIDs.isEmpty else { return nil }
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
@@ -27,14 +42,18 @@ struct CloudWorkspaceSidebarPresentation {
             return name == id ? id : "\(name) (\(id))"
         }
         machineLabel = String.localizedStringWithFormat(
-            String(localized: "sidebar.cloudWorkspace.label", defaultValue: "Cloud workspace on %@"),
+            isDeviceWorkspace
+                ? String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@")
+                : String(localized: "sidebar.cloudWorkspace.label", defaultValue: "Cloud workspace on %@"),
             identities.joined(separator: " · ")
         )
 
         var entries: [(identity: String, directory: String?)] = []
         var seen = Set<String>()
         for panelID in orderedPanelIDs {
-            guard let machineID = state.projectedResources[panelID]?.machine.cloudMachineID ?? workspace.cloudVMID else { continue }
+            let projectedMachine = state.projectedResources[panelID]?.machine
+            guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
+                ?? workspace.cloudVMID else { continue }
             let resource = state.projectedResources[panelID]
             guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)

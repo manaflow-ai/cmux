@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -6,7 +8,7 @@ extension SurfaceCatalog {
     /// authoritative snapshot must expose the last accepted name for identities
     /// already present in `cloudStates`.
     private func authoritativeMachineInfo(_ info: SurfaceMachineInfo) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
+        guard info.id.tuiMachineID != nil,
               let state = cloudStates[info.id],
               let workspaces = info.remoteWorkspaces else { return info }
         let accepted = Dictionary(uniqueKeysWithValues: state.workspaces.map { workspace in
@@ -26,14 +28,16 @@ extension SurfaceCatalog {
     /// enumerate destructive operations. Presentation still withholds a stale
     /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
-        SurfaceCatalogSnapshot(
+        let displayCreationMachines = Set(machines.keys.filter { (provider(for: $0) as? CmuxTuiSurfaceProvider)?.supportsDisplayCreation == true })
+        return SurfaceCatalogSnapshot(
             machines: machines.values.map(authoritativeMachineInfo).sorted {
                 if $0.id.isLocal != $1.id.isLocal { return $0.id.isLocal }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             },
             resources: resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) },
             projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
-            staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys)
+            staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys),
+            displayCreationMachines: displayCreationMachines.isEmpty ? nil : displayCreationMachines
         )
     }
 
@@ -41,9 +45,23 @@ extension SurfaceCatalog {
     /// sidebar/CLI readers, so every entrypoint sees one optimistic tree.
     var snapshot: SurfaceCatalogSnapshot {
         var result = authoritativeSnapshot
+        applyPendingWorkspaceCreations(to: &result)
         applyPendingDeletions(to: &result)
         applyPendingRenames(to: &result)
         return result
+    }
+
+    private func applyPendingWorkspaceCreations(to result: inout SurfaceCatalogSnapshot) {
+        var pending: [SurfaceMachineID: [String: UUID]] = [:]
+        for operation in cloudWorkspaceCreationCoordinator.operations.values {
+            guard let receipt = operation.receipt, let reservation = operation.reservation,
+                  let index = result.machines.firstIndex(where: { $0.id == operation.machine }) else { continue }
+            pending[operation.machine, default: [:]][receipt.workspace.id] = reservation.workspaceID
+            if result.machines[index].remoteWorkspaces?.contains(where: { $0.id == receipt.workspace.id }) != true {
+                result.machines[index].remoteWorkspaces = (result.machines[index].remoteWorkspaces ?? []) + [receipt.workspace]
+            }
+        }
+        result.pendingWorkspaceCreations = pending.isEmpty ? nil : pending
     }
 
     /// Hides workspaces admitted for deletion. Shared browser/display resources

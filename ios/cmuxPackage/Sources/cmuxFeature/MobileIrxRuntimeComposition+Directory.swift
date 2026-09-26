@@ -39,7 +39,7 @@ extension MobileIrxRuntimeComposition {
         guard let auth else { return }
         await MainActor.run {
             guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return }
-            MobileMacListAuthState.shared.replace(entriesByIdentity: entries)
+            self.macListAuthState.replace(entriesByIdentity: entries)
         }
     }
 

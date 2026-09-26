@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -43,6 +45,28 @@ struct CloudTreeAvailabilityTests {
             localWorkspaces: []
         )
         #expect(catalogOnly.map(\.id) == ["machine:ghost"])
+    }
+
+    @Test
+    func testConnectingMachineStillRendersAReceiptWorkspace() {
+        let machine = SurfaceMachineID.cloud("cold-create")
+        let workspace = SurfaceRemoteWorkspace(id: "ws-receipt", name: "New workspace", index: 0, focused: false)
+        var info = machineInfo(machine, linkState: .connecting, hasDesktop: false, remoteWorkspaces: [workspace])
+        var snapshot = SurfaceCatalogSnapshot(
+            machines: [info], resources: [], projections: []
+        )
+        snapshot.pendingWorkspaceCreations = [machine: [workspace.id: UUID()]]
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        )
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        #expect(flattened.contains { node in
+            if case .workspace(_, let row, _, _, let openIn) = node.kind {
+                return row.id == workspace.id && openIn != nil
+            }
+            return false
+        })
+        _ = info
     }
 
 

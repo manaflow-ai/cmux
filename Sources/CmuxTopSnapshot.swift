@@ -53,70 +53,6 @@ enum CmuxTopProcessMemorySource: String, Sendable {
     case unavailable
 }
 
-struct CmuxTopProcessInfo: Sendable {
-    let pid: Int
-    let parentPID: Int
-    let name: String
-    let path: String?
-    let ttyDevice: Int64?
-    let cmuxWorkspaceID: UUID?
-    let cmuxSurfaceID: UUID?
-    let cmuxAttributionReason: String?
-    let processGroupID: Int?
-    let terminalProcessGroupID: Int?
-    var cpuPercent: Double
-    let memoryBytes: Int64
-    let memorySource: CmuxTopProcessMemorySource
-    let residentBytes: Int64
-    let residentMemorySource: CmuxTopProcessMemorySource
-    let virtualBytes: Int64
-    let threadCount: Int
-
-    init(
-        pid: Int,
-        parentPID: Int,
-        name: String,
-        path: String?,
-        ttyDevice: Int64?,
-        cmuxWorkspaceID: UUID?,
-        cmuxSurfaceID: UUID?,
-        cmuxAttributionReason: String?,
-        processGroupID: Int?,
-        terminalProcessGroupID: Int?,
-        cpuPercent: Double,
-        memoryBytes: Int64? = nil,
-        memorySource: CmuxTopProcessMemorySource? = nil,
-        residentBytes: Int64,
-        residentMemorySource: CmuxTopProcessMemorySource = .residentSize,
-        virtualBytes: Int64,
-        threadCount: Int
-    ) {
-        self.pid = pid
-        self.parentPID = parentPID
-        self.name = name
-        self.path = path
-        self.ttyDevice = ttyDevice
-        self.cmuxWorkspaceID = cmuxWorkspaceID
-        self.cmuxSurfaceID = cmuxSurfaceID
-        self.cmuxAttributionReason = cmuxAttributionReason
-        self.processGroupID = processGroupID
-        self.terminalProcessGroupID = terminalProcessGroupID
-        self.cpuPercent = cpuPercent
-        self.memoryBytes = memoryBytes ?? residentBytes
-        self.memorySource = memorySource
-            ?? (memoryBytes == nil ? .residentSize : .physicalFootprint)
-        self.residentBytes = residentBytes
-        self.residentMemorySource = residentMemorySource
-        self.virtualBytes = virtualBytes
-        self.threadCount = threadCount
-    }
-
-    var isTerminalForegroundProcessGroup: Bool {
-        guard let processGroupID, let terminalProcessGroupID else { return false }
-        return processGroupID == terminalProcessGroupID
-    }
-}
-
 struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
@@ -129,11 +65,18 @@ struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
+// All stored indexes and records are immutable after construction.
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
+    /// Keeps process-tree construction and downstream JSON encoding within the
+    /// stack available to control-socket worker threads.
+    private static let maximumProcessTreeDepth = 32
+
     let sampledAt: Date
+    let captureIsAvailable: Bool
     let enumerationIsComplete: Bool
     let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
+    let includesResources: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
@@ -147,14 +90,18 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         sampledAt: Date,
         includesProcessDetails: Bool,
         includesCMUXScope: Bool = true,
+        includesResources: Bool = true,
         enumerationIsComplete: Bool = true,
-        enumerationMissingProcessCount: Int = 0
+        enumerationMissingProcessCount: Int = 0,
+        captureIsAvailable: Bool = true
     ) {
+        self.captureIsAvailable = captureIsAvailable
         self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
         self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
+        self.includesResources = includesResources
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {
@@ -201,6 +148,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
+            "resource_details": includesResources,
             "cmux_scope": includesCMUXScope,
             "enumeration_complete": enumerationIsComplete,
             "enumeration_missing_process_count": enumerationMissingProcessCount
@@ -614,15 +562,38 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             roots = Array(orphaned).sorted { processSortKey($0) < processSortKey($1) }
         }
 
+        var pendingRootPIDs = roots
+        if pendingRootPIDs.isEmpty {
+            pendingRootPIDs = allowedPIDs.sorted { processSortKey($0) < processSortKey($1) }
+        }
+
         var visited: Set<Int> = []
-        return roots.compactMap {
-            processTreeNode(
-                pid: $0,
+        var rootNodes: [[String: Any]] = []
+        var pendingRootIndex = 0
+        while visited.count < allowedPIDs.count {
+            if pendingRootIndex == pendingRootPIDs.count {
+                guard let nextRootPID = allowedPIDs
+                    .filter({ !visited.contains($0) })
+                    .min(by: { processSortKey($0) < processSortKey($1) }) else {
+                    break
+                }
+                pendingRootPIDs.append(nextRootPID)
+            }
+
+            let pid = pendingRootPIDs[pendingRootIndex]
+            pendingRootIndex += 1
+            if let node = processTreeNode(
+                pid: pid,
                 allowedPIDs: allowedPIDs,
                 rootPIDs: explicitRootPIDs,
+                depth: 1,
+                pendingRootPIDs: &pendingRootPIDs,
                 visited: &visited
-            )
+            ) {
+                rootNodes.append(node)
+            }
         }
+        return rootNodes
     }
 
     func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
@@ -675,7 +646,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processName: process.name,
             processPath: process.path
         ) else { return nil }
-        return processArgumentsAndEnvironment(for: process.pid)
+        return processArgumentsAndEnvironment(for: process)
     }
 
     private struct CmuxProgramProcessAggregate {
@@ -784,6 +755,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         pid: Int,
         allowedPIDs: Set<Int>,
         rootPIDs: Set<Int>,
+        depth: Int,
+        pendingRootPIDs: inout [Int],
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -791,17 +764,26 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return nil
         }
 
-        let childNodes = (childrenByParentPID[pid] ?? [])
+        let childPIDs = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap {
+
+        let childNodes: [[String: Any]]
+        if depth < Self.maximumProcessTreeDepth {
+            childNodes = childPIDs.compactMap {
                 processTreeNode(
                     pid: $0,
                     allowedPIDs: allowedPIDs,
                     rootPIDs: rootPIDs,
+                    depth: depth + 1,
+                    pendingRootPIDs: &pendingRootPIDs,
                     visited: &visited
                 )
             }
+        } else {
+            pendingRootPIDs.append(contentsOf: childPIDs.filter { !visited.contains($0) })
+            childNodes = []
+        }
 
         var payload: [String: Any] = [
             "kind": "process",

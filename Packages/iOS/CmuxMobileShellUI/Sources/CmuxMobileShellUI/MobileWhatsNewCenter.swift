@@ -32,17 +32,18 @@ public final class MobileWhatsNewCenter {
     static let requestPath = "/api/whats-new"
     /// The pairing requirement is part of the client contract, so an older
     /// cached visibility list must not hide it from team builds.
-    private static let requiredBinaryEntryIDs: Set<String> = ["connections.v2"]
+    private static let requiredBinaryEntryIDs: Set<String> = ["pairing.1.0.6", "connections.v2"]
 
     private let requestURL: URL?
-    private let appVersion: String
+    let appVersion: String
     /// The running distribution channel, gating every page through
     /// ``MobileWhatsNewChannelPolicy``: official (`.prod`) and demo builds
     /// see a page only when it explicitly lists their channel token, so the
     /// App Store app shows no What's New surface by default (Guideline 2.2).
-    private let buildType: MobileBuildType
+    let buildType: MobileBuildType
     private let defaults: UserDefaults
     private let loader: Loader
+    private let preferredLanguages: [String]
 
     /// The last successfully fetched list (this launch or a previous one).
     /// `nil` means no list has EVER been fetched on this device.
@@ -51,12 +52,17 @@ public final class MobileWhatsNewCenter {
     /// that gates web-content pages into the one-time sheet, so an offline
     /// launch skips them instead of presenting an unloadable webview.
     private(set) var lastRefreshSucceeded = false
+    /// A launch presentation waits for the first attempt so cached native
+    /// pages cannot overtake a new remote announcement. Failure still allows
+    /// the cached/offline pages to appear.
+    private(set) var hasCompletedInitialRefresh = false
 
     public init(
         apiBaseURL: String?,
         appVersion: String? = nil,
         buildType: MobileBuildType = .current(),
         defaults: UserDefaults = .standard,
+        preferredLanguages: [String] = Bundle.main.preferredLocalizations,
         loader: Loader? = nil
     ) {
         if let apiBaseURL, !apiBaseURL.isEmpty {
@@ -69,6 +75,7 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.buildType = buildType
         self.defaults = defaults
+        self.preferredLanguages = preferredLanguages
         self.loader = loader ?? mobileRemoteJSONLoader
         if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
@@ -92,14 +99,23 @@ public final class MobileWhatsNewCenter {
     /// failure (offline, server error, malformed payload) keeps the cached
     /// list: cache wins while offline.
     public func refresh() async {
+        var cancelled = false
+        defer {
+            if !cancelled && !Task.isCancelled {
+                hasCompletedInitialRefresh = true
+            }
+        }
         guard let requestURL else { return }
         do {
             let data = try await loader(requestURL)
+            try Task.checkCancellation()
             let list = try JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: data)
             remoteList = list
             lastRefreshSucceeded = true
             defaults.set(data, forKey: environmentCacheKey)
             pruneAcknowledgedAnnouncements(against: list)
+        } catch where error is CancellationError || (error as? URLError)?.code == .cancelled {
+            cancelled = true
         } catch {
             // Keep the cached list; no cache ever fetched means binary
             // entries stay visible (fail-open to binary truth).
@@ -124,7 +140,7 @@ public final class MobileWhatsNewCenter {
     /// (`MobileWebPageHosts`) with the web app session broker, so navigation
     /// and credential policy agree.
     var allowedWebHosts: Set<String> {
-        var hosts = MobileWebPageHosts.cmuxOwned
+        var hosts = MobileWebPageHosts().cmuxOwned
         if let apiHost = requestURL?.host?.lowercased() {
             hosts.insert(apiHost)
         }
@@ -146,16 +162,17 @@ public final class MobileWhatsNewCenter {
     /// current native page does not disappear from Settings until the API
     /// catches up. An explicit empty list remains a deliberate retraction.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
-        let channelAllowed = MobileWhatsNewCatalog.entries.filter { page in
-            MobileWhatsNewChannelPolicy.isVisible(
+        let channelAllowed = MobileWhatsNewCatalog().entries.filter { page in
+            let channelVisible = MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: remoteList?.entryChannels?[page.id] ?? page.channels,
                 buildType: buildType
             )
+            return channelVisible && page.supports(appVersion: appVersion)
         }
         guard let remoteList else { return channelAllowed }
         let visible = Set(remoteList.visibleEntryIds)
         guard !visible.isEmpty else { return [] }
-        let recognized = visible.intersection(Set(channelAllowed.map(\.id)))
+        let recognized = visible.intersection(Set(MobileWhatsNewCatalog().entries.map(\.id)))
         guard !recognized.isEmpty else {
             return channelAllowed
         }
@@ -174,11 +191,11 @@ public final class MobileWhatsNewCenter {
         return remoteList.announcements.compactMap { announcement in
             // Channel gate first: an announcement with no channel list is
             // team-lanes only and never reaches the official App Store app.
-            guard MobileWhatsNewChannelPolicy.isVisible(
+            guard MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: announcement.channels,
                 buildType: buildType
             ) else { return nil }
-            guard MobileAppVersionCompare.version(
+            guard MobileAppVersionCompare().version(
                 appVersion,
                 isWithinMin: announcement.minVersion,
                 max: announcement.maxVersion
@@ -208,9 +225,9 @@ public final class MobileWhatsNewCenter {
         let visible = visibleBinaryEntries
         let unseenBinary: [MobileWhatsNewPage]
         if let marker = defaults.string(forKey: Self.markerKey) {
-            if let markerIndex = MobileWhatsNewCatalog.index(ofID: marker) {
+            if let markerIndex = MobileWhatsNewCatalog().index(ofID: marker) {
                 unseenBinary = visible.filter { page in
-                    (MobileWhatsNewCatalog.index(ofID: page.id) ?? Int.max) < markerIndex
+                    (MobileWhatsNewCatalog().index(ofID: page.id) ?? Int.max) < markerIndex
                 }
             } else {
                 // The marker id is unknown to this binary (downgrade or a
@@ -238,13 +255,13 @@ public final class MobileWhatsNewCenter {
         defaults.set(acknowledged.sorted(), forKey: Self.acknowledgedAnnouncementsKey)
 
         let shownIndices = pages.compactMap { page in
-            page.isAnnouncement ? nil : MobileWhatsNewCatalog.index(ofID: page.id)
+            page.isAnnouncement ? nil : MobileWhatsNewCatalog().index(ofID: page.id)
         }
         guard let newestShown = shownIndices.min() else { return }
         let currentIndex = defaults.string(forKey: Self.markerKey)
-            .flatMap(MobileWhatsNewCatalog.index(ofID:))
+            .flatMap(MobileWhatsNewCatalog().index(ofID:))
         if let currentIndex, currentIndex <= newestShown { return }
-        defaults.set(MobileWhatsNewCatalog.entries[newestShown].id, forKey: Self.markerKey)
+        defaults.set(MobileWhatsNewCatalog().entries[newestShown].id, forKey: Self.markerKey)
     }
 
     private var acknowledgedAnnouncementIDs: Set<String> {
@@ -259,6 +276,7 @@ public final class MobileWhatsNewCenter {
     /// announcement's own fallback content (webpage, then inline feature
     /// rows) renders.
     private func page(for announcement: MobileWhatsNewRemoteAnnouncement) -> MobileWhatsNewPage? {
+        let announcement = announcement.localized(for: preferredLanguages)
         guard let title = announcement.title, !title.isEmpty else { return nil }
         if let web = allowlistedWebURL(announcement.webUrl) {
             return MobileWhatsNewPage(
@@ -294,7 +312,7 @@ public final class MobileWhatsNewCenter {
     private func allowlistedWebURL(_ string: String?) -> URL? {
         guard let string,
               let url = URL(string: string),
-              mobileWebPageURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
+              MobileWebPageHosts().allows(url, allowedHosts: allowedWebHosts) else { return nil }
         return url
     }
 

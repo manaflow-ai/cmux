@@ -1,8 +1,8 @@
 // Cloud VM model plane: how a machine reaches coderouter without holding a
 // credential. At create, the control plane mints one route token bound to
 // the cmux Cloud VM row id and hands the provider an edge rule for the
-// coderouter host. The provider's TLS edge injects `authorization`,
-// `x-coderouter-route-token`, and `x-cmux-vm-id` into every request the guest
+// coderouter host. The provider's TLS edge injects one signed
+// `x-cmux-authorization` header into every request the guest
 // makes to that host; the
 // guest env carries only OPENAI_BASE_URL / ANTHROPIC_BASE_URL and a public
 // placeholder key. coderouter rejects the token when the injected VM id
@@ -13,9 +13,10 @@
 // every team member's machine gets a token. The only exception is the
 // local-dev kill switch CMUX_VM_CODEROUTER_ENV_ENABLED=0, which creates an
 // unwired machine (no env, no rule, still no secret). Never set it in
-// production. Tokens never rotate; destroy revokes them.
-import { issueRouteToken, revokeRouteTokensForVm } from "./repository";
-import { ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "./routeTokenAuth";
+// production. Tokens expire and are revocable; signing keys rotate through the
+// configured key-version map.
+import { issueVmAuthorizationToken, revokeRouteTokensForVm } from "./repository";
+import { VM_AUTHORIZATION_HEADER } from "./vmAuthorization";
 import {
   VM_REFLECTION_ALIAS_HEADER,
   VM_REFLECTION_ALIAS_VALUE,
@@ -24,19 +25,19 @@ import {
 } from "./vmGuestEnv";
 import type { VmEdgeRule } from "../vms/drivers/types";
 
-export const VM_ROUTE_TOKEN_LABEL = "vm";
+export const VM_ROUTE_TOKEN_LABEL = "vm-signed";
 export const DEFAULT_CODEROUTER_EDGE_ORIGIN = "https://coderouter.dev";
 export const CODEROUTER_EDGE_ORIGIN_ENV = "CMUX_CODEROUTER_EDGE_ORIGIN";
 
 export type VmModelPlaneInput = {
   readonly teamId: string;
   readonly stackUserId: string;
-  /** The `cloud_vms.id` the token is bound to; the edge sends it as `x-cmux-vm-id`. */
+  /** The `cloud_vms.id` the signed token is bound to. */
   readonly cloudVmId: string;
 };
 
 export type VmModelPlaneProvision = {
-  /** Edge header injection for the coderouter alias and the reflection alias. Both hold the token. */
+  /** Edge header injection for the coderouter alias and the reflection alias. */
   readonly edgeRules: readonly VmEdgeRule[];
 };
 
@@ -49,7 +50,7 @@ export class VmModelPlaneUnavailableError extends Error {
 }
 
 export type VmModelPlaneDependencies = {
-  readonly issueToken: typeof issueRouteToken;
+  readonly issueToken: typeof issueVmAuthorizationToken;
   readonly revokeTokensForVm: typeof revokeRouteTokensForVm;
   /** The raw CMUX_CODEROUTER_EDGE_ORIGIN value; validated by {@link coderouterEdgeOrigin}. */
   readonly edgeOriginEnv: () => string | undefined;
@@ -63,7 +64,7 @@ export type VmModelPlaneDependencies = {
 export const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
 
 const defaultDependencies: VmModelPlaneDependencies = {
-  issueToken: issueRouteToken,
+  issueToken: issueVmAuthorizationToken,
   revokeTokensForVm: revokeRouteTokensForVm,
   edgeOriginEnv: () => process.env[CODEROUTER_EDGE_ORIGIN_ENV],
   vercelEnv: () => process.env.VERCEL_ENV,
@@ -157,23 +158,19 @@ export async function provisionVmModelPlane(
     ({ token } = await dependencies.issueToken(
       input.teamId,
       input.stackUserId,
-      VM_ROUTE_TOKEN_LABEL,
-      { vmId: input.cloudVmId },
+      input.cloudVmId,
     ));
   } catch (err) {
     throw new VmModelPlaneUnavailableError(`coderouter route token issue failed: ${errorMessage(err)}`, err);
   }
   // The guest dials the alias; the edge terminates it and forwards to this
-  // deployment's API host with the machine's token. Inject both the conventional
-  // bearer and the explicit route headers: standard model clients only know how
-  // to send a bearer, while the VM id header gives the server a binding check.
+  // deployment's API host with the signed token. The verifier derives the VM
+  // binding from the claims, so no duplicated VM header is trusted.
   // The guest env is static and baked (services/coderouter/vmGuestEnv.ts), so
   // nothing is written here.
   const headers = {
     ...edgeOriginHeaders(dependencies),
-    authorization: `Bearer ${token}`,
-    [ROUTE_TOKEN_HEADER]: token,
-    [VM_ID_HEADER]: input.cloudVmId,
+    [VM_AUTHORIZATION_HEADER]: `Bearer ${token}`,
   };
   return {
     edgeRules: [

@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -23,11 +24,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     var isPresenting: Bool { sheetWindow != nil }
 
-    /// Reserves the local loading workspace at the acceptance boundary. The
-    /// placeholder is inserted with `select: false`, so it is visible and
-    /// truthful immediately while the create runs without moving keyboard
-    /// focus away from the person's current workspace.
-    private func reserveNewMachineWorkspace(preferredWindow: NSWindow?) -> UUID? {
+    /// Reserves and immediately selects the local loading workspace at the
+    /// acceptance boundary. Completion never selects again, so later network
+    /// callbacks cannot steal focus after the person navigates away.
+    private func reserveNewMachineWorkspace(title: String, preferredWindow: NSWindow?) -> UUID? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         let context = appDelegate.contextForMainWindow(preferredWindow)
             ?? appDelegate.preferredMainWindowContextForWorkspaceCreation(
@@ -36,31 +36,57 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         guard let tabManager = context?.tabManager
             ?? appDelegate.activeTabManagerForCommands(preferredWindow: preferredWindow),
               let workspace = tabManager.addWorkspaceIfActive(
-                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                title: title,
                 titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
-                select: false,
+                select: true,
                 autoWelcomeIfNeeded: false
               ) else { return nil }
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.create.reserve workspace=\(workspace.id.uuidString) focus=1 " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         return workspace.id
     }
 
     /// Every entrypoint reserves before launch; inability to reserve is an inline refusal.
     private func reserving(_ request: MachineCreateRequest, preferredWindow: NSWindow?) -> MachineCreateRequest? {
         if request.reservedWorkspaceID != nil { return request }
-        guard let workspaceID = reserveNewMachineWorkspace(preferredWindow: preferredWindow) else { return nil }
+        guard let workspaceID = reserveNewMachineWorkspace(title: request.displayName, preferredWindow: preferredWindow) else { return nil }
         return request.targetingReservedWorkspace(workspaceID)
     }
 
-    /// Removes a reservation after launch refusal or explicit dismissal. A
-    /// normal window always has another workspace; if this was the final tab,
-    /// the existing close policy keeps the window alive and the caller can
-    /// still inspect the inline failure state.
-    static func closeReservedWorkspace(_ workspaceID: UUID) {
+    /// Removes only the unadopted creating card. User-added panes and an already
+    /// attached terminal are no longer a disposable create presentation.
+    static func closeReservedWorkspace(_ workspaceID: UUID, machineID: String? = nil) {
         guard let appDelegate = AppDelegate.shared,
               let tabManager = appDelegate.tabManagerFor(tabId: workspaceID),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else { return }
+        let loading = workspace.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
+        guard !loading.isEmpty else { return }
+        let ownsBinding = workspace.cloudVMBinding?.vmID == nil
+            || workspace.cloudVMBinding?.vmID == machineID
+        guard ownsBinding else { return }
+        if loading.count < workspace.panels.count {
+            // A cancelled create may destroy its provider machine after this
+            // callback. Detach the preserved user content from that machine
+            // before the shared destroy cleanup scans bound workspaces.
+            workspace.cloudVMBinding = nil
+            workspace.withClosedPanelHistorySuppressed {
+                for panel in loading { _ = workspace.closePanel(panel.id, force: true) }
+            }
+            return
+        }
+        // Closing the last workspace normally leaves it intact. A cancelled
+        // create has no remaining operation to render, so provide a normal local
+        // anchor before removing its card, without activating the window.
+        if tabManager.tabs.count == 1 {
+            guard tabManager.addWorkspaceIfActive(inheritWorkingDirectory: false, select: false,
+                eagerLoadTerminal: false, autoWelcomeIfNeeded: false) != nil else { return }
+        }
         tabManager.closeWorkspace(workspace, recordHistory: false)
     }
 

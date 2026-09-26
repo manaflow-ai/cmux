@@ -28,6 +28,9 @@ extension RemoteTmuxControlConnection {
         }
         guard !isError else {
             failPaneSeedCommand(kind, errorLines: lines)
+            if case let .paneColorReport(paneId, colors) = kind {
+                rejectPaneColorReport(paneId: paneId, colors: colors, lines: lines)
+            }
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
@@ -208,7 +211,7 @@ extension RemoteTmuxControlConnection {
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
-                prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                prunePaneState(keeping: paneIDsForStatePruning())
                 #if DEBUG
                 cmuxDebugLog(
                     "remote.window.snapshot order=\(order)"
@@ -244,9 +247,11 @@ extension RemoteTmuxControlConnection {
                 switch pendingPostAttachAction {
                 case .reseed:
                     pushMirrorSessionEnvironment()
+                    replayPaneColorReports()
                     reseedAfterReconnect()
                 case .applyClientSize:
                     pushMirrorSessionEnvironment()
+                    replayPaneColorReports()
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
                     if let size = lastClientSize {
@@ -368,7 +373,7 @@ extension RemoteTmuxControlConnection {
             completeWindowReorderCommand(isLast: isLast, failed: false)
         case let .tracked(token):
             trackedSendCompletions.removeValue(forKey: token)?(true)
-        case .other:
+        case .paneColorReport, .other:
             break
         }
     }

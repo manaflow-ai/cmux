@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as analytics from "../services/coderouter/analytics";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
@@ -13,11 +14,13 @@ type SelectInput = {
 let selectInputs: SelectInput[] = [];
 let accountsToServe: { id: string; sticky: boolean }[] = [];
 let cooldowns: string[] = [];
+let capacityCooldowns: { accountId: string; durationMs: number; failureCode?: string }[] = [];
 let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
 let authenticatedTokens: string[] = [];
-const BOUND_TOKEN = "crt_bound-to-vm-1";
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
+const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -41,7 +44,7 @@ const proxy = createCodexResponsesProxy({
     return {
       teamId: "team-1",
       stackUserId: "stack-user-1",
-      vmId: token === BOUND_TOKEN ? "vm-1" : null,
+      vmId: token === BOUND_TOKEN || token === SIGNED_VM_TOKEN ? "vm-1" : null,
     };
   },
   select: async (input) => {
@@ -88,6 +91,7 @@ beforeEach(() => {
   selectInputs = [];
   accountsToServe = [];
   cooldowns = [];
+  capacityCooldowns = [];
   upstreamStatuses = [];
   credentialBusyBudgets = new Map();
   credentialCalls = [];
@@ -107,6 +111,259 @@ function responsesRequest(headers: Record<string, string> = {}): Request {
 }
 
 describe("codex responses proxy session routing", () => {
+  function testCredential(accountId: string) {
+    return {
+      provider: "codex" as const,
+      accessToken: `access-${accountId}`,
+      refreshToken: "refresh",
+      idToken: "id",
+      accountId: "chatgpt-account",
+      email: "person@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+  }
+
+  function capacityProxy(fetchImpl: typeof fetch) {
+    const candidates = ["acct-capacity", "acct-healthy"];
+    return createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async (input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const id = candidates.find((candidate) => !excluded.has(candidate));
+        if (!id) return null;
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => testCredential(accountId),
+      cooldown: async (accountId, durationMs, _signal, failureCode) => {
+        cooldowns.push(accountId);
+        capacityCooldowns.push({ accountId, durationMs, failureCode });
+      },
+    }, { fetch: fetchImpl });
+  }
+
+  test("fails over a pre-output usage_limit_reached SSE event", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n` +
+        `data: ${JSON.stringify({ type: "error", code: "usage_limit_reached" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over the Codex server_overloaded error code", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({
+        type: "error",
+        message: "Try again later.",
+        codex_error_info: "server_overloaded",
+      })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over a usage_limit_exceeded response before exposing it", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          code: "usage_limit_exceeded",
+          message: "You've hit your usage limit.",
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [400, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("uses the provider reset instead of a generic minute for a 429 quota", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          type: "usage_limit_reached",
+          resets_in_seconds: 7_200,
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [429, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(capacityCooldowns).toEqual([{
+      accountId: "acct-capacity",
+      durationMs: 7_200_000,
+      failureCode: "usage_limit_exceeded",
+    }]);
+  });
+
+  test("fails over a capacity event in an NDJSON response", async () => {
+    const bodies = [
+      `${[
+        JSON.stringify({ type: "response.created" }),
+        JSON.stringify({ type: "error", code: "usage_limit_reached" }),
+      ].join("\n")}\n`,
+      `${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over an NDJSON capacity event split across chunks", async () => {
+    const record = JSON.stringify({ type: "error", code: "usage_limit_reached" });
+    const encoder = new TextEncoder();
+    let fetchCalls = 0;
+    const response = await capacityProxy((async () => {
+      if (fetchCalls++ === 0) {
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(record.slice(0, -4)));
+            controller.enqueue(encoder.encode(`${record.slice(-4)}\n`));
+            controller.close();
+          },
+        }), { status: 200, headers: { "content-type": "application/x-ndjson" } });
+      }
+      return new Response(`${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      });
+    }) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("does not fail over when output text contains a capacity marker", async () => {
+    const body = `data: ${JSON.stringify({
+      type: "response.output_text.delta",
+      delta: "the literal code is rate_limit_exceeded",
+    })}\n\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("preserves complete NDJSON streams without failover", async () => {
+    const body = `${[
+      JSON.stringify({ type: "response.created" }),
+      JSON.stringify({ type: "response.output_text.delta", delta: "full" }),
+    ].join("\n")}\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("preserves an unterminated final NDJSON record at EOF", async () => {
+    const body = JSON.stringify({ type: "response.output_text.delta", delta: "full" });
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("fails over a capacity response returned as a non-2xx JSON body", async () => {
+    const bodies = [
+      JSON.stringify({ error: { code: "model_capacity", message: "Selected model is at capacity" } }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [503, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("treats response.created as metadata and preserves the complete stream", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "full" })}\n\n`,
+    ].join("");
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("hands a quiet pre-output stream back after a bounded probe", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "late" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode(body[0]!));
+        await new Promise<void>((resolve) => setTimeout(resolve, 600));
+        controller.enqueue(new TextEncoder().encode(body[1]!));
+        controller.close();
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body.join(""));
+  });
+
+  test("aborts an idle pre-output probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    const abortingProxy = capacityProxy((async () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch);
+    const controller = new AbortController();
+    const request = new Request(responsesRequest(), { signal: controller.signal });
+    const pending = abortingProxy(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+  });
+
   test("passes the session_id header to account selection", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const response = await proxy(responsesRequest({ session_id: "session-abc" }));
@@ -372,11 +629,24 @@ describe("codex responses proxy VM-bound route tokens", () => {
   test("a bound token with the matching x-cmux-vm-id header is routed", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(edgeRequest({
-      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
       "x-cmux-vm-id": "vm-1",
     }));
     expect(response.status).toBe(200);
     expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed new-machine token reaches the typed no-account outcome", async () => {
+    accountsToServe = [];
+    const response = await proxy(edgeRequest({
+      "x-cmux-authorization": `Bearer ${SIGNED_VM_TOKEN}`,
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: "no_usable_account",
+      retryable: true,
+    });
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 

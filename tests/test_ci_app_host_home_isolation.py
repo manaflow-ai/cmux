@@ -2,6 +2,8 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import os
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -11,7 +13,22 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/ci.yml"
-WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+GUARD_WORKFLOW_PATH = ROOT / ".github/workflows/ci-guards.yml"
+MACOS_WORKFLOW_PATH = ROOT / ".github/workflows/ci-macos.yml"
+E2E_WORKFLOW_PATH = ROOT / ".github/workflows/test-e2e.yml"
+WORKFLOW_PATHS = [
+    WORKFLOW_PATH,
+    GUARD_WORKFLOW_PATH,
+    MACOS_WORKFLOW_PATH,
+    E2E_WORKFLOW_PATH,
+]
+WORKFLOWS = [
+    yaml.safe_load(path.read_text(encoding="utf-8")) for path in WORKFLOW_PATHS
+]
+# test-e2e.yml runs its tests through this composite action, from its build
+# job or from its fallback test job.
+E2E_TEST_ACTION_PATH = ROOT / ".github/actions/e2e-run-tests/action.yml"
+ACTION_PATHS = sorted((ROOT / ".github/actions").glob("*/action.yml"))
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
 )
@@ -110,17 +127,65 @@ def require_no_test_runner_scheme_overrides(scheme: str) -> None:
 
 
 def require_job(job_name: str) -> dict:
-    if not isinstance(WORKFLOW, dict):
-        raise SystemExit("FAIL: workflow must be a mapping")
+    matches = []
+    for workflow in WORKFLOWS:
+        if not isinstance(workflow, dict):
+            raise SystemExit("FAIL: workflow must be a mapping")
+        jobs = workflow.get("jobs")
+        if not isinstance(jobs, dict):
+            raise SystemExit("FAIL: workflow jobs must be a mapping")
+        job = jobs.get(job_name)
+        if isinstance(job, dict):
+            matches.append(job)
+    if len(matches) != 1:
+        raise SystemExit(
+            f"FAIL: workflow job {job_name!r} must exist in exactly one CI workflow"
+        )
+    return matches[0]
 
-    jobs = WORKFLOW.get("jobs")
-    if not isinstance(jobs, dict):
-        raise SystemExit("FAIL: workflow jobs must be a mapping")
 
-    job = jobs.get(job_name)
-    if not isinstance(job, dict):
-        raise SystemExit(f"FAIL: workflow job {job_name!r} is missing")
-    return job
+def action_as_job(path: Path) -> dict:
+    """A composite action's steps as a job, with the env its steps publish.
+
+    An action has no job env; it exports through GITHUB_ENV, and those values
+    reach every later step, which is what a job env guarantees here.
+    """
+    action = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = ((action or {}).get("runs") or {}).get("steps") or []
+    environment: dict[str, str] = {}
+    for step in steps:
+        run = str(step.get("run", ""))
+        if "GITHUB_ENV" not in run:
+            continue
+        for match in re.finditer(
+            r'^\s*echo "(?P<key>[A-Z_][A-Z0-9_]*)=(?P<value>[^"$]*)"\s*$',
+            run,
+            re.MULTILINE,
+        ):
+            environment.setdefault(match.group("key"), match.group("value"))
+    return {"env": environment, "steps": steps}
+
+
+def every_job():
+    """Every workflow job, and every composite action as a job of its own."""
+    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            yield path.name, job_name, job
+    for path in ACTION_PATHS:
+        yield f"{path.parent.name}/action.yml", "steps", action_as_job(path)
+
+
+def require_action_step(path: Path, step_name: str) -> dict:
+    matches = [
+        step for step in action_as_job(path)["steps"]
+        if step.get("name") == step_name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"FAIL: {path.relative_to(ROOT)} must contain exactly one "
+            f"{step_name!r} step"
+        )
+    return matches[0]
 
 
 def require_step(job_name: str, step_name: str) -> dict:
@@ -144,6 +209,336 @@ def require_step(job_name: str, step_name: str) -> dict:
             f"{step_name!r} step"
         )
     return matches[0]
+
+
+def bun_setup_gate_ok(condition: object) -> bool:
+    """Whether a condition is `!cancelled() && (<one parenthesized group>)`."""
+    if not isinstance(condition, str):
+        return False
+    expression = condition.replace(" ", "")
+    prefix = "${{!cancelled()&&("
+    if not (expression.startswith(prefix) and expression.endswith(")}}")):
+        return False
+    group = expression[len(prefix) - 1 : -2]
+    depth = 0
+    for index, character in enumerate(group):
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0 and index != len(group) - 1:
+            return False
+    return depth == 0
+
+
+def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
+    """Return why a step condition is not gated on preparation, or ""."""
+    if not isinstance(condition, str):
+        return "has no condition"
+    expression = condition.strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2]
+    # Split on the top-level `&&` only. An `||` inside a parenthesized term
+    # chooses which worker runs the step; one outside offers a way around
+    # the gates themselves.
+    top_level: list[str] = []
+    depth = 0
+    term = ""
+    index = 0
+    while index < len(expression):
+        character = expression[index]
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0 and expression.startswith("||", index):
+            return "must not offer an alternative to its gates"
+        if depth == 0 and expression.startswith("&&", index):
+            top_level.append(term)
+            term = ""
+            index += 2
+            continue
+        term += character
+        index += 1
+    top_level.append(term)
+    terms = {"".join(term.split()) for term in top_level}
+    if "always()" in terms:
+        return "must not run after a cancelled job"
+    if "!cancelled()" not in terms:
+        return "must keep !cancelled() so it still runs after an earlier test failure"
+    if f"steps.{preparation_id}.outcome=='success'" not in terms:
+        return "must require successful app-host preparation"
+    return ""
+
+
+def published_derived_data_value(job, steps) -> str | None:
+    """Return the CMUX_DERIVED_DATA_PATH a job publishes, before expansion.
+
+    Both callers compute the path in a shell variable and export it through
+    `GITHUB_ENV`, so the literal that matters is the assignment, not the echo.
+    """
+    environment = job.get("env")
+    if isinstance(environment, dict) and environment.get("CMUX_DERIVED_DATA_PATH"):
+        return str(environment["CMUX_DERIVED_DATA_PATH"])
+    for step in steps:
+        script = str(step.get("run", ""))
+        export = re.search(
+            r'CMUX_DERIVED_DATA_PATH=(?P<value>[^"\n]*)"?\s*>>\s*"?\$(?:\{)?GITHUB_ENV',
+            script,
+        )
+        if export is None:
+            continue
+        value = export.group("value").strip()
+        name = re.fullmatch(r"\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}?", value)
+        if name is None:
+            return value
+        assignment = re.search(
+            rf'^\s*{name.group("name")}="(?P<path>[^"]*)"', script, re.MULTILINE
+        )
+        return assignment.group("path") if assignment else None
+    return None
+
+
+def require_derived_data_under_runner_temp(where, job, steps) -> None:
+    """Hold app-host callers to the boundary cleanup enforces at runtime.
+
+    `cleanup-app-host-home.sh` refuses to inspect a host whose DerivedData
+    lives outside `RUNNER_TEMP`, and it runs under `if: always()`, so a job
+    that parks DerivedData anywhere else goes red *after* its tests pass.
+    `test-e2e.yml` shipped exactly that: the split lane inherited a
+    workspace-rooted path from the single-job form, which no other check
+    looked at because no earlier version of that lane cleaned up at all.
+    """
+    value = published_derived_data_value(job, steps)
+    if value is None:
+        raise SystemExit(
+            f"FAIL: {where} prepares an app-host home without publishing "
+            "CMUX_DERIVED_DATA_PATH; cleanup requires it"
+        )
+    if not re.match(r"\$\{?RUNNER_TEMP\}?/", value):
+        raise SystemExit(
+            f"FAIL: {where} puts DerivedData at {value!r}; app-host cleanup "
+            "only inspects hosts whose DerivedData is under RUNNER_TEMP"
+        )
+
+
+def check_every_app_host_home_is_identified_and_cleaned() -> None:
+    """Hold every job that prepares an app-host home to the same contract.
+
+    The rest of this guard names `app-host-unit-tests` directly, so a second
+    lane could adopt the pattern and be checked by nothing. One did:
+    `test-e2e.yml` gained a `Prepare isolated app-host home` step whose job set
+    no `CMUX_APP_HOST_SHARD`, and `cmux_resolve_app_host_identity` rejects a
+    shard that is not a decimal integer -- so every dispatch of that lane would
+    have failed before running a test, with this file still green.
+
+    Check the pattern rather than the instance: find the callers, composite
+    actions included, since test-e2e.yml's tests moved into one.
+    """
+    checked = set()
+    for file_name, job_name, job in every_job():
+        steps = job.get("steps") or []
+        prepares = [
+            step for step in steps
+            if "prepare-app-host-home.sh" in str(step.get("run", ""))
+        ]
+        if not prepares:
+            continue
+        checked.add(file_name)
+        where = f"{file_name} job {job_name}"
+        environment = job.get("env")
+        if not isinstance(environment, dict):
+            raise SystemExit(f"FAIL: {where} prepares an app-host home with no job env")
+        if environment.get("CMUX_CI_APP_HOST_ISOLATION_REQUIRED") != "1":
+            raise SystemExit(
+                f"FAIL: {where} must require app-host configuration isolation"
+            )
+        shard = environment.get("CMUX_APP_HOST_SHARD")
+        if not isinstance(shard, str) or not shard.strip():
+            raise SystemExit(
+                f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
+                "cmux_resolve_app_host_identity rejects an empty shard"
+            )
+        require_derived_data_under_runner_temp(where, job, steps)
+        cleanups = [
+            step for step in steps
+            if "cleanup-app-host-home.sh" in str(step.get("run", ""))
+        ]
+        if not cleanups:
+            raise SystemExit(
+                f"FAIL: {where} prepares an app-host home and never cleans it up"
+            )
+        for cleanup in cleanups:
+            gate = str(cleanup.get("if", ""))
+            if "always()" not in gate and "cancelled()" not in gate:
+                raise SystemExit(
+                    f"FAIL: {where} app-host cleanup must run after failures"
+                )
+    e2e = f"{E2E_TEST_ACTION_PATH.parent.name}/action.yml"
+    if e2e not in checked:
+        raise SystemExit(
+            f"FAIL: {e2e} must prepare the app-host home test-e2e.yml's tests use"
+        )
+
+
+def check_e2e_test_derived_data_scope() -> None:
+    """Execute the E2E test steps' preparation/cleanup path in a temp scope."""
+    preparation = require_action_step(E2E_TEST_ACTION_PATH, "Prepare isolated DerivedData")
+    cleanup = require_action_step(E2E_TEST_ACTION_PATH, "Clean owned DerivedData")
+    preparation_run = preparation.get("run")
+    cleanup_run = cleanup.get("run")
+    if not isinstance(preparation_run, str) or not isinstance(cleanup_run, str):
+        raise SystemExit("FAIL: E2E test DerivedData steps must use shell scripts")
+
+    with tempfile.TemporaryDirectory() as root:
+        root_path = Path(root)
+        workspace = root_path / "workspace"
+        runner_temp = root_path / "runner-temp"
+        tool_bin = root_path / "bin"
+        github_env = root_path / "github-env"
+        github_output = root_path / "github-output"
+        workspace.mkdir()
+        runner_temp.mkdir()
+        tool_bin.mkdir()
+        workspace_derived_data = workspace / "DerivedData" / "cmux-e2e"
+        workspace_derived_data.mkdir(parents=True)
+        workspace_sentinel = workspace_derived_data / "ownership-sentinel.txt"
+        workspace_sentinel.write_text("workspace-owned", encoding="utf-8")
+        (tool_bin / "xcodebuild").write_text(
+            "#!/bin/sh\necho 'Xcode 26.0'\n", encoding="utf-8"
+        )
+        (tool_bin / "xcodebuild").chmod(0o755)
+
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_WORKSPACE": str(workspace),
+                "RUNNER_TEMP": str(runner_temp),
+                "GITHUB_RUN_ID": "9000000000",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_ENV": str(github_env),
+                "GITHUB_OUTPUT": str(github_output),
+                "PATH": f"{tool_bin}:{environment.get('PATH', '')}",
+            }
+        )
+        prepared = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", preparation_run],
+            cwd=workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        if prepared.returncode != 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation failed in the ownership "
+                f"fixture: {prepared.stderr}"
+            )
+
+        prefix = "CMUX_DERIVED_DATA_PATH="
+        derived_data_values = [
+            line[len(prefix) :]
+            for line in github_env.read_text(encoding="utf-8").splitlines()
+            if line.startswith(prefix)
+        ]
+        if len(derived_data_values) != 1:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation must publish one path"
+            )
+        derived_data_raw = derived_data_values[0]
+        derived_data = Path(derived_data_raw).resolve()
+        expected = (
+            runner_temp / "cmux-e2e-products-9000000000-1"
+        ).resolve()
+        if derived_data != expected:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData must be owned under RUNNER_TEMP; "
+                f"got {derived_data}, expected {expected}"
+            )
+        if not Path(derived_data_raw).is_dir():
+            raise SystemExit(
+                f"FAIL: E2E test DerivedData target was not created: {derived_data}"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation touched the workspace root"
+            )
+
+        cleanup_environment = {
+            **environment,
+            "CMUX_DERIVED_DATA_PATH": derived_data_raw,
+            "CMUX_E2E_COMPILATION_CACHE": "",
+        }
+        cleaned = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_run],
+            cwd=workspace,
+            env=cleanup_environment,
+            capture_output=True,
+            text=True,
+        )
+        if cleaned.returncode != 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup rejected its prepared target: "
+                f"{cleaned.stderr}"
+            )
+        if Path(derived_data_raw).exists() or derived_data.exists():
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup left its owned target behind"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup touched the workspace root"
+            )
+
+        rejected_cleanup = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_run],
+            cwd=workspace,
+            env={
+                **cleanup_environment,
+                "CMUX_DERIVED_DATA_PATH": str(workspace_derived_data),
+            },
+            capture_output=True,
+            text=True,
+        )
+        if rejected_cleanup.returncode == 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup accepted a workspace-root candidate"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: rejected E2E test DerivedData cleanup touched the workspace root"
+            )
+
+def check_every_test_executing_lane_pins_its_home() -> None:
+    """Hold every lane that runs XCTest to the same home pinning.
+
+    The sibling guard above keys on `prepare-app-host-home.sh`, so a host-free
+    lane that runs no app host is invisible to it. One was: `cli-product-tests`
+    isolated itself with a bare `HOME` in the job environment, which reaches
+    xcodebuild and stops there -- xcodebuild forwards only TEST_RUNNER_-prefixed
+    variables into the test process. Every fixture in that lane read the
+    runner's real home, and on a reused self-hosted runner that is shared,
+    persistent state between runs.
+
+    CFFIXED_USER_HOME is required alongside HOME because Foundation resolves
+    NSHomeDirectory() through getpwuid unless it is set, so HOME alone moves
+    nothing for Swift code.
+    """
+    required = ("TEST_RUNNER_HOME", "TEST_RUNNER_CFFIXED_USER_HOME")
+    for file_name, job_name, job in every_job():
+        for step in job.get("steps") or []:
+            run = str(step.get("run", ""))
+            if "xcodebuild test" not in run:
+                continue
+            # Enumeration lists test identifiers without running them, so
+            # it reads no configuration and needs no home of its own.
+            if "-enumerate-tests" in run:
+                continue
+            if "run-app-host-xcodebuild.sh" in run:
+                continue
+            where = (
+                f"{file_name} job {job_name} step {step.get('name')!r}"
+            )
+            missing = [key for key in required if key not in run]
+            if missing:
+                raise SystemExit(
+                    f"FAIL: {where} runs XCTest without {', '.join(missing)}; "
+                    "xcodebuild forwards only TEST_RUNNER_-prefixed variables "
+                    "into the test process"
+                )
 
 
 def main() -> int:
@@ -232,11 +627,116 @@ def main() -> int:
     )
     if cleanup_step.get("if") != "${{ always() }}":
         raise SystemExit("FAIL: app-host home cleanup must run after failures")
-    if cleanup_step.get("run") != (
-        "scripts/ci/run-in-console-session.sh "
-        "scripts/ci/cleanup-app-host-home.sh"
+    preparation_id = setup_step.get("id")
+    if not preparation_id or cleanup_step.get("env", {}).get(
+        "CMUX_APP_HOST_PREPARATION_OUTCOME"
+    ) != "${{ steps." + preparation_id + ".outcome }}":
+        raise SystemExit("FAIL: cleanup must receive the actual preparation outcome")
+
+    # The acceptance gate overrides the implicit success() so an earlier test
+    # failure cannot hide it. It must then name preparation itself, or it would
+    # also run after a failed checkout with no app-host home to test against.
+    for rejected, fixture in {
+        "a missing condition": None,
+        "an implicit success() gate": (
+            "${{ steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "a gate without preparation": "${{ !cancelled() && matrix.shard == 1 }}",
+        "another step's outcome": (
+            "${{ !cancelled() && steps.other.outcome == 'success' }}"
+        ),
+        "a failed preparation": (
+            "${{ !cancelled() && steps." + preparation_id + ".outcome != 'success' }}"
+        ),
+        "an always() gate": (
+            "${{ always() && steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "an alternative gate": (
+            "${{ !cancelled() && steps."
+            + preparation_id
+            + ".outcome == 'success' || matrix.shard == 1 }}"
+        ),
+        "a parenthesized alternative to a gate": (
+            "${{ !cancelled() && (steps."
+            + preparation_id
+            + ".outcome == 'success' || matrix.shard == 1) }}"
+        ),
+    }.items():
+        if not acceptance_gate_problem(fixture, preparation_id):
+            raise SystemExit(f"FAIL: acceptance gate guard must reject {rejected}")
+    for acceptance_name in (
+        "Run Cloud machine ordering acceptance",
+        "Run agent notification semantics",
     ):
-        raise SystemExit("FAIL: app-host home cleanup must run as the console user")
+        acceptance_step = require_step("app-host-unit-tests", acceptance_name)
+        acceptance_problem = acceptance_gate_problem(
+            acceptance_step.get("if"), preparation_id
+        )
+        if acceptance_problem:
+            raise SystemExit(f"FAIL: {acceptance_name} {acceptance_problem}")
+    # The notification gate resolves `bun`, so its setup must survive the
+    # same earlier failures the gate does.
+    bun_condition = require_step(
+        "app-host-unit-tests", "Set up Bun for Pi extension dispatch regression"
+    ).get("if")
+    if not bun_setup_gate_ok(bun_condition):
+        raise SystemExit("FAIL: Bun setup must run after an earlier failure")
+    for rejected in (
+        "${{ matrix.shard == 4 || matrix.shard == 6 }}",
+        "${{ !cancelled() && matrix.shard == 4 || matrix.shard == 6 }}",
+        "${{ !cancelled() && (matrix.shard == 4) || (matrix.shard == 6) }}",
+    ):
+        if bun_setup_gate_ok(rejected):
+            raise SystemExit(f"FAIL: Bun setup gate guard must reject {rejected}")
+
+    # Once preparation starts, the console-user cleanup must still run even if
+    # preparation fails or is cancelled, and its failures must remain visible.
+    with tempfile.TemporaryDirectory() as workspace:
+        for outcome in ("skipped", ""):
+            result = subprocess.run(
+                ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                cwd=workspace,
+                env={**os.environ, "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome},
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise SystemExit(
+                    f"FAIL: cleanup with preparation {outcome!r} must skip an "
+                    f"empty checkout: {result.stderr}"
+                )
+
+        wrapper = Path(workspace) / "scripts/ci/run-in-console-session.sh"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text(
+            '#!/bin/bash\n'
+            'printf "%s\\n" "$@" > cleanup-invocation\n'
+            'exit "${CLEANUP_TEST_EXIT_CODE:-0}"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        invocation = Path(workspace) / "cleanup-invocation"
+        for outcome in ("success", "failure", "cancelled"):
+            for exit_code in (0, 23):
+                invocation.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                    cwd=workspace,
+                    env={
+                        **os.environ,
+                        "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome,
+                        "CLEANUP_TEST_EXIT_CODE": str(exit_code),
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != exit_code or not invocation.is_file():
+                    raise SystemExit(
+                        f"FAIL: cleanup after preparation {outcome} must run "
+                        f"and preserve exit {exit_code}: {result.stderr}"
+                    )
+                if invocation.read_text() != "scripts/ci/cleanup-app-host-home.sh\n":
+                    raise SystemExit("FAIL: cleanup must run as the console user")
 
     # Resolve the real shell identity format, then rebase its system-temp-relative
     # suffix under macOS /private/tmp when this guard runs on Linux.
@@ -549,6 +1049,10 @@ def main() -> int:
             "FAIL: console-session cleanup mode must match only the repository "
             "cleanup command"
         )
+
+    check_every_app_host_home_is_identified_and_cleaned()
+    check_e2e_test_derived_data_scope()
+    check_every_test_executing_lane_pins_its_home()
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0

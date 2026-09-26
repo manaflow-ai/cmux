@@ -1,3 +1,4 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { accountAccessPredicate, type CoderouterAccountAccess } from "./accountAccess";
 // Per-team Claude upstream accounts for the coderouter `/v1/messages` leg.
 //
@@ -127,7 +128,7 @@ export type ClaudeAccountInsert = Omit<ClaudeAccountRow, "createdAt" | "updatedA
 export type ClaudeAccountStore = {
   /** Every account of the team, oldest first. */
   list(teamId: string, signal?: AbortSignal, access?: CoderouterAccountAccess): Promise<readonly ClaudeAccountRow[]>;
-  insert(row: ClaudeAccountInsert): Promise<ClaudeAccountRow>;
+  insert(row: ClaudeAccountInsert, access?: CoderouterAccountAccess): Promise<ClaudeAccountRow>;
   update(
     teamId: string,
     accountId: string,
@@ -330,6 +331,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     stackUserId: string,
     input: ClaudeUpstreamInput,
     visibility: "private" | "team" = "private",
+    access?: CoderouterAccountAccess,
   ): Promise<ClaudeAccountDescription> {
     if (!teamId || !stackUserId) throw new Error("invalid coderouter claude account owner");
     const secret = secretFromInput(input);
@@ -358,7 +360,7 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
       createdBy: stackUserId,
       visibility,
       ...envelope,
-    });
+    }, access);
     return describeRow(row);
   }
 
@@ -602,14 +604,15 @@ const drizzleStore: ClaudeAccountStore = {
       .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id)));
     return rows.map(rowFromDb);
   },
-  async insert(row) {
-    const now = new Date();
-    const [written] = await cloudDb()
-      .insert(coderouterClaudeAccounts)
-      .values({ ...row, createdAt: now, updatedAt: now })
-      .returning();
-    if (!written) throw new Error("coderouter claude account insert returned no row");
-    return rowFromDb(written);
+  async insert(row, access) {
+    return cloudDb().transaction(async tx => {
+      const now = new Date();
+      const [written] = await tx.insert(coderouterClaudeAccounts)
+        .values({ ...row, createdAt: now, updatedAt: now }).returning();
+      if (!written) throw new Error("coderouter claude account insert returned no row");
+      await grantVmImportedAccount(tx, row.teamId, written.id, "claude", access);
+      return rowFromDb(written);
+    });
   },
   async update(teamId, accountId, patch, access) {
     const [written] = await cloudDb()

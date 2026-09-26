@@ -2,6 +2,8 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
+    /// Legacy deep-link target; the visible destination is Mobile.
+    case computers
     case app
     case terminal
     case textBox
@@ -24,8 +26,35 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
+    /// Canonical visible destination for this navigation target.
+    var canonicalTarget: Self {
+        switch self {
+        case .computers:
+            return .mobile
+        default:
+            return self
+        }
+    }
+
+    /// Targets represented by a visible Settings sidebar destination.
+    static var visibleCases: [Self] {
+        allCases.filter { $0 != .computers }
+    }
+
+    /// Default scroll anchor for an external navigation request.
+    var defaultAnchorID: String {
+        switch self {
+        case .computers:
+            return "setting:mobile:computers"
+        default:
+            return SettingsSearchIndex.sectionID(for: self)
+        }
+    }
+
     var title: String {
         switch self {
+        case .computers:
+            return String(localized: "settings.section.computers", defaultValue: "Computers")
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
         case .app:
@@ -53,7 +82,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse:
-            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+            return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -71,6 +100,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var symbolName: String {
         switch self {
+        case .computers:
+            return "desktopcomputer"
         case .account:
             return "person.crop.circle"
         case .app:
@@ -116,6 +147,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
 
     var searchText: String {
         switch self {
+        case .computers:
+            return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
         case .account:
             return "\(title) sign in team sync"
         case .app:
@@ -172,7 +205,7 @@ enum SettingsNavigationRequest {
             object: nil,
             userInfo: [
                 targetKey: target.rawValue,
-                anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target),
+                anchorKey: anchorID ?? target.defaultAnchorID,
                 highlightKey: highlight
             ]
         )
@@ -193,7 +226,7 @@ enum SettingsNavigationRequest {
         let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
         return SettingsNavigationDestination(
             target: target,
-            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
+            anchorID: anchorID ?? target.defaultAnchorID,
             shouldHighlight: shouldHighlight
         )
     }

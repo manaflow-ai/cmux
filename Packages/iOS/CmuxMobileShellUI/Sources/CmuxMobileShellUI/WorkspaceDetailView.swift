@@ -18,6 +18,9 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     /// A connected session may still have stale output. Offer manual repair
     /// unless an active reconnect or reauthentication already owns recovery.
     static func canReconnectFromTitleMenu(
@@ -266,7 +269,12 @@ struct WorkspaceDetailView: View {
             .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
                 if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
             }
-            .onAppear { refreshWorkspaceChangesHint() }
+            .onAppear {
+                #if os(iOS) && DEBUG
+                releaseGateUIProbe?.record(.workspaceDetailVisible)
+                #endif
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
             }

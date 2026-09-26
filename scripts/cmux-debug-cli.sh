@@ -59,11 +59,23 @@ EOF
   exit 1
 fi
 
-cli_path="${HOME}/Library/Developer/Xcode/DerivedData/cmux-${tag_slug}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+# Same default as reload.sh: a checkout that exports CMUX_DERIVED_DATA builds every tag there.
+derived_data="${CMUX_DERIVED_DATA:-${HOME}/Library/Developer/Xcode/DerivedData/cmux-${tag_slug}}"
+if [[ "$derived_data" != /* ]]; then
+  echo "error: CMUX_DERIVED_DATA must be an absolute path, got '$derived_data'" >&2
+  exit 1
+fi
+cli_path="${derived_data}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+# A fleet build restored with `cmux-ci publish-hq` lives in the HQ Tag Opener cache.
+cached_cli_path="${HOME}/Library/Application Support/cmux/tag-app-cache/cmux-${tag_slug}/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+if [[ ! -x "$cli_path" && -x "$cached_cli_path" ]]; then
+  cli_path="$cached_cli_path"
+fi
 if [[ ! -x "$cli_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux CLI not found:
   $cli_path
+  $cached_cli_path
 
 Build the tagged app first:
   ./scripts/reload.sh --tag $CMUX_TAG

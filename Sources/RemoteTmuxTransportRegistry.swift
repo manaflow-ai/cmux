@@ -886,7 +886,7 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
 /// controller sequences around its own `await` gaps.
 @MainActor
 final class RemoteTmuxTransportRegistry {
-    private var transports: [String: RemoteTmuxSSHTransport] = [:]
+    var transports: [String: RemoteTmuxSSHTransport] = [:]
 
     /// Returns (creating if needed) the transport for a host.
     func transport(for host: RemoteTmuxHost) -> RemoteTmuxSSHTransport {

@@ -92,6 +92,20 @@ public struct ManagedDevicePolicy: Sendable {
         forcedBool(for: key) == true
     }
 
+    /// Effective MDM ban for discovering other Macs. The broad remote-control
+    /// Iroh and cmux-remote-connection bans also disable this outbound device feature.
+    public var isDeviceDiscoveryDisabled: Bool {
+        isEnforced(.disableDeviceDiscovery)
+            || isEnforced(.disableRemoteControl)
+            || isEnforced(.disableIrohNetworking)
+            || isEnforced(.disableRemoteConnections)
+    }
+
+    /// Effective MDM ban for this Mac accepting incoming device sessions.
+    public var isIncomingDeviceAccessDisabled: Bool {
+        isEnforced(.disableIncomingDeviceAccess) || isEnforced(.disableRemoteControl)
+    }
+
     /// The profile-forced Boolean for `key`, or `nil` when no profile forces
     /// it (or forces a non-Boolean value).
     public func forcedBool(for key: ManagedDevicePolicyKey) -> Bool? {

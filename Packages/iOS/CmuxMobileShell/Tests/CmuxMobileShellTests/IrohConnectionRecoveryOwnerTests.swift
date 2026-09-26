@@ -4,9 +4,41 @@ import CmuxMobileRPC
 import Foundation
 import Testing
 @testable import CmuxMobileShell
+#if DEBUG
+import CmuxMobileShellReleaseGateSupport
+#endif
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    #if DEBUG
+    @Test func soakReconnectReplacesAnAlreadyHealthyConnection() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        await fixture.router.setCapabilities([
+            "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1",
+            "terminal.replay.v1", "workspace.actions.v1",
+        ])
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        _ = try #require(fixture.store.irohReleaseGateForegroundTarget())
+        let originalClient = try #require(fixture.store.remoteClient)
+
+        do {
+            _ = try await fixture.store.runIrohSoakUsageStep(cycle: 119, marker: "SOAK_RECONNECT")
+        } catch let failure as MobileIrohReleaseGateProbeFailure {
+            // This fixture has no native Iroh observation. The observable
+            // regression is whether the stress action actually replaces its
+            // live client before inspecting native connection evidence.
+            #expect(failure == .unauthenticatedIrohSession || failure == .continuityEvidenceUnavailable)
+        }
+
+        let replacement = try #require(fixture.store.remoteClient)
+        #expect(replacement !== originalClient)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+    #endif
+
     @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
@@ -425,7 +457,10 @@ extension ReconnectRouteSelectionTests {
     }
 
     @Test func operationFailurePreservesOpenIrohConnection() async throws {
-        let fixture = try await makeRecoveryOwnerFixture()
+        // Production Iroh transports report native closure. Without that
+        // observation seam recoverDeadConnection treats the transport as dead
+        // and redials, so this fixture must expose it to model a live session.
+        let fixture = try await makeRecoveryOwnerFixture(observesTransportLiveness: true)
         defer { fixture.release() }
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
@@ -637,7 +672,8 @@ extension ReconnectRouteSelectionTests {
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = [],
-        firstTransportCloseGate: LivenessTransportCloseGate? = nil
+        firstTransportCloseGate: LivenessTransportCloseGate? = nil,
+        observesTransportLiveness: Bool = false
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -646,7 +682,8 @@ extension ReconnectRouteSelectionTests {
             router: router,
             box: box,
             heldConnectAttempts: heldConnectAttempts,
-            firstTransportCloseGate: firstTransportCloseGate
+            firstTransportCloseGate: firstTransportCloseGate,
+            observesTransportLiveness: observesTransportLiveness
         )
         let (inner, directory) = try makePairedMacStore()
         let diagnosticLog = DiagnosticLog(capacity: 128, role: .mobileClient)
@@ -742,6 +779,7 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     private let box: TransportBox
     private let heldConnectAttempts: Set<Int>
     private let firstTransportCloseGate: LivenessTransportCloseGate?
+    private let observesTransportLiveness: Bool
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
     private var connectFailure: DiagnosticFailureKind?
@@ -752,12 +790,14 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
         router: LivenessHostRouter,
         box: TransportBox,
         heldConnectAttempts: Set<Int>,
-        firstTransportCloseGate: LivenessTransportCloseGate?
+        firstTransportCloseGate: LivenessTransportCloseGate?,
+        observesTransportLiveness: Bool
     ) {
         self.router = router
         self.box = box
         self.heldConnectAttempts = heldConnectAttempts
         self.firstTransportCloseGate = firstTransportCloseGate
+        self.observesTransportLiveness = observesTransportLiveness
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -777,6 +817,9 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
             shouldHold: heldConnectAttempts.contains(attempt)
         )
         box.set(transport.base)
+        if observesTransportLiveness {
+            return LivenessObservingSequencedTransport(inner: transport)
+        }
         return transport
     }
 
@@ -857,6 +900,23 @@ private actor SequencedLivenessTransport: CmxByteTransport {
     func receive() async throws -> Data? { try await base.receive() }
     func send(_ data: Data) async throws { try await base.send(data) }
     func close() async { await base.close() }
+}
+
+/// Exposes the base transport's native closure snapshot, like production Iroh
+/// transports do. The plain sequenced wrapper deliberately omits it so tests
+/// that drive recoverDeadConnection on an open transport still redial.
+private actor LivenessObservingSequencedTransport: CmxByteTransportLivenessObserving {
+    let inner: SequencedLivenessTransport
+
+    init(inner: SequencedLivenessTransport) {
+        self.inner = inner
+    }
+
+    func connect() async throws { try await inner.connect() }
+    func receive() async throws -> Data? { try await inner.receive() }
+    func send(_ data: Data) async throws { try await inner.send(data) }
+    func close() async { await inner.close() }
+    func isTransportClosed() async -> Bool { await inner.base.isTransportClosed() }
 }
 
 private struct RecoveryConnectFailure: DiagnosticFailureProviding {

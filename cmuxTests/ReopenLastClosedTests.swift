@@ -511,113 +511,115 @@ struct ReopenLastClosedTests {
 
     #if DEBUG
     @Test
-    func commandShiftTRestoresClosedWindowsInLIFOOrder() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        let shortcutActions: [KeyboardShortcutSettings.Action] = [
-            .reopenClosedWorkspace,
-            .reopenClosedBrowserPanel,
-        ]
-        let savedShortcutData = Dictionary(
-            uniqueKeysWithValues: shortcutActions.map {
-                ($0, UserDefaults.standard.data(forKey: $0.defaultsKey))
-            }
-        )
-        let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
-            prefix: "reopen-last-closed"
-        )
-        let baselineWindowIds = mainWindowIds(appDelegate: appDelegate)
-        ClosedItemHistoryStore.shared.removeAll()
-        defer {
-            for windowId in mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds) {
-                appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
-            }
-            ClosedItemHistoryStore.shared.removeAll()
-            KeyboardShortcutSettings.settingsFileStore = originalFileStore
-            for action in shortcutActions {
-                if let data = savedShortcutData[action] ?? nil {
-                    UserDefaults.standard.set(data, forKey: action.defaultsKey)
-                } else {
-                    UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+    func commandShiftTRestoresClosedWindowsInLIFOOrder() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
+            let shortcutActions: [KeyboardShortcutSettings.Action] = [
+                .reopenClosedWorkspace,
+                .reopenClosedBrowserPanel,
+            ]
+            let savedShortcutData = Dictionary(
+                uniqueKeysWithValues: shortcutActions.map {
+                    ($0, UserDefaults.standard.data(forKey: $0.defaultsKey))
                 }
+            )
+            let originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+                prefix: "reopen-last-closed"
+            )
+            let baselineWindowIds = mainWindowIds(appDelegate: appDelegate)
+            ClosedItemHistoryStore.shared.removeAll()
+            defer {
+                for windowId in mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds) {
+                    appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+                }
+                ClosedItemHistoryStore.shared.removeAll()
+                KeyboardShortcutSettings.settingsFileStore = originalFileStore
+                for action in shortcutActions {
+                    if let data = savedShortcutData[action] ?? nil {
+                        UserDefaults.standard.set(data, forKey: action.defaultsKey)
+                    } else {
+                        UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+                    }
+                }
+                appDelegate.debugResetShortcutRoutingStateForTesting()
+            }
+            for action in shortcutActions {
+                KeyboardShortcutSettings.resetShortcut(for: action)
             }
             appDelegate.debugResetShortcutRoutingStateForTesting()
+
+            let olderWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            let newerWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            let olderWindow = try #require(appDelegate.mainWindow(for: olderWindowId))
+            let newerWindow = try #require(appDelegate.mainWindow(for: newerWindowId))
+            let olderManager = try #require(appDelegate.tabManagerFor(windowId: olderWindowId))
+            let newerManager = try #require(appDelegate.tabManagerFor(windowId: newerWindowId))
+            try #require(olderManager.selectedWorkspace).setCustomTitle("Older Window Workspace")
+            try #require(newerManager.selectedWorkspace).setCustomTitle("Newest Window Workspace")
+            _ = newerManager.addWorkspace(
+                title: "Newest Window Second Workspace",
+                select: false,
+                autoWelcomeIfNeeded: false
+            )
+
+            let visibleFrame = try #require((newerWindow.screen ?? NSScreen.main)?.visibleFrame)
+            let olderFrame = fittedTestFrame(in: visibleFrame, xOffset: 48, yOffset: 56)
+            let newerFrame = fittedTestFrame(in: visibleFrame, xOffset: 136, yOffset: 104)
+            olderWindow.setFrame(olderFrame, display: false)
+            newerWindow.setFrame(newerFrame, display: false)
+            olderWindow.animationBehavior = .none
+            newerWindow.animationBehavior = .none
+
+            olderWindow.performClose(nil)
+            #expect(await AppKitTestEventPump().waitUntil {
+                !mainWindowIds(appDelegate: appDelegate).contains(olderWindowId)
+            })
+            #expect(appDelegate.closeMainWindow(windowId: newerWindowId))
+            #expect(await AppKitTestEventPump().waitUntil {
+                !mainWindowIds(appDelegate: appDelegate).contains(newerWindowId)
+            })
+            #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 2)
+
+            try pressCommandShiftT(appDelegate: appDelegate)
+            #expect(await AppKitTestEventPump().waitUntil {
+                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 1
+            })
+            let newestRestoredId = try #require(
+                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
+                    appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
+                        $0.customTitle == "Newest Window Workspace"
+                    } == true
+                }
+            )
+            let newestRestoredManager = try #require(
+                appDelegate.tabManagerFor(windowId: newestRestoredId)
+            )
+            #expect(newestRestoredManager.tabs.map(\.customTitle) == [
+                "Newest Window Workspace",
+                "Newest Window Second Workspace",
+            ])
+            assertFrame(
+                try #require(appDelegate.mainWindow(for: newestRestoredId)).frame,
+                equals: newerFrame
+            )
+
+            try pressCommandShiftT(appDelegate: appDelegate)
+            #expect(await AppKitTestEventPump().waitUntil {
+                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 2
+            })
+            let olderRestoredId = try #require(
+                mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
+                    appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
+                        $0.customTitle == "Older Window Workspace"
+                    } == true
+                }
+            )
+            assertFrame(
+                try #require(appDelegate.mainWindow(for: olderRestoredId)).frame,
+                equals: olderFrame
+            )
+            #expect(!ClosedItemHistoryStore.shared.canReopen)
         }
-        for action in shortcutActions {
-            KeyboardShortcutSettings.resetShortcut(for: action)
-        }
-        appDelegate.debugResetShortcutRoutingStateForTesting()
-
-        let olderWindowId = appDelegate.createMainWindow(shouldActivate: false)
-        let newerWindowId = appDelegate.createMainWindow(shouldActivate: false)
-        let olderWindow = try #require(appDelegate.mainWindow(for: olderWindowId))
-        let newerWindow = try #require(appDelegate.mainWindow(for: newerWindowId))
-        let olderManager = try #require(appDelegate.tabManagerFor(windowId: olderWindowId))
-        let newerManager = try #require(appDelegate.tabManagerFor(windowId: newerWindowId))
-        try #require(olderManager.selectedWorkspace).setCustomTitle("Older Window Workspace")
-        try #require(newerManager.selectedWorkspace).setCustomTitle("Newest Window Workspace")
-        _ = newerManager.addWorkspace(
-            title: "Newest Window Second Workspace",
-            select: false,
-            autoWelcomeIfNeeded: false
-        )
-
-        let visibleFrame = try #require((newerWindow.screen ?? NSScreen.main)?.visibleFrame)
-        let olderFrame = fittedTestFrame(in: visibleFrame, xOffset: 48, yOffset: 56)
-        let newerFrame = fittedTestFrame(in: visibleFrame, xOffset: 136, yOffset: 104)
-        olderWindow.setFrame(olderFrame, display: false)
-        newerWindow.setFrame(newerFrame, display: false)
-        olderWindow.animationBehavior = .none
-        newerWindow.animationBehavior = .none
-
-        olderWindow.performClose(nil)
-        #expect(waitUntil {
-            !mainWindowIds(appDelegate: appDelegate).contains(olderWindowId)
-        })
-        #expect(appDelegate.closeMainWindow(windowId: newerWindowId))
-        #expect(waitUntil {
-            !mainWindowIds(appDelegate: appDelegate).contains(newerWindowId)
-        })
-        #expect(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount == 2)
-
-        try pressCommandShiftT(appDelegate: appDelegate)
-        #expect(waitUntil {
-            mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 1
-        })
-        let newestRestoredId = try #require(
-            mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
-                appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
-                    $0.customTitle == "Newest Window Workspace"
-                } == true
-            }
-        )
-        let newestRestoredManager = try #require(
-            appDelegate.tabManagerFor(windowId: newestRestoredId)
-        )
-        #expect(newestRestoredManager.tabs.map(\.customTitle) == [
-            "Newest Window Workspace",
-            "Newest Window Second Workspace",
-        ])
-        assertFrame(
-            try #require(appDelegate.mainWindow(for: newestRestoredId)).frame,
-            equals: newerFrame
-        )
-
-        try pressCommandShiftT(appDelegate: appDelegate)
-        #expect(waitUntil {
-            mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).count == 2
-        })
-        let olderRestoredId = try #require(
-            mainWindowIds(appDelegate: appDelegate).subtracting(baselineWindowIds).first { windowId in
-                appDelegate.tabManagerFor(windowId: windowId)?.tabs.contains {
-                    $0.customTitle == "Older Window Workspace"
-                } == true
-            }
-        )
-        assertFrame(
-            try #require(appDelegate.mainWindow(for: olderRestoredId)).frame,
-            equals: olderFrame
-        )
-        #expect(!ClosedItemHistoryStore.shared.canReopen)
     }
     #endif
 
@@ -707,12 +709,5 @@ struct ReopenLastClosedTests {
         Set(appDelegate.mainWindowContexts.values.map(\.windowId))
     }
 
-    private func waitUntil(_ condition: () -> Bool) -> Bool {
-        let deadline = Date(timeIntervalSinceNow: 1)
-        while !condition(), Date.now < deadline {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
-        }
-        return condition()
-    }
     #endif
 }

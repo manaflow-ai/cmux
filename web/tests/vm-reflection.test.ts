@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { describe, expect, test } from "bun:test";
 import {
   REFLECTION_PATHS,
@@ -74,18 +75,18 @@ const context: ReflectionContext = {
   hasDesktop: true,
 };
 
+const signedToken = await vmToken(SELF_ID);
 function guestRequest(headers: Record<string, string> = {}): Request {
   return new Request("https://coderouter.dev/api/vm/reflection", {
     headers: {
       authorization: "Bearer cmux-vm-edge-placeholder",
-      [ROUTE_TOKEN_HEADER]: "crt_edge-injected",
-      [VM_ID_HEADER]: SELF_ID,
+      "x-cmux-authorization": `Bearer ${signedToken}`,
       ...headers,
     },
   });
 }
 
-const boundIdentity = async (token: string) => token === "crt_edge-injected"
+const boundIdentity = async (token: string) => token === signedToken
   ? { teamId: "team-1", stackUserId: "user-1", vmId: SELF_ID }
   : null;
 
@@ -107,8 +108,8 @@ describe("requireVmPrincipal", () => {
       headers: { authorization: "Bearer cmux-vm-edge-placeholder" },
     });
     expect(await requireVmPrincipal(noToken, { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "missing_route_token" });
-    expect(await requireVmPrincipal(guestRequest({ [VM_ID_HEADER]: PEER_ID }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
-    expect(await requireVmPrincipal(guestRequest({ [ROUTE_TOKEN_HEADER]: "crt_revoked" }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "invalid_route_token" });
+    expect((await requireVmPrincipal(guestRequest({ [VM_ID_HEADER]: PEER_ID }), { authenticate: boundIdentity, loadVm: async () => self })).ok).toBe(true);
+    expect(await requireVmPrincipal(guestRequest({ "x-cmux-authorization": "Bearer invalid" }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "invalid_route_token" });
     const unbound = async () => ({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
     const unboundRequest = new Request("https://coderouter.dev/api/vm/reflection", {

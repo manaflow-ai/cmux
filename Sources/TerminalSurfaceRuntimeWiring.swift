@@ -128,6 +128,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
     }
 }
 
@@ -165,6 +166,7 @@ extension TerminalSurfaceRuntimeFilesystem {
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
+                    enabledCommands: $3,
                     hermesProfileAliasCatalog: hermesProfileAliasCatalog,
                     fileManager: fileManager
                 )

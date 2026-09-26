@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxControlSocket
 import os
@@ -281,7 +282,8 @@ extension TerminalController {
 
     /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
     /// sidebar workspace in the resolved window. Params: `host` (required),
-    /// optional `port`, `identity_file`, `activate`, and routing selectors.
+    /// optional `port`, `identity_file`, `activate`, `workspace_name`, and
+    /// routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -296,6 +298,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = Self.remoteTmuxActivate(from: params)
+        let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
         let routing = remoteTmuxRouting(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
@@ -308,7 +311,8 @@ extension TerminalController {
             let outcome = try await controller.attachHost(
                 host: host,
                 windowTarget: windowTarget,
-                activate: activate
+                activate: activate,
+                workspaceName: workspaceName
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
@@ -330,7 +334,7 @@ extension TerminalController {
 
     /// `remote.tmux.window` — mirror every tmux session on a host into a
     /// dedicated new window. Params: `host` (required), optional `port`,
-    /// `identity_file`, and `activate`.
+    /// `identity_file`, `activate`, and `workspace_name`.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -345,6 +349,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let activate = Self.remoteTmuxActivate(from: params)
+        let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -353,7 +358,8 @@ extension TerminalController {
             let outcome = try await controller.attachHost(
                 host: host,
                 windowTarget: .dedicatedNewWindow,
-                activate: activate
+                activate: activate,
+                workspaceName: workspaceName
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
@@ -388,6 +394,16 @@ extension TerminalController {
 
     private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
         (params["activate"] as? Bool) ?? false
+    }
+
+    /// `cmux ssh-tmux --name`; see
+    /// ``RemoteTmuxController/mirrorSession(host:sessionName:sessionId:into:customTitle:)``
+    /// for the cosmetic-only rationale.
+    private nonisolated static func remoteTmuxWorkspaceName(from params: [String: Any]) -> String? {
+        guard let raw = (params["workspace_name"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
+        else { return nil }
+        return raw
     }
 
     @MainActor

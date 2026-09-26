@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxWorkspaces
 import Combine
@@ -320,8 +321,8 @@ extension DockSocketLifecycleTests {
     @MainActor
     func clearingTransferredDockTitleStaysCleared() throws {
         let sourceWorkspaceId = UUID()
-        let panel = DockTransferTestPanel()
-        panel.displayTitle = "Current Dock Title"
+        let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
+        panel.updateTitle("Current Dock Title")
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { nil }

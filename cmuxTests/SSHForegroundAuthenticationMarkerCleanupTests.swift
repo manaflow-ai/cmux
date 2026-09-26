@@ -24,12 +24,21 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         defer { try? fileManager.removeItem(at: root) }
 
         try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        // Like native OpenSSH, explicitly install a handler even if script(1)
+        // inherited SIGTERM ignored. A POSIX shell cannot reset that disposition.
         try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "trap '' HUP INT",
-            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
-            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
-            "while :; do /bin/sleep 30; done",
+            "#!/usr/bin/python3",
+            "import os, signal, subprocess, sys",
+            "signal.signal(signal.SIGHUP, signal.SIG_IGN)",
+            "signal.signal(signal.SIGINT, signal.SIG_IGN)",
+            "def terminate(signum, frame):",
+            "    with open(os.environ['CMUX_TEST_AUTH_CHILD_SIGNAL'], 'w') as output:",
+            "        output.write('term\\n')",
+            "    sys.exit(143)",
+            "signal.signal(signal.SIGTERM, terminate)",
+            "with open(os.environ['CMUX_TEST_AUTH_CHILD_PID'], 'w') as output:",
+            "    output.write(str(os.getpid()) + '\\n')",
+            "subprocess.run(['/bin/sleep', '30'])",
         ])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -71,19 +80,25 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         defer {
             Darwin.kill(childPID, SIGKILL)
         }
+        let signaledAt = Date()
         Darwin.kill(process.processIdentifier, SIGINT)
 
-        let exitDeadline = Date().addingTimeInterval(3)
+        // Cleanup gets a 2s discovery window plus a bounded force pass. The
+        // child's TERM handler runs promptly, but the post-TERM process-table
+        // snapshots can outlast 3s on a loaded runner. 15s matches the
+        // tolerance of the policy's own cleanup-deadline regression test.
+        let exitDeadline = signaledAt.addingTimeInterval(15)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         let exited = !process.isRunning
+        let elapsed = Date().timeIntervalSince(signaledAt)
         if process.isRunning {
             Darwin.kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
 
-        #expect(exited)
+        #expect(exited, "Restored attach did not exit \(elapsed)s after SIGINT")
         if exited {
             #expect(process.terminationStatus == 130)
         }
@@ -159,6 +174,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("Network is unreachable"), Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "2")
         #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attach\n")
         #expect(try String(contentsOf: sleepFile, encoding: .utf8) == "2\n")
@@ -281,8 +297,10 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
 
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"",
-            "exit 253",
+            "case \" $* \" in",
+            "  *\" ssh-pty-attach \"*) printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"; exit 253 ;;",
+            "  *) exit 0 ;;",
+            "esac",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",

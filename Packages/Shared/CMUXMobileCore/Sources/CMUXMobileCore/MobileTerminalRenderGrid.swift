@@ -19,6 +19,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Highest input frame the Mac had received when this frame was captured.
     /// This is a count on the ordered terminal input lane, never terminal text.
     public var appliedInputSequence: UInt64?
+    /// Mac-side stage timestamps and pacer state, attached sparingly (see
+    /// ``MobileTerminalHostTiming``). Nil on most frames and from older Macs.
+    public var hostTiming: MobileTerminalHostTiming?
     /// Stable identifier for one producer lifetime of ``renderRevision``.
     ///
     /// A surface may be recreated with the same public ID after hibernation or
@@ -296,6 +299,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             deltaBaseHistoryRows: deltaBaseHistoryRows,
             deltaBaseRenderRevision: deltaBaseRenderRevision
         )
+        hostTiming = try container.decodeIfPresent(MobileTerminalHostTiming.self, forKey: .hostTiming)
     }
 
     public static func fromPlainRows(

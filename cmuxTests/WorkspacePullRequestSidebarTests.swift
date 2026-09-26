@@ -132,6 +132,49 @@ private final class IndexLockObserver: @unchecked Sendable {
     }
 }
 
+/// Wraps the real ``GitMetadataService`` read path and counts completed reads
+/// so a test can wait on the sidebar refresh's own completion signal (the
+/// metadata read it performs) instead of a wall-clock window.
+private final class CountingWorkspaceGitMetadataReader: WorkspaceGitMetadataReading, @unchecked Sendable {
+    private let base: any WorkspaceGitMetadataReading
+    private let lock = NSLock()
+    private var storedCompletedReadCount = 0
+
+    init(base: any WorkspaceGitMetadataReading) {
+        self.base = base
+    }
+
+    var completedReadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCompletedReadCount
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        let metadata = await base.workspaceMetadata(for: directory)
+        recordCompletedRead()
+        return metadata
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
+        let metadata = await base.workspaceMetadata(
+            for: directory,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
+        recordCompletedRead()
+        return metadata
+    }
+
+    private func recordCompletedRead() {
+        lock.lock()
+        storedCompletedReadCount += 1
+        lock.unlock()
+    }
+}
+
 private final class LockTouchingGitRunner: CommandRunning, @unchecked Sendable {
     private let indexLockPath: String
     private let lock = NSLock()
@@ -681,12 +724,24 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         let gitRunner = LockTouchingGitRunner(indexLockPath: indexLockPath)
 
         let observer = IndexLockObserver(path: indexLockPath)
-        observer.start(pollInterval: 0.1)
+        // Sampled far faster than the 0.15s window `LockTouchingGitRunner`
+        // holds the lock open for, so any lock a git invocation creates during
+        // the refresh cycles below is observed.
+        observer.start(pollInterval: 0.01)
         defer {
             observer.stop()
         }
 
-        let manager = TabManager(commandRunner: gitRunner)
+        // The real metadata reader still performs the on-disk probe; the
+        // wrapper only counts completed reads so each refresh below can be
+        // awaited on the work it actually did instead of on the clock.
+        let gitMetadataService = GitMetadataService()
+        let metadataReader = CountingWorkspaceGitMetadataReader(base: gitMetadataService)
+        let manager = TabManager(
+            commandRunner: gitRunner,
+            gitMetadataService: gitMetadataService,
+            workspaceGitMetadataReader: metadataReader
+        )
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -696,18 +751,45 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             directory: repoURL.path
         )
 
-        let completedRefreshWindow = expectation(description: "sidebar git metadata refresh window completed")
-        let refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        // Barrier 1: the initial probe applied its metadata, so the explicit
+        // refreshes below run against a tracked repository.
+        XCTAssertTrue(
+            waitForCondition(timeout: 15) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+            },
+            "The test must exercise the sidebar git-refresh path."
+        )
+
+        // Barriers 2...N: drive the refresh path repeatedly, waiting on the
+        // metadata read each refresh completes. This replaces the former 90s
+        // wall-clock window: the invariant is per refresh, so the proof is
+        // "N refreshes completed and none of them touched git", not "no git
+        // ran while the test slept".
+        let refreshCount = 10
+        for index in 0..<refreshCount {
+            // A completed read is not a completed probe: the snapshot is applied
+            // and the in-flight state cleared afterwards, and a refresh skips a
+            // panel whose probe is still in flight. Wait until the panel is a
+            // poll candidate again, the same predicate the refresh filters on,
+            // so every refresh below really schedules a read.
+            XCTAssertTrue(
+                waitForCondition(timeout: 15) {
+                    manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(
+                        workspaceId: workspace.id
+                    ).contains(panelId)
+                },
+                "The panel never became eligible for sidebar git metadata refresh \(index + 1)."
+            )
+            let readsBeforeRefresh = metadataReader.completedReadCount
             manager.refreshTrackedWorkspaceGitMetadataForTesting()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90.5) {
-            refreshTimer.invalidate()
-            completedRefreshWindow.fulfill()
+            XCTAssertTrue(
+                waitForCondition(timeout: 15) {
+                    metadataReader.completedReadCount > readsBeforeRefresh
+                },
+                "Sidebar git metadata refresh \(index + 1) never completed a metadata read."
+            )
         }
 
-        let result = XCTWaiter().wait(for: [completedRefreshWindow], timeout: 92)
-        refreshTimer.invalidate()
-        XCTAssertEqual(result, .completed)
         XCTAssertEqual(
             gitRunner.invocationCount,
             0,
@@ -721,7 +803,11 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertEqual(
             observer.observationCount,
             0,
-            "Sidebar git metadata refresh must never create or observe .git/index.lock during a 90s window."
+            "Sidebar git metadata refresh must never create or observe .git/index.lock."
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: indexLockPath),
+            "Sidebar git metadata refresh must not leave a .git/index.lock behind."
         )
     }
 

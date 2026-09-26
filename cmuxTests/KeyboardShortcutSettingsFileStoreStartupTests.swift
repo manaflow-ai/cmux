@@ -498,6 +498,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    /// Verifies that cmux.json updates the same preference read by the editor.
     func testSettingsFileParsesFileEditorWordWrap() throws {
         let defaults = UserDefaults.standard
 
@@ -510,8 +511,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
-            // Defaults to off until the config opts in.
-            XCTAssertFalse(FilePreviewWordWrapSettings.isEnabled(defaults: defaults))
+            XCTAssertFalse(FilePreviewWordWrapSettings(defaults: defaults).isEnabled())
 
             let directoryURL = try makeTemporaryDirectory()
             defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -537,7 +537,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             withExtendedLifetime(store) {
                 XCTAssertTrue(defaults.bool(forKey: FilePreviewWordWrapSettings.key))
-                XCTAssertTrue(FilePreviewWordWrapSettings.isEnabled(defaults: defaults))
+                XCTAssertTrue(FilePreviewWordWrapSettings(defaults: defaults).isEnabled())
             }
         }
     }
@@ -1191,6 +1191,41 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
                 "copy-on-select = clipboard"
             )
+        }
+    }
+
+    func testSettingsFileStoreAppliesAutomationCodexIntegration() throws {
+        let defaults = UserDefaults.standard
+        let key = "codexHooksEnabled"
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "automation": {
+                    "codexIntegration": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
         }
     }
 

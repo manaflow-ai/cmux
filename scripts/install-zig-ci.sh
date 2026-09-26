@@ -15,7 +15,7 @@ ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX:-/usr/local}"
 ZIG_SYSTEM_PREFIX="${ZIG_SYSTEM_PREFIX%/}"
 ZIG_DOWNLOAD_ATTEMPTS="${ZIG_DOWNLOAD_ATTEMPTS:-2}"
 ZIG_DOWNLOAD_RETRY_DELAY="${ZIG_DOWNLOAD_RETRY_DELAY:-10}"
-# Keep the default short enough for the 20-minute Depot job even when a job
+# Keep the default short enough for the standard hosted macOS job even when a job
 # invokes this installer twice. Dedicated release jobs can set a larger value,
 # up to ZIG_DOWNLOAD_BUDGET_MAX_SECONDS, when their job timeout allows it.
 ZIG_DOWNLOAD_BUDGET_SECONDS="${ZIG_DOWNLOAD_BUDGET_SECONDS:-480}"

@@ -9,6 +9,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             from: [
                 "OPENAI_API_KEY": "secret-should-not-persist",
                 "PI_CODING_AGENT_DIR": "/tmp/omp-agent",
+                "OMP_AGENT_DIR": "/tmp/omp-agent",
                 "PI_CONFIG_DIR": ".custom-omp",
             ],
             kind: "omp"
@@ -16,6 +17,7 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "PI_CODING_AGENT_DIR": "/tmp/omp-agent",
+            "OMP_AGENT_DIR": "/tmp/omp-agent",
             "PI_CONFIG_DIR": ".custom-omp",
         ])
     }

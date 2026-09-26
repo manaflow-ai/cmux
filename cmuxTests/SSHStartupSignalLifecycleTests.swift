@@ -718,6 +718,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let startupCommand = try generatedSSHStartupCommand(
             replacingSystemSSHWith: fakeSSH,
+            requestTTYOption: nil,
             additionalArguments: ["--transport", "mosh"]
         )
         var environment = ProcessInfo.processInfo.environment
@@ -844,80 +845,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(sshLog.contains("-O check"), sshLog)
     }
 
-    func testSSHStartupRemovesForegroundAuthInflightMarkerAfterSuccess() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-auth-inflight-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let controlPath = "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
-        let sshOptions = [
-            "ControlMaster=auto",
-            "ControlPersist=600",
-            "ControlPath=\(controlPath)",
-        ]
-        let lockPath = try XCTUnwrap(SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
-            destination: "cmux-macmini",
-            port: 2222,
-            options: sshOptions
-        ))
-        let inFlightPath = lockPath + ".inflight"
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            try? fileManager.removeItem(at: root)
-            unlink(lockPath)
-            unlink(inFlightPath)
-        }
-
-        try writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
-        try writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "previous_arg=",
-            "for arg in \"$@\"; do",
-            "  if [ \"$arg\" = '-G' ]; then printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"; exit 0; fi",
-            "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then exit 255; fi",
-            "  previous_arg=\"$arg\"",
-            "done",
-            "exit 0",
-        ])
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
-
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
-            sshOptions: sshOptions
-        )
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_CONTROL_PATH"] = controlPath
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
-
-        let result = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertFalse(
-            fileManager.fileExists(atPath: inFlightPath),
-            "Successful foreground authentication must remove its owned in-flight marker before releasing the lock"
-        )
-    }
-
     func testSSHStartupStopsAtConfiguredReconnectLimitAndWaitsForDismissal() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-retry-limit-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
 
@@ -936,6 +871,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
             "exit 255",
         ])
+        // Exercise the production backoff selection without spending wall time
+        // in its timer. Zero is normalized to the safe two-second default.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
@@ -950,18 +892,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
+        // The prompt is the wrapper's own completion signal: it is printed only
+        // after the retry loop gave up and reported the session end.
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n2\n")
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 255."), child.standardError)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1008,15 +966,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
@@ -1058,16 +1027,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 130, result.stderr)
+        // A child status is an ordinary session failure, unlike a signal sent
+        // to the supervisor. Keep its status visible until a fresh Enter; EOF
+        // must not dismiss the failure prompt (the #9966 contract).
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 130."), child.standardError)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1081,11 +1064,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-ssh-signal-during-reconnect-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+        let sleepPIDFile = root.appendingPathComponent("sleep-pid.txt")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
+        defer {
+            if let rawPID = try? String(contentsOf: sleepPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)),
+               kill(pid, 0) == 0 {
+                kill(pid, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
 
         try writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -1097,12 +1090,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
             "count=$((count + 1))",
             "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "if [ \"$count\" -eq 1 ]; then",
-            "  ( sleep 0.2; kill -TERM \"${CMUX_SSH_STARTUP_PID:?}\" ) &",
-            "  exit 255",
-            "fi",
-            "exit 0",
+            "exit 255",
         ])
+        // Signal from the timer itself so the test reaches backoff before
+        // cancellation. The timer remains alive until the supervisor reaps it.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_SLEEP_PID_FILE}\"",
+            "kill -TERM \"${CMUX_SSH_STARTUP_PID:?}\"",
+            "exec /bin/sleep 30",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
@@ -1117,6 +1116,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_TEST_SLEEP_PID_FILE"] = sleepPIDFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
 
@@ -1130,11 +1131,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 143, result.stderr)
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
+        let timerPID = try XCTUnwrap(Int32(
+            try String(contentsOf: sleepPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let timerExists = kill(timerPID, 0)
+        let timerError = errno
+        XCTAssertEqual(timerExists, -1, "cancelled backoff timer must be reaped")
+        XCTAssertEqual(timerError, ESRCH)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        XCTAssertTrue(
+            sessionEndCalls.isEmpty,
+            "Cancelling the pane during backoff must not tear down the shared SSH transport: \(recordedCalls)"
+        )
     }
 
     func testSSHStartupPrintsFinalErrorBannerAndWaitsWhenStderrIsCaptured() throws {
@@ -1170,17 +1183,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 1."), child.standardError)
     }
 
     func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
@@ -1249,12 +1272,73 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHStartupIgnoresInheritedInternalPendingSignalState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let sessionEndLog = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' ssh >> \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = sessionEndLog.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        // The wrapper's own deferred-signal state must start empty. An
+        // inherited value would retire the session with 130 before ssh runs.
+        environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
+        environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        // The count is not the contract: the ControlPath preflight also runs
+        // ssh. An unreset inherited signal retires the wrapper before any.
+        XCTAssertTrue(((try? String(contentsOf: attemptFile, encoding: .utf8)) ?? "").hasPrefix("ssh\n"))
+    }
+
+    /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
+    /// sessions to cmux-tui through `workspace.ssh.open`, so this wrapper is
+    /// only produced for sessions without a TTY and for mosh. Unless the
+    /// caller already sets `RequestTTY`, `requestTTYOption` pins the session
+    /// to that path; pass nil for mosh, which keeps its own terminal.
     private func generatedSSHStartupCommand(
         replacingSystemSSHWith fakeSSH: URL,
         sshOptions: [String] = [
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
         ],
+        requestTTYOption: String? = "RequestTTY no",
         additionalArguments: [String] = [],
         remoteCommandArguments: [String] = []
     ) throws -> String {
@@ -1326,6 +1410,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
         for option in sshOptions {
             arguments += ["--ssh-option", option]
+        }
+        if let requestTTYOption,
+           !sshOptions.contains(where: { $0.lowercased().hasPrefix("requesttty") }) {
+            arguments += ["--ssh-option", requestTTYOption]
         }
         arguments += additionalArguments
         arguments.append("cmux-macmini")
@@ -1515,5 +1603,209 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         return condition(contents)
+    }
+}
+
+/// A child process whose output is streamed while it runs.
+///
+/// Startup-wrapper tests that end at the terminal exit prompt used to prove
+/// "the pane stays open" by letting a blocking `runProcess` call burn its whole
+/// timeout (20s under CI). This type lets those tests wait on the real signals
+/// instead: the prompt text the wrapper prints, and the prompt helper blocking
+/// with its input at EOF. Both return the instant they hold, so the timeouts
+/// bound only the failure path.
+final class StreamingChildProcess: @unchecked Sendable {
+    let process = Process()
+
+    private let stdoutPipe = Pipe()
+    private let stderrPipe = Pipe()
+    private let outputLock = NSLock()
+    private let drainGroup = DispatchGroup()
+    private var stdoutData = Data()
+    private var stderrData = Data()
+
+    init(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) throws {
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = CLIChildEnvironment(
+            appHostEnvironment: ProcessInfo.processInfo.environment
+        ).normalizing(environment)
+        // The #9966 contract under test is "input already at EOF must not
+        // dismiss the failure prompt", so the child starts with a closed stdin.
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        drain(stdoutPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stdoutData.append(data)
+            self.outputLock.unlock()
+        }
+        drain(stderrPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stderrData.append(data)
+            self.outputLock.unlock()
+        }
+    }
+
+    var standardOutput: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stdoutData, encoding: .utf8) ?? ""
+    }
+
+    var standardError: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stderrData, encoding: .utf8) ?? ""
+    }
+
+    /// Returns as soon as `text` has been written to stderr.
+    ///
+    /// A child that exits before emitting `text` resolves immediately from its
+    /// drained output rather than waiting out `timeout`.
+    func waitForStandardError(containing text: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if standardError.contains(text) { return true }
+            if !process.isRunning {
+                _ = drainGroup.wait(timeout: .now() + 2)
+                return standardError.contains(text)
+            }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        return standardError.contains(text)
+    }
+
+    /// Returns true once the child's process tree is alive but consuming no
+    /// CPU, i.e. the prompt helper is parked in a blocking wait rather than on
+    /// its way to exiting.
+    ///
+    /// The startup script prints the prompt text and then execs the CLI
+    /// helper. Whether the helper keeps the launched pid depends on the shell:
+    /// `/bin/sh -c <script>` may exec the script in place, or fork it and sit
+    /// in `waitpid`, where the root alone would look idle while the helper is
+    /// still starting. Sampling the whole tree covers both shapes. With stdin
+    /// at EOF the helper parks in `pause()` after a failed `tcgetattr`, so a
+    /// correct wrapper reaches a steady state: an unchanged set of pids, zero
+    /// scheduled threads, and a frozen CPU counter. A helper that is still
+    /// starting keeps accumulating CPU, and a regression that dismissed the
+    /// prompt on EOF exits instead, which `Process.isRunning` reports without
+    /// waiting.
+    func waitUntilBlocked(timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        var previous: ProcessTreeSample?
+        var stableSamples = 0
+        while Date.now < deadline {
+            guard process.isRunning else { return false }
+            let sample = processTreeSample()
+            if let sample, sample.running == 0, previous == sample {
+                stableSamples += 1
+            } else {
+                stableSamples = 0
+            }
+            previous = sample
+            // Two consecutive idle samples separated by real time: a tree still
+            // starting up, or about to exit, keeps accumulating CPU.
+            if stableSamples >= 2 { return process.isRunning }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+        return false
+    }
+
+    func terminate() {
+        if process.isRunning {
+            // When the shell forks the startup script instead of exec'ing it,
+            // the parked prompt helper is a descendant that holds the output
+            // pipes, and signalling only the root would leave it in `pause()`
+            // and the drains waiting for EOF. Retire the owned tree the same
+            // way `stopAndCleanUp` in SSHStartupManualReconnectTests does.
+            let cleanupCommand = SSHForegroundAuthenticationRetryPolicy()
+                .processTreeTerminationShellFunction()
+                + "\ncmux_ssh_terminate_auth_process_tree \(process.processIdentifier) \(getpid())"
+            _ = CLINotifyProcessIntegrationRegressionTests.runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", cleanupCommand],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 5
+            )
+        }
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        _ = drainGroup.wait(timeout: .now() + 2)
+    }
+
+    private struct ProcessTreeSample: Equatable {
+        var pids: [pid_t]
+        var cpu: UInt64
+        var running: Int32
+    }
+
+    /// Sums CPU time and runnable threads over the launched root and all of
+    /// its live descendants. Returns nil when any member cannot be read (for
+    /// example one that exited between listing and sampling), which the caller
+    /// treats as not yet stable.
+    private func processTreeSample() -> ProcessTreeSample? {
+        var pids: [pid_t] = []
+        var pending = [process.processIdentifier]
+        while let pid = pending.popLast() {
+            pids.append(pid)
+            pending.append(contentsOf: Self.childProcessIdentifiers(of: pid))
+        }
+        var sample = ProcessTreeSample(pids: pids.sorted(), cpu: 0, running: 0)
+        for pid in pids {
+            guard let task = Self.taskSample(pid) else { return nil }
+            sample.cpu &+= task.cpu
+            sample.running += task.running
+        }
+        return sample
+    }
+
+    private static func childProcessIdentifiers(of parent: pid_t) -> [pid_t] {
+        var children = [pid_t](repeating: 0, count: 64)
+        let count = children.withUnsafeMutableBufferPointer { buffer in
+            proc_listchildpids(
+                parent,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<pid_t>.stride)
+            )
+        }
+        guard count > 0 else { return [] }
+        return children.prefix(min(Int(count), children.count)).filter { $0 > 0 }
+    }
+
+    private static func taskSample(_ pid: pid_t) -> (cpu: UInt64, running: Int32)? {
+        var info = proc_taskinfo()
+        let expectedSize = MemoryLayout<proc_taskinfo>.stride
+        let size = proc_pidinfo(
+            pid,
+            PROC_PIDTASKINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        guard Int(size) == expectedSize else { return nil }
+        return (info.pti_total_user &+ info.pti_total_system, info.pti_numrunning)
+    }
+
+    private func drain(_ pipe: Pipe, into append: @escaping @Sendable (Data) -> Void) {
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { self.drainGroup.leave() }
+            while true {
+                let data = pipe.fileHandleForReading.availableData
+                if data.isEmpty { return }
+                append(data)
+            }
+        }
     }
 }

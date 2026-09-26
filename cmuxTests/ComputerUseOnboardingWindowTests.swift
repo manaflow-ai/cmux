@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import SwiftUI
 import Testing
@@ -10,6 +11,42 @@ import Testing
 
 @Suite("Computer Use onboarding windows", .serialized)
 struct ComputerUseOnboardingWindowTests {
+    @Test @MainActor func dismissedWindowStaysClosedThroughRefreshAndToolRetry() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture(usesProductionPresenter: true)
+        defer { fixture.remove() }
+        let responder = try UnixSocketResponder(
+            path: fixture.persistence.paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
+        )
+        defer { responder.stop() }
+        try await fixture.enable()
+        let actions = HostSettingsActions(
+            configFileURL: fixture.persistence.root.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: fixture.runtime,
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
+            runComputerUseOnboardingAction: { startingPoint in
+                fixture.coordinator.presentOnboardingFromSettings(startingAt: startingPoint)
+            }
+        )
+        await fixture.send("cmux-cua.get_app_state")
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        window.close()
+        #expect(!window.isVisible)
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+        await actions.refreshComputerUsePermissions()
+        await fixture.send("cmux-cua.get_app_state")
+        #expect(!NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(fixture.coordinator.presentOnboardingFromSettings())
+        #expect(NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(!fixture.runtime.onboardingIsComplete)
+    }
+
     @Test @MainActor func offscreenCompanionReturnsWithoutMovingTheOverview() throws {
         var companions: [NSWindow] = []
         let controller = ComputerUseOnboardingWindowController(
@@ -44,7 +81,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(main.frame == originalFrame)
     }
 
-    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() throws {
+    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 200, height: 120),
             styleMask: [.titled],
@@ -55,16 +92,27 @@ struct ComputerUseOnboardingWindowTests {
         defer { window.close() }
         window.orderBack(nil)
         let windowID = CGWindowID(window.windowNumber)
+        // Let WindowServer register the ordered window before asking for its
+        // offscreen metadata; ordering it out in the same actor turn can hide
+        // it before the server has published its first description.
+        try #require(await AppKitTestEventPump().waitUntil {
+            ExternalApplicationWindowTracker.windowSnapshot(
+                windowID: windowID,
+                processIdentifier: ProcessInfo.processInfo.processIdentifier,
+                primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
+            ) != nil
+        })
         window.orderOut(nil)
+        await AppKitTestEventPump().drain()
 
-        let snapshot = ExternalApplicationWindowTracker.windowSnapshot(
+        let snapshot = try #require(ExternalApplicationWindowTracker.windowSnapshot(
             windowID: windowID,
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
-        )
+        ))
 
-        #expect(snapshot?.windowID == windowID)
-        #expect(snapshot?.isOnScreen == false)
+        #expect(snapshot.windowID == windowID)
+        #expect(!snapshot.isOnScreen)
     }
 
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {

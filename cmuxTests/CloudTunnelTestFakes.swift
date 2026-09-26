@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 #if canImport(cmux_DEV)
@@ -24,6 +25,7 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     private var _connectsOnStart = true
     private var _holdInstallForApproval = false
     private var _currentStatusValue: CloudTunnelLinkStatus = .disconnected
+    private var _onCurrentStatus: (@Sendable (CloudTunnelLinkStatus) async -> Void)?
     private var _holdStop = false
     private var stopContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -49,6 +51,13 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
         get { lock.withLock { _currentStatusValue } }
         set { lock.withLock { _currentStatusValue = newValue } }
     }
+    /// Optional hook that runs after a status snapshot is captured but before
+    /// `currentStatus()` returns, allowing tests to model a queued callback
+    /// during that suspension.
+    var onCurrentStatus: (@Sendable (CloudTunnelLinkStatus) async -> Void)? {
+        get { lock.withLock { _onCurrentStatus } }
+        set { lock.withLock { _onCurrentStatus = newValue } }
+    }
     /// `stop()` blocks (link stays `.disconnecting`) until `releaseStop()`.
     var holdStop: Bool {
         get { lock.withLock { _holdStop } }
@@ -72,7 +81,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     }
 
     func emit(_ status: CloudTunnelLinkStatus) {
-        for continuation in lock.withLock({ continuations }) {
+        let current = lock.withLock { () -> [AsyncStream<CloudTunnelLinkStatus>.Continuation] in
+            _currentStatusValue = status
+            return continuations
+        }
+        for continuation in current {
             continuation.yield(status)
         }
     }
@@ -94,7 +107,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
         }
     }
 
-    func currentStatus() async -> CloudTunnelLinkStatus { currentStatusValue }
+    func currentStatus() async -> CloudTunnelLinkStatus {
+        let status = currentStatusValue
+        if let onCurrentStatus { await onCurrentStatus(status) }
+        return status
+    }
 
     func install(
         _ configuration: CloudTunnelProviderConfiguration,

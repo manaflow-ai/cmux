@@ -2,6 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxControlSocket
 
+private final class ControlHandleOrdinalAdvanceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [(ControlHandleKind, Int)] = []
+
+    func record(kind: ControlHandleKind, nextOrdinal: Int) {
+        lock.lock()
+        values.append((kind, nextOrdinal))
+        lock.unlock()
+    }
+
+    func snapshot() -> [(ControlHandleKind, Int)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 @Suite("ControlHandleRegistry")
 struct ControlHandleRegistryTests {
     @Test func mintsSequentialRefsPerKind() {
@@ -13,6 +30,42 @@ struct ControlHandleRegistryTests {
         // Independent ordinal space per kind.
         #expect(registry.ensureRef(kind: .surface, uuid: a) == "surface:1")
         #expect(registry.ensureRef(kind: .window, uuid: b) == "window:1")
+    }
+
+    @Test func customStartingOrdinalsKeepOldRefsUnknown() {
+        let oldID = UUID()
+        var oldRegistry = ControlHandleRegistry()
+        let oldRef = oldRegistry.ensureRef(kind: .surface, uuid: oldID)
+        #expect(oldRef == "surface:1")
+
+        let newID = UUID()
+        var newRegistry = ControlHandleRegistry(startingOrdinals: [.surface: 1_000_000_000])
+        let newRef = newRegistry.ensureRef(kind: .surface, uuid: newID)
+
+        #expect(newRef == "surface:1000000000")
+        #expect(newRegistry.uuid(forRef: oldRef) == nil)
+        #expect(newRegistry.uuid(forRef: newRef) == newID)
+    }
+
+    @Test func ordinalAdvanceHookRunsOnlyForNewRefs() {
+        let recorder = ControlHandleOrdinalAdvanceRecorder()
+        var registry = ControlHandleRegistry(
+            startingOrdinals: [.surface: 40]
+        ) { kind, nextOrdinal in
+            recorder.record(kind: kind, nextOrdinal: nextOrdinal)
+        }
+        let id = UUID()
+
+        #expect(registry.ensureRef(kind: .surface, uuid: id) == "surface:40")
+        #expect(registry.ensureRef(kind: .surface, uuid: id) == "surface:40")
+        #expect(registry.ensureRef(kind: .surface, uuid: UUID()) == "surface:41")
+
+        let advances = recorder.snapshot()
+        #expect(advances.count == 2)
+        #expect(advances[0].0 == .surface)
+        #expect(advances[0].1 == 41)
+        #expect(advances[1].0 == .surface)
+        #expect(advances[1].1 == 42)
     }
 
     @Test func ensureRefIsIdempotentPerIdentity() {

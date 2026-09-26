@@ -24,7 +24,8 @@ extension RemoteTmuxController {
     func attachHost(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
-        activate: Bool
+        activate: Bool,
+        workspaceName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         // Multiplexer mode: mirror the host's sessions over ONE shared `-CC` view
         // stream. Hosts limited to a single concurrent connection can't run the
@@ -117,7 +118,7 @@ extension RemoteTmuxController {
         }
 
         let mirroredWorkspaceIds = mirrorDiscoveredSessions(
-            host: host, sessions: sessions, into: targetManager)
+            host: host, sessions: sessions, into: targetManager, workspaceName: workspaceName)
         // Reaching control mode is not the same as having something to mirror: a stream can send
         // the DCS intro, the attach block, and then `%exit` without ever publishing a window.
         // Measured on a real host, and cmux reported that RPC as success, leaving an empty
@@ -155,7 +156,8 @@ extension RemoteTmuxController {
     func mirrorDiscoveredSessions(
         host: RemoteTmuxHost,
         sessions: [RemoteTmuxSession],
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        workspaceName: String? = nil
     ) -> [UUID] {
         // A mirror whose workspace died without a controller-driven detach
         // must not block re-attach: its stale key makes `mirrorSessions` skip
@@ -165,7 +167,7 @@ extension RemoteTmuxController {
         // `mirrorSessions` applies stable-session-id de-dup and seeds discovery's
         // ids into new mirrors, so bulk discovery can't duplicate a session
         // mid-rename (#7362, #7365).
-        mirrorSessions(sessions, host: host, into: tabManager)
+        mirrorSessions(sessions, host: host, into: tabManager, workspaceName: workspaceName)
         let managerWorkspaceIds = Set(tabManager.tabs.map(\.id))
         return sessionMirrors.values.compactMap { mirror in
             guard mirror.host.connectionHash == host.connectionHash,

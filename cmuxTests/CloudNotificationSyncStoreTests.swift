@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -10,6 +11,34 @@ import Testing
 @MainActor
 @Suite("Cloud notification persistence")
 struct CloudNotificationSyncStoreTests {
+    @Test
+    func equalPlacedRowsSkipASecondFold() {
+        var resolutions = 0
+        let sync = CloudNotificationSync(machineID: "vm", clientID: "mac", store: CloudNotificationSyncStore(defaults: UserDefaults(suiteName: "CloudNotificationSyncStoreTests.\(UUID().uuidString)")!), resolveTarget: { _ in
+            resolutions += 1
+            return .init(workspaceID: UUID(), panelID: nil)
+        }, deliver: { _, _ in .delivered }, send: { _ in })
+        let row = CloudVMNotificationRow(id: "n", title: "Done", subtitle: nil, body: "", level: "info", createdAtMs: 1, terminalID: "t", readBy: [])
+        #expect(sync.apply(rows: [row]))
+        #expect(!sync.apply(rows: [row]))
+        #expect(resolutions == 1)
+    }
+
+    @Test
+    func declinedDeliveryRetriesOnAnEqualSnapshot() {
+        var declined = true
+        var deliveries = 0
+        let sync = CloudNotificationSync(machineID: "vm", clientID: "mac", store: CloudNotificationSyncStore(defaults: UserDefaults(suiteName: "CloudNotificationSyncStoreTests.\(UUID().uuidString)")!), resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) }, deliver: { _, _ in
+            deliveries += 1
+            return declined ? .declined : .delivered
+        }, send: { _ in })
+        let row = CloudVMNotificationRow(id: "n", title: "Done", subtitle: nil, body: "", level: "info", createdAtMs: 1, terminalID: "t", readBy: [])
+        #expect(sync.apply(rows: [row]))
+        declined = false
+        #expect(sync.apply(rows: [row]))
+        #expect(deliveries == 2)
+    }
+
     @Test
     func persistedStateFromBeforeReadLedgerStillLoads() throws {
         let oldState = Data(#"{"delivered":["n1"],"pendingAcks":[{"key":"k1","ids":["n1"]}]}"#.utf8)

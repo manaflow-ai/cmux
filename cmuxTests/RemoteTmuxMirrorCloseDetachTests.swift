@@ -377,7 +377,6 @@ import Testing
     /// must leave the caller's current cmux window active.
     @Test func dedicatedWindowSocketDefaultsToFocusNeutral() async throws {
         let support = RemoteTmuxMirrorCloseDetachTests()
-        let sshOverrideKey = support.sshOverrideKey
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("remote-tmux-focus-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -394,9 +393,6 @@ import Testing
             exit 0
             """
         )
-        let previousSSH = support.environmentValue(for: sshOverrideKey)
-        setenv(sshOverrideKey, sshURL.path, 1)
-        defer { support.restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
         let remoteTmuxKey = SettingCatalog().betaFeatures.remoteTmux.userDefaultsKey
         let previousRemoteTmux = UserDefaults.standard.object(forKey: remoteTmuxKey)
         UserDefaults.standard.set(true, forKey: remoteTmuxKey)
@@ -415,6 +411,15 @@ import Testing
             harness.tearDown()
         }
         let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
+        // Ghostty retains its startup environment buffer. Calling setenv after
+        // initialization can invalidate that buffer before this test's new
+        // window creates a native terminal. Inject only this host's transport.
+        let transport = RemoteTmuxSSHTransport(
+            host: host,
+            sshExecutablePath: sshURL.path
+        )
+        harness.controller.transportRegistry.transports[host.connectionHash] = transport
+        #expect(harness.controller.transport(for: host) === transport)
         defer { harness.controller.detach(host: host, sessionName: "one") }
         harness.cacheConnection(host: host, session: "one")
         #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))

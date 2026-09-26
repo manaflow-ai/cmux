@@ -54,10 +54,7 @@ final class RemoteTmuxMirrorRenameHarness {
                 + "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main",
         ]
         if includeSecondWindow {
-            // The layout prefix must be 4 HEX digits — tmux writes a real
-            // checksum there, and the parser drops a window whose layout
-            // doesn't parse ("efgh" here silently lost the whole window).
-            windowLines.append("@3 e5d1,80x24,0,0,6 e5d1,80x24,0,0,6 [] logs")
+            windowLines.append("@3 efab,80x24,0,0,6 efab,80x24,0,0,6 [] logs")
         }
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 1,

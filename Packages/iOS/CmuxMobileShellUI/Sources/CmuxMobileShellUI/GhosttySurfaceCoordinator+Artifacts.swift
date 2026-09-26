@@ -347,6 +347,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                   surfaceView.window != nil,
                   let store,
                   let viewportReportScheduler else { return }
+            // From this point the coordinator owns a viewport lease,
+            // even if teardown races the scheduler before its async send starts.
+            // Final detach/presentation release must clear the prepared local
+            // report; transient window loss keeps the lease sticky.
+            viewportLeaseHeld = true
             if let minimumReportID = outputStartMinimumViewportReportID,
                reportID < minimumReportID {
                 MobileDebugLog.anchormux(

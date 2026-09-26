@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -17,6 +18,7 @@ extension SurfaceCatalog {
         guard let token = ledger.begin(machine: machine, workspaceID: workspaceID, previous: authoritativeSnapshot) else {
             return Task { throw CancellationError() }
         }
+        cloudWorkspaceCreationCoordinator.cancel(machine: machine, workspaceID: workspaceID)
         let projectionToken = cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         notifyChange()
         let task = Task { @MainActor in
@@ -42,7 +44,7 @@ extension SurfaceCatalog {
                 self.notifyChange()
                 for terminal in doomed {
                     try self.checkDeletionProvider(provider, machine: machine)
-                    try await ledger.closeTerminal(terminal.id, provider: provider)
+                    try await ledger.closeTerminal(terminal.id, remoteWorkspaceID: workspaceID, provider: provider)
                 }
                 try self.checkDeletionProvider(provider, machine: machine)
                 try await provider.closeRemoteWorkspace(id: workspaceID)

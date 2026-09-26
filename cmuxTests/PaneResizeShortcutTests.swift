@@ -45,6 +45,12 @@ struct PaneResizeShortcutTests {
             workspace.focusPanel(focused)
             window.makeKeyAndOrderFront(nil)
             window.contentView?.layoutSubtreeIfNeeded()
+            // The split's geometry callback publishes after the layout turn.
+            // Let the mounted tree settle before installing the controlled
+            // 1000-point container used for the shortcut pixel-step assertions.
+            #expect(await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+                workspace.tmuxLayoutSnapshot?.panes.count == 2
+            })
             let controller = workspace.bonsplitController
             controller.setContainerFrame(CGRect(x: 0, y: 0, width: 1000, height: 1000))
             let split = try rootSplit(controller)
@@ -61,7 +67,7 @@ struct PaneResizeShortcutTests {
                 let updated = try rootSplit(controller)
                 #expect(abs(updated.dividerPosition - (0.5 + sign * 0.025 * Double(index))) < 0.000_001)
                 #expect(workspace.focusedPanelId == focused)
-                try expectCachedFramesMatch(workspace)
+                try await expectCachedFramesMatch(workspace)
             }
 
             // The step changes on the next event without a restart.
@@ -140,7 +146,12 @@ struct PaneResizeShortcutTests {
         ))
     }
 
-    private func expectCachedFramesMatch(_ workspace: Workspace) throws {
+    private func expectCachedFramesMatch(_ workspace: Workspace) async throws {
+        #expect(await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            guard let cached = workspace.tmuxLayoutSnapshot else { return false }
+            let live = workspace.bonsplitController.layoutSnapshot()
+            return cached.panes == live.panes
+        })
         let cached = try #require(workspace.tmuxLayoutSnapshot)
         let live = workspace.bonsplitController.layoutSnapshot()
         #expect(cached.panes.count == live.panes.count)

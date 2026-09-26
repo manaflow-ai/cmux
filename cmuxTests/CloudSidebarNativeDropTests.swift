@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,9 +13,12 @@ import Testing
 @Suite("Cloud folder native drops")
 struct CloudSidebarNativeDropTests {
     @Test("A projection-capable terminal can reorder inside its parent without opening a pane")
-    func terminalOrganizationKeepsProjectionCapability() throws {
-        let fixture = CloudSidebarOrderingFixture()
-        defer { fixture.close() }
+    func terminalOrganizationKeepsProjectionCapability() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let fixture = CloudSidebarOrderingFixture(transferRegistry: app.appDelegate.tabDragTransferRegistry)
+            defer { fixture.close() }
         let snapshot = fixture.snapshot()
         var resource = snapshot.resources[0]
         let originalView = try #require(resource.remoteViews?.first)
@@ -37,13 +42,16 @@ struct CloudSidebarNativeDropTests {
         #expect(fixture.transferRegistry.resolve(from: board) != nil)
         let session = CloudSidebarDraggingSession(pasteboard: board)
         coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
-        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero,
+                                            sequenceNumber: session.draggingSequenceNumber)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
         #expect(parent.children.map(\.id) == Array(ids.reversed()))
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
         coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
         #expect(fixture.transferRegistry.resolve(from: board) == nil)
+        }
     }
 
     @Test("Cloud reorder draws the left sidebar line and clears rejected and exited destinations")
@@ -96,7 +104,9 @@ struct CloudSidebarNativeDropTests {
         }
         // NSDraggingDestination receives this terminal boundary for a completed
         // drop or Escape, independently of the data source's endedAt forwarding.
-        outline.draggingEnded(info)
+        // Exercise cmux's destination-completion owner without asking AppKit
+        // to end an OS drag session that this synthetic fixture never started.
+        outline.reorderPresentation.ended(info)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragSession == nil)
         #expect(outline.activeNativeDragCoordinator == nil)

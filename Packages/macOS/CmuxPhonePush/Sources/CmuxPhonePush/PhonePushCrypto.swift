@@ -92,11 +92,13 @@ public enum PhonePushCryptoError: Error, Sendable {
     case keychain(OSStatus)
 }
 
-public enum PhonePushReplyFreshness {
-    public static let clockSkew: TimeInterval = 30
-    public static let maximumLifetime: TimeInterval = 15 * 60
+public struct PhonePushReplyFreshness: Sendable {
+    public init() {}
 
-    public static func accepts(
+    public let clockSkew: TimeInterval = 30
+    public let maximumLifetime: TimeInterval = 15 * 60
+
+    public func accepts(
         issuedAt: TimeInterval,
         expiresAt: TimeInterval,
         now: TimeInterval
@@ -108,10 +110,12 @@ public enum PhonePushReplyFreshness {
     }
 }
 
-public enum PhonePushCrypto {
-    public static let algorithm = "x25519-hpke-sha256-chacha20poly1305-v2"
+public struct PhonePushCrypto: Sendable {
+    public init() {}
 
-    public static func encrypt(
+    public let algorithm = "x25519-hpke-sha256-chacha20poly1305-v2"
+
+    public func encrypt(
         plaintext: Data,
         tuple: PhonePushDeviceTuple,
         recipientPublicKey: Data,
@@ -139,7 +143,7 @@ public enum PhonePushCrypto {
         )
     }
 
-    public static func decrypt(
+    public func decrypt(
         envelope: PhonePushEncryptedPayload,
         tuple: PhonePushDeviceTuple,
         recipientInstallationID: String,
@@ -182,7 +186,7 @@ public enum PhonePushCrypto {
         }
     }
 
-    private static func info(
+    private func info(
         tuple: PhonePushDeviceTuple,
         keyID: String,
         senderKeyID: String
@@ -191,7 +195,7 @@ public enum PhonePushCrypto {
             + canonicalTupleData(tuple)
     }
 
-    private static func aad(
+    private func aad(
         tuple: PhonePushDeviceTuple,
         keyID: String,
         senderKeyID: String
@@ -200,7 +204,7 @@ public enum PhonePushCrypto {
             + canonicalTupleData(tuple)
     }
 
-    private static func canonicalTupleData(_ tuple: PhonePushDeviceTuple) -> Data {
+    private func canonicalTupleData(_ tuple: PhonePushDeviceTuple) -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(tuple)) ?? Data()
@@ -227,7 +231,7 @@ public struct PhonePushKeyMaterial: Sendable {
     }
 }
 
-public enum PhonePushKeyStore {
+extension PhonePushKeyMaterial {
     public static func current(bundleID: String, accessGroup: String? = nil) throws -> PhonePushKeyMaterial {
         let service = "ai.manaflow.cmux.phone-push.\(bundleID)"
         var query: [String: Any] = [
@@ -305,57 +309,56 @@ public enum PhonePushKeyStore {
     }
 }
 
-public enum PhonePushPeerKeyStore {
+public struct PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer.v2."
     private static let registryKey = prefix + "registry"
     private static let maximumEntries = 128
     private static let lock = NSLock()
-    private nonisolated(unsafe) static var defaults: UserDefaults {
-        #if os(iOS)
-        return UserDefaults(suiteName: PhonePushActiveAccountStore.appGroupIdentifier) ?? .standard
-        #else
-        return .standard
-        #endif
+    private let storage: any PhonePushSharedStateStorage
+
+    public init(storage: (any PhonePushSharedStateStorage)? = nil) {
+        self.storage = storage ?? Bundle.main.phonePushSharedStateStorage
     }
 
-    public static func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
+    public func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
         guard !descriptor.keyID.isEmpty else { return }
-        lock.withLock {
+        Self.lock.withLock {
             let storageKey = key(for: tuple)
-            defaults.set(try? JSONEncoder().encode(descriptor), forKey: storageKey)
-            var orderedKeys = defaults.stringArray(forKey: registryKey) ?? []
-            let discoveredKeys = defaults.dictionaryRepresentation().keys.filter {
-                $0.hasPrefix(prefix) && $0 != registryKey
+            storage.setData(try? JSONEncoder().encode(descriptor), forKey: storageKey)
+            var orderedKeys = storage.data(forKey: Self.registryKey)
+                .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            let discoveredKeys = storage.keys(withPrefix: Self.prefix).filter {
+                $0 != Self.registryKey
             }
             for discoveredKey in discoveredKeys where !orderedKeys.contains(discoveredKey) {
                 orderedKeys.append(discoveredKey)
             }
             orderedKeys.removeAll { $0 == storageKey }
             orderedKeys.append(storageKey)
-            while orderedKeys.count > maximumEntries {
+            while orderedKeys.count > Self.maximumEntries {
                 let staleKey = orderedKeys.removeFirst()
-                defaults.removeObject(forKey: staleKey)
+                storage.setData(nil, forKey: staleKey)
             }
-            defaults.set(orderedKeys, forKey: registryKey)
+            storage.setData(try? JSONEncoder().encode(orderedKeys), forKey: Self.registryKey)
         }
     }
 
-    public static func pin(_ publicKey: Data, keyID: String, for tuple: PhonePushDeviceTuple) {
+    public func pin(_ publicKey: Data, keyID: String, for tuple: PhonePushDeviceTuple) {
         pin(PhonePushPeerDescriptor(keyID: keyID, publicKey: publicKey), for: tuple)
     }
 
-    public static func pinnedDescriptor(for tuple: PhonePushDeviceTuple) -> PhonePushPeerDescriptor? {
-        lock.withLock {
-            guard let data = defaults.data(forKey: key(for: tuple)) else { return nil }
+    public func pinnedDescriptor(for tuple: PhonePushDeviceTuple) -> PhonePushPeerDescriptor? {
+        Self.lock.withLock {
+            guard let data = storage.data(forKey: key(for: tuple)) else { return nil }
             return try? JSONDecoder().decode(PhonePushPeerDescriptor.self, from: data)
         }
     }
 
-    public static func pinnedKey(for tuple: PhonePushDeviceTuple) -> Data? {
+    public func pinnedKey(for tuple: PhonePushDeviceTuple) -> Data? {
         pinnedDescriptor(for: tuple)?.publicKey
     }
 
-    public static func save(_ publicKey: Data, macDeviceID: String, instanceTag: String?) {
+    public func save(_ publicKey: Data, macDeviceID: String, instanceTag: String?) {
         let tuple = PhonePushDeviceTuple(
             accountID: nil,
             teamID: nil,
@@ -368,7 +371,7 @@ public enum PhonePushPeerKeyStore {
         pin(publicKey, keyID: "legacy", for: tuple)
     }
 
-    public static func load(macDeviceID: String, instanceTag: String?) -> Data? {
+    public func load(macDeviceID: String, instanceTag: String?) -> Data? {
         let tuple = PhonePushDeviceTuple(
             accountID: nil,
             teamID: nil,
@@ -381,50 +384,59 @@ public enum PhonePushPeerKeyStore {
         return pinnedKey(for: tuple)
     }
 
-    private static func key(for tuple: PhonePushDeviceTuple) -> String {
+    private func key(for tuple: PhonePushDeviceTuple) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = (try? encoder.encode(tuple)) ?? Data()
-        return prefix + data.base64EncodedString()
+        return Self.prefix + data.base64EncodedString()
     }
 }
 
-public enum PhonePushActiveAccountStore {
-    public static let appGroupIdentifier = "group.dev.cmux.ios"
+public struct PhonePushActiveAccountStore {
     private static let accountKeyPrefix = "cmux.activeAccountID."
     private static let lock = NSLock()
 
-    private static var hostBundleIdentifier: String? {
-        let bundle = Bundle.main
+    private let bundle: Bundle
+    private let storage: any PhonePushSharedStateStorage
+
+    public init(
+        bundle: Bundle = .main,
+        storage: (any PhonePushSharedStateStorage)? = nil
+    ) {
+        self.bundle = bundle
+        self.storage = storage ?? bundle.phonePushSharedStateStorage
+    }
+
+    private var hostBundleIdentifier: String? {
         let hostID = bundle.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String
         let value = hostID ?? bundle.bundleIdentifier
         guard let value, !value.isEmpty, !value.contains("$(") else { return nil }
         return value
     }
 
-    private static func accountKey(bundleID: String?) -> String? {
+    private func accountKey(bundleID: String?) -> String? {
         guard let bundleID, !bundleID.isEmpty else { return nil }
-        return accountKeyPrefix + bundleID
+        return Self.accountKeyPrefix + bundleID
     }
 
-    public static func current() -> String? {
-        lock.withLock {
+    public func current() -> String? {
+        Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return nil }
-            return UserDefaults(suiteName: appGroupIdentifier)?.string(forKey: key)
+            return storage.data(forKey: key).map { String(decoding: $0, as: UTF8.self) }
         }
     }
 
-    public static func set(_ accountID: String) {
-        lock.withLock {
+    public func set(_ accountID: String) {
+        Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-            UserDefaults(suiteName: appGroupIdentifier)?.set(accountID, forKey: key)
+            storage.setData(Data(accountID.utf8), forKey: key)
         }
     }
 
-    public static func clear() {
-        lock.withLock {
+    public func clear() {
+        Self.lock.withLock {
             guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-            UserDefaults(suiteName: appGroupIdentifier)?.removeObject(forKey: key)
+            storage.setData(nil, forKey: key)
         }
     }
 }

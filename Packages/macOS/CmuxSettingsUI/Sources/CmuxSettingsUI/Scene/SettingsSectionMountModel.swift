@@ -54,7 +54,12 @@ public final class SettingsSectionMountModel {
 
     /// The slot that hosts `section`'s content.
     public static func hostSection(for section: SettingsSectionID) -> SettingsSectionID {
-        section == .browserImport ? .browser : section
+        switch section.canonicalSection {
+        case .browserImport:
+            return .browser
+        default:
+            return section.canonicalSection
+        }
     }
 
     /// Sections mounted progressively, in detail-stack order. Sections

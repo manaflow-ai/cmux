@@ -70,7 +70,6 @@ import Testing
         #expect(binding.launchCommand == nil)
         #expect(binding.permissionMode == nil)
         #expect(binding.launchFlavor == .local)
-        #expect(binding.wasDecodedWithoutLaunchFlavor)
         #expect(binding.environment == ["LEGACY_VALUE": "preserved"])
         #expect(
             binding.restoreStartupInput()
