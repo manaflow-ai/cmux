@@ -86,7 +86,12 @@ if args[0] == "api" and "/actions/" in args[-1]:
         # CI runs of the tested commit, for reusing their app-host products.
         print(json.dumps({"workflow_runs": json.loads(os.environ.get("LAUNCHER_CI_RUNS", "[]"))}))
     elif re.search(r"/actions/runs/[0-9]+/artifacts", endpoint):
-        print(json.dumps({"artifacts": json.loads(os.environ.get("LAUNCHER_CI_ARTIFACTS", "[]"))}))
+        # LAUNCHER_CI_ARTIFACTS_AFTER: what later listings return, as products appear.
+        seen = root / "artifact-reads"
+        later = seen.exists() and "LAUNCHER_CI_ARTIFACTS_AFTER" in os.environ
+        seen.touch()
+        name = "LAUNCHER_CI_ARTIFACTS_AFTER" if later else "LAUNCHER_CI_ARTIFACTS"
+        print(json.dumps({"artifacts": json.loads(os.environ.get(name, "[]"))}))
     elif re.search(r"/actions/runs/[0-9]+/jobs", endpoint):
         print(json.dumps({"jobs": json.loads(os.environ.get("LAUNCHER_CI_JOBS", "[]"))}))
     elif re.search(r"/actions/runs/[0-9]+$", endpoint):
@@ -239,12 +244,36 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
         self.assertEqual(self.dispatch()["record_video"], "true")
 
-    def test_a_ui_run_keeps_the_head_when_ci_compiled_it_directly(self):
-        push = {**self.PR_CI, "event": "push", "referenced_workflows": []}
-        result = self.launch("ExampleUITests", **self.ci_env(push))
+    def test_a_ui_run_ignores_main_ci_dispatches_test_e2e_cannot_adopt(self):
+        main_ci = {**self.PR_CI, "event": "workflow_dispatch", "status": "in_progress", "referenced_workflows": []}
+        result = self.launch("ExampleUITests", **self.ci_env(main_ci, artifacts=[]))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.dispatch()["ref"], HEAD)
-        self.assertNotIn("the merge of", result.stdout)
+        self.assertNotIn("waiting", result.stdout)
+
+    def test_a_ui_run_waits_for_products_ci_is_still_compiling(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="in_progress"),
+                             LAUNCHER_CI_ARTIFACTS_AFTER=json.dumps(self.PRODUCTS))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("waiting for its app-host products", result.stdout)
+        self.assertEqual(self.dispatch()["ref"], MERGE)
+
+    def test_a_ui_run_stops_waiting_once_admission_lands_on_macos_15(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        jobs = [{"name": "macos / macOS compile admission", "labels": [OLD]}]
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], jobs=jobs, status="in_progress"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot use", result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_a_fallback_to_the_head_still_refuses_a_known_head_failure(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="completed"),
+                             LAUNCHER_PRIOR_RUNS=self._prior("failure", selector="ExampleUITests"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
     def test_a_ui_run_ignores_products_it_could_not_adopt(self):
         cases = {

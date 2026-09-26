@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Callable
 from urllib.parse import quote
 import uuid
 
@@ -614,11 +615,12 @@ def skips_macos(run_id: int) -> bool:
     )
 
 
-def wait_for_products(producer: dict) -> bool:
+def wait_for_products(producer: dict, still_wanted: Callable[[], bool] = lambda: True) -> bool:
     """Wait for a building CI run to upload its app-host products.
 
     True once they exist; False when the run ends without them, skips its
-    macOS compile, or has not produced them within PRODUCTS_WAIT_SECONDS.
+    macOS compile, has not produced them within PRODUCTS_WAIT_SECONDS, or
+    `still_wanted` says the products it will make cannot be used.
     """
     print(
         f"{producer['url']} is already compiling this revision; waiting for its app-host "
@@ -636,6 +638,9 @@ def wait_for_products(producer: dict) -> bool:
                 return False
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
+                return False
+            if not still_wanted():
+                print(f"note: {producer['url']} compiles products this run cannot use", file=sys.stderr, flush=True)
                 return False
             if time.monotonic() > deadline:
                 print(f"note: {producer['url']} has not produced app-host products yet", file=sys.stderr, flush=True)
@@ -674,8 +679,12 @@ def ui_product_source(commit: str) -> dict | None:
         return None
     pending = None
     for run in runs:
-        if (run.get("path") != CI_WORKFLOW_PATH
-                or run.get("event") not in ("push", "pull_request", "workflow_dispatch")
+        # Only a pull request run: test-e2e.yml trusts no other ci.yml
+        # product (reuse_app_host_products.TRUSTED_WORKFLOWS). Main's ci.yml
+        # runs are dispatches, and main's own product comes from
+        # seed-derived-data.yml, which test-e2e.yml finds by itself.
+        if (run.get("path") != CI_WORKFLOW_PATH or run.get("event") != "pull_request"
+                or not run.get("id")
                 or str((run.get("head_repository") or {}).get("full_name", "")).casefold() != REPO.casefold()):
             continue
         try:
@@ -696,12 +705,21 @@ def ui_product_source(commit: str) -> dict | None:
     return pending
 
 
-def macos_26_product(source: dict) -> bool:
-    """Whether a CI run compiled its products where an unpinned E2E run can load them."""
+def macos_26_product(source: dict, pending: bool = False) -> bool:
+    """Whether a CI run compiles its products where an unpinned E2E run can load them.
+
+    With `pending`, a run whose compile admission has no runner yet may
+    still qualify.
+    """
     try:
+        if pending:
+            listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
+            if not any(job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("labels")
+                       for job in listing.get("jobs", [])):
+                return True
         return rerun.product_runner(REPO, str(source["id"]), rerun.gh_api) == rerun.PRODUCT_RUNNERS["26"]
     except (subprocess.CalledProcessError, json.JSONDecodeError):
-        return False
+        return pending
 
 
 def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None, wait: bool) -> int | None:
@@ -882,93 +900,103 @@ def main() -> int:
                     flush=True,
                 )
 
-    # Which pools this dispatch could land on. Empty means the answer could
-    # not be established, and the in-flight guards below stay silent rather
-    # than compare against a runner they guessed. The queue is read only once
-    # the guards have decided to dispatch.
-    pinned = args.runner not in (None, "auto")
-    default = args.runner if pinned else default_runner()
-    pools = candidate_runners(default, pinned)
-    # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
-    # is unknown, measure against the longest label in the runner dropdown.
-    label = max(pools or RUNNERS, key=len)
-    group_length = len(f"e2e-{label}-{commit}-{test_filter}")
-    if group_length > MAX_CONCURRENCY_GROUP:
-        parser.error(
-            f"these selectors make a {group_length}-character concurrency group, over "
-            f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
-        )
-
-    if not args.force:
-        # A dispatch's headBranch is the branch its workflow definition came
-        # from. A run of another definition answers a different question:
-        # attaching to it, or refusing because it failed, would mean the
-        # definition under --workflow-ref never runs. Every guard below reads
-        # this filtered history.
-        workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
-        history = [
-            run for run in recent_dispatches(workflow_ref)
-            if run.get("headBranch") == workflow_ref
-        ]
-
-        if pools:
-            # An identical dispatch is already answering this exact question on
-            # a pool this one could land on. Attach to it instead of cancelling
-            # it or paying a second compile on the other macOS 26 pool: the
-            # concurrency group keyed on runner/ref/test_filter would kill a
-            # same-pool run mid-compile and start the compile again from cold.
-            requested = set(args.test_filter)
-            running = [
-                run for run in history
-                if str(run.get("status", "")) in UNFINISHED
-                and watchable(run)
-                and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
-                and parsed[2] == commit
-                and parsed[1] in pools
-                and set(parsed[0]) == requested
-            ]
-            if running:
-                live = running[0]
-                print(
-                    f"{test_filter} is already {live['status']} at {commit} "
-                    f"on {parsed_runner(live)}; reusing that run instead of dispatching.",
-                    flush=True,
-                )
-                print(f"Run: {live['url']}", flush=True)
-                if args.wait:
-                    return watch_run(live["databaseId"])
-                return 0
-
-        # Refuse per entry: one already-red selector makes the whole batch a
-        # reprint of a known failure, and the compile it would pay for is shared.
-        for entry in args.test_filter:
-            live = [run for run in live_attempts(history, commit, entry, pools)
-                    if watchable(run)] if pools else []
-            if live:
-                raise ValueError(
-                    f"{entry} is already {live[0]['status']} at {commit} on "
-                    f"{parsed_runner(live[0])}, in {live[0]['url']}, under a different set of "
-                    "selectors. Dispatching now would compile identical source "
-                    "a second time to answer a question already in flight. Wait "
-                    "for that run, dispatch the remaining selectors on their "
-                    "own, or pass --force."
-                )
-            earlier = prior_attempts(
-                history, commit, entry,
-                args.runner if args.runner not in (None, "auto") else None,
+    def guards(commit: str) -> int | None:
+        """Refuse or attach before dispatching `commit`; a status means return it."""
+        nonlocal pinned, default, pools
+        # Which pools this dispatch could land on. Empty means the answer could
+        # not be established, and the in-flight guards below stay silent rather
+        # than compare against a runner they guessed. The queue is read only once
+        # the guards have decided to dispatch.
+        pinned = args.runner not in (None, "auto")
+        default = args.runner if pinned else default_runner()
+        pools = candidate_runners(default, pinned)
+        # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
+        # is unknown, measure against the longest label in the runner dropdown.
+        label = max(pools or RUNNERS, key=len)
+        group_length = len(f"e2e-{label}-{commit}-{test_filter}")
+        if group_length > MAX_CONCURRENCY_GROUP:
+            parser.error(
+                f"these selectors make a {group_length}-character concurrency group, over "
+                f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
             )
-            failures = [run for run in earlier if run.get("conclusion") == "failure"]
-            if failures and not any(run.get("conclusion") == "success" for run in earlier):
-                latest = failures[0]
-                raise ValueError(
-                    f"{entry} already failed at {commit} "
-                    f"({len(failures)} time(s)); the newest is {latest['url']}. "
-                    "A focused run compiles the tree first, so the most common red "
-                    "result is a compile error in the branch, not a flaky test -- "
-                    "and re-running the same selector at the same commit returns the "
-                    "same answer. Read that run, fix the branch, push, and dispatch "
-                    "the new commit. Pass --force to dispatch anyway."
+
+        if not args.force:
+            # A dispatch's headBranch is the branch its workflow definition came
+            # from. A run of another definition answers a different question:
+            # attaching to it, or refusing because it failed, would mean the
+            # definition under --workflow-ref never runs. Every guard below reads
+            # this filtered history.
+            workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
+            history = [
+                run for run in recent_dispatches(workflow_ref)
+                if run.get("headBranch") == workflow_ref
+            ]
+
+            if pools:
+                # An identical dispatch is already answering this exact question on
+                # a pool this one could land on. Attach to it instead of cancelling
+                # it or paying a second compile on the other macOS 26 pool: the
+                # concurrency group keyed on runner/ref/test_filter would kill a
+                # same-pool run mid-compile and start the compile again from cold.
+                requested = set(args.test_filter)
+                running = [
+                    run for run in history
+                    if str(run.get("status", "")) in UNFINISHED
+                    and watchable(run)
+                    and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
+                    and parsed[2] == commit
+                    and parsed[1] in pools
+                    and set(parsed[0]) == requested
+                ]
+                if running:
+                    live = running[0]
+                    print(
+                        f"{test_filter} is already {live['status']} at {commit} "
+                        f"on {parsed_runner(live)}; reusing that run instead of dispatching.",
+                        flush=True,
+                    )
+                    print(f"Run: {live['url']}", flush=True)
+                    if args.wait:
+                        return watch_run(live["databaseId"])
+                    return 0
+
+            # Refuse per entry: one already-red selector makes the whole batch a
+            # reprint of a known failure, and the compile it would pay for is shared.
+            for entry in args.test_filter:
+                live = [run for run in live_attempts(history, commit, entry, pools)
+                        if watchable(run)] if pools else []
+                if live:
+                    raise ValueError(
+                        f"{entry} is already {live[0]['status']} at {commit} on "
+                        f"{parsed_runner(live[0])}, in {live[0]['url']}, under a different set of "
+                        "selectors. Dispatching now would compile identical source "
+                        "a second time to answer a question already in flight. Wait "
+                        "for that run, dispatch the remaining selectors on their "
+                        "own, or pass --force."
+                    )
+                earlier = prior_attempts(
+                    history, commit, entry,
+                    args.runner if args.runner not in (None, "auto") else None,
                 )
+                failures = [run for run in earlier if run.get("conclusion") == "failure"]
+                if failures and not any(run.get("conclusion") == "success" for run in earlier):
+                    latest = failures[0]
+                    raise ValueError(
+                        f"{entry} already failed at {commit} "
+                        f"({len(failures)} time(s)); the newest is {latest['url']}. "
+                        "A focused run compiles the tree first, so the most common red "
+                        "result is a compile error in the branch, not a flaky test -- "
+                        "and re-running the same selector at the same commit returns the "
+                        "same answer. Read that run, fix the branch, push, and dispatch "
+                        "the new commit. Pass --force to dispatch anyway."
+                    )
+
+        return None
+
+    pinned = default = pools = None
+    status = guards(commit)
+    if status is not None:
+        return status
 
     # A pinned runner asks about that pool; reused products run on the pool
     # that compiled them.
@@ -978,10 +1006,18 @@ def main() -> int:
             return status
 
     if ui_source is not None and not ui_source["ready"]:
-        if not (wait_for_products(ui_source) and macos_26_product(ui_source)):
-            if commit != head:
-                print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
+        try:
+            adopted = wait_for_products(ui_source, lambda: macos_26_product(ui_source, pending=True))
+            adopted = adopted and macos_26_product(ui_source)
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            adopted = False
+        if not adopted and commit != head:
+            print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
             commit = head
+            # The guards above read the merge; the head needs its own.
+            status = guards(commit)
+            if status is not None:
+                return status
 
     runner = args.runner if pinned else routed_runner(default, test_target)
     dispatch_id = uuid.uuid4().hex
