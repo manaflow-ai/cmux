@@ -21,7 +21,7 @@ public enum VoiceToolCatalog {
     public static func permission(forTool name: String) -> VoiceToolPermission {
         switch name {
         case "list_workspaces", "read_workspace", "read_agent_messages",
-             "read_notifications":
+             "read_notifications", "list_computers", "read_workspace_changes":
             return .read
         case "close_workspace":
             return .destructive

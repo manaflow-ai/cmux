@@ -152,6 +152,99 @@ public struct VoiceOrchestratorToolExecutor {
                 parametersJSON: #"{"type":"object","properties":{},"required":[]}"#
             ),
             VoiceLiveTool(
+                name: "create_task",
+                description: """
+                Start a new task: creates a workspace on the connected Mac \
+                running a coding agent on the given prompt, exactly like the \
+                app's task composer. Prefer this over create_workspace when \
+                the user describes work to do.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{\#
+                "prompt":{"type":"string","description":"What the agent should do"},\#
+                "directory":{"type":"string","description":"Working directory on the Mac; omit for the last used one"},\#
+                "agent":{"type":"string","description":"Agent template: claude, codex, opencode, or shell; omit for the default"},\#
+                "name":{"type":"string","description":"Optional workspace name"}},\#
+                "required":["prompt"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "list_computers",
+                description: "List the user's paired Macs and which one is connected.",
+                parametersJSON: #"{"type":"object","properties":{},"required":[]}"#
+            ),
+            VoiceLiveTool(
+                name: "switch_computer",
+                description: "Switch the app to another paired Mac by name.",
+                parametersJSON: #"""
+                {"type":"object","properties":{"computer":{"type":"string",\#
+                "description":"Computer name or id"}},"required":["computer"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "read_workspace_changes",
+                description: """
+                Read a workspace's uncommitted git changes: changed files \
+                with additions and deletions.
+                """,
+                parametersJSON: #"{"type":"object","properties":{\#(workspaceParameter)},"required":["workspace"]}"#
+            ),
+            VoiceLiveTool(
+                name: "set_workspace_description",
+                description: "Set or clear a workspace's description.",
+                parametersJSON: #"""
+                {"type":"object","properties":{\#(workspaceParameter),\#
+                "description":{"type":"string","description":"New description; empty clears"}},\#
+                "required":["workspace","description"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "set_workspace_color",
+                description: """
+                Set or clear a workspace's list color. Accepts a color name \
+                (red, orange, yellow, green, teal, blue, purple, pink, gray) \
+                or a hex value; empty clears.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{\#(workspaceParameter),\#
+                "color":{"type":"string"}},"required":["workspace","color"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "mark_notification_read",
+                description: """
+                Mark one notification read by the id from read_notifications.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"notification_id":{"type":"string"}},\#
+                "required":["notification_id"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "open_notification",
+                description: """
+                Open one notification's workspace on screen, by the id from \
+                read_notifications.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"notification_id":{"type":"string"}},\#
+                "required":["notification_id"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "type_in_terminal",
+                description: """
+                Type raw text into a workspace's terminal (for shells, REPLs, \
+                or TUIs rather than the coding agent). press_return submits it.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{\#(workspaceParameter),\#
+                "text":{"type":"string"},\#
+                "press_return":{"type":"boolean","description":"Submit with Return, default true"}},\#
+                "required":["workspace","text"]}
+                """#
+            ),
+            VoiceLiveTool(
                 name: "close_workspace",
                 description: """
                 Close a workspace on the Mac, ending its terminals and agent \
@@ -221,6 +314,43 @@ public struct VoiceOrchestratorToolExecutor {
             )
         case "mark_all_notifications_read":
             return await markAllNotificationsRead()
+        case "create_task":
+            return await createTask(
+                prompt: arguments["prompt"] as? String ?? "",
+                directory: arguments["directory"] as? String,
+                agent: arguments["agent"] as? String,
+                name: arguments["name"] as? String
+            )
+        case "list_computers":
+            return listComputers()
+        case "switch_computer":
+            return await switchComputer(query: arguments["computer"] as? String ?? "")
+        case "read_workspace_changes":
+            return await readWorkspaceChanges(query: workspaceQuery)
+        case "set_workspace_description":
+            return await setWorkspaceDescription(
+                query: workspaceQuery,
+                description: arguments["description"] as? String ?? ""
+            )
+        case "set_workspace_color":
+            return await setWorkspaceColor(
+                query: workspaceQuery,
+                color: arguments["color"] as? String ?? ""
+            )
+        case "mark_notification_read":
+            return await markNotificationRead(
+                notificationID: arguments["notification_id"] as? String ?? ""
+            )
+        case "open_notification":
+            return await openNotification(
+                notificationID: arguments["notification_id"] as? String ?? ""
+            )
+        case "type_in_terminal":
+            return await typeInTerminal(
+                query: workspaceQuery,
+                text: arguments["text"] as? String ?? "",
+                pressReturn: arguments["press_return"] as? Bool ?? true
+            )
         case "close_workspace":
             return await closeWorkspace(query: workspaceQuery)
         default:
@@ -343,6 +473,7 @@ public struct VoiceOrchestratorToolExecutor {
             .prefix(max(1, min(limit, 25)))
             .map { item -> [String: Any] in
                 var row: [String: Any] = [
+                    "id": item.notificationID,
                     "title": item.title,
                     "body": String(item.body.prefix(200)),
                     "read": item.isRead,
@@ -518,6 +649,238 @@ public struct VoiceOrchestratorToolExecutor {
         return "Marked all notifications read."
     }
 
+    /// Start a real task through the same pipeline as the task composer:
+    /// template + prompt composed into the agent launch command, submitted to
+    /// the connected Mac.
+    private func createTask(
+        prompt: String,
+        directory: String?,
+        agent: String?,
+        name: String?
+    ) async -> String {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else { return "No task prompt was provided." }
+        guard let macDeviceID = store.connectedMacDeviceID else {
+            return "No connected Mac to start a task on."
+        }
+        guard let templateStore = store.taskTemplateStore else {
+            return "Task templates are unavailable on this device."
+        }
+        let templates = templateStore.listTemplates()
+        let template: MobileTaskTemplate?
+        if let agent, !agent.isEmpty {
+            let needle = agent.lowercased()
+            template = templates.first {
+                $0.builtInKind?.rawValue.lowercased() == needle
+                    || $0.name.lowercased() == needle
+                    || $0.name.lowercased().contains(needle)
+            }
+        } else {
+            template = templateStore.lastTemplateID()
+                .flatMap { id in templates.first { $0.id == id } }
+                ?? templates.first { !$0.isPlainShell }
+                ?? templates.first
+        }
+        guard let template else {
+            let names = templates.map(\.name).joined(separator: ", ")
+            return agent.map { "No agent template matches \"\($0)\". Available: \(names)." }
+                ?? "No task templates are available."
+        }
+        let resolvedDirectory = Self.nonEmpty(directory)
+            ?? templateStore.lastDirectory(macDeviceID: macDeviceID)
+            ?? template.defaultDirectory
+        guard let resolvedDirectory else {
+            return "No working directory: tell me which directory on the Mac to use."
+        }
+        let composition = MobileTaskCommandComposer().compose(
+            template: template,
+            prompt: trimmedPrompt
+        )
+        let spec = MobileWorkspaceCreateSpec(
+            title: Self.nonEmpty(name) ?? composition.title,
+            workingDirectory: resolvedDirectory,
+            initialCommand: composition.initialCommand,
+            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
+            operationID: UUID()
+        )
+        switch await store.submitTaskComposer(
+            macDeviceID: macDeviceID,
+            instanceTag: store.connectedMacInstanceTag,
+            spec: spec
+        ) {
+        case .success:
+            let title = spec.title ?? "the new task"
+            return "Started \(template.name) on \"\(title)\" in \(resolvedDirectory)."
+        case .failure:
+            return "The Mac declined creating the task."
+        }
+    }
+
+    private func listComputers() -> String {
+        let connectedID = store.connectedMacDeviceID
+        let computers = store.pairedMacs.prefix(20).map { mac -> [String: Any] in
+            var row: [String: Any] = [
+                "id": mac.macDeviceID,
+                "name": mac.customName ?? mac.displayName ?? mac.macDeviceID,
+            ]
+            if let tag = mac.instanceTag { row["instance"] = tag }
+            if mac.macDeviceID == connectedID { row["connected"] = true }
+            if let minutes = Self.minutesSince(mac.lastSeenAt) {
+                row["minutes_since_seen"] = minutes
+            }
+            return row
+        }
+        guard !computers.isEmpty else { return "No paired computers." }
+        return Self.json(["computers": Array(computers)])
+    }
+
+    private func switchComputer(query: String) async -> String {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return "No computer was named." }
+        let macs = store.pairedMacs
+        let match = macs.first { $0.macDeviceID.lowercased() == needle }
+            ?? macs.first { ($0.customName ?? $0.displayName)?.lowercased() == needle }
+            ?? Self.uniqueMatch(macs, where: { ($0.customName ?? $0.displayName)?.lowercased().contains(needle) == true })
+        guard let match else {
+            let names = macs.compactMap { $0.customName ?? $0.displayName }.joined(separator: ", ")
+            return "No computer matches \"\(query)\". Paired computers: \(names)."
+        }
+        let displayName = match.customName ?? match.displayName ?? match.macDeviceID
+        let switched = await store.switchToMac(
+            macDeviceID: match.macDeviceID,
+            instanceTag: match.instanceTag
+        )
+        return switched
+            ? "Switched to \(displayName)."
+            : "Could not connect to \(displayName)."
+    }
+
+    private func readWorkspaceChanges(query: String) async -> String {
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            return Self.unknownWorkspace(query, workspaces: store.workspaces)
+        }
+        guard let response = try? await store.fetchChangedFiles(
+            workspaceID: workspace.rpcWorkspaceID.rawValue
+        ) else {
+            return "Could not read changes for \(workspace.name); the Mac may not support it or is unreachable."
+        }
+        guard !response.files.isEmpty else {
+            return "\(workspace.name) has no uncommitted changes."
+        }
+        let files = response.files.prefix(30).map { file -> [String: Any] in
+            [
+                "file": file.path.split(separator: "/").suffix(2).joined(separator: "/"),
+                "status": String(describing: file.status),
+                "additions": file.additions,
+                "deletions": file.deletions,
+            ]
+        }
+        return Self.json([
+            "workspace": workspace.name,
+            "files_changed": response.files.count,
+            "files": Array(files),
+        ])
+    }
+
+    private func setWorkspaceDescription(query: String, description: String) async -> String {
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            return Self.unknownWorkspace(query, workspaces: store.workspaces)
+        }
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch await store.setWorkspaceDescription(
+            id: workspace.id,
+            trimmed.isEmpty ? nil : trimmed
+        ) {
+        case .success:
+            return trimmed.isEmpty
+                ? "Cleared the description of \(workspace.name)."
+                : "Set the description of \(workspace.name)."
+        case .failure:
+            return "The Mac declined changing the description of \(workspace.name)."
+        }
+    }
+
+    /// Spoken color names mapped to the workspace palette; hex passes through.
+    static let spokenColors: [String: String] = [
+        "red": "#FF3B30", "orange": "#FF9500", "yellow": "#FFCC00",
+        "green": "#34C759", "teal": "#30B0C7", "blue": "#007AFF",
+        "purple": "#AF52DE", "pink": "#FF2D55", "gray": "#8E8E93",
+        "grey": "#8E8E93",
+    ]
+
+    private func setWorkspaceColor(query: String, color: String) async -> String {
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            return Self.unknownWorkspace(query, workspaces: store.workspaces)
+        }
+        let trimmed = color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let resolved: String?
+        if trimmed.isEmpty {
+            resolved = nil
+        } else if let named = Self.spokenColors[trimmed] {
+            resolved = named
+        } else if trimmed.hasPrefix("#") || trimmed.range(
+            of: "^[0-9a-f]{6}$", options: .regularExpression
+        ) != nil {
+            resolved = trimmed.hasPrefix("#") ? trimmed : "#\(trimmed)"
+        } else {
+            let names = Self.spokenColors.keys.sorted().joined(separator: ", ")
+            return "Unknown color \"\(color)\". Use one of: \(names), or a hex value."
+        }
+        switch await store.setWorkspaceColor(id: workspace.id, resolved) {
+        case .success:
+            return resolved == nil
+                ? "Cleared the color of \(workspace.name)."
+                : "Colored \(workspace.name)."
+        case .failure:
+            return "The Mac declined changing the color of \(workspace.name)."
+        }
+    }
+
+    private func markNotificationRead(notificationID: String) async -> String {
+        guard let item = store.notificationFeedItems(scopedTo: nil)
+            .first(where: { $0.notificationID == notificationID })
+        else {
+            return "No notification with that id; read the notifications again for current ids."
+        }
+        await store.markNotificationFeedItemRead(item)
+        return "Marked \"\(item.title)\" read."
+    }
+
+    private func openNotification(notificationID: String) async -> String {
+        guard let item = store.notificationFeedItems(scopedTo: nil)
+            .first(where: { $0.notificationID == notificationID })
+        else {
+            return "No notification with that id; read the notifications again for current ids."
+        }
+        await store.openNotificationFeedItem(item)
+        return "Opened \"\(item.title)\" on screen."
+    }
+
+    private func typeInTerminal(query: String, text: String, pressReturn: Bool) async -> String {
+        guard !text.isEmpty else { return "No text was provided." }
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            return Self.unknownWorkspace(query, workspaces: store.workspaces)
+        }
+        guard let terminal = workspace.terminals.first(where: \.isReady)
+            ?? workspace.terminals.first
+        else {
+            return "\(workspace.name) has no terminal."
+        }
+        let delivered: Bool
+        if pressReturn {
+            delivered = await store.sendTerminalPaste(
+                text, workspaceID: workspace.id, terminalID: terminal.id
+            )
+        } else {
+            delivered = await store.sendTerminalInput(
+                text, workspaceID: workspace.id, terminalID: terminal.id
+            )
+        }
+        return delivered
+            ? "Typed into \(terminal.name) in \(workspace.name)."
+            : "Could not reach the terminal in \(workspace.name)."
+    }
+
     // MARK: - Destructive tools
 
     private func closeWorkspace(query: String) async -> String {
@@ -559,6 +922,23 @@ public struct VoiceOrchestratorToolExecutor {
             forTool: name, argumentsJSON: argumentsJSON
         ) else { return nil }
         return Self.resolveWorkspace(raw, in: store.workspaces)?.name ?? raw
+    }
+
+    /// The trimmed string when it has content, else nil.
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    /// The single element satisfying `predicate`, or nil when zero or many do
+    /// (an ambiguous spoken reference must not act on a guess).
+    private static func uniqueMatch<Element>(
+        _ elements: [Element],
+        where predicate: (Element) -> Bool
+    ) -> Element? {
+        let matches = elements.filter(predicate)
+        return matches.count == 1 ? matches.first : nil
     }
 
     private static func unknownWorkspace(

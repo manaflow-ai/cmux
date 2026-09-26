@@ -8,7 +8,7 @@ struct VoiceToolPermissionTests {
     func readTools() {
         for name in [
             "list_workspaces", "read_workspace", "read_agent_messages",
-            "read_notifications",
+            "read_notifications", "list_computers", "read_workspace_changes",
         ] {
             #expect(VoiceToolCatalog.permission(forTool: name) == .read)
         }
@@ -20,7 +20,9 @@ struct VoiceToolPermissionTests {
             "send_prompt", "answer_agent_question", "interrupt_agent",
             "open_workspace", "create_workspace", "create_terminal",
             "rename_workspace", "set_workspace_pinned", "set_workspace_unread",
-            "mark_all_notifications_read",
+            "mark_all_notifications_read", "create_task", "switch_computer",
+            "set_workspace_description", "set_workspace_color",
+            "mark_notification_read", "open_notification", "type_in_terminal",
         ] {
             #expect(VoiceToolCatalog.permission(forTool: name) == .act)
         }

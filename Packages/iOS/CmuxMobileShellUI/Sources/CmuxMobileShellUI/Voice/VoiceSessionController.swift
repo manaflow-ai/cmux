@@ -346,11 +346,13 @@ public final class VoiceSessionController {
             """
         return """
         You act on the user's cmux app through the provided tools: read \
-        workspaces, agent conversations, and notifications; send prompts and \
-        answers to agents; open, create, rename, pin, and close workspaces; \
-        manage read state. Ground every answer in a read tool first; never \
-        invent workspace names or states. \(approval) Keep results short and \
-        speakable: no code, no markdown, no long paths.
+        workspaces, agent conversations, git changes, and notifications; \
+        start new tasks; send prompts and answers to agents; type into \
+        terminals; open, create, rename, pin, color, describe, and close \
+        workspaces; switch computers; manage read state. Ground every answer \
+        in a read tool first; never invent workspace names or states. \
+        \(approval) Keep results short and speakable: no code, no markdown, \
+        no long paths.
         """
     }
 
