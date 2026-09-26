@@ -91,7 +91,9 @@ live window) are not charged at all: those are the fallback without the
 runners API. With the runners read, attempt 1 does not need the snapshot
 either: when it cannot be downloaded or is stale, the owned pools are
 decided from the runners alone and Blacksmith's queues count as unknown
-(empty), instead of every job keeping its default.
+(empty): a run that no owned pool takes keeps every job's default, as
+before. Read live, the queue bound counts the peaks of the runs of the last
+DEFAULT_JOB_MINUTES that took the pool (their shards are on the way).
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
 job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 (QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
@@ -516,7 +518,9 @@ class Routed:
     pick already finished without a marker, so they hold no owned machine.
     `unknown` counts runs whose pick this one cannot see yet; they are
     replayed and charged REPLAYED_RUN_JOBS on an owned pool they could take.
-    `owned_runs` counts the runs behind `owned` on each pool.
+    `owned_runs` counts the runs behind `owned` on each pool. `live_now` and
+    `live_runs` are `owned_now` and `owned_runs` for the runs younger than
+    LIVE_WINDOW_MINUTES alone (None: not split by age).
     """
     unknown: int = 0
     owned: Mapping[str, int] = dataclasses.field(default_factory=dict)
@@ -524,6 +528,8 @@ class Routed:
     owned_now: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)  # None: `owned`
     # None: one run per pool with a peak in `owned`.
     owned_runs: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)
+    live_now: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)
+    live_runs: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)
 
     def runs(self) -> Mapping[str, int]:
         if self.owned_runs is not None:
@@ -1608,7 +1614,9 @@ def choose(
     if live and not retry:
         live_only = unreadable or snapshot_problem(snapshot, now)
         if live_only:
-            snapshot, unreadable = {"generated_at": iso(now), "pools": {}, "source": "live"}, ""
+            # A stale snapshot's warm keys still name kept builds (warm affinity).
+            warm = snapshot.get("warm") if isinstance(snapshot, Mapping) else None
+            snapshot, unreadable = {"generated_at": iso(now), "pools": {}, "source": "live", "warm": warm}, ""
     if unreadable:
         return Choice("", "", unreadable), snapshot
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
@@ -1626,18 +1634,24 @@ def choose(
     owned_capacity = {} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE))
     if live:
         # The idle runners replace the slot counts and the snapshot's owned
-        # counts. Only the runs of the last LIVE_WINDOW_MINUTES are charged to
-        # the owned pools; the rest of the snapshot window counts on Blacksmith.
+        # counts. Runs of the last DEFAULT_JOB_MINUTES that took an owned pool
+        # count their peaks toward the queue bound (owned_room()): their
+        # shards are on the way, and nothing else here sees them coming. Only
+        # those of the last LIVE_WINDOW_MINUTES hold machines toward the wait;
+        # older ones' jobs show on the runners. The rest of the snapshot
+        # window counts on Blacksmith.
         try:
-            recent = count_routed(iso(now - dt.timedelta(minutes=LIVE_WINDOW_MINUTES)))
+            recent = count_routed(iso(now - dt.timedelta(minutes=DEFAULT_JOB_MINUTES)))
         except Exception as error:  # noqa: BLE001 - every failure keeps the default
             return Choice("", "", f"could not count recent runs ({error})"), snapshot
         if not isinstance(recent, Routed):
             recent = Routed(unknown=int(recent))
         before = routed
-        routed = Routed(unknown=recent.unknown, owned=recent.owned, owned_now=recent.owned_now,
-                        owned_runs=recent.owned_runs,
+        routed = Routed(unknown=recent.unknown, owned=recent.owned,
+                        owned_now=recent.owned_now if recent.live_now is None else recent.live_now,
+                        owned_runs=recent.runs() if recent.live_runs is None else recent.live_runs,
                         ephemeral=routed.ephemeral + max(0, routed.unknown - recent.unknown))
+        recent = routed
         # Runs since the snapshot but before the live window: their owned jobs
         # are running (so busy below) or still queued, which the runners API
         # cannot show. One job each (admission) may still wait where no
@@ -1657,6 +1671,10 @@ def choose(
         choice = Choice("", "", f"main's full-suite dispatch: no owned pool fits its whole run with "
                                 f"{reserve} machine(s) and root runner(s) left free for pull requests "
                                 f"({choice.reason})")
+    if live_only and not persistent(choice.runner):
+        # Blacksmith's queues are unknown: overflow keeps every job's default
+        # route, as it did before the live runners could decide.
+        choice = Choice("", "", f"{live_only}; no owned pool has room ({choice.reason})")
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     if live_only and choice.runner:
@@ -1812,6 +1830,8 @@ class GitHub:
         owned: dict[str, int] = {}
         owned_now: dict[str, int] = {}
         owned_runs: dict[str, int] = {}
+        live_now: dict[str, int] = {}
+        live_runs: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
             if not may_hold_owned_pool(run, light_retry=light_retry):
@@ -1828,13 +1848,17 @@ class GitHub:
             if isinstance(route, tuple):
                 owned[route[0]] = owned.get(route[0], 0) + route[1]
                 owned_runs[route[0]] = owned_runs.get(route[0], 0) + 1
-                owned_now[route[0]] = owned_now.get(route[0], 0) + young_charge(
-                    route[1], run_age_minutes(run, now or dt.datetime.now(dt.timezone.utc)))
+                age = run_age_minutes(run, now or dt.datetime.now(dt.timezone.utc))
+                owned_now[route[0]] = owned_now.get(route[0], 0) + young_charge(route[1], age)
+                if age is not None and age < LIVE_WINDOW_MINUTES:
+                    live_now[route[0]] = live_now.get(route[0], 0) + young_charge(route[1], age)
+                    live_runs[route[0]] = live_runs.get(route[0], 0) + 1
             elif route == "ephemeral":
                 ephemeral += 1
             else:
                 unknown += 1
-        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral, owned_now=owned_now, owned_runs=owned_runs)
+        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral, owned_now=owned_now, owned_runs=owned_runs,
+                      live_now=live_now, live_runs=live_runs)
 
     def run_route(self, run: Mapping[str, Any]) -> tuple[str, int] | str | None:
         """(owned pool, peak), "ephemeral", or None while this run's pick is unknown."""
