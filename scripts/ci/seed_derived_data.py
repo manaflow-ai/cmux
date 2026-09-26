@@ -113,14 +113,18 @@ USER_AGENT = "cmux-ci-seed-derived-data"
 # 8 commits per seed, so every seed within ANCESTOR_LIMIT commits of a job's
 # base can be its cheapest start. Keep up to LOCAL_KEEP per root, and drop the
 # oldest seeds on the whole Mac, whichever root holds them, while free space is
-# under LOCAL_KEEP_MIN_FREE_BYTES: the admission floor (25 + 25 GiB per slot,
-# 125 GiB at 4 slots) plus one cold compile (up to 36 GiB) and one seed
-# download (about 8 GB). That is also above glaeda-disk's pressure trigger
-# (15% of the disk, capped at 150 GiB). Each root keeps its newest
-# LOCAL_KEEP_LOW_DISK whatever the disk says.
+# under LOCAL_KEEP_MIN_FREE_BYTES: glaeda's job admission floor (100 GiB free,
+# cmuxterm-hq build-fleet/mini-fleet.json disk.min_free_gib) plus the most the
+# jobs on one mini grew the disk within an hour (about 40 GiB net of seed
+# downloads, 50 with them, from glaeda-disk's 15-minute free-space log on 12
+# owned minis, 2026-09-26). So seeds fill the disk down to where the busiest
+# hour still leaves every new job admitted. At the old 170 GiB most roots kept
+# only their newest two seeds, while no mini fell below 127 GiB free.
+# glaeda-disk's pressure trigger (15% of the disk, 69 GiB on a mini) stays well
+# below. Each root keeps its newest LOCAL_KEEP_LOW_DISK whatever the disk says.
 LOCAL_KEEP = 48
 LOCAL_KEEP_LOW_DISK = 2
-LOCAL_KEEP_MIN_FREE_BYTES = 170 * 1024**3
+LOCAL_KEEP_MIN_FREE_BYTES = 140 * 1024**3
 # Seeds are APFS clones of DerivedData that jobs also clone, so deleting one
 # may free little. Under pressure, stop once a delete frees less than this.
 PRUNE_MIN_FREED_BYTES = 1024**3
