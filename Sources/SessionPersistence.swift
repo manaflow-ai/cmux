@@ -1829,6 +1829,30 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     /// treats an empty-window snapshot as unusable (empty states remove the file instead
     /// of writing it), matching the legacy `!snapshot.windows.isEmpty` usability check.
     var hasWindows: Bool { !windows.isEmpty }
+
+    var richness: SessionSnapshotRichness {
+        let workspaces = windows.flatMap(\.tabManager.workspaces)
+        return SessionSnapshotRichness(
+            workspaces: workspaces.count,
+            panels: workspaces.reduce(0) { $0 + $1.panels.count }
+        )
+    }
+
+    /// Hash of the window, workspace, and panel identities, used by the
+    /// overwrite guard to tell a user layout change from autosave churn.
+    var structureSignature: Int {
+        var hasher = Hasher()
+        for window in windows {
+            hasher.combine(window.windowId)
+            for workspace in window.tabManager.workspaces {
+                hasher.combine(workspace.workspaceId)
+                for panel in workspace.panels {
+                    hasher.combine(panel.id)
+                }
+            }
+        }
+        return hasher.finalize()
+    }
 }
 
 enum SessionScrollbackReplayStore {

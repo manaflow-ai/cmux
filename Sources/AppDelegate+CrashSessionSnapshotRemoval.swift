@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 extension AppDelegate {
@@ -42,6 +43,64 @@ extension AppDelegate {
             }
         case .unusable:
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+        }
+    }
+
+    /// Archives the primary snapshot the previous launch left behind into the
+    /// rotated history, then installs the overwrite guard with its richness as
+    /// the baseline. Runs before the manual-restore sync and before any save,
+    /// so every launch's starting layout is kept even if this launch restores
+    /// nothing and is relaunched again right away.
+    func archivePrimarySessionSnapshotAndInstallOverwriteGuard(now: Date = Date()) {
+        var baseline = SessionSnapshotRichness.empty
+        if let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
+           case .loaded(let primary) = sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+            baseline = primary.richness
+            sessionSnapshotStore.archiveSnapshotToHistory(
+                fileURL: primaryURL,
+                richness: primary.richness,
+                archivedAt: now
+            )
+        }
+        sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(baseline: baseline, launchDate: now)
+#if DEBUG
+        cmuxDebugLog(
+            "session.history.archive baselineWorkspaces=\(baseline.workspaces) " +
+                "baselinePanels=\(baseline.panels)"
+        )
+#endif
+    }
+
+    /// Returns `snapshot` when this launch may write it to the primary file,
+    /// or nil while the overwrite guard holds a poorer, unchanged, young
+    /// session back. Removing the snapshot (last window closed) is explicit
+    /// intent and matures the guard.
+    func snapshotAllowedByOverwriteGuard(
+        _ snapshot: AppSessionSnapshot?,
+        removeWhenEmpty: Bool,
+        now: Date = Date()
+    ) -> AppSessionSnapshot? {
+        guard var overwriteGuard = sessionSnapshotOverwriteGuard else { return snapshot }
+        defer { sessionSnapshotOverwriteGuard = overwriteGuard }
+        guard let snapshot else {
+            if removeWhenEmpty { overwriteGuard.markMature() }
+            return nil
+        }
+        switch overwriteGuard.evaluate(
+            candidate: snapshot.richness,
+            structure: snapshot.structureSignature,
+            now: now
+        ) {
+        case .write:
+            return snapshot
+        case .hold:
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.held reason=poorer_young_launch " +
+                    "panels=\(snapshot.richness.panels) baselinePanels=\(overwriteGuard.baseline.panels)"
+            )
+#endif
+            return nil
         }
     }
 

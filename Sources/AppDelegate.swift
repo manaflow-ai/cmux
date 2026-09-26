@@ -1267,6 +1267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
+    /// Holds back primary snapshot writes from a launch that restored less
+    /// than it started from; installed once startup snapshot preparation runs.
+    var sessionSnapshotOverwriteGuard: SessionSnapshotOverwriteGuard?
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier,
@@ -3618,6 +3621,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func finishPreparingStartupSessionSnapshot() {
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment), !isRunningUnderXCTestCached {
+            archivePrimarySessionSnapshotAndInstallOverwriteGuard()
+        }
         syncManualRestoreSnapshotCachePruningCrashDiagnostics(
             preserveExistingBackup: previousSessionLaunchWasUnclean
         )
@@ -5041,6 +5047,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         synchronously: Bool,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        let snapshot = snapshotAllowedByOverwriteGuard(snapshot, removeWhenEmpty: removeWhenEmpty)
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         // Persistence can outlive its main-actor owner; retain only the Sendable

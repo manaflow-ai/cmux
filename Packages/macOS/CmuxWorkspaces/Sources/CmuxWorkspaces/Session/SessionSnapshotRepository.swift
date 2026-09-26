@@ -24,6 +24,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private let bundleIdentifier: String?
     private let appSupportDirectory: URL?
     private let decoderUserInfo: [CodingUserInfoKey: Bool]
+    private let historyLimit: Int
     // Justification: FileManager is documented thread-safe ("the methods of
     // the shared FileManager object can be called from multiple threads
     // safely") but Foundation does not mark it Sendable.
@@ -42,13 +43,18 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
     ///   - decoderUserInfo: Trust or migration flags applied only while decoding snapshots.
+    ///   - historyLimit: How many archived snapshots to keep in the rotated
+    ///     history directory (the richest one is always kept on top of the
+    ///     newest ones; see ``SessionSnapshotHistoryEntry``).
     public init(
         schemaVersion: Int,
         bundleIdentifier: String?,
         appSupportDirectory: URL? = nil,
         fileManager: FileManager = .default,
-        decoderUserInfo: [CodingUserInfoKey: Bool] = [:]
+        decoderUserInfo: [CodingUserInfoKey: Bool] = [:],
+        historyLimit: Int = 10
     ) {
+        self.historyLimit = max(1, historyLimit)
         self.schemaVersion = schemaVersion
         self.bundleIdentifier = bundleIdentifier
         self.appSupportDirectory = appSupportDirectory
@@ -155,7 +161,74 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         snapshotFileURL(suffix: "-previous")
     }
 
+    @discardableResult
+    public func archiveSnapshotToHistory(
+        fileURL: URL,
+        richness: SessionSnapshotRichness,
+        archivedAt: Date
+    ) -> SessionSnapshotHistoryEntry? {
+        guard let directory = historyDirectoryURL(),
+              let data = try? Data(contentsOf: fileURL) else { return nil }
+        let existing = historyEntries()
+        if let newest = existing.first,
+           let newestData = try? Data(contentsOf: newest.fileURL),
+           newestData == data {
+            return nil
+        }
+        let entry = SessionSnapshotHistoryEntry(
+            fileURL: directory.appendingPathComponent(
+                SessionSnapshotHistoryEntry.fileName(
+                    safeBundleId: safeBundleIdentifier(),
+                    archivedAt: archivedAt,
+                    richness: richness
+                ),
+                isDirectory: false
+            ),
+            archivedAt: archivedAt,
+            richness: richness
+        )
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            try data.write(to: entry.fileURL, options: .atomic)
+        } catch {
+            return nil
+        }
+        let all = [entry] + existing
+        let kept = Set(SessionSnapshotHistoryEntry.retained(all, limit: historyLimit).map(\.fileURL))
+        for stale in all where !kept.contains(stale.fileURL) {
+            try? fileManager.removeItem(at: stale.fileURL)
+        }
+        return kept.contains(entry.fileURL) ? entry : nil
+    }
+
+    public func historyEntries() -> [SessionSnapshotHistoryEntry] {
+        // Names, not URLs: enumerated URLs can come back symlink-resolved
+        // (`/private/var`) and would not match the URLs archive returns.
+        guard let directory = historyDirectoryURL(),
+              let names = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return [] }
+        let safeBundleId = safeBundleIdentifier()
+        return names
+            .compactMap {
+                SessionSnapshotHistoryEntry.parse(
+                    fileURL: directory.appendingPathComponent($0, isDirectory: false),
+                    safeBundleId: safeBundleId
+                )
+            }
+            .sorted { $0.archivedAt > $1.archivedAt }
+    }
+
+    /// `Application Support/cmux/session-history/`, shared by every bundle;
+    /// file names carry the bundle identifier.
+    public func historyDirectoryURL() -> URL? {
+        cmuxAppSupportDirectoryURL()?.appendingPathComponent("session-history", isDirectory: true)
+    }
+
     private func snapshotFileURL(suffix: String) -> URL? {
+        cmuxAppSupportDirectoryURL()?
+            .appendingPathComponent("session-\(safeBundleIdentifier())\(suffix).json", isDirectory: false)
+    }
+
+    private func cmuxAppSupportDirectoryURL() -> URL? {
         let resolvedAppSupport: URL
         if let appSupportDirectory {
             resolvedAppSupport = appSupportDirectory
@@ -164,16 +237,17 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         } else {
             return nil
         }
+        return resolvedAppSupport.appendingPathComponent("cmux", isDirectory: true)
+    }
+
+    private func safeBundleIdentifier() -> String {
         let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? bundleIdentifier!
             : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
+        return bundleId.replacingOccurrences(
             of: "[^A-Za-z0-9._-]",
             with: "_",
             options: .regularExpression
         )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
     }
 }
