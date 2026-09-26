@@ -134,10 +134,14 @@ linked it. The run takes the pool in `CI_PR_POOL_ORDER` with the least
 expected wait and no queued release or nightly job: the queue its job joins
 in rounds (queued jobs over capacity) times a job's length there (5 minutes
 on 12vcpu, 10 elsewhere). Owned pools come first and take the run while its
-jobs start there no later than on the best Blacksmith pool, within
-`CI_PR_POOL_QUEUE_ROUNDS` job lengths, and while everything the runs holding
-the pool will need at their peak, plus this run's, stays within machines x
-(1 + rounds). A pool's
+jobs start there within `CI_PR_POOL_QUEUE_ROUNDS` job lengths, whatever
+Blacksmith's wait (Blacksmith is overflow), and while the queue stays within
+machines x (1 + rounds). With the runners read live, that counts the busy
+runners, the janitor's queue and the peaks of the runs of the last 10
+minutes; without them, everything the runs holding the pool will need at
+their peak. With live runners, a missing or stale snapshot no longer skips
+the fleet: the owned pools are decided live, and a run none takes keeps its
+default route. A pool's
 capacity is what it ran at most while jobs queued behind it
 (`POOL_CAPACITIES`): 5 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
 2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
@@ -151,7 +155,7 @@ run there compiles cold, 10 to 20 minutes longer, about one job's length.
 | `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
 | `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
 | `CI_PR_POOL_MAX_QUEUED` | `0` | with `CI_PR_POOL_QUEUE_ROUNDS=0` only: a Blacksmith pool still takes a run with up to this many macOS jobs queued once it arrives |
-| `CI_PR_POOL_QUEUE_ROUNDS` | `1` | the most job lengths a run's jobs may expect to wait on an owned pool (at most `3`); within that they queue there while they would start no later than on Blacksmith, and the peaks of the runs holding it stay within machines x (1 + rounds). `0` is the kill switch and restores the old rule exactly: an owned pool only when the run's peak is free counting every run's peak, and a full Blacksmith pool rolls over at once |
+| `CI_PR_POOL_QUEUE_ROUNDS` | `1` | the most job lengths a run's jobs may expect to wait on an owned pool (at most `3`); within that they queue there whatever Blacksmith's wait, while the queue stays within machines x (1 + rounds). `0` is the kill switch and restores the old rule exactly: an owned pool only when the run's peak is free counting every run's peak, and a full Blacksmith pool rolls over at once |
 
 The two macOS 26 pools share the lane's Xcode. A run on
 `blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
