@@ -735,7 +735,7 @@ def owned_class(label: str | None) -> tuple[str, str] | None:
 
 def product_family(source: dict) -> str | None:
     """The owned runner choice test-e2e.yml offers when a CI run's compile
-    admission ran on an owned Mac, or "blacksmith" for Blacksmith macOS 26;
+    admission ran on an owned Mac, or the Blacksmith macOS 26 pool it ran on;
     "" before it has a runner; None for anything else (macOS 15, an Xcode
     test-e2e.yml offers no owned choice for)."""
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
@@ -748,8 +748,9 @@ def product_family(source: dict) -> str | None:
             # test-e2e.yml's runner input offers one owned choice per Xcode.
             dispatchable = f"glaeda-std-xcode-{owned_class(owned[0])[1]}"
             return dispatchable if dispatchable in RUNNERS else None
-        if any(re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", label) for label in labels):
-            return "blacksmith"
+        blacksmith = [label for label in labels if re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", label)]
+        if blacksmith:
+            return blacksmith[0] if blacksmith[0] in RUNNERS else FAMILY_RUNNERS["blacksmith"]
         return None if labels else ""
     return ""
 
@@ -1073,9 +1074,10 @@ def main() -> int:
     if ui_source is not None and ui_source.get("family") and commit == ui_source["revision"]:
         # Send the run where the product can be adopted; see FAMILY_RUNNERS.
         family = ui_source["family"]
-        if family == "blacksmith":
+        if family.startswith("blacksmith-"):
+            # Either Blacksmith macOS 26 size shares the toolchain; else the producer's.
             if not runner or pool.pr_runner_pool.persistent(runner) or "macos-26" not in runner:
-                runner = FAMILY_RUNNERS["blacksmith"]
+                runner = family
         elif not (runner and pool.pr_runner_pool.persistent(runner) and runner in OVERFLOW_POOLS):
             runner = family
         print(f"Runner: {runner}, the pool family that compiled {commit}'s products", flush=True)
