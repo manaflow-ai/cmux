@@ -15,9 +15,11 @@ import Foundation
 @MainActor
 public struct VoiceOrchestratorToolExecutor {
     private let store: CMUXMobileShellStore
+    private let memory: MobileVoiceMemory?
 
-    public init(store: CMUXMobileShellStore) {
+    public init(store: CMUXMobileShellStore, memory: MobileVoiceMemory? = nil) {
         self.store = store
+        self.memory = memory
     }
 
     private static let workspaceParameter = #""workspace":{"type":"string","description":"Workspace name or id"}"#
@@ -245,6 +247,36 @@ public struct VoiceOrchestratorToolExecutor {
                 """#
             ),
             VoiceLiveTool(
+                name: "remember",
+                description: """
+                Save a durable note about the user for future sessions. Use \
+                whenever the user states a lasting preference, default, or \
+                fact ("my main repo is X", "always use codex", "keep replies \
+                short"), or asks you to remember something.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"fact":{"type":"string",\#
+                "description":"One short self-contained sentence"}},"required":["fact"]}
+                """#
+            ),
+            VoiceLiveTool(
+                name: "list_memories",
+                description: "Read the saved notes about the user.",
+                parametersJSON: #"{"type":"object","properties":{},"required":[]}"#
+            ),
+            VoiceLiveTool(
+                name: "forget_memory",
+                description: """
+                Delete saved notes whose text contains the given phrase. Use \
+                when the user retracts or changes a remembered preference.
+                """,
+                parametersJSON: #"""
+                {"type":"object","properties":{"matching":{"type":"string",\#
+                "description":"Phrase identifying the note(s) to delete"}},\#
+                "required":["matching"]}
+                """#
+            ),
+            VoiceLiveTool(
                 name: "close_workspace",
                 description: """
                 Close a workspace on the Mac, ending its terminals and agent \
@@ -351,6 +383,12 @@ public struct VoiceOrchestratorToolExecutor {
                 text: arguments["text"] as? String ?? "",
                 pressReturn: arguments["press_return"] as? Bool ?? true
             )
+        case "remember":
+            return rememberFact(arguments["fact"] as? String ?? "")
+        case "list_memories":
+            return listMemories()
+        case "forget_memory":
+            return forgetMemory(matching: arguments["matching"] as? String ?? "")
         case "close_workspace":
             return await closeWorkspace(query: workspaceQuery)
         default:
@@ -709,6 +747,13 @@ public struct VoiceOrchestratorToolExecutor {
             spec: spec
         ) {
         case .success:
+            // Learn the choices like the composer sheet does, so the next
+            // spoken task inherits them as defaults instead of re-asking.
+            templateStore.setLastTemplateID(template.id)
+            templateStore.setLastDirectory(resolvedDirectory, macDeviceID: macDeviceID)
+            templateStore.recordRecentDirectory(
+                resolvedDirectory, macDeviceID: macDeviceID, at: Date()
+            )
             let title = spec.title ?? "the new task"
             return "Started \(template.name) on \"\(title)\" in \(resolvedDirectory)."
         case .failure:
@@ -879,6 +924,32 @@ public struct VoiceOrchestratorToolExecutor {
         return delivered
             ? "Typed into \(terminal.name) in \(workspace.name)."
             : "Could not reach the terminal in \(workspace.name)."
+    }
+
+    // MARK: - Memory tools
+
+    private func rememberFact(_ fact: String) -> String {
+        guard let memory else { return "Memory is unavailable in this session." }
+        guard let stored = memory.remember(fact) else {
+            return "Nothing to remember; the fact was empty."
+        }
+        return "Remembered: \(stored)"
+    }
+
+    private func listMemories() -> String {
+        guard let memory else { return "Memory is unavailable in this session." }
+        guard let summary = memory.promptSummary else {
+            return "No saved notes about the user yet."
+        }
+        return "Saved notes about the user:\n\(summary)"
+    }
+
+    private func forgetMemory(matching query: String) -> String {
+        guard let memory else { return "Memory is unavailable in this session." }
+        let removed = memory.forget(matching: query)
+        return removed > 0
+            ? "Forgot \(removed) note\(removed == 1 ? "" : "s")."
+            : "No saved note matches \"\(query)\"."
     }
 
     // MARK: - Destructive tools

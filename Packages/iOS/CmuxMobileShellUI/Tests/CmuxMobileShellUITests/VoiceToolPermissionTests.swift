@@ -9,6 +9,7 @@ struct VoiceToolPermissionTests {
         for name in [
             "list_workspaces", "read_workspace", "read_agent_messages",
             "read_notifications", "list_computers", "read_workspace_changes",
+            "list_memories",
         ] {
             #expect(VoiceToolCatalog.permission(forTool: name) == .read)
         }
@@ -23,6 +24,7 @@ struct VoiceToolPermissionTests {
             "mark_all_notifications_read", "create_task", "switch_computer",
             "set_workspace_description", "set_workspace_color",
             "mark_notification_read", "open_notification", "type_in_terminal",
+            "remember", "forget_memory",
         ] {
             #expect(VoiceToolCatalog.permission(forTool: name) == .act)
         }

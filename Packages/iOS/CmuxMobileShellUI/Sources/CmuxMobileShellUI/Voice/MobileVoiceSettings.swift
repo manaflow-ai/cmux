@@ -16,6 +16,10 @@ public final class MobileVoiceSettings {
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
     private let apiKeyStore: any MobileVoiceAPIKeyStoring
+    /// Durable user-told notes injected into every voice session and edited
+    /// through the orchestrator's memory tools. Lives here so the one
+    /// injected settings object carries all voice persistence.
+    public let voiceMemory: MobileVoiceMemory
 
     private static let enabledKey = "cmux.mobile.voice.enabled"
     private static let voiceNameKey = "cmux.mobile.voice.voiceName"
@@ -131,6 +135,7 @@ public final class MobileVoiceSettings {
     ) {
         self.defaults = defaults
         self.apiKeyStore = apiKeyStore
+        self.voiceMemory = MobileVoiceMemory(defaults: defaults)
         self.voiceModeEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         let storedVoice = defaults.string(forKey: Self.voiceNameKey)
         self.voiceName = storedVoice.flatMap {

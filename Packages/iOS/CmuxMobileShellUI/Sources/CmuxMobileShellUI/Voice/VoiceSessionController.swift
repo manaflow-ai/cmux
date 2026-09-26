@@ -296,26 +296,71 @@ public final class VoiceSessionController {
         switch mode {
         case .orchestrator:
             let bypass = settings.orchestratorBypassPermissions
+            var backend = Self.orchestratorBackendInstructions(bypassPermissions: bypass)
+            backend += "\n\n" + appContextSummary()
+            if let memories = settings.voiceMemory.promptSummary {
+                backend += "\n\nSaved notes about the user (follow them; update with remember/forget_memory):\n\(memories)"
+            }
             return VoiceLiveSessionConfig(
                 model: model,
                 voice: settings.voiceName,
                 instructions: Self.orchestratorVoiceInstructions(bypassPermissions: bypass),
                 delegation: .responses(
                     model: Self.orchestratorBackendModel,
-                    instructions: Self.orchestratorBackendInstructions(bypassPermissions: bypass),
+                    instructions: backend,
                     tools: VoiceOrchestratorToolExecutor.tools
                 )
             )
         case .terminal(let workspaceID, _):
             let workspaceName = store.workspaces
                 .first(where: { $0.id == workspaceID })?.name ?? "this workspace"
+            var instructions = Self.terminalVoiceInstructions(workspaceName: workspaceName)
+            if let memories = settings.voiceMemory.promptSummary {
+                instructions += "\n\nSaved notes about the user:\n\(memories)"
+            }
             return VoiceLiveSessionConfig(
                 model: model,
                 voice: settings.voiceName,
-                instructions: Self.terminalVoiceInstructions(workspaceName: workspaceName),
+                instructions: instructions,
                 delegation: .client
             )
         }
+    }
+
+    /// One-paragraph snapshot of the app for the backend's instructions, so
+    /// the assistant knows the defaults and layout the way a user does and
+    /// never asks for something this already answers. Read tools stay the
+    /// source of live data mid-session.
+    private func appContextSummary() -> String {
+        var lines: [String] = ["Context at session start (use read tools for live data):"]
+        if let macID = store.connectedMacDeviceID {
+            let name = store.pairedMacs
+                .first { $0.macDeviceID == macID }
+                .map { $0.customName ?? $0.displayName ?? macID } ?? macID
+            lines.append("Connected Mac: \(name).")
+            if let templateStore = store.taskTemplateStore {
+                let templates = templateStore.listTemplates()
+                let defaultTemplate = templateStore.lastTemplateID()
+                    .flatMap { id in templates.first { $0.id == id } }
+                    ?? templates.first { !$0.isPlainShell }
+                let defaultDirectory = templateStore.lastDirectory(macDeviceID: macID)
+                    ?? defaultTemplate?.defaultDirectory
+                lines.append(
+                    "Task defaults (create_task uses them when parameters are omitted): agent \(defaultTemplate?.name ?? "none"), directory \(defaultDirectory ?? "none saved yet — ask once, then it is remembered")."
+                )
+            }
+        } else {
+            lines.append("No Mac is connected right now; acting tools will fail until one connects.")
+        }
+        let workspaces = store.workspaces.prefix(12).map { workspace in
+            workspace.hasUnread
+                ? "\(workspace.name) (\(workspace.unreadCount ?? 1) unread)"
+                : workspace.name
+        }
+        if !workspaces.isEmpty {
+            lines.append("Workspaces: \(workspaces.joined(separator: ", ")).")
+        }
+        return lines.joined(separator: " ")
     }
 
     /// The Responses model behind the orchestrator voice. Fixed for now;
@@ -330,8 +375,11 @@ public final class VoiceSessionController {
         You are the voice assistant for cmux, an app for running AI coding \
         agents in terminal workspaces on the user's computers. Be brief and \
         conversational. Delegate any request about the user's workspaces, \
-        agents, or notifications to the backend; it can read everything and \
-        act on the app like an on-device user. \(confirmation)
+        agents, or notifications to the backend; it can read everything, act \
+        on the app like an on-device user, and remember things the user \
+        tells it, so delegate "remember ..." statements too. Do not \
+        interrogate the user about directories, agents, or names; the \
+        backend knows the defaults. \(confirmation)
         """
     }
 
@@ -351,8 +399,15 @@ public final class VoiceSessionController {
         terminals; open, create, rename, pin, color, describe, and close \
         workspaces; switch computers; manage read state. Ground every answer \
         in a read tool first; never invent workspace names or states. \
-        \(approval) Keep results short and speakable: no code, no markdown, \
-        no long paths.
+        \(approval) Act like a fluent user of the app: fill unspecified tool \
+        parameters from the context and saved notes below without asking. \
+        When the user gives no directory or agent for create_task, or says \
+        to use the default, OMIT those parameters — the app applies its own \
+        defaults; never ask what the default is. Ask a question only when a \
+        required value has no default and no tool can supply it. When the \
+        user states a lasting preference or asks you to remember something, \
+        save it with the remember tool. Keep results short and speakable: \
+        no code, no markdown, no long paths.
         """
     }
 
@@ -413,7 +468,7 @@ public final class VoiceSessionController {
     ) async {
         let permission = VoiceToolCatalog.permission(forTool: name)
         if permission == .destructive, !settings.orchestratorBypassPermissions {
-            let executor = VoiceOrchestratorToolExecutor(store: store)
+            let executor = VoiceOrchestratorToolExecutor(store: store, memory: settings.voiceMemory)
             let approval = PendingToolApproval(
                 id: UUID(),
                 callID: callID,
@@ -439,7 +494,7 @@ public final class VoiceSessionController {
     private func executeFunctionCall(
         callID: String, name: String, argumentsJSON: String
     ) async {
-        let executor = VoiceOrchestratorToolExecutor(store: store)
+        let executor = VoiceOrchestratorToolExecutor(store: store, memory: settings.voiceMemory)
         let output = await executor.execute(name: name, argumentsJSON: argumentsJSON)
         enqueueSend { client in
             try await client.send(.functionCallOutput(callID: callID, output: output))
