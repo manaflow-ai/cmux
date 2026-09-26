@@ -2156,7 +2156,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
                     pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
                     queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
-                    warm_key=warm_key, runner_label=runner_label)
+                    warm_key=warm_key, runner_label=runner_label,
+                    previous=(lambda: warm_distance.previous_admission(
+                        client().get, env.get("HEAD_REF") or "", run_id, now)) if not args.snapshot else None)
                 print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
             except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
                 admission_runner = ""

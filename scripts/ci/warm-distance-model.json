@@ -1,6 +1,6 @@
 {
   "app_rebuild_units": 1000,
-  "fitted_at": "2026-09-26T02:44:17Z",
+  "fitted_at": "2026-09-26T04:57:48Z",
   "hot_files": [
     "Sources/DockPanelView.swift",
     "Sources/Panels/BrowserPanel.swift",
@@ -11,131 +11,199 @@
   ],
   "job_seconds": {
     "app-host-unit-tests": {
-      "mean": 248.0,
-      "n": 537,
-      "p50": 191.1,
-      "p90": 410.1
+      "mean": 262.5,
+      "n": 696,
+      "p50": 201.1,
+      "p90": 470.1
     },
     "auth-refresh-tests": {
-      "mean": 119.8,
-      "n": 44,
-      "p50": 85.1,
-      "p90": 147.2
+      "mean": 113.5,
+      "n": 56,
+      "p50": 86.2,
+      "p90": 126.2
     },
     "build": {
-      "mean": 820.7,
-      "n": 121,
-      "p50": 802.4,
-      "p90": 1320.4
+      "mean": 749.0,
+      "n": 170,
+      "p50": 755.3,
+      "p90": 1268.4
     },
     "claude-wrapper": {
-      "mean": 97.3,
-      "n": 171,
+      "mean": 95.5,
+      "n": 197,
       "p50": 74.1,
-      "p90": 118.2
+      "p90": 109.2
     },
     "cli-product-tests": {
-      "mean": 167.2,
-      "n": 199,
+      "mean": 180.4,
+      "n": 253,
       "p50": 131.1,
-      "p90": 271.1
+      "p90": 362.2
     },
     "client": {
-      "mean": 41.4,
-      "n": 49,
+      "mean": 39.4,
+      "n": 61,
       "p50": 31.1,
       "p90": 47.4
     },
     "diagnostic-presentation": {
-      "mean": 69.6,
-      "n": 43,
+      "mean": 69.1,
+      "n": 55,
       "p50": 62.1,
-      "p90": 78.3
+      "p90": 79.2
     },
     "ios-simulator": {
-      "mean": 561.1,
-      "n": 22,
-      "p50": 685.3,
-      "p90": 986.1
+      "mean": 584.1,
+      "n": 51,
+      "p50": 716.3,
+      "p90": 858.3
     },
     "ios-simulator-build": {
-      "mean": 227.7,
-      "n": 29,
-      "p50": 194.1,
-      "p90": 513.1
+      "mean": 213.5,
+      "n": 53,
+      "p50": 213.1,
+      "p90": 359.9
+    },
+    "lifecycle": {
+      "mean": 18.9,
+      "n": 5,
+      "p50": 9.1,
+      "p90": 64.1
     },
     "macos-compile-admission": {
-      "mean": 472.6,
-      "n": 793,
-      "p50": 427.5,
-      "p90": 852.4
+      "mean": 468.1,
+      "n": 920,
+      "p50": 441.2,
+      "p90": 821.3
     },
     "mobile-core-package": {
-      "mean": 138.1,
-      "n": 57,
-      "p50": 117.2,
-      "p90": 224.1
+      "mean": 149.0,
+      "n": 85,
+      "p50": 159.1,
+      "p90": 234.3
     },
     "phase-attribution": {
-      "mean": 56.0,
-      "n": 17,
+      "mean": 56.9,
+      "n": 34,
       "p50": 49.1,
-      "p90": 72.2
+      "p90": 79.1
     },
     "portal-reconciliation": {
-      "mean": 30.6,
-      "n": 17,
-      "p50": 24.1,
+      "mean": 26.1,
+      "n": 34,
+      "p50": 21.1,
       "p90": 32.1
     },
     "remote-daemon-macos-tests": {
-      "mean": 34.7,
-      "n": 25,
-      "p50": 37.1,
-      "p90": 57.2
+      "mean": 29.5,
+      "n": 38,
+      "p50": 34.1,
+      "p90": 54.1
     },
     "swift-package-tests": {
-      "mean": 237.9,
-      "n": 301,
-      "p50": 119.3,
-      "p90": 573.2
+      "mean": 235.1,
+      "n": 365,
+      "p50": 113.1,
+      "p90": 589.3
     },
     "test": {
-      "mean": 236.1,
-      "n": 18,
+      "mean": 230.5,
+      "n": 19,
       "p50": 152.2,
       "p90": 271.2
     },
     "tests-build-and-lag": {
-      "mean": 152.5,
-      "n": 42,
-      "p50": 133.2,
-      "p90": 253.2
+      "mean": 167.7,
+      "n": 50,
+      "p50": 145.1,
+      "p90": 284.2
     }
   },
   "misclassified": {
-    "rows": 27,
-    "share": 0.121
+    "rows": 31,
+    "share": 0.125
   },
   "near_app_swift_files": 5,
-  "rows": 223,
+  "pr_by_age": {
+    "<30": {
+      "by_job_tier": {
+        "far": {
+          "expected": 225.2,
+          "n": 8
+        },
+        "near": {
+          "expected": 225.5,
+          "n": 16
+        }
+      },
+      "expected": 235.7,
+      "n": 28
+    },
+    "<360": {
+      "by_job_tier": {
+        "far": {
+          "expected": 362.1,
+          "n": 5
+        },
+        "near": {
+          "expected": 335.9,
+          "n": 7
+        },
+        "rebuild": {
+          "expected": 373.8,
+          "n": 11
+        }
+      },
+      "expected": 359.7,
+      "n": 23
+    },
+    "<90": {
+      "by_job_tier": {
+        "far": {
+          "expected": 293.8,
+          "n": 15
+        },
+        "near": {
+          "expected": 264.3,
+          "n": 15
+        },
+        "rebuild": {
+          "expected": 293.8,
+          "n": 15
+        }
+      },
+      "expected": 284.0,
+      "n": 45
+    },
+    ">=360": {
+      "by_job_tier": {
+        "near": {
+          "expected": 383.6,
+          "n": 7
+        }
+      },
+      "expected": 383.6,
+      "n": 11
+    }
+  },
+  "rows": 248,
   "start_classes": {
     "base": {
       "by_job_tier": {
         "far": {
-          "expected": 316.9,
+          "expected": 316.2,
           "n": 28
         },
         "near": {
-          "expected": 241.0,
+          "expected": 240.3,
           "n": 84
         },
         "rebuild": {
-          "expected": 375.3,
+          "expected": 373.3,
           "n": 48
         }
       },
-      "expected": 294.6,
+      "expected": 293.5,
       "n": 160
     },
     "none": {
@@ -145,34 +213,34 @@
           "n": 37
         },
         "near": {
-          "expected": 236.7,
-          "n": 107
+          "expected": 237.3,
+          "n": 117
         },
         "rebuild": {
-          "expected": 414.3,
-          "n": 64
+          "expected": 411.2,
+          "n": 77
         }
       },
-      "expected": 309.5,
-      "n": 208
+      "expected": 311.5,
+      "n": 231
     },
     "pr": {
       "by_job_tier": {
         "far": {
-          "expected": 287.6,
+          "expected": 286.4,
           "n": 28
         },
         "near": {
-          "expected": 263.5,
-          "n": 37
+          "expected": 261.2,
+          "n": 38
         },
         "rebuild": {
-          "expected": 323.4,
-          "n": 29
+          "expected": 323.6,
+          "n": 30
         }
       },
-      "expected": 289.1,
-      "n": 94
+      "expected": 288.0,
+      "n": 96
     }
   },
   "tiers": {
@@ -184,18 +252,18 @@
       "rebuilt": 3
     },
     "near": {
-      "mean": 157.4,
-      "n": 56,
-      "p50": 140.1,
+      "mean": 157.1,
+      "n": 61,
+      "p50": 138.7,
       "p90": 269.0,
       "rebuilt": 1
     },
     "rebuild": {
-      "mean": 385.8,
-      "n": 122,
-      "p50": 400.7,
-      "p90": 494.5,
-      "rebuilt": 99
+      "mean": 383.6,
+      "n": 142,
+      "p50": 395.1,
+      "p90": 491.7,
+      "rebuilt": 115
     }
   },
   "version": 1

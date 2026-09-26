@@ -590,6 +590,9 @@ jobs:
         id: owned-state
         if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
         continue-on-error: true
+        env:
+          # A build of this pull request parked on this root comes back first (owned_build_state.py, PR slots).
+          CMUX_OWNED_PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
@@ -3279,6 +3282,15 @@ jobs:
         if: ${{ steps.select.outputs.needs_rust == 'true' }}
         run: |
           ./scripts/install-rust-ci.sh
+
+      # An owned Mac reuses this workspace, but checkout's clean deletes every
+      # package's .build, so each job built its packages from nothing. Point
+      # them at a per-runner directory outside the workspace instead
+      # (scripts/ci/owned_spm_scratch.py); anywhere else it does nothing.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
       - name: Run Bonsplit package tests
         if: ${{ steps.select.outputs.bonsplit == 'true' }}
