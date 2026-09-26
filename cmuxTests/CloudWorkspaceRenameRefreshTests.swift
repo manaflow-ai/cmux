@@ -13,8 +13,41 @@ import Testing
 @MainActor
 @Suite struct CloudWorkspaceRenameRefreshTests {
     /// Exercises the production forced-refresh and rename path against a local daemon.
-    @Test("Terminal output at an equal cursor does not block the forced refresh before rename", .timeLimit(.minutes(1)))
-    func renameAfterTerminalOutput() async throws {
+    @Test("Terminal output at an equal cursor does not block the forced refresh before workspace rename", .timeLimit(.minutes(1)))
+    func renameWorkspaceAfterTerminalOutput() async throws {
+        let result = try await renameAfterTerminalOutput { catalog, machine in
+            try await catalog.renameRemoteWorkspace(on: machine, id: "ws_main", name: "After")
+        }
+        #expect(result.state.lookupIndex.workspace(id: "ws_main")?.name == "After")
+        Self.expectOneFencedRename(result.mutations, operation: "workspace.rename", key: "workspace", id: "ws_main")
+    }
+
+    /// The pane title editor and the cloud tree's view row rename one daemon tab.
+    @Test("Terminal output at an equal cursor does not block the forced refresh before pane rename", .timeLimit(.minutes(1)))
+    func renamePaneAfterTerminalOutput() async throws {
+        let result = try await renameAfterTerminalOutput { catalog, machine in
+            try await catalog.renameRemoteTab(on: machine, id: "tab", name: "After")
+        }
+        #expect(result.state.lookupIndex.tab(id: "tab")?.name == "After")
+        Self.expectOneFencedRename(result.mutations, operation: "tab.rename", key: "tab", id: "tab")
+    }
+
+    /// The cloud tree's terminal row renames every tab that shows the terminal.
+    @Test("Terminal output at an equal cursor does not block the forced refresh before terminal rename", .timeLimit(.minutes(1)))
+    func renameTerminalAfterTerminalOutput() async throws {
+        let result = try await renameAfterTerminalOutput { catalog, machine in
+            let terminal = SurfaceResourceID(machine: machine, kind: .terminal, key: "term")
+            try await catalog.renameTerminal(on: machine, id: terminal, name: "After")
+        }
+        #expect(result.state.lookupIndex.tab(id: "tab")?.name == "After")
+        Self.expectOneFencedRename(result.mutations, operation: "tab.rename", key: "tab", id: "tab")
+    }
+
+    /// Runs one catalog rename against the daemon fixture. Returns the accepted
+    /// state and every rename request the daemon received.
+    private func renameAfterTerminalOutput(
+        _ rename: (SurfaceCatalog, SurfaceMachineID) async throws -> Void
+    ) async throws -> (state: CloudVMState, mutations: [[String: Any]]) {
         let root = URL(fileURLWithPath: "/tmp/cmux-rename-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -23,7 +56,7 @@ import Testing
             "workspaces": [["id": "ws_main", "name": "Before"]],
             "screens": [["id": "screen", "workspace_id": "ws_main"]],
             "panes": [["id": "pane", "screen_id": "screen"]],
-            "tabs": [["id": "tab", "pane_id": "pane", "content_kind": "terminal", "content_id": "term"]],
+            "tabs": [["id": "tab", "pane_id": "pane", "name": "Before", "content_kind": "terminal", "content_id": "term"]],
             "terminals": [["id": "term", "title": "bash", "cwd": "/srv/project", "lifecycle": "running", "stream_revision": "1"]],
             "browsers": [], "agents": []
         ]
@@ -58,32 +91,44 @@ import Testing
         provider.publish(initial, ports: [])
 
         do {
-            // This calls refreshCurrentGraph(force: true) before sending the
-            // mutation. The peer changes only stream_revision in that read.
-            try await catalog.renameRemoteWorkspace(on: provider.machine, id: "ws_main", name: "After")
+            // Every rename calls refreshCurrentGraph(force: true) before sending
+            // the mutation. The peer changes only stream_revision in that read.
+            try await rename(catalog, provider.machine)
             let current = try #require(catalog.cloudStates[provider.machine])
-            #expect(current.lookupIndex.workspace(id: "ws_main")?.name == "After")
             #expect(current.cursor == CloudVMCursor(generation: "daemon", revision: 8))
             #expect(catalog.cloudStateObservations[provider.machine]?.freshness == .current)
             let terminals = try #require(current.snapshotObject()?["terminals"] as? [[String: Any]])
             #expect(terminals.first?["stream_revision"] as? String == "3")
             let requests = try String(contentsOf: root.appendingPathComponent("requests.jsonl"), encoding: .utf8)
                 .split(separator: "\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-            let mutations = requests.compactMap { $0 }.filter { $0["operation"] as? String == "workspace.rename" }
-            #expect(mutations.count == 1)
-            let params = try #require(mutations.first?["params"] as? [String: Any])
-            #expect(params["workspace"] as? String == "ws_main")
-            #expect(params["name"] as? String == "After")
-            #expect(params["expected_revision"] as? String == "7")
+            let mutations = requests.compactMap { $0 }.filter {
+                ($0["operation"] as? String)?.hasSuffix(".rename") == true
+            }
+            catalog.unregister(machine: provider.machine)
+            await provider.stop()
+            await links.disconnect()
+            return (current, mutations)
         } catch {
             catalog.unregister(machine: provider.machine)
             await provider.stop()
             await links.disconnect()
             throw error
         }
-        catalog.unregister(machine: provider.machine)
-        await provider.stop()
-        await links.disconnect()
+    }
+
+    private static func expectOneFencedRename(
+        _ mutations: [[String: Any]],
+        operation: String,
+        key: String,
+        id: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(mutations.count == 1, sourceLocation: sourceLocation)
+        #expect(mutations.first?["operation"] as? String == operation, sourceLocation: sourceLocation)
+        let params = mutations.first?["params"] as? [String: Any]
+        #expect(params?[key] as? String == id, sourceLocation: sourceLocation)
+        #expect(params?["name"] as? String == "After", sourceLocation: sourceLocation)
+        #expect(params?["expected_revision"] as? String == "7", sourceLocation: sourceLocation)
     }
 
     // A local protocol peer, started and reaped by the real CloudMachineLink.
@@ -97,6 +142,7 @@ import Testing
     root = pathlib.Path(__file__).parent
     path = str(root / "daemon.sock")
     snapshot = json.loads((root / "snapshot.json").read_text())
+    targets = {"workspace.rename": ("workspace", "workspaces", "ws_main"), "tab.rename": ("tab", "tabs", "tab")}
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(path)
     listener.listen(1)
@@ -118,10 +164,11 @@ import Testing
                 terminal = snapshot["terminals"][0]
                 terminal["stream_revision"] = str(int(terminal["stream_revision"]) + 1)
                 result = snapshot
-            elif op == "workspace.rename":
-                assert params["workspace"] == "ws_main"
+            elif op in targets:
+                key, collection, target = targets[op]
+                assert params[key] == target
                 assert params["expected_revision"] == snapshot["cursor"]["revision"]
-                snapshot["workspaces"][0]["name"] = params["name"]
+                snapshot[collection][0]["name"] = params["name"]
                 snapshot["cursor"]["revision"] = str(int(snapshot["cursor"]["revision"]) + 1)
                 result = {"cursor": snapshot["cursor"]}
             elif op == "machine-listening-tcp":
