@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import app_host_test_rerun as rerun  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 WORKFLOW = ROOT / ".github" / "workflows" / "app-host-test-rerun.yml"
 
