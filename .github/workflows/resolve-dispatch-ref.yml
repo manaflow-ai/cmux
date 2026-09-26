@@ -12,6 +12,13 @@ on:
       sha:
         description: Resolved 40-character commit SHA
         value: ${{ jobs.resolve.outputs.sha }}
+      trusted_ref:
+        description: >-
+          true when the code is this run's own revision (no ref requested) or the
+          head of a branch of this repository; false for any other commit, such as
+          a fork pull request's head or merge ref, which must not run on an owned
+          Mac (docs/ci-runners.md, "Side lanes on owned minis")
+        value: ${{ jobs.resolve.outputs.trusted_ref }}
 
 permissions:
   contents: read
@@ -22,6 +29,7 @@ jobs:
     timeout-minutes: 2
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
+      trusted_ref: ${{ steps.trust.outputs.trusted_ref }}
     steps:
       - name: Resolve requested revision
         id: resolve
@@ -67,3 +75,44 @@ jobs:
           fi
           echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
           echo "Resolved workflow revision: $target_sha"
+
+      # A requested SHA may come from the fork network (the commits API
+      # resolves any of them). Only a branch head of this repository counts as
+      # its own code; any failure answers false, which keeps the job off the
+      # owned Macs.
+      - name: Check the revision is a branch head of this repository
+        id: trust
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          trusted=true
+          if [ -n "$REQUESTED_REF" ]; then
+            trusted="$(python3 - "$GITHUB_REPOSITORY" "$SHA" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          repository, sha = sys.argv[1:3]
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/commits/{sha}/branches-where-head",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  branches = json.load(response)
+          except Exception:
+              branches = []
+          print("true" if isinstance(branches, list) and branches else "false")
+          PY
+          )"
+          fi
+          echo "trusted_ref=$trusted" >> "$GITHUB_OUTPUT"
+          echo "Branch head of this repository: $trusted"

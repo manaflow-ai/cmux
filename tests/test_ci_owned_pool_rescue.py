@@ -1389,12 +1389,16 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS})
+        # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
+        names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
+        self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
                      "(contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
                      "github.event.workflow_run.event) && "
-                     "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || "
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
                      "github.event.workflow_run.event == 'workflow_dispatch') && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
