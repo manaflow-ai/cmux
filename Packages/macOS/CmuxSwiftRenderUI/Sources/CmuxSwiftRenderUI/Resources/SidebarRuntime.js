@@ -196,7 +196,7 @@
     "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
     "fixed", "block", "layoutPriority", "marginLeading",
     "showOnHover", "hideOnHover", "dragBackground", "dragSet", "rotation",
-    "fade", "marquee",
+    "fade", "marquee", "fixedSize",
   ];
 
   function makeHandle(id) {
@@ -209,6 +209,12 @@
       };
     }
     handle.frame = (spec) => {
+      // A function spec binds every key it returns: `.frame(() => ({ width: w() }))`.
+      // Keys are taken from the first evaluation.
+      if (typeof spec === "function") {
+        for (const k of Object.keys(spec() || {})) setProp(id, k, () => (spec() || {})[k]);
+        return handle;
+      }
       for (const k of Object.keys(spec || {})) setProp(id, k, spec[k]);
       return handle;
     };

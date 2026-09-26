@@ -28,6 +28,47 @@ struct SidebarJSRuntimeTests {
         #expect(first?.string("font") == "headline")
     }
 
+    @Test func fixedSizeReachesTheNode() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => HStack([
+            Text("both").fixedSize(),
+            Text("one axis").fixedSize("horizontal"),
+        ]))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let root = try! #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let both = try! #require(runtime.store.node(root.children[0]))
+        let horizontal = try! #require(runtime.store.node(root.children[1]))
+        #expect(both.props["fixedSize"] == .bool(true))
+        #expect(horizontal.props["fixedSize"] == .string("horizontal"))
+    }
+
+    @Test func fixedSizeAxesMapping() {
+        #expect(dslFixedSizeAxes(.bool(true)).map { [$0.horizontal, $0.vertical] } == [true, true])
+        #expect(dslFixedSizeAxes(.string("both")).map { [$0.horizontal, $0.vertical] } == [true, true])
+        #expect(dslFixedSizeAxes(.string("horizontal")).map { [$0.horizontal, $0.vertical] } == [true, false])
+        #expect(dslFixedSizeAxes(.string("vertical")).map { [$0.horizontal, $0.vertical] } == [false, true])
+        #expect(dslFixedSizeAxes(.bool(false)) == nil)
+        #expect(dslFixedSizeAxes(nil) == nil)
+    }
+
+    /// `.frame(() => ({ ... }))` used to be dropped silently: the runtime read
+    /// the keys of the function object (none), so a live width never applied.
+    @Test func frameAcceptsAReactiveSpec() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => Text("bar").frame(() => ({ width: (data.pct() ?? 0) * 2, height: 4 })))
+        """)
+        #expect(runtime.errorMessage == nil)
+        let rootId = try! #require(runtime.store.rootId)
+        #expect(runtime.store.node(rootId)?.double("width") == 0)
+        #expect(runtime.store.node(rootId)?.double("height") == 4)
+        runtime.updateData(key: "pct", value: .int(30))
+        #expect(runtime.store.node(rootId)?.double("width") == 60)
+        #expect(runtime.store.node(rootId)?.double("height") == 4)
+    }
+
     @Test func reactivePropUpdatesOnlyOnDataChange() {
         let runtime = SidebarJSRuntime()
         runtime.start(source: """

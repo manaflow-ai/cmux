@@ -141,6 +141,11 @@ Rules of the runtime:
   `.hoverBackground` (host-side hover wash, no JS round trip)
   `.cornerRadius` (continuous/squircle curvature) `.borderColor`
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  (or `.frame(() => ({...}))` to bind every key live)
+  `.layoutPriority(n)` (who keeps width in an `HStack`; truncating text
+  defaults to 1, so give a button or badge beside it 2) `.fixedSize()` (keep
+  a view at its natural size; `.fixedSize("horizontal")` or `"vertical"` for
+  one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
   chevron that turns instead of swapping glyphs) `.fade(width)` (constant
