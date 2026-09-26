@@ -159,7 +159,7 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 ## `sidebar.compactAgentStatus`
 
-Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those agent entries draw as their colored icon on the title line instead, and hovering the icon shows the agent and status text.
+Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those rows go away and the workspace shows one small glyph before its title instead. Hover it for the agent, pull request, and branch details.
 
 ```json
 {
@@ -169,10 +169,23 @@ Agent hooks report each coding agent's state as a status entry (for example Clau
 }
 ```
 
+The glyph shows the loudest state that applies:
+
+| State | Glyph |
+| --- | --- |
+| An agent needs input or reported an error | red warning triangle |
+| An agent is running | none; the loading spinner (`showAgentActivity`) is the running indicator |
+| Open pull request | green pull request glyph |
+| Merged pull request | purple merge glyph |
+| Closed pull request | gray pull request glyph |
+| Branch, no pull request | purple branch glyph |
+| Agent idle | filled gray dot |
+| Agent starting or state unknown | hollow ring |
+
 - Default: `false`.
-- Only agent-owned status keys move (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
-- At most three agent icons show per workspace, ordered by priority and then by the most recent update.
-- The icons follow `sidebar.showCustomMetadata` and `sidebar.hideAllDetails` like the rows they replace. Toggle it from **Settings > Sidebar > Compact Agent Status**.
+- Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
+- Like the loading spinner, the glyph stays visible when `sidebar.hideAllDetails` is on, so turning on both gives one line per workspace.
+- Pull request state comes from the same data as `sidebar.showPullRequests`. Toggle it from **Settings > Sidebar > Compact Agent Status**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 

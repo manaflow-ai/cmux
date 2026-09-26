@@ -558237,55 +558237,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show coding agent status (Running, Needs input) as a colored icon on the workspace title line instead of its own row."
+            "value": "Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض حالة وكيل البرمجة (قيد التشغيل، يحتاج إلى إدخال) كأيقونة ملونة في سطر عنوان مساحة العمل بدلًا من سطر مستقل."
+            "value": "استبدال أسطر حالة الوكيل بأيقونة ملونة واحدة قبل عنوان مساحة العمل تعرض حالة الوكيل وطلب الدمج والفرع."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den Status von Coding-Agenten (Wird ausgeführt, Eingabe erforderlich) als farbiges Symbol in der Titelzeile des Workspace statt in einer eigenen Zeile anzeigen."
+            "value": "Status-Zeilen von Agenten durch ein farbiges Symbol vor dem Workspace-Titel ersetzen, das Agenten-, Pull-Request- und Branch-Status zeigt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar el estado del agente de programación (En ejecución, Necesita entrada) como un icono de color en la línea del título del espacio de trabajo en lugar de en su propia fila."
+            "value": "Reemplazar las filas de estado del agente por un icono de color antes del título del espacio de trabajo que muestra el estado del agente, de la pull request y de la rama."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher le statut des agents de code (En cours d’exécution, Saisie requise) sous forme d’icône colorée sur la ligne de titre de l’espace de travail plutôt que sur sa propre ligne."
+            "value": "Remplacer les lignes de statut des agents par une icône colorée avant le titre de l’espace de travail, qui indique l’état de l’agent, de la pull request et de la branche."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コーディングエージェントの状態（実行中、入力待ち）を専用の行ではなく、ワークスペースのタイトル行に色付きアイコンで表示します。"
+            "value": "エージェントの状態行を、ワークスペースのタイトル前に置く1つの色付きアイコンに置き換え、エージェント、プルリクエスト、ブランチの状態を表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "코딩 에이전트 상태(실행 중, 입력 필요)를 별도 행 대신 워크스페이스 제목 줄의 색상 아이콘으로 표시합니다."
+            "value": "에이전트 상태 행을 워크스페이스 제목 앞의 색상 아이콘 하나로 바꾸어 에이전트, 풀 리퀘스트, 브랜치 상태를 표시합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将编程代理状态（运行中、需要输入）以彩色图标显示在工作区标题行，而不是单独一行。"
+            "value": "用工作区标题前的单个彩色图标替代代理状态行，显示代理、拉取请求和分支状态。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將程式設計代理狀態（執行中、需要輸入）以彩色圖示顯示在工作區標題列，而不是獨立一列。"
+            "value": "以工作區標題前的單一彩色圖示取代代理狀態列，顯示代理、拉取請求與分支狀態。"
           }
         }
       }

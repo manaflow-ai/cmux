@@ -1302,7 +1302,7 @@
         "compactAgentStatus": {
           "type": "boolean",
           "default": false,
-          "description": "Show coding agent status reported by agent hooks (for example Running or Needs input) as a colored icon on the workspace title line instead of its own row. Other status entries keep their rows."
+          "description": "Replace agent status rows (for example Running or Needs input) with one colored icon before the workspace title that shows agent, pull request, and branch state. Other status entries keep their rows."
         },
         "rightMaxWidth": {
           "type": "number",

@@ -286,7 +286,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .sidebarAppearance,
                 id: "compact-agent-status",
                 title: String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
-                detailText: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show coding agent status (Running, Needs input) as a colored icon on the workspace title line instead of its own row."),
+                detailText: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state."),
                 paths: ["sidebar.compactAgentStatus"],
                 synonyms: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
             ),

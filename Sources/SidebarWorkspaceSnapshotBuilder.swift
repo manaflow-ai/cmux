@@ -75,9 +75,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
         var deviceWorkspaceLabel: String? = nil
-        /// Agent status entries moved out of `metadataEntries` onto the title
-        /// line when `sidebar.compactAgentStatus` is on; empty otherwise.
-        var titleAgentStatuses: [SidebarAgentStatusTitleGlyph] = []
+        /// The single leading status glyph when `sidebar.compactAgentStatus`
+        /// is on (agent status entries then leave `metadataEntries`).
+        var compactStatusGlyph: SidebarCompactStatusGlyph? = nil
 
         var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
         var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }

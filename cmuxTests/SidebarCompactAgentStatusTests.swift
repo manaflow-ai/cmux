@@ -3,94 +3,149 @@ import CmuxSidebar
 import Testing
 @testable import cmux_DEV
 
-/// `sidebar.compactAgentStatus`: agent hook status entries move from their
-/// own metadata row onto the workspace title line as a tinted glyph.
+/// `sidebar.compactAgentStatus`: agent hook status rows fold into one
+/// leading glyph that also carries pull request and branch state.
 @Suite
 @MainActor
 struct SidebarCompactAgentStatusTests {
+    private typealias Glyph = SidebarCompactStatusGlyph
+
     private static func entry(
         _ key: String,
         _ value: String,
-        icon: String? = "bolt.fill",
-        color: String? = "#4C8DFF"
+        icon: String? = "bolt.fill"
     ) -> SidebarStatusEntry {
-        SidebarStatusEntry(key: key, value: value, icon: icon, color: color)
+        SidebarStatusEntry(key: key, value: value, icon: icon, color: "#4C8DFF")
     }
 
     private static func makeDefaults() -> UserDefaults {
         UserDefaults(suiteName: "SidebarCompactAgentStatusTests.\(UUID().uuidString)")!
     }
 
+    private static let openPR = Glyph.Input.PullRequest(label: "PR", number: 12, status: .open)
+
+    // MARK: Partition
+
     @Test
     func offKeepsEveryStatusEntryAsARow() {
         let entries = [Self.entry("claude_code", "Running"), Self.entry("deploy", "green")]
-        let result = SidebarAgentStatusTitleGlyph.partition(entries, compacts: false)
+        let result = Glyph.partition(entries, compacts: false)
 
-        #expect(result.glyphs.isEmpty)
+        #expect(result.agent.isEmpty)
         #expect(result.rows == entries)
     }
 
     @Test
-    func onMovesOnlyAgentKeysToTheTitleLine() {
-        let custom = Self.entry("deploy", "green", icon: "checkmark", color: nil)
-        let result = SidebarAgentStatusTitleGlyph.partition(
-            [
-                Self.entry("claude_code", "Running"),
-                custom,
-                Self.entry("codex", "Needs input", icon: "bell.fill"),
-            ],
+    func onMovesOnlyAgentKeysOutOfTheRows() {
+        let custom = Self.entry("deploy", "green", icon: "checkmark")
+        let result = Glyph.partition(
+            [Self.entry("claude_code", "Running"), custom, Self.entry("codex", "Needs input")],
             compacts: true
         )
 
         #expect(result.rows == [custom])
-        #expect(result.glyphs.map(\.id) == ["claude_code", "codex"])
-        #expect(result.glyphs.map(\.symbolName) == ["bolt.fill", "bell.fill"])
-        #expect(result.glyphs.first?.colorHex == "#4C8DFF")
-        #expect(result.glyphs.first?.tooltip.contains("Claude Code") == true)
-        #expect(result.glyphs.first?.tooltip.contains("Running") == true)
-        #expect(result.glyphs.last?.tooltip.contains("Codex") == true)
+        #expect(result.agent.map(\.key) == ["claude_code", "codex"])
+    }
+
+    // MARK: Resolution
+
+    @Test
+    func needsInputOutranksEverything() {
+        let glyph = Glyph.resolve(.init(
+            agentEntries: [Self.entry("claude_code", "Needs input", icon: "bell.fill")],
+            lifecycleStates: [.running, .needsInput],
+            showsRunningSpinner: true,
+            pullRequests: [Self.openPR],
+            branch: "main"
+        ))
+        #expect(glyph?.kind == .attention)
+        #expect(glyph?.symbolName == "exclamationmark.triangle.fill")
     }
 
     @Test
-    func titleLineIsCappedWithoutReturningExtrasToRows() {
-        let agents = ["claude_code", "codex", "gemini", "opencode"].map { Self.entry($0, "Running") }
-        let result = SidebarAgentStatusTitleGlyph.partition(agents, compacts: true)
-
-        #expect(result.glyphs.count == SidebarAgentStatusTitleGlyph.maxVisible)
-        #expect(result.glyphs.map(\.id) == ["claude_code", "codex", "gemini"])
-        #expect(result.rows.isEmpty)
+    func agentErrorIconIsAttention() {
+        let glyph = Glyph.resolve(.init(
+            agentEntries: [Self.entry("codex", "Error", icon: "exclamationmark.triangle.fill")],
+            lifecycleStates: [.idle]
+        ))
+        #expect(glyph?.kind == .attention)
     }
 
     @Test
-    func iconsNormalizeAndFallBackToADot() {
-        let result = SidebarAgentStatusTitleGlyph.partition(
-            [
-                Self.entry("claude_code", "Needs input", icon: "sf:bell.fill"),
-                Self.entry("codex", "Running", icon: "emoji:⚡"),
-                Self.entry("gemini", "Running", icon: nil),
-            ],
-            compacts: true
-        )
+    func runningDefersToTheAnimatedSpinner() {
+        let running = Glyph.Input(lifecycleStates: [.running], showsRunningSpinner: true, branch: "main")
+        #expect(Glyph.resolve(running) == nil)
 
-        #expect(result.glyphs.map(\.symbolName) == [
-            "bell.fill",
-            SidebarAgentStatusTitleGlyph.fallbackSymbolName,
-            SidebarAgentStatusTitleGlyph.fallbackSymbolName,
-        ])
+        var spinnerOff = running
+        spinnerOff.showsRunningSpinner = false
+        #expect(Glyph.resolve(spinnerOff)?.kind == .branch)
+    }
+
+    @Test
+    func pullRequestStateBeatsBranchAndIdle() {
+        for (status, kind) in [
+            (SidebarPullRequestStatus.open, Glyph.Kind.pullRequestOpen),
+            (.merged, .pullRequestMerged),
+            (.closed, .pullRequestClosed),
+        ] {
+            let glyph = Glyph.resolve(.init(
+                lifecycleStates: [.idle],
+                pullRequests: [.init(label: "PR", number: 7, status: status)],
+                branch: "feature"
+            ))
+            #expect(glyph?.kind == kind)
+        }
+    }
+
+    @Test
+    func idleUnknownAndEmptyWorkspaces() {
+        #expect(Glyph.resolve(.init(lifecycleStates: [.idle]))?.kind == .idle)
+        #expect(Glyph.resolve(.init(lifecycleStates: [.idle]))?.symbolName == "circle.fill")
+        #expect(Glyph.resolve(.init(lifecycleStates: [.unknown]))?.kind == .pending)
+        #expect(Glyph.resolve(.init(lifecycleStates: [.unknown]))?.symbolName == "circle")
+        #expect(Glyph.resolve(.init()) == nil)
+    }
+
+    @Test
+    func tooltipCarriesEveryDetailOnItsOwnLine() throws {
+        let glyph = try #require(Glyph.resolve(.init(
+            agentEntries: [Self.entry("claude_code", "Idle", icon: "pause.circle.fill")],
+            lifecycleStates: [.idle],
+            pullRequests: [Self.openPR],
+            branch: "feat/sidebar"
+        )))
+        let lines = glyph.tooltip.split(separator: "\n").map(String.init)
+
+        #expect(lines.count == 3)
+        #expect(lines[0].contains("Claude Code") && lines[0].contains("Idle"))
+        #expect(lines[1].contains("PR #12"))
+        #expect(lines[2] == "feat/sidebar")
+    }
+
+    @Test
+    func colorsFollowTheStateAndFlattenWhenSelected() throws {
+        let selected = NSColor.white
+        let secondary = NSColor.gray
+        let open = try #require(Glyph.resolve(.init(pullRequests: [Self.openPR])))
+        let branch = try #require(Glyph.resolve(.init(branch: "main")))
+
+        #expect(open.color(isActive: false, selected: selected, secondary: secondary) == .systemGreen)
+        #expect(branch.color(isActive: false, selected: selected, secondary: secondary) == .systemPurple)
+        #expect(open.color(isActive: true, selected: selected, secondary: secondary) == selected)
     }
 
     @Test
     func agentDisplayNamesUseBuiltInDefinitions() {
-        #expect(SidebarAgentStatusTitleGlyph.agentDisplayName(forStatusKey: "claude_code") == "Claude Code")
-        #expect(SidebarAgentStatusTitleGlyph.agentDisplayName(forStatusKey: "codex") == "Codex")
-        #expect(SidebarAgentStatusTitleGlyph.agentDisplayName(forStatusKey: "hermes-agent") == "Hermes Agent")
-        #expect(SidebarAgentStatusTitleGlyph.agentDisplayName(forStatusKey: "future_agent") == "Future Agent")
+        #expect(Glyph.agentDisplayName(forStatusKey: "claude_code") == "Claude Code")
+        #expect(Glyph.agentDisplayName(forStatusKey: "codex") == "Codex")
+        #expect(Glyph.agentDisplayName(forStatusKey: "future_agent") == "Future Agent")
     }
+
+    // MARK: Setting and row
 
     @Test
     func settingDefaultsOffAndInvalidatesCachedSnapshots() {
-        let defaultsOff = Self.makeDefaults()
-        let off = SidebarTabItemSettingsSnapshot(defaults: defaultsOff)
+        let off = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
         #expect(!off.compactsAgentStatus)
 
         let defaultsOn = Self.makeDefaults()
@@ -105,14 +160,14 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
-    func appKitRowDrawsTheGlyphBeforeTheTitleAndDropsTheStatusRow() throws {
-        let running = Self.entry("claude_code", "Running")
-        let asRow = SidebarAppKitRowCellTests.makeModel(metadataEntries: [running])
-        let partitioned = SidebarAgentStatusTitleGlyph.partition([running], compacts: true)
-        let compact = SidebarAppKitRowCellTests.makeModel(
-            metadataEntries: partitioned.rows,
-            titleAgentStatuses: partitioned.glyphs
-        )
+    func appKitRowDrawsOneGlyphBeforeTheTitleInsteadOfAStatusRow() throws {
+        let needsInput = Self.entry("claude_code", "Needs input", icon: "bell.fill")
+        let asRow = SidebarAppKitRowCellTests.makeModel(metadataEntries: [needsInput])
+        let glyph = try #require(Glyph.resolve(.init(
+            agentEntries: [needsInput],
+            lifecycleStates: [.needsInput]
+        )))
+        let compact = SidebarAppKitRowCellTests.makeModel(compactStatusGlyph: glyph)
 
         let rowCell = SidebarAppKitRowCellTests.configuredCell(model: asRow)
         let compactCell = SidebarAppKitRowCellTests.configuredCell(model: compact)
@@ -122,11 +177,10 @@ struct SidebarCompactAgentStatusTests {
 
         #expect(compactHeight < rowHeight)
 
-        let tooltip = try #require(partitioned.glyphs.first?.tooltip)
         let glyphView = try #require(
             SidebarAppKitRowCellTests.descendants(of: compactCell)
                 .compactMap { $0 as? NSImageView }
-                .first { !$0.isHidden && $0.toolTip == tooltip }
+                .first { !$0.isHidden && $0.toolTip == glyph.tooltip }
         )
         let titleView = try #require(
             SidebarAppKitRowCellTests.descendants(of: compactCell)
@@ -134,7 +188,17 @@ struct SidebarCompactAgentStatusTests {
                 .first { !$0.isHidden && $0.stringValue == compact.snapshot.title }
         )
         #expect(glyphView.image != nil)
+        #expect(glyphView.contentTintColor == .systemRed)
         #expect(glyphView.frame.maxX <= titleView.frame.minX)
-        #expect(abs(glyphView.frame.midY - titleView.frame.minY) < titleView.frame.height)
+
+        // Reuse: a row without a glyph hides the view again.
+        compactCell.configure(
+            model: asRow,
+            actions: SidebarAppKitRowCellTests.makeActions(model: asRow),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(glyphView.isHidden)
     }
 }

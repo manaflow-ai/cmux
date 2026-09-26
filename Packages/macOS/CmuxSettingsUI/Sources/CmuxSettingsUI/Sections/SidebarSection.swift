@@ -533,13 +533,12 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.compactAgentStatus"),
                 String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
-                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show coding agent status (Running, Needs input) as a colored icon on the workspace title line instead of its own row.")
+                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state.")
             ) {
                 Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current || !showMetadata.current)
         }
     }
 

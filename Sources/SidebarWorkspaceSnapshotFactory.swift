@@ -72,10 +72,23 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-        let statusEntries = SidebarAgentStatusTitleGlyph.partition(
-            detailVisibility.showsMetadata ? workspace.sidebarStatusEntriesInDisplayOrder() : [],
+        let statusEntries = SidebarCompactStatusGlyph.partition(
+            detailVisibility.showsMetadata || settings.compactsAgentStatus
+                ? workspace.sidebarStatusEntriesInDisplayOrder()
+                : [],
             compacts: settings.compactsAgentStatus
         )
+        let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+            showsAgentActivity: showsAgentActivity,
+            statesByPanelId: workspace.agentLifecycleStatesByPanelId
+        )
+        let compactStatusGlyph = settings.compactsAgentStatus
+            ? SidebarCompactStatusGlyph.resolve(compactStatusInput(
+                agentEntries: statusEntries.agent,
+                showsRunningSpinner: activeCodingAgentCount > 0,
+                orderedPanelIds: orderedPanelIds
+            ))
+            : nil
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
@@ -92,16 +105,13 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: statusEntries.rows,
+            metadataEntries: detailVisibility.showsMetadata ? statusEntries.rows : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -121,7 +131,7 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace),
-            titleAgentStatuses: statusEntries.glyphs
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 
@@ -337,6 +347,27 @@ struct SidebarWorkspaceSnapshotFactory {
             indices[index] += 1
         }
         return result
+    }
+
+    /// Inputs for the compact status glyph. Read independently of detail
+    /// visibility: like the loading spinner, the glyph is a live status
+    /// signal that stays on the title line when the detail rows are hidden.
+    private func compactStatusInput(
+        agentEntries: [SidebarStatusEntry],
+        showsRunningSpinner: Bool,
+        orderedPanelIds: [UUID]
+    ) -> SidebarCompactStatusGlyph.Input {
+        SidebarCompactStatusGlyph.Input(
+            agentEntries: agentEntries,
+            lifecycleStates: workspace.agentLifecycleStatesByPanelId.values.flatMap { states in
+                states.filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }.values
+            },
+            showsRunningSpinner: showsRunningSpinner,
+            pullRequests: workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map {
+                .init(label: $0.label, number: $0.number, status: $0.status)
+            },
+            branch: workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
+        )
     }
 
     private func pullRequestDisplays(

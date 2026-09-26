@@ -91,9 +91,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
             taskStatusInput: snapshot.taskStatusInput,
             deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
-            // Agent status glyphs are telemetry like the metadata rows they
-            // replace, so they stay frozen with them while the menu is open.
-            titleAgentStatuses: titleAgentStatuses
+            // The status glyph is telemetry like the metadata rows it
+            // replaces, so it stays frozen with them while the menu is open.
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 }

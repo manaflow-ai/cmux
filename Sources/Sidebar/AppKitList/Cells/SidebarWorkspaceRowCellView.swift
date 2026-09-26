@@ -32,8 +32,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
-    /// `sidebar.compactAgentStatus` glyphs, pooled like the metadata rows.
-    private var agentStatusGlyphViews: [NSImageView] = []
+    /// `sidebar.compactAgentStatus` leading status glyph.
+    private let compactStatusGlyphView = NSImageView()
     private let titleView = SidebarRowTextView(lines: 1)
     private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
@@ -202,7 +202,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(railView)
         addSubview(contentContainer)
 
-        for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
+        for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView, compactStatusGlyphView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
@@ -472,7 +472,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
         }
         reconcileStatusPopover(model: model, showsAnchor: showsStatusGlyph)
-        configureAgentStatusGlyphs(model: model, palette: palette)
+        configureCompactStatusGlyph(model: model, palette: palette)
 
         let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
@@ -741,25 +741,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
-    private func configureAgentStatusGlyphs(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let glyphs = model.snapshot.titleAgentStatuses
-        Self.pool(&agentStatusGlyphViews, count: glyphs.count, parent: contentContainer) {
-            let view = NSImageView()
-            view.imageScaling = .scaleProportionallyDown
-            return view
-        }
-        for (index, glyph) in glyphs.enumerated() {
-            let view = agentStatusGlyphViews[index]
-            view.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: glyph.symbolName, pointSize: model.scaled(9), weight: .semibold
-            )
-            // Same selected-row rule as the metadata rows this replaces.
-            view.contentTintColor = model.isActive
-                ? palette.selectedForeground(1.0)
-                : (glyph.colorHex.flatMap { NSColor(hex: $0) } ?? palette.secondary(0.8))
-            view.toolTip = glyph.tooltip
-            view.setAccessibilityLabel(glyph.tooltip)
-        }
+    private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
+        let glyph = model.snapshot.compactStatusGlyph
+        compactStatusGlyphView.isHidden = glyph == nil
+        guard let glyph else { return }
+        compactStatusGlyphView.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: glyph.symbolName, pointSize: model.scaled(9), weight: .semibold
+        )
+        compactStatusGlyphView.contentTintColor = glyph.color(
+            isActive: model.isActive,
+            selected: palette.selectedForeground(0.95),
+            secondary: palette.secondary(0.8)
+        )
+        compactStatusGlyphView.toolTip = glyph.tooltip
+        compactStatusGlyphView.setAccessibilityLabel(glyph.tooltip)
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
@@ -1170,9 +1165,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             place(statusGlyphButton, size: glyphSize, centerY: firstLineCenter)
             x += glyphSize.width + titleRowSpacing
         }
-        for view in agentStatusGlyphViews where !view.isHidden {
+        if !compactStatusGlyphView.isHidden {
             let side = model.scaled(9) + 4
-            place(view, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            place(compactStatusGlyphView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
 
