@@ -51,7 +51,7 @@ check_macos_runner() {
     # on attempt 2 of a refused owned shard, the owned pool once more.
     # On attempt 1 it may first take the root label late-placement chose (an owned
     # root runner found idle once admission finished; late_placement.py).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 1 && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \(inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 1 && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(github\.run_attempt == 2 && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \(inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -298,7 +298,7 @@ check_release_helper_artifact_from_package_lane() {
   # The one arm besides the dual-Xcode pool: the side label, else the owned
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1349,7 +1349,7 @@ GUARDED = (
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
     " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # Attempt 2 of a refused owned job: the owned pool once more.
-    "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    "github.event_name == 'pull_request' && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs,"
     " ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
     " || needs.changes.outputs.macos_pr_refused_retry_runner)",
     # A re-run of failed jobs on an owned-pool run, or a job the picker did not
