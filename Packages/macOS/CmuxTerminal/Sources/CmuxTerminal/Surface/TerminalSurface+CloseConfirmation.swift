@@ -19,10 +19,14 @@ extension TerminalSurface {
     /// that mutex parked the main thread forever (#6381). This variant never takes the
     /// mutex: it keeps the same process-risk gate as ``needsConfirmClose()`` and then
     /// reads `child_exited` via `ghostty_surface_process_exited`, which is a plain field
-    /// read. The snapshot only consults this when cmux's own shell activity state is
-    /// unknown (no prompt markers), where ghostty's prompt check cannot report "at a
-    /// prompt" anyway, so the result matches ghostty's default answer: a live child
-    /// needs confirmation, an exited one does not.
+    /// read.
+    ///
+    /// Trade-off: it cannot see ghostty's OSC 133 prompt state or the
+    /// `confirm-close-surface` setting, so a live shell always counts as "needs
+    /// confirmation". Snapshots only consult it when cmux has no shell activity report
+    /// for the panel, and there the cost is skipping scrollback persistence for that
+    /// terminal, never a main-thread hang. Close and quit prompts keep using the
+    /// precise ``needsConfirmClose()``.
     public func snapshotNeedsConfirmClose() -> Bool {
 #if DEBUG
         if let needsConfirmCloseOverrideForTesting {
