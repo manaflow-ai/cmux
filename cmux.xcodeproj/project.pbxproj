@@ -3534,6 +3534,8 @@
 		F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */; };
 		C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */; };
 		C12758000000000000000001 /* TerminalPlainTextPasteStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000002 /* TerminalPlainTextPasteStartupTests.swift */; };
+		D12660000000000000000003 /* TerminalPlainTextPasteWorkerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12660000000000000000004 /* TerminalPlainTextPasteWorkerConnection.swift */; };
+		D12660000000000000000001 /* TerminalPlainTextPasteWorkerPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12660000000000000000002 /* TerminalPlainTextPasteWorkerPool.swift */; };
         C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		A229A5388E9A457299C7D461 /* TerminalPortalReconciliationReasons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39CE4363C02D4FEBAA7C13C8 /* TerminalPortalReconciliationReasons.swift */; };
@@ -7481,6 +7483,8 @@
 		F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPendingConfigurationReload.swift; sourceTree = "<group>"; };
 		C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPastePTYTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000002 /* TerminalPlainTextPasteStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPasteStartupTests.swift; sourceTree = "<group>"; };
+		D12660000000000000000004 /* TerminalPlainTextPasteWorkerConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPasteWorkerConnection.swift; sourceTree = "<group>"; };
+		D12660000000000000000002 /* TerminalPlainTextPasteWorkerPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPasteWorkerPool.swift; sourceTree = "<group>"; };
         C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalGeometryFixture.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		39CE4363C02D4FEBAA7C13C8 /* TerminalPortalReconciliationReasons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliationReasons.swift; sourceTree = "<group>"; };
@@ -9863,6 +9867,8 @@
 				B88358000000000000000002 /* TerminalPastePreparationResult+TransferredFiles.swift */,
 				B88358000000000000000008 /* TerminalPastePreparationOperation.swift */,
 				B8835800000000000000000A /* TerminalPastePreparationProcess.swift */,
+				D12660000000000000000002 /* TerminalPlainTextPasteWorkerPool.swift */,
+				D12660000000000000000004 /* TerminalPlainTextPasteWorkerConnection.swift */,
 				B8835800000000000000000E /* TerminalPastePreparationWorker.swift */,
 				B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */,
 				B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */,
@@ -14909,6 +14915,8 @@
 				B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */,
 				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */,
+				D12660000000000000000003 /* TerminalPlainTextPasteWorkerConnection.swift in Sources */,
+				D12660000000000000000001 /* TerminalPlainTextPasteWorkerPool.swift in Sources */,
 				9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */,
 				A229A5388E9A457299C7D461 /* TerminalPortalReconciliationReasons.swift in Sources */,
 				09C5101B19914926AD849851 /* TerminalPortalReconciliationRequest.swift in Sources */,
