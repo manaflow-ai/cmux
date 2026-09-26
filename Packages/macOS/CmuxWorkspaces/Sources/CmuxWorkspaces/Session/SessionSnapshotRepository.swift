@@ -196,7 +196,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         if ownFiles.contains(where: { Self.sameFile($0, destination) }) {
             return .failure(.destinationIsLiveSnapshot(destination))
         }
-        if !overwrite && fileManager.fileExists(atPath: destination.path) {
+        if !overwrite && itemExists(at: destination) {
             return .failure(.destinationExists(destination))
         }
         for sourceURL in [defaultSnapshotFileURL(), manualRestoreSnapshotFileURL()].compactMap({ $0 }) {
@@ -212,13 +212,23 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
                     withIntermediateDirectories: true,
                     attributes: nil
                 )
-                try data.write(to: destination, options: .atomic)
+                // Without overwrite, create the file exclusively (O_EXCL) so
+                // a file that appears after the check above is never replaced.
+                try data.write(to: destination, options: overwrite ? .atomic : .withoutOverwriting)
                 return .success(sourceURL)
             } catch {
+                if !overwrite && itemExists(at: destination) {
+                    return .failure(.destinationExists(destination))
+                }
                 return .failure(.writeFailed(destination))
             }
         }
         return .failure(.noSnapshot)
+    }
+
+    /// Whether anything, including a dangling symlink, occupies `url`.
+    private func itemExists(at url: URL) -> Bool {
+        (try? fileManager.attributesOfItem(atPath: url.path)) != nil
     }
 
     @discardableResult

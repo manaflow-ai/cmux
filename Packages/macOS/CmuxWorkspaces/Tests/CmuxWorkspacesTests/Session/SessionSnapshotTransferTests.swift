@@ -284,6 +284,20 @@ struct SessionSnapshotTransferTests {
         )
     }
 
+    @Test("export without --force never writes through a symlink planted at the destination")
+    func exportDoesNotFollowPlantedSymlink() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir, bundleIdentifier: "com.cmuxterm.app")
+        #expect(repository.save(snapshot("w"), fileURL: nil))
+        let target = dir.appendingPathComponent("victim.txt")
+        let destination = dir.appendingPathComponent("out.json")
+        try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: target)
+
+        #expect(repository.exportSnapshot(to: destination, overwrite: false).failure == .destinationExists(destination))
+        #expect(!FileManager.default.fileExists(atPath: target.path))
+    }
+
     // MARK: - Newer schema side files
 
     @Test("a newer-schema snapshot is copied to a schema side file that can be imported later")

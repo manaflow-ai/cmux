@@ -339,14 +339,16 @@ cookies and logins are per install and do not move.
 
 `--from <channel>` restores another install's own session file with the same trust as your
 own session, including automatic agent resume. `--from <path>` treats the file as untrusted:
-layout, working directories, scrollback, and browser tabs restore, but nothing in the file runs
-automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with the command
-cmux builds from the agent kind and session id, ignoring launch arguments stored in the file.
-Custom agent resume commands, resume bindings, and tmux start commands are kept for manual
-restore, the same as CLI-created bindings (a signed approved prefix still applies): the CLI
-reports how many were held back, and in each terminal `cmux surface resume show` shows the
-command and `cmux restore --surface` runs it. SSH/cloud connections and workspace environment
-variables from the file are dropped. A snapshot saved by a newer cmux
+layout, working directories, text scrollback, and http(s) browser tabs restore, but nothing in
+the file runs automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with
+the command cmux builds from the agent kind and session id, ignoring launch arguments stored in
+the file, and only when the working directory already exists on this Mac. Custom agent resume
+commands, resume bindings, and tmux start commands are kept for manual restore only (approved
+resume prefixes never apply to them): the CLI reports how many were held back, and in each
+terminal `cmux surface resume show` shows the command and `cmux restore --surface` runs it.
+Terminal control sequences in the scrollback (clipboard, notifications, links, titles), draft
+attachments, non-http(s) browser pages and profiles, SSH/cloud connections, and workspace
+environment variables from the file are dropped. A snapshot saved by a newer cmux
 (newer session format) is refused with an error; if a downgraded cmux finds one in its own
 session file, it keeps a copy next to it as `session-<bundle id>.schema-v<N>.json`.
 

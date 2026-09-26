@@ -20,7 +20,7 @@ extension SurfaceResumeApprovalStore {
         guard binding.launchFlavor == .local else {
             return false
         }
-        guard !binding.isCLIBinding else {
+        guard !binding.isCLIBinding, !binding.isUntrustedSessionImportBinding else {
             return false
         }
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
