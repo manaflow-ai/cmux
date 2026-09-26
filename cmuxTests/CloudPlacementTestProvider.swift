@@ -30,6 +30,8 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var projectCursor: CloudVMCursor?
     var workspaceRenames: [String] = []
     var tabRenames: [String] = []
+    /// Every materialization and the reservation the catalog handed it.
+    var adoptions: [(resource: SurfaceResourceID, reservation: CloudTerminalPaneReservation?)] = []
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -39,6 +41,10 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func refresh() async { refreshCount += 1 }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, remoteView: nil, at: destination, focus: focus)
+    }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
+        adoptions.append((resource.id, reservation))
+        return try await materialize(resource, remoteView: remoteView, at: destination, focus: focus)
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await beforeMaterialization?()

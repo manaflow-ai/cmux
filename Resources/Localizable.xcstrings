@@ -519648,183 +519648,6 @@
         }
       }
     },
-    "cloud.link.sshPreflight.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH could not connect to the host."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH konnte keine Verbindung zum Host herstellen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH n'a pas pu se connecter à l'hôte."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر على SSH الاتصال بالمضيف."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH no pudo conectarse al host."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 無法連線到主機。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 无法连接到主机。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH가 호스트에 연결할 수 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH でホストに接続できませんでした。"
-          }
-        }
-      }
-    },
-    "cloud.link.sshPreflight.timedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH did not finish connecting in time."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH hat den Verbindungsaufbau nicht rechtzeitig abgeschlossen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH n'a pas terminé la connexion à temps."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يُكمل SSH الاتصال في الوقت المحدد."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH no terminó de conectarse a tiempo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 未能及時完成連線。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH 未能及时完成连接。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH가 제시간에 연결을 완료하지 못했습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH の接続が時間内に完了しませんでした。"
-          }
-        }
-      }
-    },
-    "cloud.link.sshPreflight.launchFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH could not be started: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH konnte nicht gestartet werden: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de démarrer SSH : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر بدء SSH: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo iniciar SSH: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法啟動 SSH：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法启动 SSH：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH를 시작할 수 없습니다: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH を起動できませんでした: %@"
-          }
-        }
-      }
-    },
     "cloud.workspace.ambiguousName": {
       "extractionState": "manual",
       "localizations": {
@@ -557020,14 +556843,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -557517,129 +557380,129 @@
       }
     },
     "devices.options.hint": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Change these options in the ⋯ menu next to My Devices."
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
-                }
-            },
-            "km": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
-                }
-            }
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change these options in the ⋯ menu next to My Devices."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+          }
         }
+      }
     },
     "cli.sshTmux.error.nameRequiresTitle": {
       "extractionState": "manual",
@@ -558168,6 +558031,308 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "devices.link.error.notDiscoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac isn’t discoverable. On that Mac, turn on “Make this Mac discoverable” in Settings › Computers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير قابل للاكتشاف. على ذلك الجهاز، فعّل «جعل جهاز Mac هذا قابلاً للاكتشاف» في الإعدادات › أجهزة الكمبيوتر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht auffindbar. Aktiviere auf diesem Mac unter „Einstellungen › Computer“ die Option „Diesen Mac auffindbar machen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no es detectable. En ese Mac, activa «Hacer que este Mac sea detectable» en Ajustes › Ordenadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas détectable. Sur ce Mac, activez « Rendre ce Mac détectable » dans Réglages › Ordinateurs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは検出可能になっていません。そのMacの「設定 › コンピュータ」で「このMacを検出可能にする」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 검색할 수 없습니다. 해당 Mac의 설정 › 컴퓨터에서 “이 Mac을 검색할 수 있도록 설정”을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 无法被发现。请在该 Mac 的“设置 › 电脑”中开启“允许发现此 Mac”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 無法被探索。請在該 Mac 的「設定 › 電腦」中開啟「允許探索此 Mac」。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije vidljiv. Na tom Macu uključite „Učini ovaj Mac vidljivim” u Postavke › Računari."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kan ikke findes. Slå “Gør denne Mac synlig” til på den Mac under Indstillinger › Computere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è individuabile. Su quel Mac, attiva “Rendi individuabile questo Mac” in Impostazioni › Computer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនអាចរកឃើញបានទេ។ នៅលើ Mac នោះ សូមបើក “ធ្វើឲ្យ Mac នេះអាចរកឃើញ” ក្នុងការកំណត់ › កុំព្យូទ័រ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er ikke synlig. Slå på «Gjør denne Macen synlig» på den Macen under Innstillinger › Datamaskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie jest wykrywalny. Na tym Macu włącz „Uczyń ten Mac wykrywalnym” w Ustawienia › Komputery."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não está detectável. Nesse Mac, ative “Tornar este Mac detectável” em Ajustes › Computadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac недоступен для обнаружения. На том Mac включите «Сделать этот Mac доступным для обнаружения» в настройках › Компьютеры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ไม่สามารถค้นพบได้ บน Mac เครื่องนั้น ให้เปิด “ทำให้ Mac เครื่องนี้ค้นพบได้” ในการตั้งค่า › คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac keşfedilebilir değil. O Mac’te Ayarlar › Bilgisayarlar bölümünden “Bu Mac’i keşfedilebilir yap” seçeneğini açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac недоступний для виявлення. На тому Mac увімкніть «Зробити цей Mac доступним для виявлення» в Параметри › Комп’ютери."
+          }
+        }
+      }
+    },
+    "cloud.link.sshPreflight.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH could not connect to the host."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH konnte keine Verbindung zum Host herstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH n'a pas pu se connecter à l'hôte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على SSH الاتصال بالمضيف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH no pudo conectarse al host."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 無法連線到主機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 无法连接到主机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH가 호스트에 연결할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH でホストに接続できませんでした。"
+          }
+        }
+      }
+    },
+    "cloud.link.sshPreflight.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH did not finish connecting in time."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH hat den Verbindungsaufbau nicht rechtzeitig abgeschlossen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH n'a pas terminé la connexion à temps."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُكمل SSH الاتصال في الوقت المحدد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH no terminó de conectarse a tiempo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 未能及時完成連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 未能及时完成连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH가 제시간에 연결을 완료하지 못했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH の接続が時間内に完了しませんでした。"
+          }
+        }
+      }
+    },
+    "cloud.link.sshPreflight.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH could not be started: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH konnte nicht gestartet werden: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de démarrer SSH : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء SSH: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar SSH: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動 SSH：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动 SSH：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH를 시작할 수 없습니다: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH を起動できませんでした: %@"
           }
         }
       }
