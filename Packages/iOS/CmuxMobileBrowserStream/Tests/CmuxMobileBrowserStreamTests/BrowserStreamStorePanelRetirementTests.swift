@@ -62,7 +62,6 @@ struct BrowserStreamStorePanelRetirementTests {
 
         let panelID = store.receiveBrowserFramePayload(try framePayload(panelID: "panel-a", sequence: 1)) { _, _ in }
         await store.browserStreamWillStart(panelID: "panel-a")
-        try await Task.sleep(for: .milliseconds(100))
 
         #expect(panelID == "panel-a")
         #expect(store.state(for: "panel-a") == nil)
