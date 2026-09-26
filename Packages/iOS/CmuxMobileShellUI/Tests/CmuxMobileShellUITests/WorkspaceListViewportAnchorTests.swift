@@ -37,7 +37,7 @@ import UIKit
 
     @Test func rowShowingLessThanAPixelIsNotTheAnchor() throws {
         let ids = (0..<40).map { "workspace-\($0)" }
-        let fixture = Fixture(ids: ids)
+        let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
         try #require(overlap > 0 && overlap < fixture.pixel)
         let before = fixture.screenY(of: "workspace-20")
@@ -51,7 +51,7 @@ import UIKit
 
     @Test func rowShowingOnePixelIsTheAnchor() throws {
         let ids = (0..<40).map { "workspace-\($0)" }
-        let fixture = Fixture(ids: ids)
+        let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel)
         try #require(overlap >= fixture.pixel && overlap < fixture.pixel * 2)
         let before = fixture.screenY(of: "workspace-19")
@@ -81,7 +81,7 @@ import UIKit
 
     @Test func notificationBelowASliverOfTheRowAboveKeepsItsNeighborsInPlace() throws {
         let ids = (0..<40).map { "workspace-\($0)" }
-        let fixture = Fixture(ids: ids)
+        let fixture = Fixture(ids: ids, underNavigationBar: true)
         let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
         try #require(overlap > 0 && overlap < fixture.pixel)
         let neighborBefore = fixture.screenY(of: "workspace-22")
@@ -168,11 +168,18 @@ import UIKit
         let coordinator: WorkspaceListTableCoordinator
         let tableView: WorkspaceListUITableView
 
-        init(ids: [String]) {
+        /// `underNavigationBar` insets the table's top the way a navigation bar
+        /// does in the app. Rows just above that inset are still inside the
+        /// table's bounds, so UIKit lists a sliver there as visible on every
+        /// display scale, and only the viewport anchor's own rule skips it.
+        init(ids: [String], underNavigationBar: Bool = false) {
             coordinator = WorkspaceListTableCoordinator(
                 configuration: Self.configuration(ids: ids, previews: [:])
             )
             tableView = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            if underNavigationBar {
+                tableView.contentInset.top = 44
+            }
             let viewController = UIViewController()
             viewController.view.frame = tableView.frame
             viewController.view.addSubview(tableView)
@@ -210,7 +217,11 @@ import UIKit
             while maxY - (offset + topInset) < overlap { offset = offset.nextDown }
             tableView.contentOffset.y = offset
             tableView.layoutIfNeeded()
-            try #require(tableView.indexPathsForVisibleRows?.contains(indexPath) == true)
+            let visibleRows = tableView.indexPathsForVisibleRows ?? []
+            try #require(
+                visibleRows.contains(indexPath),
+                "Row \(row) ending at \(maxY) isn't visible at offset \(tableView.contentOffset.y) with top inset \(topInset); visible rows \(visibleRows.map(\.row))"
+            )
             return maxY - (tableView.contentOffset.y + topInset)
         }
 
