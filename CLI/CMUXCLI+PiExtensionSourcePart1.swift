@@ -1,6 +1,6 @@
 extension CMUXCLI {
     static let piExtensionSourcePart1 = #"""
-// cmux-pi-session-extension-marker v3
+// cmux-pi-session-extension-marker v4
 // Bridges Pi session lifecycle, tool telemetry, notifications, and resume bindings into cmux.
 // Installed by `cmux hooks pi install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.

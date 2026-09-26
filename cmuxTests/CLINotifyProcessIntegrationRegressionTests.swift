@@ -9442,7 +9442,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func agentLaunchEnvironment(
+    func agentLaunchEnvironment(
         context: ClaudeHookContext,
         kind: String,
         executable: String,

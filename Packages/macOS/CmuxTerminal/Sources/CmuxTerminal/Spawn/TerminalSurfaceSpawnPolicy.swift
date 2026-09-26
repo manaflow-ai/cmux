@@ -16,6 +16,10 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// (`CMUX_CODEX_HOOKS_DISABLED`).
     public var codexHooksEnabled: Bool
 
+    /// Whether Pi hooks (the `pi` wrapper and bundled extension) are enabled
+    /// (`CMUX_PI_HOOKS_DISABLED`).
+    public var piHooksEnabled: Bool
+
     /// The user's custom `claude` executable path
     /// (`CMUX_CUSTOM_CLAUDE_PATH`), if set.
     public var customClaudePath: String?
@@ -28,6 +32,9 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         var commands = Set(TerminalSurfaceAgentCommand.allCases)
         if !claudeHooksEnabled {
             commands.remove(.claude)
+        }
+        if !piHooksEnabled {
+            commands.remove(.pi)
         }
         return commands
     }
@@ -85,11 +92,13 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
         showPullRequestsEnabled: Bool,
-        computerUseEnabled: Bool = true
+        computerUseEnabled: Bool = true,
+        piHooksEnabled: Bool = true
     ) {
         self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
         self.codexHooksEnabled = codexHooksEnabled
+        self.piHooksEnabled = piHooksEnabled
         self.customClaudePath = customClaudePath
         self.subagentNotificationEnvironmentKey = subagentNotificationEnvironmentKey
         self.suppressSubagentNotifications = suppressSubagentNotifications

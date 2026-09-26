@@ -114,6 +114,7 @@ extension CmuxSettingsFileStore {
         "automation.socketControlMode",
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
+        "automation.piIntegration",
         "automation.claudeBinaryPath",
         "automation.workspaceAutoNaming",
         "automation.autoNamingAgent",

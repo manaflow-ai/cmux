@@ -1,0 +1,81 @@
+#!/bin/bash
+# cmux's per-surface Pi launcher. It injects the bundled extension only when
+# Pi would otherwise discover no cmux-managed copy, leaving the user's Pi
+# configuration and other extensions untouched.
+
+set -u
+
+cmux_pi_wrapper_shim="${CMUX_PI_WRAPPER_SHIM:-}"
+cmux_pi_wrapper_root="${CMUX_PI_WRAPPER_SHIM_ROOT:-}"
+self_path="$0"
+
+resolve_pi() {
+    local entry candidate
+    local old_ifs="$IFS"
+    IFS=:
+    for entry in ${PATH:-}; do
+        [ -n "$entry" ] || continue
+        if [ -n "$cmux_pi_wrapper_root" ] && [ "$entry" = "$cmux_pi_wrapper_root" ]; then
+            continue
+        fi
+        case "$entry" in
+            */cmux-cli-shims|*/cmux-cli-shims/*) continue ;;
+        esac
+        candidate="$entry/pi"
+        if [ -x "$candidate" ] && [ "$candidate" != "$self_path" ] &&
+           { [ -z "$cmux_pi_wrapper_shim" ] || [ "$candidate" != "$cmux_pi_wrapper_shim" ]; }; then
+            printf '%s' "$candidate"
+            IFS="$old_ifs"
+            return 0
+        fi
+    done
+    IFS="$old_ifs"
+    return 1
+}
+
+cmux_pi="$(resolve_pi 2>/dev/null || true)"
+if [ -z "$cmux_pi" ]; then
+    cmux_pi="pi"
+fi
+
+if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then
+    exec "$cmux_pi" "$@"
+fi
+
+cmux_pi_managed_extension() {
+    local candidate="$1"
+    [ -f "$candidate" ] || return 1
+    grep -q "cmux-pi-session-extension-marker" "$candidate" 2>/dev/null
+}
+
+cmux_pi_agent_dir="${PI_CODING_AGENT_DIR:-${HOME:-}/.pi/agent}"
+if cmux_pi_managed_extension "$cmux_pi_agent_dir/extensions/cmux-session.ts" ||
+   cmux_pi_managed_extension "$PWD/.pi/extensions/cmux-session.ts"; then
+    exec "$cmux_pi" "$@"
+fi
+
+cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
+    cmux_cli="$(command -v cmux 2>/dev/null || true)"
+fi
+if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then
+    exec "$cmux_pi" "$@"
+fi
+
+cmux_surface_tag="${CMUX_SURFACE_ID:-default}"
+cmux_extension_root="${TMPDIR:-/tmp}/cmux-pi-extensions/$cmux_surface_tag"
+cmux_extension="$cmux_extension_root/cmux-session.ts"
+cmux_extension_tmp="$cmux_extension_root/.cmux-session.ts.$$"
+if [ ! -s "$cmux_extension" ] || ! cmux_pi_managed_extension "$cmux_extension"; then
+    if mkdir -p "$cmux_extension_root" &&
+       "$cmux_cli" hooks pi extension-source >"$cmux_extension_tmp" 2>/dev/null &&
+       cmux_pi_managed_extension "$cmux_extension_tmp"; then
+        mv -f "$cmux_extension_tmp" "$cmux_extension"
+        chmod 600 "$cmux_extension" 2>/dev/null || true
+    else
+        rm -f "$cmux_extension_tmp"
+        exec "$cmux_pi" "$@"
+    fi
+fi
+
+exec "$cmux_pi" -e "$cmux_extension" "$@"
