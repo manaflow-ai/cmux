@@ -2118,10 +2118,12 @@
 		15E786D5806C3DF2C8321E4F /* MachineRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90586458CDCDE7700CEDE927 /* MachineRowActions.swift */; };
 		800100000000000000000302 /* MachinesCloudStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000301 /* MachinesCloudStatus.swift */; };
 				D80010000000000000000102 /* MachinesControlBarComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80010000000000000000101 /* MachinesControlBarComponents.swift */; };
+		58CF0FC31BE78E5EB1413C9E /* MachinesListStatusViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7858F7AEBE9927DEAB5CABC /* MachinesListStatusViews.swift */; };
 		4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */; };
 		7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */; };
 		98E6802001D61AC24F2ABB09 /* MachinesPanelUncappedPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */; };
 		E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08610D114C8CF23877176D7E /* MachinesPanelView.swift */; };
+		1FB07351D13BDC6E953792A3 /* MachinesPanelViewModel+ListStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E37A99C8431FC45A80855541 /* MachinesPanelViewModel+ListStatus.swift */; };
 		C1257500000000000000001A /* MachinesPanelViewModel+MachinePins.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1257500000000000000001B /* MachinesPanelViewModel+MachinePins.swift */; };
 		F9ADD9F062DEA2BC5924BC38 /* MachinesPanelViewModel+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */; };
 		D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */; };
@@ -3716,6 +3718,7 @@
 		A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */; };
 		A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3340001A3340001A3340001 /* ViewerNavigationTests.swift */; };
 		C13151C00000000000000033 /* VMClientReadCoalescingTests+Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */; };
+		9D44FE10A33B02E0D4C891B1 /* VMClientReadCoalescingTests+ListRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F21D96D760755C4BDC2B1B /* VMClientReadCoalescingTests+ListRecovery.swift */; };
 		C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000001 /* VMClientReadCoalescingTests.swift */; };
 		7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
@@ -6080,10 +6083,12 @@
 		90586458CDCDE7700CEDE927 /* MachineRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachineRowActions.swift"; sourceTree = "<group>"; };
 		800100000000000000000301 /* MachinesCloudStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesCloudStatus.swift; sourceTree = "<group>"; };
 				D80010000000000000000101 /* MachinesControlBarComponents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesControlBarComponents.swift; sourceTree = "<group>"; };
+		D7858F7AEBE9927DEAB5CABC /* MachinesListStatusViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinesListStatusViews.swift; sourceTree = "<group>"; };
 		031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelBanners.swift"; sourceTree = "<group>"; };
 		78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelModelTests.swift; sourceTree = "<group>"; };
 		9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelUncappedPlanTests.swift; sourceTree = "<group>"; };
 		08610D114C8CF23877176D7E /* MachinesPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelView.swift; sourceTree = "<group>"; };
+		E37A99C8431FC45A80855541 /* MachinesPanelViewModel+ListStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+ListStatus.swift"; sourceTree = "<group>"; };
 		C1257500000000000000001B /* MachinesPanelViewModel+MachinePins.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+MachinePins.swift"; sourceTree = "<group>"; };
 		E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelViewModel+Refresh.swift"; sourceTree = "<group>"; };
 		68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelViewModel.swift; sourceTree = "<group>"; };
@@ -7662,6 +7667,7 @@
 		A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ViewerNavigationKeyRouter.swift; sourceTree = "<group>"; };
 		A3340001A3340001A3340001 /* ViewerNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerNavigationTests.swift; sourceTree = "<group>"; };
 		C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+Identity.swift"; sourceTree = "<group>"; };
+		06F21D96D760755C4BDC2B1B /* VMClientReadCoalescingTests+ListRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+ListRecovery.swift"; sourceTree = "<group>"; };
 		C12625000000000000000001 /* VMClientReadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMClientReadCoalescingTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Tunnel.swift"; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
@@ -8564,6 +8570,8 @@
 				FA7AB7C9143F6869E3ED0E95 /* MachineCreateOperation.swift */,
 				5DE6021305BAAE21622C5DFD /* MachineCreateRequest.swift */,
 				E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */,
+				E37A99C8431FC45A80855541 /* MachinesPanelViewModel+ListStatus.swift */,
+				D7858F7AEBE9927DEAB5CABC /* MachinesListStatusViews.swift */,
 				FA1253800000000000000006 /* CloudTreeRowIcon.swift */,
 				67E1C76D41B156E54A3C6075 /* TerminalController+CloudDiagnostics.swift */,
 				01095305A629F0014A3872CE /* CloudOperationDetailsView.swift */,
@@ -12091,6 +12099,7 @@
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
+				06F21D96D760755C4BDC2B1B /* VMClientReadCoalescingTests+ListRecovery.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13917,8 +13926,10 @@
 				15E786D5806C3DF2C8321E4F /* MachineRowActions.swift in Sources */,
 				800100000000000000000302 /* MachinesCloudStatus.swift in Sources */,
 				D80010000000000000000102 /* MachinesControlBarComponents.swift in Sources */,
+				58CF0FC31BE78E5EB1413C9E /* MachinesListStatusViews.swift in Sources */,
 				4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */,
 				E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */,
+				1FB07351D13BDC6E953792A3 /* MachinesPanelViewModel+ListStatus.swift in Sources */,
 				C1257500000000000000001A /* MachinesPanelViewModel+MachinePins.swift in Sources */,
 				F9ADD9F062DEA2BC5924BC38 /* MachinesPanelViewModel+Refresh.swift in Sources */,
 				D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */,
@@ -16618,6 +16629,7 @@
 				C5BEA2B0EA914759A8BFD577 /* VaultSocketPayloadTests.swift in Sources */,
 				A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */,
 				C13151C00000000000000033 /* VMClientReadCoalescingTests+Identity.swift in Sources */,
+				9D44FE10A33B02E0D4C891B1 /* VMClientReadCoalescingTests+ListRecovery.swift in Sources */,
 				C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */,
 				6EE115A36CAD9082FBC4593E /* VMClientTelemetryTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
