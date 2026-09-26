@@ -135,6 +135,117 @@ struct DeviceTerminalMirrorTests {
         #expect(methods == ["mobile.terminal.replay"])
     }
 
+    @Test("A reserved pane delivers what was typed before its Mac attached", .timeLimit(.minutes(1)))
+    func adoptedPaneDeliversInputTypedBeforeAttach() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { true }) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("ls\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { !sent.isEmpty }
+        #expect(sent == ["ls\r"])
+    }
+
+    @Test("A reserved pane keeps its input until an attach is not immediately replaced", .timeLimit(.minutes(1)))
+    func adoptedPaneWaitsForTheAttachThatSticks() async throws {
+        let events = DeviceLinkTerminalEvents()
+        let gate = AsyncStream<Void>.makeStream()
+        var replays = 0
+        var sent: [String] = []
+        let session = DeviceTerminalMirrorSession(
+            remoteWorkspaceID: "workspace", remoteSurfaceID: surfaceID,
+            events: events, isConnected: { true },
+            requestData: { method, params in
+                if method == "mobile.terminal.input", let text = params["text"] as? String {
+                    sent.append(text)
+                    return try JSONSerialization.data(withJSONObject: [String: Any]())
+                }
+                replays += 1
+                if replays == 1 { for await _ in gate.stream { break } }
+                return try JSONSerialization.data(withJSONObject: [
+                    "columns": 100, "rows": 30, "seq": 0, "data_b64": ""
+                ])
+            }
+        )
+        defer { session.stop(); events.finishAll(); gate.continuation.finish() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("ls\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { replays == 1 }
+        // The source Mac reports its grid while the first replay is in flight,
+        // which queues a second replay behind it.
+        events.send(.updated(columns: 100, rows: 30), surfaceID: surfaceID)
+        try await Self.waitUntil { session.assignedGrid?.columns == 100 }
+        gate.continuation.yield(())
+        try await Self.waitUntil { !sent.isEmpty }
+        #expect(replays == 2)
+        #expect(sent == ["ls\r"])
+    }
+
+    @Test("A reserved pane never replays input typed while its Mac was unreachable", .timeLimit(.minutes(1)))
+    func adoptedPaneDropsInputTypedWhileDetached() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var connected = false
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { connected }) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("rm -rf build\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { session.phase == .detached }
+        relay.send(.bytes(Data("typed while offline\r".utf8)))
+        #expect(relay.pendingCount == 0)
+
+        connected = true
+        session.retry()
+        try await Self.waitUntil { session.phase == .attached }
+        relay.send(.bytes(Data("pwd\r".utf8)))
+        try await Self.waitUntil { !sent.isEmpty }
+        #expect(sent == ["pwd\r"])
+    }
+
+    private static func inputRecordingSession(
+        surfaceID: UUID,
+        events: DeviceLinkTerminalEvents,
+        isConnected: @escaping @MainActor @Sendable () -> Bool,
+        onInput: @escaping @MainActor @Sendable (String) -> Void
+    ) -> DeviceTerminalMirrorSession {
+        DeviceTerminalMirrorSession(
+            remoteWorkspaceID: "workspace", remoteSurfaceID: surfaceID,
+            events: events, isConnected: isConnected,
+            requestData: { method, params in
+                if method == "mobile.terminal.input", let text = params["text"] as? String {
+                    onInput(text)
+                    return try JSONSerialization.data(withJSONObject: [String: Any]())
+                }
+                return try JSONSerialization.data(withJSONObject: [
+                    "columns": 80, "rows": 24, "seq": 0, "data_b64": ""
+                ])
+            }
+        )
+    }
+
+    private static func waitUntil(
+        timeout: Duration = .seconds(5),
+        _ condition: @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(condition())
+    }
+
     @Test("Output overflow cannot erase the need to recover a terminal link")
     func overflowingOutputRetainsRecovery() async {
         let events = DeviceLinkTerminalEvents()

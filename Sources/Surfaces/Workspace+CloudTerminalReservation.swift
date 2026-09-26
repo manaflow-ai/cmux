@@ -4,6 +4,7 @@ import CmuxRemoteSession
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 
 /// Optimistic Cloud terminal creation: the pane appears the moment the user asks
 /// for it, the machine's terminal is created behind it, and the pane is adopted
@@ -82,6 +83,15 @@ extension Workspace {
         return true
     }
 
+    /// A device may adopt this pane, and its router sends bytes only, so
+    /// Ghostty must encode Enter, arrows and the other named keys itself.
+    static func reservationKeyNameResolver(
+        for machine: SurfaceMachineID
+    ) -> (@MainActor @Sendable (ghostty_input_key_s) -> String?)? {
+        if machine.isDevice { return nil }
+        return { event in RemoteTmuxKeyName(inputEvent: event)?.value }
+    }
+
     func reserveRestoredCloudTerminalPane(
         snapshot: SessionPanelSnapshot,
         projection: SurfaceProjectionRecord,
@@ -92,7 +102,7 @@ extension Workspace {
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+            keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine)
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         do {
@@ -137,7 +147,7 @@ extension Workspace {
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+            keyNameResolver: Self.reservationKeyNameResolver(for: machine)
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(

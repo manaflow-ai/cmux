@@ -12,7 +12,7 @@ import Foundation
 /// a user types into a new pane are not lost.
 final class CloudOptimisticInputRelay: @unchecked Sendable {
     private let lock = NSLock()
-    private var router: CloudTuiManualIOInputRouter?
+    private var router: (@Sendable (TerminalManualInput) -> Void)?
     private var pending: [TerminalManualInput] = []
     private var discarded = false
     /// Bounded like the router's own queue: a runaway paste into a pane that
@@ -30,7 +30,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         lock.lock()
         if let router {
             lock.unlock()
-            router.send(input)
+            router(input)
             return
         }
         if !discarded, pending.count < pendingLimit { pending.append(input) }
@@ -39,11 +39,20 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
+        attach { router.send($0) }
+    }
+
+    /// Device mirrors adopt the same pane with their own byte router.
+    func attach(_ router: DeviceTerminalInputRouter) {
+        attach { router.enqueue($0) }
+    }
+
+    private func attach(_ router: @escaping @Sendable (TerminalManualInput) -> Void) {
         lock.lock()
-        // Enqueue the backlog before publishing the router. send() only queues
-        // work, so holding this lock performs no socket I/O. A concurrent key
-        // cannot overtake earlier input at the handoff boundary.
-        for input in pending { router.send(input) }
+        // Enqueue the backlog before publishing the router. Both routers only
+        // queue work, so holding this lock performs no socket I/O. A concurrent
+        // key cannot overtake earlier input at the handoff boundary.
+        for input in pending { router(input) }
         pending.removeAll()
         discarded = false
         self.router = router

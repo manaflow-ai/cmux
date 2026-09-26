@@ -251,6 +251,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         let session = DeviceTerminalMirrorSession(link: link, remoteWorkspaceID: workspaceID, remoteSurfaceID: surfaceID)
         let router = session.inputRouter
         let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+        var adoptedRelay: CloudOptimisticInputRelay?
         do {
             guard let workspace = Workspace.liveWorkspace(id: destination.workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
@@ -263,6 +264,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                 // a session. Hand its queued/next input to the real device
                 // router before the pane becomes interactive.
                 created = adopted
+                adoptedRelay = reservation.inputRelay
             } else {
                 created = try workspace.performRemoteTmuxMirrorMutation {
                     try SurfacePaneFactory.makeCloudManualMirrorPane(
@@ -293,12 +295,9 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             }
         }
         session.bind(surface: created.surface)
-        if let reservation {
-            session.onAttached = { [weak session, weak reservation] in
-                guard let session else { return }
-                reservation?.inputRelay.attach(session.inputRouter)
-            }
-        }
+        // Only a pane this session actually adopted writes into the relay. A
+        // reservation that fell through to a new pane keeps its own owner.
+        if let adoptedRelay { session.adopt(adoptedRelay) }
         sessions[created.panelID] = session
         session.start()
         Self.setInitialTitle(resource.title, panelID: created.panelID, workspaceID: created.workspaceID)

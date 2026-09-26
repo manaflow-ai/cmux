@@ -34,10 +34,14 @@ final class DeviceTerminalMirrorSession {
         didSet {
             inputRouter.setEnabled(phase == .attached)
             attachment.update(connected: phase == .attached, connecting: phase == .attaching)
+            if phase == .detached, oldValue != .detached { onDetached?() }
         }
     }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
     var onAttached: (@MainActor () -> Void)?
+    /// Input typed while the source is unreachable must never replay after
+    /// reconnecting, so a pane that queues its own input drops it here.
+    var onDetached: (@MainActor () -> Void)?
 
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
@@ -125,6 +129,7 @@ final class DeviceTerminalMirrorSession {
         eventTask = nil
         inputRouter.invalidate()
         onAttached = nil
+        onDetached = nil
         surface?.clearAssignedGrid()
         surface = nil
     }
@@ -132,6 +137,17 @@ final class DeviceTerminalMirrorSession {
     func retry() {
         guard phase != .stopped else { return }
         scheduleAttach()
+    }
+
+    /// Takes over a reserved pane's input. What was typed before the first
+    /// attach is delivered in order once an attach sticks; what is typed while
+    /// detached is dropped, as the router does for panes it created itself.
+    func adopt(_ relay: CloudOptimisticInputRelay) {
+        onAttached = { [weak self] in
+            guard let self else { return }
+            relay.attach(self.inputRouter)
+        }
+        onDetached = { relay.discard() }
     }
 
     // MARK: - Attach and bytes
@@ -229,13 +245,16 @@ final class DeviceTerminalMirrorSession {
             surface?.processRemoteOutput(replay.bytes)
             expectedSequence = replay.sequence
             phase = .attached
-            onAttached?()
             let buffered = attachingBytes
             attachingBytes.removeAll(keepingCapacity: true)
             attachingByteCount = 0
             // Discard bytes already covered by the replay, then apply the
             // remaining contiguous tail through the normal sequence check.
             for chunk in buffered { handle(.bytes(sequence: chunk.sequence, data: chunk.data)) }
+            // A replay queued meanwhile re-enters `.attaching` at once, which
+            // drops input the router has not sent yet. Hand over held input
+            // only on the attach that sticks.
+            if !replayNeeded { onAttached?() }
         } catch DeviceLinkError.notConnected {
             guard phase != .stopped else { return }
             phase = .detached
