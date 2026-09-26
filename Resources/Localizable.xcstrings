@@ -558424,6 +558424,537 @@
           }
         }
       }
+    },
+    "terminal.passwordInput.indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passworteingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password input"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada de contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie du mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호 입력"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼輸入"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputIndicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤشر إدخال كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzeige für Passworteingabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password Input Indicator"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicador de entrada de contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicateur de saisie du mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード入力インジケーター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호 입력 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码输入指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼輸入指示器"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputIndicator.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر شارة قفل في زاوية الطرفية أثناء قراءة برنامج مثل sudo أو ssh لكلمة مرور مع إيقاف الصدى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Terminalecke erscheint ein Schloss-Symbol, während ein Programm wie sudo oder ssh ein Passwort ohne Echo einliest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparece una insignia de candado en la esquina del terminal mientras un programa lee una contraseña sin eco, como sudo o ssh."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un badge de cadenas apparaît dans le coin du terminal pendant qu'un programme lit un mot de passe sans écho, comme sudo ou ssh."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sudo や ssh などのプログラムがエコーをオフにしてパスワードを読み取っている間、ターミナルの隅に鍵のバッジが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sudo나 ssh 같은 프로그램이 에코를 끈 상태로 비밀번호를 읽는 동안 터미널 모서리에 자물쇠 배지가 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当程序（例如 sudo 或 ssh）在关闭回显的情况下读取密码时，终端角落会显示锁形标记。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當程式（例如 sudo 或 ssh）在關閉回顯的情況下讀取密碼時，終端機角落會顯示鎖頭標記。"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputIndicator.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تظهر أي شارة عندما يقرأ برنامج كلمة مرور مع إيقاف الصدى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wird kein Symbol angezeigt, wenn ein Programm ein Passwort ohne Echo einliest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No badge is shown when a program reads a password with echo off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se muestra ninguna insignia cuando un programa lee una contraseña sin eco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun badge n'est affiché lorsqu'un programme lit un mot de passe sans écho."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムがエコーをオフにしてパスワードを読み取っても、バッジは表示されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로그램이 에코를 끈 상태로 비밀번호를 읽을 때 배지를 표시하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序在关闭回显的情况下读取密码时不显示标记。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式在關閉回顯的情況下讀取密碼時不顯示標記。"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputDots": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار نقاط للأحرف المكتوبة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punkte für eingegebene Zeichen anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Typed Password Dots"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar puntos por los caracteres escritos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher des points pour les caractères saisis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力したパスワードのドットを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력한 비밀번호 점 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已输入的密码圆点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示已輸入的密碼圓點"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputDots.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض الشارة نقطة واحدة لكل حرف مكتوب. يحتفظ cmux بالعدد فقط، ولا يحتفظ بالأحرف أبدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Symbol zeigt einen Punkt pro eingegebenem Zeichen. cmux speichert nur die Anzahl, niemals die Zeichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The badge shows one dot per typed character. cmux keeps only a count, never the characters."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La insignia muestra un punto por cada carácter escrito. cmux solo guarda un recuento, nunca los caracteres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le badge affiche un point par caractère saisi. cmux ne conserve qu'un compteur, jamais les caractères."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッジには入力した文字ごとにドットが 1 つ表示されます。cmux が保持するのは数だけで、文字そのものは保持しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배지에 입력한 문자마다 점이 하나씩 표시됩니다. cmux는 개수만 유지하며 문자는 절대 보관하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记会为每个已输入的字符显示一个圆点。cmux 只保留数量，绝不保留字符本身。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記會為每個已輸入的字元顯示一個圓點。cmux 只保留數量，絕不保留字元本身。"
+          }
+        }
+      }
+    },
+    "settings.terminal.showPasswordInputDots.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض الشارة قفلًا فقط، دون عدّ الأحرف المكتوبة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Symbol zeigt nur ein Schloss und zählt keine eingegebenen Zeichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The badge shows only a lock, without counting typed characters."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La insignia solo muestra un candado, sin contar los caracteres escritos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le badge n'affiche qu'un cadenas, sans compter les caractères saisis."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッジには鍵だけが表示され、入力した文字は数えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배지에 자물쇠만 표시되며 입력한 문자는 세지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记只显示锁形图标，不计算已输入的字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標記只顯示鎖頭，不計算已輸入的字元。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.password-input-indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt كلمة المرور إدخال مؤشر قفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt passwort eingabe anzeige schloss"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt contraseña entrada indicador candado eco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt mot de passe saisie indicateur cadenas écho"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt パスワード 入力 インジケーター 鍵 エコー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 비밀번호 입력 표시 자물쇠 에코"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密码 输入 指示器 锁 回显"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt 密碼 輸入 指示器 鎖頭 回顯"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.password-input-dots": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt كلمة المرور نقاط أحرف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt passwort punkte zeichen anzahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt contraseña puntos caracteres"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt mot de passe points caractères"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt パスワード ドット 文字"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 비밀번호 점 문자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密码 圆点 字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt 密碼 圓點 字元"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

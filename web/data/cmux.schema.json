@@ -699,6 +699,16 @@
           "default": false,
           "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
         },
+        "showPasswordInputIndicator": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text."
+        },
+        "showPasswordInputDots": {
+          "type": "boolean",
+          "default": false,
+          "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,
