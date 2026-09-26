@@ -166,6 +166,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:workspace-layouts",
         "setting:app:desktop-notifications",
         "setting:account:account",
+        "setting:automation:agent-hooks",
         "setting:mobile:pairDevice",
         "setting:mobile:phone-push-forwarding",
         "setting:mobile:phone-push-mode",
