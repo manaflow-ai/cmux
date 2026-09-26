@@ -208,12 +208,16 @@ extension CMUXCLI {
         return events
     }
 
-    func installHermesAgentHooks(_ def: AgentHookDef) throws {
+    func installHermesAgentHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
         let allowlistPath = "\(configDir)/shell-hooks-allowlist.json"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(

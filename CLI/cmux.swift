@@ -5202,7 +5202,7 @@ struct CMUXCLI {
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
-            if try runHooksNoSocketCommand(commandArgs: commandArgs) {
+            if try runHooksNoSocketCommand(commandArgs: commandArgs, jsonOutput: jsonOutput) {
                 return
             }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
@@ -8316,7 +8316,7 @@ struct CMUXCLI {
             return true
         }
         switch first {
-        case "help", "--help", "-h", "setup", "install", "uninstall":
+        case "help", "--help", "-h", "setup", "status", "install", "uninstall":
             return true
         case "feed", "claude":
             return hookInvocationHasNoSocketTarget(commandArgs: commandArgs, environment: environment)
@@ -18572,8 +18572,13 @@ struct CMUXCLI {
               --legacy         Force the older built-in Swift TUI
             """
         case "hooks":
+            let hooksStatusHelp = String(
+                localized: "cli.hooks.help.statusDescription",
+                defaultValue: "Show installed hooks and agent availability"
+            )
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
+                   cmux hooks status [--agent <name>] [--json]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
@@ -18588,6 +18593,7 @@ struct CMUXCLI {
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
+              status             \(hooksStatusHelp)
               uninstall          Remove hooks for all supported agents
               <agent> install    Install one agent integration
               <agent> uninstall  Remove one agent integration
@@ -32790,9 +32796,14 @@ export default CMUXSessionRestore;
         return true
     }
 
-    private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
+    private func installOpenCodePluginHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         if existing == Self.openCodeSessionPluginSource {
@@ -32846,11 +32857,15 @@ export default CMUXSessionRestore;
 
     private static let antigravityHookGroupName = "cmux"
 
-    private func installAntigravityHooks(_ def: AgentHookDef) throws {
+    private func installAntigravityHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -33043,37 +33058,44 @@ export default CMUXSessionRestore;
         return false
     }
 
-    private func installAgentHooks(_ def: AgentHookDef) throws {
+    private func installAgentHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         try Self.validateHookInstallDispatch(for: def)
-        if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
-        if def.name == "pi" { try installPiExtensionHooks(def); return }
-        if def.name == "omp" { try installOmpExtensionHooks(def); return }
-        if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
+        if def.name == "opencode" { try installOpenCodePluginHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "pi" { try installPiExtensionHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "omp" { try installOmpExtensionHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "campfire" {
+            try installCampfireExtensionHooks(def, skipConfirmation: skipConfirmation)
+            return
+        }
         if def.name == "amp" {
-            try installAmpExtensionHooks(def)
+            try installAmpExtensionHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if def.name == "rovodev" {
-            try installRovoDevHooks(def)
+            try installRovoDevHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if def.name == "hermes-agent" {
-            try installHermesAgentHooks(def)
+            try installHermesAgentHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if case .antigravityJSON = def.format {
-            try installAntigravityHooks(def)
+            try installAntigravityHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if case .tomlArrayTable = def.format {
-            try installKimiHooks(def)
+            try installKimiHooks(def, skipConfirmation: skipConfirmation)
             return
         }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -39270,7 +39292,10 @@ export default CMUXSessionRestore;
         return candidates
     }
 
-    private func installOpenCodePlugin(projectLocal: Bool) throws {
+    private func installOpenCodePlugin(
+        projectLocal: Bool,
+        skipConfirmation: Bool = false
+    ) throws {
         let source = try bundledOpenCodePluginSource()
         let path = openCodePluginPath(projectLocal: projectLocal)
         let fm = FileManager.default
@@ -39287,7 +39312,8 @@ export default CMUXSessionRestore;
         try fm.createDirectory(
             atPath: parent, withIntermediateDirectories: true
         )
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         if existing == source {
             print("OpenCode plugin already up to date at \(path)")
@@ -40638,7 +40664,8 @@ export default CMUXSessionRestore;
 
     // MARK: - Hooks namespace
 
-    private func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {
+    /// Handles hook setup and status commands that do not require a cmux socket.
+    private func runHooksNoSocketCommand(commandArgs: [String], jsonOutput: Bool = false) throws -> Bool {
         guard let first = commandArgs.first?.lowercased() else {
             print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
             return true
@@ -40652,14 +40679,54 @@ export default CMUXSessionRestore;
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
             )
+            return true
+
+        case "status":
+            let filter = try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
+            let definitions: [AgentHookDef]
+            if let filter {
+                guard let definition = Self.agentDef(named: filter) else {
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), filter
+                    ))
+                }
+                definitions = [definition]
+            } else {
+                definitions = Self.agentDefs
+            }
+            let rows = definitions.map { definition -> [String: Any] in
+                return [
+                    "agent": definition.name,
+                    "display_name": definition.displayName,
+                    "installed": Self.isAgentHookInstalled(definition),
+                    "available": Self.isBinaryOnPath(definition.binaryName),
+                ]
+            }
+            if jsonOutput {
+                print(jsonString(["agents": rows]))
+            } else {
+                print(String(localized: "cli.hooks.status.heading", defaultValue: "Agent hook status"))
+                for row in rows {
+                    let displayName = row["display_name"] as? String ?? row["agent"] as? String ?? ""
+                    let installed = row["installed"] as? Bool == true
+                    let available = row["available"] as? Bool == true
+                    let state = installed
+                        ? String(localized: "cli.hooks.status.installed", defaultValue: "installed")
+                        : String(localized: "cli.hooks.status.notInstalled", defaultValue: "not installed")
+                    let availability = available
+                        ? String(localized: "cli.hooks.status.available", defaultValue: "available")
+                        : String(localized: "cli.hooks.status.notOnPath", defaultValue: "Agent CLI unavailable")
+                    print("  \(displayName): \(state) · \(availability)")
+                }
+            }
             return true
 
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                positionalAgentFilter: try Self.hooksSetupAgentFilter(from: Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -40712,6 +40779,61 @@ export default CMUXSessionRestore;
         }
     }
 
+    /// Resolves the configuration file used to detect an installed integration.
+    private static func hookConfigPath(for definition: AgentHookDef) -> String {
+        URL(fileURLWithPath: definition.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(definition.configFile, isDirectory: false)
+            .path
+    }
+
+    /// Reports whether a supported integration leaves a recognizable cmux marker.
+    private static func isAgentHookInstalled(_ definition: AgentHookDef) -> Bool {
+        if definition.name == "kimi" {
+            let locations = Self.kimiConfigLocations(for: definition)
+            return ([locations.active] + locations.secondary).contains { url in
+                guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return false }
+                return KimiCodeHookConfig.containsCmuxBlock(in: contents)
+            }
+        }
+        let path = hookConfigPath(for: definition)
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8), !contents.isEmpty else {
+            return false
+        }
+        let markers = Self.hookMarkers(for: definition) + Self.feedHookMarkers(for: definition)
+        if markers.contains(where: contents.contains)
+            || contents.contains("cmux-\(definition.name)-")
+            || contents.contains("cmux_\(definition.name)_")
+            || Self.extensionHookMarkers(for: definition).contains(where: contents.contains) {
+            return true
+        }
+        // Most JSON-backed integrations store generated shell commands under a
+        // `command` key. Reuse the installer ownership predicate so commands
+        // that invoke `$cmux_cli` (rather than the literal `cmux` binary) are
+        // recognized, while avoiding Codex script materialization during a
+        // read-only status query.
+        guard let data = contents.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return false
+        }
+        return Self.jsonHookValueContainsCmuxOwnedCommand(
+            object,
+            for: definition,
+            materializeCodexScripts: false
+        )
+    }
+
+    /// Returns marker strings for integrations stored outside their main config file.
+    private static func extensionHookMarkers(for definition: AgentHookDef) -> [String] {
+        switch definition.name {
+        case "opencode": return ["cmux-opencode-session-plugin-marker", "cmux-feed-plugin-marker"]
+        case "pi": return ["cmux-session extension", "cmux-feed"]
+        case "omp": return ["cmux-omp-session"]
+        case "campfire": return ["cmux-campfire-session"]
+        case "amp": return ["cmux-session"]
+        default: return []
+        }
+    }
+
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
         if first == "enqueue" {
@@ -40731,7 +40853,11 @@ export default CMUXSessionRestore;
         return action != "install" && action != "uninstall"
     }
 
-    private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+    private func installHooksForAgent(
+        _ def: AgentHookDef,
+        arguments: [String],
+        skipConfirmation: Bool = false
+    ) throws {
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -40739,11 +40865,14 @@ export default CMUXSessionRestore;
                 try installOpenCodePlugin(projectLocal: true)
                 return
             }
-            try installAgentHooks(def)
-            try installOpenCodePlugin(projectLocal: false)
+            try installAgentHooks(def, skipConfirmation: skipConfirmation)
+            try installOpenCodePlugin(
+                projectLocal: false,
+                skipConfirmation: skipConfirmation
+            )
             return
         }
-        try installAgentHooks(def)
+        try installAgentHooks(def, skipConfirmation: skipConfirmation)
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -40828,50 +40957,91 @@ export default CMUXSessionRestore;
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
+    /// Parses the optional positional and `--agent` filters shared by hook commands.
+    private static func hooksSetupAgentFilter(from args: [String]) throws -> String? {
         var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            switch arg {
-            case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
-                continue
-            default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
-                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
-                    }
-                    positionalAgent = arg
+        var flagAgent: String?
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--agent" {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: String(localized: "cli.hooks.error.agentNameRequired", defaultValue: "--agent requires an agent name"))
                 }
+                flagAgent = args[index + 1]
+                index += 2
+                continue
             }
+            if arg.hasPrefix("--agent=") {
+                let value = String(arg.dropFirst("--agent=".count))
+                guard !value.isEmpty else {
+                    throw CLIError(message: String(localized: "cli.hooks.error.agentNameRequired", defaultValue: "--agent requires an agent name"))
+                }
+                flagAgent = value
+                index += 1
+                continue
+            }
+            if arg == "--yes" || arg == "-y" || arg == "--uninstall" || arg == "--json" {
+                index += 1
+                continue
+            }
+            if !arg.hasPrefix("-") {
+                guard positionalAgent == nil else {
+                    throw CLIError(message: String(localized: "cli.hooks.error.tooManyTargets", defaultValue: "Too many hooks targets: specify at most one positional agent"))
+                }
+                positionalAgent = arg
+            }
+            index += 1
+        }
+
+        if let flagAgent, let positionalAgent {
+            guard let flagDef = Self.agentDef(named: flagAgent) else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), flagAgent
+                ))
+            }
+            guard let positionalDef = Self.agentDef(named: positionalAgent) else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), positionalAgent
+                ))
+            }
+            guard flagDef.name == positionalDef.name else {
+                throw CLIError(message: String(localized: "cli.hooks.error.conflictingTargets", defaultValue: "Conflicting hooks target: use either --agent or a positional target, not both"))
+            }
+            return flagDef.name
+        }
+        if let flagAgent {
+            return flagAgent
         }
         return positionalAgent
     }
 
+    /// Installs or removes supported integrations, filtering to one agent when requested.
     private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
         let args = ProcessInfo.processInfo.arguments
         let flagAgentFilter = optionValue(args, name: "--agent")
         if let flagAgentFilter, let positionalAgentFilter {
             guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), flagAgentFilter
+                ))
             }
             guard let positionalDef = Self.agentDef(named: positionalAgentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), positionalAgentFilter
+                ))
             }
             if flagDef.name != positionalDef.name {
-                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+                throw CLIError(message: String(localized: "cli.hooks.error.conflictingTargets", defaultValue: "Conflicting hooks target: use either --agent or a positional target, not both"))
             }
         }
         let agentFilter = flagAgentFilter ?? positionalAgentFilter
         let agentFilterDef: AgentHookDef?
         if let agentFilter {
             guard let def = Self.agentDef(named: agentFilter) else {
-                throw CLIError(message: "Unknown hooks target: \(agentFilter)")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.hooks.error.unknownTarget", defaultValue: "Unknown hooks target: %@"), agentFilter
+                ))
             }
             agentFilterDef = def
         } else {
@@ -40880,6 +41050,38 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
+        let canUseMissingConfigDir: (AgentHookDef) -> Bool = { definition in
+            definition.createConfigDirIfMissing
+                || definition.name == "opencode"
+                || definition.name == "pi"
+                || definition.name == "amp"
+                || (!isUninstall && definition.name == "rovodev")
+        }
+
+        let skipConfirm = args.contains("--yes") || args.contains("-y")
+        var detectedDefinitions: [AgentHookDef] = []
+        var setupAllApproved = false
+        if agentFilterDef == nil, !isUninstall {
+            detectedDefinitions = Self.agentDefs.filter { definition in
+                Self.isBinaryOnPath(definition.binaryName)
+                    && (canUseMissingConfigDir(definition)
+                        || fm.fileExists(atPath: definition.resolvedConfigDir()))
+            }
+            print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
+                .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))
+            guard !detectedDefinitions.isEmpty else {
+                print(String(localized: "cli.hooks.setup.noneDetected", defaultValue: "No supported agent CLIs were found on PATH."))
+                return
+            }
+            if !skipConfirm {
+                print(String(localized: "cli.hooks.setup.confirm", defaultValue: "Install cmux hooks for all detected agents? [y/N] "), terminator: "")
+                guard readLine()?.lowercased().hasPrefix("y") == true else {
+                    print(String(localized: "cli.hooks.setup.aborted", defaultValue: "Aborted."))
+                    return
+                }
+            }
+            setupAllApproved = true
+        }
 
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
         if !isUninstall {
@@ -40891,15 +41093,18 @@ export default CMUXSessionRestore;
         var skipped = 0
         var skippedNoBinary: [String] = []
 
-        for def in Self.agentDefs {
+        let definitionsToProcess: [AgentHookDef]
+        if let agentFilterDef {
+            definitionsToProcess = [agentFilterDef]
+        } else if isUninstall {
+            definitionsToProcess = Self.agentDefs
+        } else {
+            definitionsToProcess = detectedDefinitions
+        }
+        for def in definitionsToProcess {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.createConfigDirIfMissing
-                || def.name == "opencode"
-                || def.name == "pi"
-                || def.name == "amp"
-                || (!isUninstall && def.name == "rovodev")
-            if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
+            if !canUseMissingConfigDir(def), !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
@@ -40926,7 +41131,11 @@ export default CMUXSessionRestore;
             if isUninstall {
                 try uninstallHooksForAgent(def, arguments: [])
             } else {
-                try installHooksForAgent(def, arguments: [])
+                try installHooksForAgent(
+                    def,
+                    arguments: [],
+                    skipConfirmation: setupAllApproved
+                )
             }
             count += 1
             print("")
@@ -40939,6 +41148,7 @@ export default CMUXSessionRestore;
     }
 
     /// Cross-platform `command -v <name>` for the install gate.
+    /// Checks whether an agent executable is available to the current shell.
     private static func isBinaryOnPath(_ name: String) -> Bool {
         let process = Process()
         process.launchPath = "/bin/sh"
@@ -41036,6 +41246,16 @@ export default CMUXSessionRestore;
         print("  \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)")
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        let hooksSetupHint = String(
+            localized: "cli.welcome.hooksSetup",
+            defaultValue: "Run cmux hooks setup to connect installed coding agents to cmux."
+        )
+        let hooksStatusHint = String(
+            localized: "cli.welcome.hooksStatus",
+            defaultValue: "Run cmux hooks status to check which agents are connected."
+        )
+        print("  \(subdued)\(hooksSetupHint)\(reset)")
+        print("  \(subdued)\(hooksStatusHint)\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()

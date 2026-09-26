@@ -206,7 +206,7 @@ extension CMUXCLI {
         omo [opencode-args...]
         omx [omx-args...]
         omc [omc-args...]
-        hooks setup|uninstall [--agent <name>]
+        hooks setup|status|uninstall [--agent <name>]
         hooks <agent> <install|uninstall|event> [options; opencode supports --project]
         hooks feed --source <agent> [--event <event>]
         \(localizedCoderouterAliases())

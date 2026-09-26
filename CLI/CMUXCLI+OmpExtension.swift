@@ -459,10 +459,14 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
         }
     }
 
-    func installOmpExtensionHooks(_ _: AgentHookDef) throws {
+    func installOmpExtensionHooks(
+        _ _: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let extensionURL = ompExtensionURL()
         let fileManager = FileManager.default
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = try existingOmpExtensionContents(at: extensionURL, fileManager: fileManager)
         if existing == Self.ompExtensionSource {
