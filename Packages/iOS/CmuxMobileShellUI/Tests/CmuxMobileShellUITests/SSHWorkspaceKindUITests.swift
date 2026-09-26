@@ -26,7 +26,7 @@ import Testing
         let row = MobileSSHTabRow(id: "cmux-ssh-x~tmux:work/%1", title: "Pane 1", paneLabel: nil, startsPane: false)
         let layout = MobileSSHTabLayout(
             kind: .tmux,
-            sections: [MobileSSHTabSection(id: "0", title: "0: zsh", rows: [row], canAddTab: true)]
+            sections: [MobileSSHTabSection(id: "0", title: "0: zsh", rows: [row], actions: [.splitPane])]
         )
         let terminal = MobileTerminalPreview(id: .init(rawValue: row.id), name: "0:zsh · pane 1")
         let value = TerminalPickerMenuValue(
@@ -41,12 +41,13 @@ import Testing
         #expect(value.checkedRowID == TerminalPickerMenuRow.ID.terminal(terminal.id))
         #expect(value.selectedName == "0:zsh · pane 1")
         #expect(layout.newTerminalTitle == "New Window")
-        #expect(layout.sectionActionTitle == "Split Pane")
+        #expect(layout.sections.first?.actions.map(\.title) == ["Split Pane"])
 
         var tui = layout
         tui.kind = MobileSSHWorkspaceKind.cmuxTUI
         #expect(tui.newTerminalTitle == "New Screen")
-        #expect(tui.sectionActionTitle == "New Tab")
+        #expect(MobileSSHSectionAction.allCases.map(\.title) == ["New Tab", "Split Pane"])
+        #expect(MobileSSHSectionAction.splitPane.accessibilityIdentifier(section: "3") == "MobileSSHSectionAction-splitPane-3")
         // A different layout is a different menu value (the menu rebuilds).
         let flat = TerminalPickerMenuValue(
             liveTerminals: [terminal],

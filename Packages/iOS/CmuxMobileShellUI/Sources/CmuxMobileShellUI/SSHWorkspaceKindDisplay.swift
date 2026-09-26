@@ -37,20 +37,26 @@ extension MobileSSHTabLayout {
         case .cmuxTUI, .shell: L10n.string("mobile.ssh.tabs.newScreen", defaultValue: "New Screen")
         }
     }
+}
 
-    /// The section-level create action: "Split Pane" on a tmux window,
-    /// "New Tab" on a cmux-tui screen.
-    var sectionActionTitle: String {
-        switch kind {
-        case .tmux: L10n.string("mobile.ssh.tabs.splitPane", defaultValue: "Split Pane")
-        case .cmuxTUI, .shell: L10n.string("mobile.ssh.tabs.newTab", defaultValue: "New Tab")
+extension MobileSSHSectionAction {
+    /// The section-level create action's menu title.
+    var title: String {
+        switch self {
+        case .newTab: L10n.string("mobile.ssh.tabs.newTab", defaultValue: "New Tab")
+        case .splitPane: L10n.string("mobile.ssh.tabs.splitPane", defaultValue: "Split Pane")
         }
     }
 
-    var sectionActionSystemImage: String {
-        switch kind {
-        case .tmux: "rectangle.split.2x1"
-        case .cmuxTUI, .shell: "plus.rectangle.on.rectangle"
+    var systemImage: String {
+        switch self {
+        case .newTab: "plus.rectangle.on.rectangle"
+        case .splitPane: "rectangle.split.2x1"
         }
+    }
+
+    /// `MobileSSHSectionAction-<action>-<section>`, unique per menu item.
+    func accessibilityIdentifier(section: String) -> String {
+        "MobileSSHSectionAction-\(rawValue)-\(section)"
     }
 }

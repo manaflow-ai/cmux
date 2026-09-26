@@ -1196,15 +1196,16 @@ struct WorkspaceDetailView: View {
         createTerminal()
     }
 
-    /// A grouped section's action: "Split Pane" (tmux window) or "New Tab"
-    /// (cmux-tui screen). Surfaces the new terminal like New Terminal.
-    private func createSSHTabFromPicker(_ sectionID: String) {
+    /// A grouped section's action: "Split Pane" (tmux window), "New Tab" or
+    /// "Split Pane" (cmux-tui screen). Surfaces the new terminal like New
+    /// Terminal.
+    private func createSSHTabFromPicker(_ sectionID: String, _ action: MobileSSHSectionAction) {
         dismissTerminalKeyboardForChrome()
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
         stopActiveSimulatorStream()
-        store.createSSHTab(in: workspace.id, section: sectionID)
+        store.createSSHTab(in: workspace.id, section: sectionID, action: action)
     }
 
     private func openBrowserFromToolbar() {

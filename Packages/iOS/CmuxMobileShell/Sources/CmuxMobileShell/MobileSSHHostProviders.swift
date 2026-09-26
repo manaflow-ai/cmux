@@ -50,7 +50,10 @@ final class MobileSSHHostProviders {
     /// One provider per cmux-tui session, created on first use.
     private var cmuxTUI: [String: MobileSSHCmuxTUIProvider] = [:]
     var onTopologyChange: (@MainActor () -> Void)? {
-        didSet { (tmux as? any MobileSSHTopologyReporting)?.onTopologyChange = onTopologyChange }
+        didSet {
+            (tmux as? any MobileSSHTopologyReporting)?.onTopologyChange = onTopologyChange
+            for provider in cmuxTUI.values { provider.onTopologyChange = onTopologyChange }
+        }
     }
 
     private init(
@@ -147,20 +150,38 @@ final class MobileSSHHostProviders {
         let sockets = try await CmuxTUIRemote(binaryPath: binary).listSessionSockets(on: connection)
         var providers: [MobileSSHCmuxTUIProvider] = []
         for socket in sockets {
-            if let provider = cmuxTUI[socket.name] {
+            if let provider = cachedCmuxTUIProvider(for: socket) {
                 providers.append(provider)
                 continue
             }
-            let provider = cmuxTUIProvider(session: socket.name, socket: socket, connection: connection, binary: binary)
+            let provider = cmuxTUIProvider(session: socket.name ?? socket.digest, socket: socket, connection: connection, binary: binary)
             do {
                 try await provider.connect()
-                cmuxTUI[socket.name] = cmuxTUI[socket.name] ?? provider
-                providers.append(cmuxTUI[socket.name] ?? provider)
+                // A hashed socket learns its name from the owner; a name
+                // of another digest means the owner is not this socket's.
+                guard socket.serves(session: provider.session) else {
+                    await provider.close()
+                    continue
+                }
+                if let existing = cmuxTUI[provider.session] {
+                    await provider.close()
+                    providers.append(existing)
+                } else {
+                    cmuxTUI[provider.session] = provider
+                    providers.append(provider)
+                }
             } catch {
                 await provider.close()
             }
         }
         return providers
+    }
+
+    /// The cached provider of the session behind `socket`: by name, or for a
+    /// hashed socket by the digest of each cached session's name.
+    private func cachedCmuxTUIProvider(for socket: CmuxTUISessionSocket) -> MobileSSHCmuxTUIProvider? {
+        if let name = socket.name { return cmuxTUI[name] }
+        return cmuxTUI.values.first { socket.serves(session: $0.session) }
     }
 
     private func cmuxTUIProvider(
@@ -176,13 +197,15 @@ final class MobileSSHHostProviders {
         } else {
             .socket(socket!)
         }
-        return MobileSSHCmuxTUIProvider(
+        let provider = MobileSSHCmuxTUIProvider(
             connection: connection,
             remote: CmuxTUIRemote(binaryPath: binary),
             session: session,
             route: route,
             idleCloseSeconds: idleCloseSeconds
         )
+        provider.onTopologyChange = onTopologyChange
+        return provider
     }
 
     private func dropCmuxTUI(session: String) async {
@@ -239,7 +262,7 @@ final class MobileSSHHostProviders {
         guard let connection, let binary = cmuxTUIBinary else { throw MobileSSHRuntimeError.cmuxTUIMissing }
         var socket: CmuxTUISessionSocket?
         if session != MobileSSHCmuxTUIProvider.sessionName {
-            socket = try await CmuxTUIRemote(binaryPath: binary).listSessionSockets(on: connection).first { $0.name == session }
+            socket = try await CmuxTUIRemote(binaryPath: binary).listSessionSockets(on: connection).first { $0.serves(session: session) }
             guard socket != nil else { throw MobileSSHRuntimeError.cmuxTUISessionGone }
         }
         let provider = cmuxTUIProvider(session: session, socket: socket, connection: connection, binary: binary)
@@ -286,17 +309,27 @@ final class MobileSSHHostProviders {
         return local.sibling(terminal.id)
     }
 
-    /// The section-level action: "Split Pane" on a tmux window, "New Tab" on
-    /// a cmux-tui screen (in `pane`).
-    func createTab(inWorkspace local: MobileSSHLocalID, section: String, pane: Int?) async throws -> MobileSSHLocalID? {
+    /// A section-level action: "Split Pane" on a tmux window; "New Tab" or
+    /// "Split Pane" on a cmux-tui screen (acting on `pane`, its active pane).
+    func createTab(
+        inWorkspace local: MobileSSHLocalID,
+        section: String,
+        pane: Int?,
+        action: MobileSSHSectionAction
+    ) async throws -> MobileSSHLocalID? {
         switch local {
         case .tmux(let session):
+            guard action == .splitPane else { return nil }
             guard let tmux = tmux as? MobileSSHTmuxProvider else { throw MobileSSHRuntimeError.tmuxMissing }
             return local.sibling(try await tmux.splitWindow(inWorkspace: session, window: section).id)
         case .cmuxTUI(let session, let key):
             guard let pane else { return nil }
             let provider = try await cmuxTUIProvider(session: session)
-            return local.sibling(try await provider.createTab(inWorkspace: key, pane: pane).id)
+            let terminal = switch action {
+            case .newTab: try await provider.createTab(inWorkspace: key, pane: pane)
+            case .splitPane: try await provider.splitPane(inWorkspace: key, pane: pane)
+            }
+            return local.sibling(terminal.id)
         case .shell:
             return nil
         }

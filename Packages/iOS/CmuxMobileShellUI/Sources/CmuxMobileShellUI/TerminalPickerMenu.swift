@@ -212,13 +212,13 @@ struct TerminalPickerMenu: View, Equatable {
                     }
                     .accessibilityIdentifier("MobileTerminalMenuItem-\(row.id)")
                 }
-                if section.canAddTab {
+                ForEach(section.actions, id: \.self) { action in
                     Button {
-                        actions.createSSHTab(section.id)
+                        actions.createSSHTab(section.id, action)
                     } label: {
-                        Label(layout.sectionActionTitle, systemImage: layout.sectionActionSystemImage)
+                        Label(action.title, systemImage: action.systemImage)
                     }
-                    .accessibilityIdentifier("MobileSSHSectionAction-\(section.id)")
+                    .accessibilityIdentifier(action.accessibilityIdentifier(section: section.id))
                 }
             }
         }

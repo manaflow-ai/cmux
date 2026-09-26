@@ -15,7 +15,8 @@ import Foundation
 /// Terminal ids are cmux-tui resource ids (`term_...`), which survive owner
 /// restarts; numeric surface ids do not, so attach re-lists to resolve them.
 @MainActor
-final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrowserProviding, MobileSSHCurrentDirectoryProviding {
+final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrowserProviding, MobileSSHCurrentDirectoryProviding,
+    MobileSSHTopologyReporting {
     /// Session name owned by the phone, so a desktop `cmux` session on the
     /// same machine is never taken over when the phone creates workspaces.
     nonisolated static let sessionName = "cmux-ios"
@@ -28,11 +29,20 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         case socket(CmuxTUISessionSocket)
     }
 
-    let session: String
+    /// The session name. A hashed socket (a very long name) does not carry
+    /// it, so it starts as the socket's digest and becomes the name the
+    /// owner reports once connected.
+    private(set) var session: String
     private let connection: SSHConnection
     private let remote: CmuxTUIRemote
     private let route: Route
     private var control: CmuxTUIControl?
+    /// Session-wide notifications of the live control (`subscribe`).
+    private var subscription: Task<Void, Never>?
+    private var topology = MobileSSHCmuxTUITopologyGate()
+    /// Called when the session's tree changed elsewhere (a laptop added a
+    /// screen or tab, a terminal exited), at most once per listing.
+    var onTopologyChange: (@MainActor () -> Void)?
     /// The host's idle-close setting (PRD D13), applied to every terminal the
     /// phone creates or attaches; `nil` means never close.
     private let idleCloseSeconds: Int?
@@ -51,8 +61,50 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         case .ensure: try await remote.connect(on: connection, session: session)
         case .socket(let socket): try await remote.connect(on: connection, socket: socket)
         }
+        if let current = self.control {
+            // A concurrent caller connected first; keep one connection.
+            await control.close()
+            return current
+        }
         self.control = control
+        if case .socket(let socket) = route, socket.name == nil {
+            session = await control.session
+        }
+        watchTopology(of: control)
         return control
+    }
+
+    /// Relists promptly when the tree changes elsewhere: `subscribe` on the
+    /// control connection streams `tree-changed` (workspaces, screens, panes,
+    /// tabs, names, selection) and `surface-exited`. No polling; a dropped
+    /// connection ends the watch and the next connection starts a new one.
+    private func watchTopology(of control: CmuxTUIControl) {
+        subscription?.cancel()
+        subscription = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let events = try? await control.subscribe() else { return }
+                var resubscribe = false
+                for await event in events {
+                    guard let self, self.control === control else { return }
+                    switch event {
+                    case .overflow:
+                        resubscribe = true
+                    case .disconnected:
+                        // The owner exited (or the relay died) while the SSH
+                        // connection lives: relist so its rows go away. A
+                        // closed SSH connection is the runtime's to report.
+                        self.control = nil
+                        guard self.connection.isOpen else { return }
+                    default:
+                        break
+                    }
+                    if self.topology.admit(event) { self.onTopologyChange?() }
+                }
+                // The server ends a subscriber that fell behind; anything
+                // else (disconnect) ends the watch.
+                guard resubscribe, let self, self.control === control else { return }
+            }
+        }
     }
 
     /// Opens the control connection now (discovery skips sessions whose
@@ -62,6 +114,8 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     }
 
     func close() async {
+        subscription?.cancel()
+        subscription = nil
         await control?.close()
         control = nil
     }
@@ -71,6 +125,8 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         do {
             return try await body(try await liveControl())
         } catch {
+            subscription?.cancel()
+            subscription = nil
             await control?.close()
             control = nil
             return try await body(try await liveControl())
@@ -78,7 +134,9 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     }
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
-        try await withControl { control in
+        // This listing observes every change reported so far.
+        topology.listed()
+        return try await withControl { control in
             try await control.listWorkspaces().map(Self.workspace)
         }
     }
@@ -203,6 +261,15 @@ extension MobileSSHCmuxTUIProvider: MobileSSHTerminalCreating {
     func createTab(inWorkspace workspaceID: String, pane: Int) async throws -> MobileSSHTerminal {
         try await createSurface(inWorkspace: workspaceID) { control, _ in
             try await control.newTab(pane: pane, cols: 80, rows: 24)
+        }
+    }
+
+    /// "Split Pane" on a screen section: splits the screen's active pane to
+    /// the right (`split`), like tmux's Split Pane on a window. The new pane
+    /// holds one terminal tab.
+    func splitPane(inWorkspace workspaceID: String, pane: Int) async throws -> MobileSSHTerminal {
+        try await createSurface(inWorkspace: workspaceID) { control, _ in
+            try await control.split(pane: pane, direction: .right, cols: 80, rows: 24)
         }
     }
 
