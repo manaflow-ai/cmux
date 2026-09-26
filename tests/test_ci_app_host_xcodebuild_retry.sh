@@ -657,7 +657,8 @@ fi
 metadata_path="$(find "$RUNNER_TEMP_DIR" -maxdepth 1 \
   -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-1.meta' -print -quit)"
 if [ -z "$metadata_path" ] || ! grep -Fxq "attempt=1" "$metadata_path" \
-  || ! grep -Fxq "arg=test" "$metadata_path"; then
+  || ! grep -Fxq "arg=test" "$metadata_path" \
+  || ! grep -Fxq "exit_status=65" "$metadata_path"; then
   cat "${metadata_path:-/dev/null}" 2>/dev/null || true
   echo "FAIL: wrapper must retain per-invocation attempt metadata"
   exit 1

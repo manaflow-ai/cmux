@@ -31,6 +31,11 @@ RESULT_PRIORITY = {
 RESTART_MARKER = "Restarting after unexpected exit, crash, or test timeout"
 OUTER_TIMEOUT_RE = re.compile(r"xcodebuild unit-test batch .* timeout after")
 IDLE_TIMEOUT_RE = re.compile(r"Idle timed out after .*no test progress", re.IGNORECASE)
+TEST_EVENT_RE = re.compile(
+    r"(?:Test Case .*? (?:started|passed|failed)\.?|"
+    r"[◇◆✔✘▶] Test (?!run with\b).*? (?:started|passed|failed)\.?)"
+)
+ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def canonical_identifier(value: str) -> str:
@@ -274,6 +279,34 @@ def merge_result_files(paths: Iterable[Path]) -> dict[str, str]:
     return merged
 
 
+def last_test_event(log_text: str) -> str | None:
+    """Return the last test lifecycle event visible in the driver log."""
+    events = []
+    for line in log_text.splitlines():
+        clean = ANSI_RE.sub("", line)
+        match = TEST_EVENT_RE.search(clean)
+        if match:
+            events.append(" ".join(match.group(0).split()))
+    return events[-1] if events else None
+
+
+def missing_result_diagnostic(
+    missing_execution: list[str], log_text: str, xcode_status: int
+) -> str:
+    """Describe a typed-result gap as a host/process event, not a test failure."""
+    message = (
+        f"app host produced no typed result for {len(missing_execution)} selected test(s)"
+    )
+    last_event = last_test_event(log_text)
+    if last_event:
+        message += f" after {last_event}"
+    message += f"; xcodebuild exit status {xcode_status}"
+    complete, _ = run_is_complete(log_text)
+    if complete:
+        message += "; no app-host interruption marker was recorded"
+    return message
+
+
 def run_is_complete(log_text: str) -> tuple[bool, str]:
     """Reject explicit interruption evidence; typed inventory proves completion."""
     if RESTART_MARKER in log_text:
@@ -339,20 +372,24 @@ def check_run(
             messages.append(f"selector matched zero built tests: {selector}")
         return False, messages
 
+    missing_execution = sorted(expected_tests - set(results))
     complete, reason = run_is_complete(log_text)
     if not complete:
         messages.append(f"incomplete app-host run: {reason}")
+        if missing_execution:
+            messages.append(missing_result_diagnostic(missing_execution, log_text, xcode_status))
         # A restart or timeout ends the run, not the verdicts recorded before
         # it; same reasoning as the missing-result gate below.
         messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if not results:
+        messages.append(missing_result_diagnostic(sorted(expected_tests), log_text, xcode_status))
         messages.append("typed xcresult contains zero Test Case nodes")
         return False, messages
 
-    missing_execution = sorted(expected_tests - set(results))
     if missing_execution:
+        messages.append(missing_result_diagnostic(missing_execution, log_text, xcode_status))
         messages.append(
             f"typed xcresult is incomplete: {len(missing_execution)} selected Test Case(s) "
             "have no terminal result"
