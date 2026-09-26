@@ -124,4 +124,21 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.count == 0)
         #expect(queue.byteCount == 0)
     }
+
+    @Test("A lane that stays backlogged keeps its order storage bounded")
+    func backloggedLaneOrderStaysBounded() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)
+        queue.updateSubscribedTopics(["terminal.bytes"])
+        for _ in 0..<10 {
+            #expect(queue.enqueue(topic: "terminal.bytes", coalesceKey: nil, isFullRenderGridFrame: false, frame: Data([1])).admitted)
+        }
+        // The lane never empties, so only compaction can free the IDs its
+        // drain has already consumed.
+        for _ in 0..<10_000 {
+            #expect(queue.enqueue(topic: "terminal.bytes", coalesceKey: nil, isFullRenderGridFrame: false, frame: Data([1])).admitted)
+            #expect(queue.dequeue() != nil)
+        }
+        #expect(queue.count == 10)
+        #expect(queue.orderedIDCount <= 4 * (2 * queue.count + 64))
+    }
 }

@@ -229,6 +229,14 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         return queuedByteCount
     }
 
+    /// Event IDs held by the arrival orders, including consumed and removed
+    /// ones not yet compacted away.
+    var orderedIDCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return laneOrders.values.reduce(arrivalOrder.ids.count) { $0 + $1.ids.count }
+    }
+
     /// Replaces the subscribed-topic snapshot used for synchronous admission.
     /// The owning connection calls this on subscribe/unsubscribe/close.
     public func updateSubscribedTopics(_ topics: Set<String>) {
