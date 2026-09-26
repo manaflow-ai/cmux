@@ -20,7 +20,7 @@ extension SettingsWindowRoot {
     func sectionStack(proxy: ScrollViewProxy) -> some View {
         // Top to bottom in ``SettingsSectionMountModel/displayOrder``, the
         // order sections mount in: Account through Sleepy Mode, then Mobile,
-        // Devices, Cloud, Networking, the sidebar sections, Beta Features,
+        // Cloud, Devices, Networking, the sidebar sections, Beta Features,
         // Automation, Computer Use, Browser (with embedded Import), Global
         // Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         slot(.account, proxy: proxy) {
@@ -60,16 +60,16 @@ extension SettingsWindowRoot {
             MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
         }
 
-        slot(.computers, proxy: proxy) {
-            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
-        }
-
         slot(.cloudMachines, proxy: proxy) {
             // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
             // while unavailable, not just no placeholder.
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
             }
+        }
+
+        slot(.computers, proxy: proxy) {
+            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
         }
 
         slot(.networking, proxy: proxy) {

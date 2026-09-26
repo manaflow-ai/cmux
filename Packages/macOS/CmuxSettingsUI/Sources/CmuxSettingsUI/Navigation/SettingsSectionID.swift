@@ -20,12 +20,12 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
+    /// Cloud Machines: persistent cloud VM plan and entry points.
+    case cloudMachines
     /// Devices: this Mac's discovery and incoming access, plus the account's
     /// other Macs. Backs the Cloud sidebar's My Devices feature; the raw value
     /// predates the rename and stays `computers`.
     case computers
-    /// Cloud Machines: persistent cloud VM plan and entry points.
-    case cloudMachines
     /// Iroh relay policy, custom relays, and private-network routes.
     case networking
     case sidebarAppearance
