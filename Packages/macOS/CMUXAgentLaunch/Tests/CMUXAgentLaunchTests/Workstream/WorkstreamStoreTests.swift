@@ -51,7 +51,7 @@ struct WorkstreamStoreTests {
         let id = try #require(first.items.first?.id)
         first.markResolved(id, decision: .permission(.once))
         #expect(first.recordTerminalReply(id, text: "continue"))
-        try await Task.sleep(for: .milliseconds(50))
+        await first.flushPersistence()
 
         let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
         await second.start()
@@ -78,7 +78,7 @@ struct WorkstreamStoreTests {
         first.markResolved(id, decision: .permission(.once))
         #expect(first.recordTerminalReply(id, text: "continue"))
         let oldRevision = first.revision
-        try await Task.sleep(for: .milliseconds(50))
+        await first.flushPersistence()
 
         let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
         await second.start()

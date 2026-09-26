@@ -243,11 +243,24 @@ public final class WorkstreamStore {
         onRevisionChange?(revision)
     }
 
+    /// The latest append in the ordered write chain. Each append waits for
+    /// the one before it, so the log replays mutations in the order the store
+    /// applied them (latest version of an item wins on restart).
+    private var persistenceTail: Task<Void, Never>?
+
     private func persist(_ item: WorkstreamItem) {
         guard let persistence else { return }
-        Task { [persistence, item] in
+        let previous = persistenceTail
+        persistenceTail = Task { [persistence, item] in
+            await previous?.value
             try? await persistence.append(item)
         }
+    }
+
+    /// Waits until every append issued so far has been written, for callers
+    /// (and tests) that must read the log back.
+    public func flushPersistence() async {
+        await persistenceTail?.value
     }
 
     private func insert(_ item: WorkstreamItem) {
