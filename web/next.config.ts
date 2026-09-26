@@ -75,16 +75,23 @@ const nextConfig: NextConfig = {
       process.env.NODE_ENV === "production"
         ? "tsconfig.next.json"
         : "tsconfig.json",
+    // Development backends build every uploaded tag and previously ran
+    // `next dev`, which never type-checks. Skipping the build check keeps
+    // that behavior and removes the slowest step of their build.
+    ignoreBuildErrors: process.env.CMUX_NEXT_SKIP_TYPECHECK === "1",
   },
   allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
     exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
-    // Vercel restores .next/cache between deployments. Local and CI builds do
-    // not have a durable cache, so avoid writing and compacting a large cache
-    // database that cannot be reused by the next build.
-    turbopackFileSystemCacheForBuild: process.env.VERCEL === "1",
+    // Vercel and development backends keep .next/cache between builds. Local
+    // and CI builds do not have a durable cache, so avoid writing and
+    // compacting a large cache database that cannot be reused by the next
+    // build.
+    turbopackFileSystemCacheForBuild:
+      process.env.VERCEL === "1" ||
+      process.env.CMUX_NEXT_BUILD_CACHE === "1",
     instantInsights: {
       validationLevel: "warning",
     },

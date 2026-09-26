@@ -7,6 +7,7 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "../../i18n/routing";
+import { prerenderLocales } from "../../i18n/prerender";
 import {
   buildAlternates,
   defaultOpenGraphImage,
@@ -47,7 +48,7 @@ export async function generateMetadata({
 }
 
 export function generateStaticParams() {
-  return routing.locales.map((locale) => ({ locale }));
+  return prerenderLocales().map((locale) => ({ locale }));
 }
 
 export default async function LocaleLayout({
