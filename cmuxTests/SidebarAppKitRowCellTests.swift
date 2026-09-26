@@ -2111,6 +2111,8 @@ struct SidebarPinnedIndicatorColorTests {
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: "Group",
+            anchorDescription: nil,
+            wrapsWorkspaceTitles: false,
             iconSymbol: "folder",
             tintHex: nil,
             isCollapsed: false,
@@ -2151,5 +2153,78 @@ struct SidebarPinnedIndicatorColorTests {
         )
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
+    }
+}
+
+
+/// Exercises the native group header's rendered geometry across text wrap boundaries.
+@Suite
+@MainActor
+struct SidebarGroupHeaderLayoutTests {
+    @Test(arguments: [CGFloat(1), CGFloat(1.5)], [
+        "Orchestrator",
+        "Orchestrator running verification and waiting for agent results"
+    ])
+    func wrappedTextFitsTheAllocatedHeader(fontScale: CGFloat, title: String) throws {
+        let description = "Anchor run state: all agents finished; preparing the review"
+        for width in stride(from: CGFloat(180), through: 400, by: 11) {
+            let model = makeModel(name: title, description: description, fontScale: fontScale)
+            let cell = SidebarGroupHeaderTableCellView()
+            cell.configurePresentation(model: model)
+            let row = SidebarWorkspaceTableRowConfiguration(
+                groupHeaderModel: model,
+                actions: SidebarGroupHeaderRowActions(
+                    onToggleCollapsed: {}, onFocusAnchor: { _ in }, onTapPlus: {},
+                    onRunResolvedItem: { _ in }, onRename: {}, onTogglePinned: {},
+                    onMarkRead: {}, onMarkUnread: {}, onClearLatestNotifications: {},
+                    onMarkAllRead: {}, onMarkAllUnread: {}, onUngroup: {},
+                    onDelete: {}, onEditConfig: {}, onOpenDocs: {}
+                ),
+                environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                    colorScheme: .dark, globalFontMagnificationPercent: 100,
+                    lazyContractProbe: SidebarLazyContractProbe()
+                )
+            )
+            let cache = SidebarWorkspaceTableRowHeightCache()
+            _ = cache.prepareHostedRows([row], columnWidth: width)
+            let height = try #require(cache.height(for: row, columnWidth: width))
+            cell.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            cell.layoutSubtreeIfNeeded()
+            let fields = SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+            let plusButton = try #require(cell.subviews.compactMap { $0 as? SidebarHeaderGlyphButton }
+                .max { $0.frame.minX < $1.frame.minX })
+            for text in [title, description] {
+                let field = try #require(fields.first { $0.stringValue == text })
+                let textCell = try #require(field.cell)
+                let measured = textCell.cellSize(forBounds: NSRect(
+                    x: 0, y: 0, width: field.frame.width,
+                    height: CGFloat.greatestFiniteMagnitude
+                ))
+                #expect(field.frame.height >= ceil(measured.height))
+                #expect(field.frame.minY >= 0)
+                #expect(field.frame.maxY <= height)
+                #expect(!field.frame.intersects(plusButton.frame))
+            }
+        }
+    }
+
+    private func makeModel(
+        name: String, description: String, fontScale: CGFloat
+    ) -> SidebarGroupHeaderRowModel {
+        SidebarGroupHeaderRowModel(
+            groupId: UUID(), anchorWorkspaceId: UUID(), name: name,
+            anchorDescription: description, wrapsWorkspaceTitles: true,
+            iconSymbol: "folder", tintHex: nil, isCollapsed: false,
+            isPinned: true, isAnchorActive: true, isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear, memberCount: 1,
+            anchorUnreadCount: 123, canMarkRead: true, canMarkUnread: false,
+            hasLatestNotifications: false, canMarkAllRead: true, canMarkAllUnread: false,
+            shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
+            fontScale: fontScale, globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [], rowSpacing: 2, isFirstRow: true,
+            isBeingDragged: false, topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false, colorSchemeIsDark: true
+        )
     }
 }
