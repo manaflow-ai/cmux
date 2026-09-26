@@ -1377,7 +1377,9 @@ struct SidebarWorkspaceTableTests {
         currentModel = coloredModel
         try #require(row.appKitWorkspaceRowActions).commands.applyTabColor("#800080")
         #expect(refreshCount == 1, "The native context-menu color action must schedule the shared snapshot refresh.")
-        await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after color" }
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(2)) {
+            cell.currentModelForMeasurement?.snapshot.customDescription == "after color"
+        }
         #expect(
             cell.currentModelForMeasurement?.snapshot.customDescription == "after color",
             "Assigning a color must not retire the row's live workspace refresh pump."
