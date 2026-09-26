@@ -2267,21 +2267,22 @@ struct ContentView: View {
             }
     }
 
-    private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
-        let resolvedIsMinimalMode = isMinimalMode ?? currentIsMinimalMode
-        let inset: CGFloat = (resolvedIsMinimalMode && !sidebarState.isVisible && !isFullScreen)
+    private func syncTrafficLightInset(hasHiddenTitlebar: Bool? = nil) {
+        let resolvedHasHiddenTitlebar = hasHiddenTitlebar ?? workspacePresentationModeRuntimeCache.hasHiddenTitlebar
+        let inset: CGFloat = (resolvedHasHiddenTitlebar && !sidebarState.isVisible && !isFullScreen)
             ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
 
-    private func handleWorkspacePresentationModeChange(isMinimalMode: Bool) {
+    private func handleWorkspacePresentationModeChange(isMinimalMode: Bool, hasHiddenTitlebar: Bool) {
         workspacePresentationModeRuntimeCache.isMinimalMode = isMinimalMode
+        workspacePresentationModeRuntimeCache.hasHiddenTitlebar = hasHiddenTitlebar
         if let observedWindow {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 isFullScreen,
                 in: observedWindow,
-                isMinimalMode: isMinimalMode
+                isMinimalMode: hasHiddenTitlebar
             )
             AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             refreshWindowChromeMetrics(for: observedWindow)
@@ -2296,7 +2297,7 @@ struct ContentView: View {
         // appearance during a mode toggle; that would invalidate each mounted
         // WorkspaceContentView even though no geometry changes.
         if !sidebarState.isVisible {
-            syncTrafficLightInset(isMinimalMode: isMinimalMode)
+            syncTrafficLightInset(hasHiddenTitlebar: hasHiddenTitlebar)
         }
     }
 
@@ -2654,8 +2655,8 @@ struct ContentView: View {
                     MinimalModeTitlebarEventSurfaceLayer(isFullScreen: isFullScreen)
                 )
                 .background(
-                    WorkspacePresentationModeChangeObserver { isMinimalMode in
-                        handleWorkspacePresentationModeChange(isMinimalMode: isMinimalMode)
+                    WorkspacePresentationModeChangeObserver { isMinimalMode, hasHiddenTitlebar in
+                        handleWorkspacePresentationModeChange(isMinimalMode: isMinimalMode, hasHiddenTitlebar: hasHiddenTitlebar)
                     }
                 )
         )
@@ -3285,7 +3286,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 true,
                 in: window,
-                isMinimalMode: currentIsMinimalMode
+                isMinimalMode: workspacePresentationModeRuntimeCache.hasHiddenTitlebar
             )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
@@ -3298,7 +3299,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 false,
                 in: window,
-                isMinimalMode: currentIsMinimalMode
+                isMinimalMode: workspacePresentationModeRuntimeCache.hasHiddenTitlebar
             )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()

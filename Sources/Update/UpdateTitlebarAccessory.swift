@@ -1956,10 +1956,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
-    private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
+    private var lastShowsWorkspaceTitlebar = !WorkspaceTitlebarSettings.isHidden()
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
-    private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
+    private var showsWorkspaceTitlebar: Bool { !WorkspaceTitlebarSettings.isHidden() }
 
     init(
         notificationStore: TerminalNotificationStore,
