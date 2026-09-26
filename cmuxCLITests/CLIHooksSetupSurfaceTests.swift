@@ -41,6 +41,16 @@ struct CLIHooksSetupSurfaceTests {
         #expect(result.output.contains("Agent CLI unavailable"), Comment(rawValue: result.output))
     }
 
+    @Test("Setup explains when no supported agent CLI is available")
+    func setupWithoutAgentsDoesNotExposeEnvironmentDetails() throws {
+        let result = try runCLI(arguments: ["hooks", "setup", "--yes"])
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("No supported agent CLIs were found."), Comment(rawValue: result.output))
+        #expect(!result.output.contains("PATH"), Comment(rawValue: result.output))
+    }
+
     @Test("Hook status accepts flag and positional agent filters")
     func hookStatusAgentFilters() throws {
         let flag = try runCLI(arguments: ["hooks", "status", "--agent", "codex", "--json"])

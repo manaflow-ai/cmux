@@ -28,6 +28,59 @@ public struct AutomationSection: View {
         }
     }
 
+    /// Renders one immutable agent-hook row and forwards its actions to the parent.
+    private struct AgentHookSettingsRow: View {
+        let item: AgentHookSettingsItem
+        let claudeEnabled: Bool
+        let setClaudeEnabled: (Bool) -> Void
+        let install: () -> Void
+        let uninstall: () -> Void
+
+        var body: some View {
+            SettingsCardRow(
+                configurationReview: .action,
+                item.title,
+                subtitle: item.agent == "claude"
+                    ? (claudeEnabled
+                        ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
+                        : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration."))
+                    : String(
+                        localized: "settings.automation.agentHooks.perAgentSubtitle",
+                        defaultValue: "Install or remove hooks for this agent.", bundle: .module
+                    )
+            ) {
+                if item.agent == "claude" {
+                    Toggle(
+                        "",
+                        isOn: Binding(
+                            get: { claudeEnabled },
+                            set: setClaudeEnabled
+                        )
+                    )
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentHooksClaudeToggle")
+                } else {
+                    HStack(spacing: 8) {
+                        Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install", bundle: .module)) {
+                            install()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
+
+                        Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall", bundle: .module)) {
+                            uninstall()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsAgentHooksUninstall\(item.agent.capitalized)Button")
+                    }
+                }
+            }
+        }
+    }
+
     private static let agentHookSettingsItems = [
         AgentHookSettingsItem(agent: "codex"),
         AgentHookSettingsItem(agent: "claude"),
@@ -204,54 +257,21 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.agentHooks.note", defaultValue: "Install detected agent hooks with one click, or run `cmux hooks setup --agent <name>` for one agent. Claude Code hooks are injected automatically by the cmux wrapper. Hook status and uninstall are available from the same terminal command.", bundle: .module))
+            let claudeEnabled = claudeCodeModel.current
             ForEach(Self.agentHookSettingsItems) { item in
                 SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .action,
-                    item.title,
-                    subtitle: item.agent == "claude"
-                        ? (claudeCodeModel.current
-                            ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                            : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration."))
-                        : String(
-                            localized: "settings.automation.agentHooks.perAgentSubtitle",
-                            defaultValue: "Install or remove hooks for this agent.", bundle: .module
-                        )
-                ) {
-                    if item.agent == "claude" {
-                        Toggle(
-                            "",
-                            isOn: Binding(
-                                get: { claudeCodeModel.current },
-                                set: { claudeCodeModel.set($0) }
-                            )
-                        )
-                        .labelsHidden()
-                        .controlSize(.small)
-                        .accessibilityIdentifier("SettingsAgentHooksClaudeToggle")
-                    } else {
-                        HStack(spacing: 8) {
-                            Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install", bundle: .module)) {
-                                hostActions.openAgentHooksInstall(agent: item.agent)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
-
-                            Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall", bundle: .module)) {
-                                hostActions.openAgentHooksUninstall(agent: item.agent)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsAgentHooksUninstall\(item.agent.capitalized)Button")
-                        }
-                    }
-                }
+                AgentHookSettingsRow(
+                    item: item,
+                    claudeEnabled: claudeEnabled,
+                    setClaudeEnabled: { claudeCodeModel.set($0) },
+                    install: { hostActions.openAgentHooksInstall(agent: item.agent) },
+                    uninstall: { hostActions.openAgentHooksUninstall(agent: item.agent) }
+                )
             }
             SettingsCardDivider()
             Link(
                 String(localized: "settings.automation.agentHooks.docs", defaultValue: "Open agent hooks documentation", bundle: .module),
-                destination: URL(string: "https://cmux.com/docs/session-restore")!
+                destination: URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md")!
             )
             .cmuxFont(.caption)
             .padding(.horizontal, 14)

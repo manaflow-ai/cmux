@@ -4731,7 +4731,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Hooks"
+            "value": "Hooks ของเอเจนต์"
           }
         },
         "tr": {
@@ -4933,67 +4933,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalirajte otkrivene kuke agenata jednim klikom."
+            "value": "Instalirajte otkrivene kuke agenata jednim klikom ili pokrenite `cmux hooks setup --agent <name>` za jednog agenta. Kuke Claude Codea automatski umeće cmux omotač. Status i deinstalacija kuka dostupni su iz iste terminalske naredbe."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer registrerede agent-hooks med ét klik."
+            "value": "Installer registrerede agent-hooks med ét klik, eller kør `cmux hooks setup --agent <name>` for én agent. Claude Code-hooks indsættes automatisk af cmux-wrapperen. Status og afinstallation af hooks er tilgængelig fra den samme terminalkommando."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installa gli hook degli agenti rilevati con un clic."
+            "value": "Installa gli hook degli agenti rilevati con un clic oppure esegui `cmux hooks setup --agent <name>` per un agente. Gli hook di Claude Code vengono inseriti automaticamente dal wrapper cmux. Lo stato e la disinstallazione degli hook sono disponibili dallo stesso comando del terminale."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install detected agent hooks with one click."
+            "value": "ដំឡើង hooks ភ្នាក់ងារដែលបានរកឃើញដោយចុចតែម្តង ឬដំណើរការ `cmux hooks setup --agent <name>` សម្រាប់ភ្នាក់ងារមួយ។ cmux wrapper នឹងបញ្ចូល hooks របស់ Claude Code ដោយស្វ័យប្រវត្តិ។ អ្នកអាចពិនិត្យស្ថានភាព និងលុប hooks ចេញពីពាក្យបញ្ជា terminal ដដែល។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer oppdagede agent-hooks med ett klikk."
+            "value": "Installer oppdagede agent-hooks med ett klikk, eller kjør `cmux hooks setup --agent <name>` for én agent. Claude Code-hooks settes inn automatisk av cmux-wrapperen. Status og avinstallering av hooks er tilgjengelig fra den samme terminalkommandoen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instaluj wykryte hooki agentów jednym kliknięciem."
+            "value": "Instaluj wykryte hooki agentów jednym kliknięciem albo uruchom `cmux hooks setup --agent <name>` dla jednego agenta. Hooki Claude Code są automatycznie wstrzykiwane przez wrapper cmux. Stan i odinstalowanie hooków są dostępne z tego samego polecenia terminala."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instale hooks de agentes detectados com um clique."
+            "value": "Instale hooks de agentes detectados com um clique ou execute `cmux hooks setup --agent <name>` para um agente. Os hooks do Claude Code são injetados automaticamente pelo wrapper do cmux. O status e a desinstalação dos hooks estão disponíveis no mesmo comando do terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установите найденные хуки агентов одним щелчком."
+            "value": "Установите найденные хуки агентов одним нажатием или выполните `cmux hooks setup --agent <name>` для одного агента. Хуки Claude Code автоматически добавляются оболочкой cmux. Статус и удаление хуков доступны в той же команде терминала."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ติดตั้ง Agent Hooks ที่ตรวจพบในคลิกเดียว"
+            "value": "ติดตั้ง Agent Hooks ที่ตรวจพบด้วยคลิกเดียว หรือเรียกใช้ `cmux hooks setup --agent <name>` สำหรับ Agent เดียว cmux wrapper จะเพิ่ม Hooks ของ Claude Code ให้อัตโนมัติ และสามารถดูสถานะหรือลบ Hooks ได้จากคำสั่งเทอร์มินัลเดียวกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Algılanan aracı kancalarını tek tıklamayla yükleyin."
+            "value": "Algılanan aracı kancalarını tek tıklamayla yükleyin veya tek bir aracı için `cmux hooks setup --agent <name>` komutunu çalıştırın. Claude Code kancaları cmux sarmalayıcısı tarafından otomatik olarak eklenir. Kanca durumu ve kaldırma işlemi aynı terminal komutundan kullanılabilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установіть знайдені хуки агентів одним натисканням."
+            "value": "Установіть знайдені хуки агентів одним натисканням або виконайте `cmux hooks setup --agent <name>` для одного агента. Хуки Claude Code автоматично додає оболонка cmux. Перевірка стану та видалення хуків доступні з тієї самої команди термінала."
           }
         }
       }

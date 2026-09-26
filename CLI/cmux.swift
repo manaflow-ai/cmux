@@ -40718,7 +40718,12 @@ export default CMUXSessionRestore;
                     let availability = available
                         ? String(localized: "cli.hooks.status.available", defaultValue: "available")
                         : String(localized: "cli.hooks.status.notOnPath", defaultValue: "Agent CLI unavailable")
-                    print("  \(displayName): \(state) · \(availability)")
+                    print(String.localizedStringWithFormat(
+                        String(localized: "cli.hooks.status.row", defaultValue: "  %@: %@ · %@"),
+                        displayName,
+                        state,
+                        availability
+                    ))
                 }
             }
             return true
@@ -41070,7 +41075,7 @@ export default CMUXSessionRestore;
             print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
                 .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))
             guard !detectedDefinitions.isEmpty else {
-                print(String(localized: "cli.hooks.setup.noneDetected", defaultValue: "No supported agent CLIs were found on PATH."))
+                print(String(localized: "cli.hooks.setup.noneDetected", defaultValue: "No supported agent CLIs were found."))
                 return
             }
             if !skipConfirm {

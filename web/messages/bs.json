@@ -1149,7 +1149,8 @@
       "sessionCallout": "cmux još ne obnavlja stanje živih procesa. Aktivne sesije terminalnih aplikacija kao što su Claude Code, tmux i vim se ne nastavljaju nakon ponovnog pokretanja aplikacije.",
       "requirements": "Zahtjevi",
       "reqItem1": "macOS 14.0 ili noviji",
-      "reqItem2": "Apple Silicon ili Intel Mac",
+      "reqItem2": "Apple Silicon ili Intel Mac",,
+      "hooksGuideLink": "Pogledajte <link>dokumentaciju o kukama agenata</link> za potpunu postavku i matricu podrške."
       "metaTitle": "Početak"
     },
     "concepts": {

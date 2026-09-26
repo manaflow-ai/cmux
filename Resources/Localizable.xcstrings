@@ -559575,6 +559575,133 @@
         }
       }
     },
+
+  "cli.hooks.status.row": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ — %@"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@ — %@ · %@"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ — %@"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@ : %@ · %@"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@・%@"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@ — %@ · %@"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@：%@ · %@"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@：%@ · %@"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@៖ %@ · %@"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "  %@: %@ · %@"
+        }
+      }
+    }
+  }
+,
     "cli.hooks.setup.detected": {
       "extractionState": "manual",
       "localizations": {
@@ -559706,121 +559833,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No supported agent CLIs were found on PATH."
+            "value": "No supported agent CLIs were found."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتم العثور على أدوات CLI مدعومة للوكلاء في PATH."
+            "value": "لم يتم العثور على أدوات CLI مدعومة للوكلاء."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine unterstützten Agent-CLIs im PATH gefunden."
+            "value": "Keine unterstützten Agent-CLIs gefunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron CLI de agentes compatibles en PATH."
+            "value": "No se encontraron CLI de agentes compatibles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune CLI d’agent compatible n’a été trouvée dans le PATH."
+            "value": "Aucune CLI d’agent compatible n’a été trouvée."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PATH に対応するエージェント CLI が見つかりません。"
+            "value": "対応するエージェント CLI が見つかりません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "PATH에서 지원되는 에이전트 CLI를 찾지 못했습니다."
+            "value": "지원되는 에이전트 CLI를 찾지 못했습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "PATH 中未找到受支持的代理 CLI。"
+            "value": "未找到受支持的代理 CLI。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "PATH 中找不到支援的代理程式 CLI。"
+            "value": "找不到支援的代理程式 CLI。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na PATH-u nisu pronađeni podržani agent CLI-ji."
+            "value": "Nisu pronađeni podržani agent CLI-ji."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen understøttede agent-CLI'er blev fundet i PATH."
+            "value": "Ingen understøttede agent-CLI'er blev fundet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna CLI agente supportata trovata nel PATH."
+            "value": "Nessuna CLI agente supportata trovata."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រកមិនឃើញ CLI ភ្នាក់ងារដែលគាំទ្រនៅក្នុង PATH។"
+            "value": "រកមិនឃើញ CLI ភ្នាក់ងារដែលគាំទ្រ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fant ingen støttede agent-CLI-er i PATH."
+            "value": "Fant ingen støttede agent-CLI-er."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie znaleziono obsługiwanych CLI agentów w PATH."
+            "value": "Nie znaleziono obsługiwanych CLI agentów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma CLI de agente compatível foi encontrada no PATH."
+            "value": "Nenhuma CLI de agente compatível foi encontrada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В PATH не найдено поддерживаемых CLI агентов."
+            "value": "Поддерживаемые CLI агентов не найдены."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่พบ CLI ของ Agent ที่รองรับใน PATH"
+            "value": "ไม่พบ CLI ของ Agent ที่รองรับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "PATH üzerinde desteklenen aracı CLI'sı bulunamadı."
+            "value": "Desteklenen aracı CLI'sı bulunamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У PATH не знайдено підтримуваних CLI агентів."
+            "value": "Підтримувані CLI агентів не знайдено."
           }
         }
       }
@@ -560278,7 +560405,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install them with \\`cmux hooks setup --agent %@\\` to show agent status in cmux."
+            "value": "ដំឡើងដោយប្រើ \\`cmux hooks setup --agent %@\\` ដើម្បីបង្ហាញស្ថានភាពភ្នាក់ងារនៅក្នុង cmux។"
           }
         },
         "nb": {
