@@ -2174,9 +2174,8 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 final class DeadKeyCompositionRegressionTests: XCTestCase {
     func testOptionDeadKeyUsesGhosttyTranslationInsteadOfStartingComposition() async {
         await AppContextSerialGate.withExclusiveAppContext {
-            let restore = self.installOptionAsAltConfiguration("true")
-            defer { restore() }
             await self.exerciseDeadKeyInput(
+                optionAsAlt: "true",
                 expectedOptionPreserved: false,
                 expectedText: ["e", "u", "i", "n", "`"]
             )
