@@ -210,7 +210,8 @@ extension CmuxTuiSurfaceProvider {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
-                    $0.id.isForwardedPort
+                    $0.id.machine == machine
+                        && $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
                         && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
                 }
