@@ -1315,6 +1315,7 @@
           "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako su podešeni Ghostty tema ili boje terminala. Font i ostale postavke se zadržavaju. Kada je false, Ghostty koristi svoju fiksnu ugrađenu paletu. Izričito zadane teme i boje uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
+          "macosPressAndHold": "Kada je vrijednost true, zadržana slova otvaraju macOS meni akcenata bez ponavljanja u terminalu. Ponavljanje tih slova ostaje onemogućeno dok je meni otvoren.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",

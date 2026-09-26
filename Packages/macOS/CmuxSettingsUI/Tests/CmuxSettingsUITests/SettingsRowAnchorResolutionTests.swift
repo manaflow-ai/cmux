@@ -141,6 +141,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.textEditingGestures",
+        "terminal.macosPressAndHold",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",

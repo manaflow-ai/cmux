@@ -674,6 +674,12 @@
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "macosPressAndHold": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.macosPressAndHold",
+          "description": "When true, held letters open the macOS accent menu without repeating into the terminal. Key repeat stays disabled for those letters while the menu is open."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

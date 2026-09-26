@@ -1315,6 +1315,7 @@
           "adaptiveDefaultTheme": "true(기본값)이면 Ghostty 테마나 터미널 색상이 설정되지 않은 경우 cmux가 모양에 따라 바뀌는 기본 팔레트를 제공합니다. 글꼴 및 기타 설정은 유지됩니다. false이면 Ghostty가 고정된 내장 팔레트를 사용합니다. theme = light:X,dark:Y를 포함한 명시적 테마 및 색상 설정이 항상 우선합니다.",
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
+          "macosPressAndHold": "true이면 누른 문자가 터미널에 반복 입력되지 않고 macOS 악센트 메뉴를 엽니다. 메뉴가 열려 있는 동안 해당 문자의 키 반복은 비활성화됩니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",

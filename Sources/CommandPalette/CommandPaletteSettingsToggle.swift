@@ -508,6 +508,27 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "terminalMacOSPressAndHold",
+                settingsKey: "terminal.macosPressAndHold",
+                title: {
+                    String(localized: "settings.terminal.macosPressAndHold", defaultValue: "macOS Press-and-Hold Accents")
+                },
+                sectionTitle: terminal,
+                keywords: [
+                    "terminal.macosPressAndHold",
+                    "terminal",
+                    "macOS",
+                    "press",
+                    "hold",
+                    "accent",
+                    "accent menu",
+                    "key repeat",
+                    "letters",
+                ],
+                defaultValue: TerminalCatalogSection().macosPressAndHold.defaultValue,
+                defaultsKey: TerminalCatalogSection().macosPressAndHold.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "agentHibernation",
                 settingsKey: "terminal.agentHibernation.enabled",
                 title: {

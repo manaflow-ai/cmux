@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import Carbon.HIToolbox
 import CmuxTerminal
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,12 +10,41 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
+private extension GhosttyNSView {
+    func shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+        markedTextBefore: String,
+        markedSelectionBefore: NSRange,
+        markedTextAfter: String,
+        markedSelectionAfter: NSRange,
+        accumulatedText: [String],
+        event: NSEvent? = nil,
+        inputSourceId: String? = nil
+    ) -> Bool {
+        shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+            before: (markedTextBefore, markedSelectionBefore),
+            after: (markedTextAfter, markedSelectionAfter),
+            accumulatedText: accumulatedText,
+            event: event,
+            inputSourceId: inputSourceId
+        )
+    }
+}
+
 @MainActor
 final class CJKIMEMarkedSelectionTests: XCTestCase {
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
         let window: NSWindow
         let surfaceView: GhosttyNSView
+    }
+
+    private func tearDownHostedTerminal(_ hosted: HostedTerminalWindow) {
+        // Deinitialization queues native surface frees on the shared teardown
+        // coordinator. Release the test surface synchronously so this suite
+        // cannot leave an in-flight free for the portal leak guard or the next
+        // app-host test.
+        hosted.surface.releaseSurfaceForTesting()
+        hosted.window.orderOut(nil)
     }
 
     private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
@@ -208,8 +238,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
                 KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
-                window.orderOut(nil)
-                withExtendedLifetime(terminalSurface) {}
+                tearDownHostedTerminal(hostedTerminal)
             }
 
             KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
@@ -260,8 +289,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
                 KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
-                window.orderOut(nil)
-                withExtendedLifetime(terminalSurface) {}
+                tearDownHostedTerminal(hostedTerminal)
             }
 
             let probes = [
@@ -503,5 +531,200 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 accumulatedText: []
             )
         )
+    }
+
+    func testPressAndHoldScopedSettingAndInputBoundaries() throws {
+        let suite = "press-hold-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = SettingCatalog().terminal.macosPressAndHold
+        let view = GhosttyNSView(
+            frame: .zero,
+            terminalPressAndHoldSettings: UserDefaultsSettingsClient(defaults: defaults),
+            terminalPressAndHoldKey: key
+        )
+        func suppresses(
+            _ text: String = "a",
+            flags: NSEvent.ModifierFlags = [],
+            repeated: Bool = true,
+            committed: [String] = [],
+            marked: String = ""
+        ) throws -> Bool {
+            let event = try XCTUnwrap(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags,
+                timestamp: 0, windowNumber: 0, context: nil,
+                characters: text, charactersIgnoringModifiers: text,
+                isARepeat: repeated, keyCode: 0
+            ))
+            return view.shouldSuppressPressAndHoldKeyRepeat(
+                event: event,
+                before: (marked, NSRange(location: NSNotFound, length: 0)),
+                after: (marked, NSRange(location: NSNotFound, length: 0)),
+                accumulatedText: committed
+            )
+        }
+        XCTAssertFalse(try suppresses(), "The catalog default preserves repeat")
+        defaults.set(true, forKey: key.userDefaultsKey)
+        XCTAssertTrue(try suppresses())
+        XCTAssertTrue(try suppresses("é", flags: [.shift]))
+        for flags: NSEvent.ModifierFlags in [[.option], [.control], [.command]] {
+            XCTAssertFalse(try suppresses(flags: flags))
+        }
+        XCTAssertFalse(try suppresses(repeated: false))
+        XCTAssertFalse(try suppresses(committed: ["á"]))
+        XCTAssertFalse(try suppresses(marked: "に"))
+        XCTAssertFalse(try suppresses("1"))
+        XCTAssertFalse(try suppresses(String(UnicodeScalar(NSLeftArrowFunctionKey)!)))
+
+        // Ghostty's option-as-alt translation can remove Option from the
+        // translated text-input event. Repeat filtering must inspect the
+        // original AppKit event so modified repeats remain terminal input.
+        let originalOptionEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "é",
+            charactersIgnoringModifiers: "e",
+            isARepeat: true,
+            keyCode: 14
+        ))
+        let translatedTextInputEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "e",
+            charactersIgnoringModifiers: "e",
+            isARepeat: true,
+            keyCode: 14
+        ))
+        XCTAssertFalse(view.shouldSuppressPressAndHoldKeyRepeat(
+            event: originalOptionEvent,
+            before: ("", NSRange(location: NSNotFound, length: 0)),
+            after: ("", NSRange(location: NSNotFound, length: 0)),
+            accumulatedText: []
+        ))
+        XCTAssertTrue(view.shouldSuppressPressAndHoldKeyRepeat(
+            event: translatedTextInputEvent,
+            before: ("", NSRange(location: NSNotFound, length: 0)),
+            after: ("", NSRange(location: NSNotFound, length: 0)),
+            accumulatedText: []
+        ))
+        defaults.set(false, forKey: key.userDefaultsKey)
+        XCTAssertFalse(try suppresses(), "Changes apply to an existing view")
+    }
+
+    func testPressAndHoldSuppressedRepeatsPreserveKeyRelease() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hosted = try await makeHostedTerminalWindow()
+            let defaults = UserDefaults.standard
+            let key = "terminal.macosPressAndHold"
+            let previousSetting = defaults.object(forKey: key)
+            let previousHandler = GhosttyNSView.debugTextInputEventHandler
+            let previousObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            defer {
+                if let previousSetting { defaults.set(previousSetting, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+                GhosttyNSView.debugTextInputEventHandler = previousHandler
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver
+                tearDownHostedTerminal(hosted)
+            }
+            GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
+            var actions: [ghostty_input_action_e] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { event in
+                if event.keycode == 0 { actions.append(event.action) }
+            }
+            for initiallyEnabled in [false, true] {
+                actions.removeAll()
+                defaults.set(initiallyEnabled, forKey: key)
+                for (type, repeatKey, enable) in [
+                    (NSEvent.EventType.keyDown, false, initiallyEnabled),
+                    (.keyDown, true, true),
+                    (.keyDown, true, true),
+                    (.keyUp, false, false)
+                ] {
+                    defaults.set(enable, forKey: key)
+                    let event = try XCTUnwrap(NSEvent.keyEvent(
+                        with: type,
+                        location: .zero,
+                        modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: hosted.window.windowNumber,
+                        context: nil,
+                        characters: "a",
+                        charactersIgnoringModifiers: "a",
+                        isARepeat: repeatKey,
+                        keyCode: 0
+                    ))
+                    if type == .keyDown { hosted.surfaceView.keyDown(with: event) }
+                    else { hosted.surfaceView.keyUp(with: event) }
+                }
+                XCTAssertEqual(actions, [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE],
+                               "Suppressing repeats must preserve the release, including when the setting changes during a hold")
+            }
+        }
+    }
+
+    func testPressAndHoldSettingSuppressesPlainLetterRepeats() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hostedTerminal = try await makeHostedTerminalWindow()
+            let terminalSurface = hostedTerminal.surface
+            let window = hostedTerminal.window
+            let surfaceView = hostedTerminal.surfaceView
+            let defaults = UserDefaults.standard
+            let previousSetting = defaults.object(forKey: "terminal.macosPressAndHold")
+            let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+            let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            defer {
+                if let previousSetting {
+                    defaults.set(previousSetting, forKey: "terminal.macosPressAndHold")
+                } else {
+                    defaults.removeObject(forKey: "terminal.macosPressAndHold")
+                }
+                GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+                tearDownHostedTerminal(hostedTerminal)
+            }
+
+            defaults.set(true, forKey: "terminal.macosPressAndHold")
+            GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
+            var forwardedRepeatCount = 0
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                previousKeyEventObserver?(keyEvent)
+                if keyEvent.action == GHOSTTY_ACTION_REPEAT, keyEvent.keycode == 0 {
+                    forwardedRepeatCount += 1
+                }
+            }
+
+            let baseTimestamp = ProcessInfo.processInfo.systemUptime
+            for index in 0..<3 {
+                let event = try XCTUnwrap(NSEvent.keyEvent(
+                    with: .keyDown,
+                    location: .zero,
+                    modifierFlags: [],
+                    timestamp: baseTimestamp + (Double(index) * 0.001),
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    characters: "a",
+                    charactersIgnoringModifiers: "a",
+                    isARepeat: true,
+                    keyCode: 0
+                ))
+                withExtendedLifetime(terminalSurface) {
+                    surfaceView.keyDown(with: event)
+                }
+            }
+
+            XCTAssertEqual(
+                forwardedRepeatCount,
+                0,
+                "The press-and-hold setting should keep plain letter repeats out of the terminal"
+            )
+        }
     }
 }

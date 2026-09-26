@@ -268,6 +268,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: terminal.textEditingGestures.userDefaultsKey,
             invalidPath: terminal.textEditingGestures.id
         ),
+        .init(
+            jsonKey: "macosPressAndHold",
+            defaultsKey: terminal.macosPressAndHold.userDefaultsKey,
+            invalidPath: terminal.macosPressAndHold.id
+        ),
     ]
 }
 
