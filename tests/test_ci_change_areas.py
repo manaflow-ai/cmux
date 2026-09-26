@@ -4584,11 +4584,14 @@ PRODUCT_RUNNER_KEYS = {
 def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
+    # They are GUI jobs, so they take pr_gui_runner before the root label:
+    # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
+    gui = "inputs.pr_gui_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
-            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
+            "&& (" + gui + "inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
-            "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
+            "&& inputs.pr_retry_runner || " + shard + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
 PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])
@@ -4655,8 +4658,10 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
             name == "tests-build-and-lag"
             # Its own owned_jobs key, so it never follows admission's placement.
             and "' lag '" in runs_on
+            # pr_gui_runner is the gui label of admission's own pick (same Xcode).
             and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15").replace(
-                "' lag '", "' admission '") == admission_route(producer["runs-on"])
+                "' lag '", "' admission '").replace("inputs.pr_gui_runner || ", "")
+            == admission_route(producer["runs-on"])
             and xcode == producer["env"]["CMUX_CI_XCODE_APP"]
         ):
             continue

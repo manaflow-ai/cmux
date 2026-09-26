@@ -299,7 +299,7 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
-                                              f"refused_retry_runner=\nroot_runner=\nside_runner=\n"
+                                              f"refused_retry_runner=\nroot_runner=\nside_runner=\ngui_runner=\n"
                                               "admission_runner=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
@@ -482,6 +482,11 @@ def root_lane(key: str) -> str:
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+
+
+def gui_lane(key: str) -> str:
+    """root_lane() for a GUI job: the gui label, when the picker named one, before the root label."""
+    return root_lane(key).replace("inputs.pr_root_runner", "inputs.pr_gui_runner || inputs.pr_root_runner")
 
 
 def side_lane(key: str) -> str:
@@ -1727,6 +1732,23 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(pool.side_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 36}), "")
         self.assertEqual(pool.side_runner(pool.Choice(LARGE, "", ""), {MINI: 36, ROOT_MINI: 16}), "")
 
+    def test_gui_jobs_take_the_gui_label_beside_a_root_and_gui_count(self):
+        gui = "glaeda-gui-std-xcode-26.6"
+        self.assertTrue(pool.persistent(gui))
+        self.assertEqual((pool.gui_label(MINI), pool.pool_label(gui)), (gui, MINI))
+        self.assertEqual((pool.gui_label(ROOT_MINI), pool.gui_label(gui), pool.gui_label(SMALL)), ("", "", ""))
+        self.assertEqual((pool.root_label(gui), pool.side_label(gui)), ("", ""))
+        rooted = pool.Choice(MINI, PR_XCODE, "", LARGE, 5, root_runner=ROOT_MINI, root_budget=3)
+        self.assertEqual(pool.gui_runner(rooted, {MINI: 50, ROOT_MINI: 19, gui: 10}), gui)
+        # No gui count: no runner carries the label yet, so GUI jobs keep the root label.
+        self.assertEqual(pool.gui_runner(rooted, {MINI: 50, ROOT_MINI: 19}), "")
+        self.assertEqual(pool.gui_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 50, gui: 10}), "")
+        self.assertEqual(pool.gui_runner(pool.Choice(LARGE, "", ""), {MINI: 50, ROOT_MINI: 19, gui: 10}), "")
+        # The class form counts, and a gui count above the pool's machines is a typo.
+        self.assertEqual(pool.slots('{"std": 50, "root-std": 19, "gui-std": 10}', PR_XCODE)[gui], 10)
+        self.assertIn("10 gui runners, more than the 4 machines",
+                      pool.slot_problems('{"std": 4, "gui-std": 10}', PR_XCODE)[0])
+
     def test_no_root_count_keeps_the_pool_label(self):
         choice = owned_choice(fleet(busy=0), jobs=4, root_jobs=2)
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ""))
@@ -1736,6 +1758,18 @@ class RootRunners(unittest.TestCase):
                       root_jobs=1)
         self.assertEqual(fork.root_runner, "")
         self.assertEqual(owned_choice(fleet(busy=40), owned_slots=slots, root_jobs=1).root_runner, "")
+
+    def test_gui_runners_take_the_gui_jobs_off_the_root_budget(self):
+        plan = pool.run_plan(macos="true", full_suite="true", unit_suite=None, unit_in_admission=None,
+                             claude_wrapper=None, cli="true", remote_daemon=None)
+        keys = ("admission", *plan.after)
+        self.assertEqual(pool.root_held(plan, keys), len(plan.after))
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1, "only cli-product holds a root after admission")
+        # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
+        root_only, _ = pool.place(plan, 20, root_budget=3)
+        with_gui, _ = pool.place(plan, 20, root_budget=3, gui_runners=True)
+        self.assertEqual(sum(pool.gui_job(k) for k in root_only), 3)
+        self.assertLessEqual(set(keys), set(with_gui))
 
     def test_main_writes_the_root_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1758,6 +1792,7 @@ class RootRunners(unittest.TestCase):
                          (MINI, ROOT_MINI, MINI))
         # The side lanes take the side runners: 30 of the 40 machines.
         self.assertEqual(outputs["side_runner"], SIDE_MINI)
+        self.assertEqual(outputs["gui_runner"], "", "no gui count: the GUI jobs keep the root label")
         # Three root runners free: admission and two shards, beside every side lane.
         self.assertEqual(outputs["owned_jobs"],
                          " admission shard-1 shard-2 shard-3 remote-daemon claude-wrapper ")
@@ -2163,8 +2198,9 @@ class Wiring(unittest.TestCase):
                       "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
-            # root jobs; the side lanes are not.
-            "ci-macos.yml": {warm_lane(), warm_lane("[0]"), root_lane("' lag '")},
+            # root jobs; the side lanes are not. tests-build-and-lag is a GUI
+            # job: the gui label first, where the picker names one.
+            "ci-macos.yml": {warm_lane(), warm_lane("[0]"), gui_lane("' lag '")},
             "remote-daemon.yml": {side_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
@@ -2176,10 +2212,10 @@ class Wiring(unittest.TestCase):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
         self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
                                             "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, "
-                                            "format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
+                                            "format(' shard-{0} ', matrix.shard)) && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
-                                            "|| inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}")
+                                            "|| inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && contains("
                       "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
