@@ -2525,6 +2525,10 @@ private final class FuzzPeer {
             // An empty reply is the documented safe default (no reflow).
             feed(block([]))
             return "pane-reflow"
+        case let .paneColorReport(pane, _):
+            // A color report is fire-and-forget; tmux acknowledges it with an empty block.
+            feed(block([]))
+            return "pane-color-report(%\(pane))"
         case .activityQuery:
             feed(block([]))
             return "activity-query"
