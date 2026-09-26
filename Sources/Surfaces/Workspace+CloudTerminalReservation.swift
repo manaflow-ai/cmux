@@ -203,9 +203,15 @@ extension Workspace {
         reservation.retry = nil
         reservation.cancel = nil
         if adoptedPanelID != reservation.panelID {
+            // The user was in the reserved pane, so they follow the terminal it
+            // was waiting for rather than landing on a neighbor.
+            let handsOffFocus = focusedPanelId == reservation.panelID
             reservation.inputRelay.discard()
             SurfaceCatalog.shared.withProjectionEndReason(for: [reservation.panelID], reason: .replaced) {
                 _ = closePanel(reservation.panelID, force: true)
+            }
+            if handsOffFocus, panels[adoptedPanelID] != nil {
+                focusPanel(adoptedPanelID)
             }
         }
     }
