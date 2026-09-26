@@ -18550,7 +18550,7 @@ struct CMUXCLI {
             With args, submit feedback through the app using the same feedback pipeline as the modal.
 
             Flags:
-              --email <email>   Contact email for follow-up (optional; omit to send anonymously)
+              --email <email>   Contact email for follow-up
               --body <text>     Feedback body
               --image <path>    Attach an image file, repeat for multiple images
 
