@@ -941,10 +941,10 @@ public struct VoiceOrchestratorToolExecutor {
 
     private func listMemories() -> String {
         guard let memory else { return "Memory is unavailable in this session." }
-        guard let summary = memory.promptSummary else {
+        guard let summary = memory.toolListSummary else {
             return "No saved notes about the user yet."
         }
-        return "Saved notes about the user:\n\(summary)"
+        return "Saved notes about the user (\(memory.entries.count) total):\n\(summary)"
     }
 
     private func forgetMemory(matching query: String) -> String {

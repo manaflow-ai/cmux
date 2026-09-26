@@ -131,11 +131,14 @@ public final class MobileVoiceSettings {
     /// a write.
     public init(
         defaults: UserDefaults = .standard,
-        apiKeyStore: any MobileVoiceAPIKeyStoring = MobileVoiceKeychainAPIKeyStore()
+        apiKeyStore: any MobileVoiceAPIKeyStoring = MobileVoiceKeychainAPIKeyStore(),
+        voiceMemory: MobileVoiceMemory? = nil
     ) {
         self.defaults = defaults
         self.apiKeyStore = apiKeyStore
-        self.voiceMemory = MobileVoiceMemory(defaults: defaults)
+        // Memory is file-backed (it can grow large); the defaults handed in
+        // here are only consulted once to migrate a pre-disk store.
+        self.voiceMemory = voiceMemory ?? MobileVoiceMemory(migratingFrom: defaults)
         self.voiceModeEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         let storedVoice = defaults.string(forKey: Self.voiceNameKey)
         self.voiceName = storedVoice.flatMap {

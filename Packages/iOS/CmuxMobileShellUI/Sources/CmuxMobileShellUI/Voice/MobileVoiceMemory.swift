@@ -2,12 +2,17 @@ import Foundation
 
 /// Durable notes the user told the voice assistant to keep: preferences,
 /// defaults, standing instructions ("my main repo is ~/dev/cmux", "keep
-/// replies short"). Persisted to the injected `UserDefaults`, injected into
-/// every voice session's instructions, and edited through the orchestrator's
-/// remember / forget_memory / list_memories tools.
+/// replies short"). Persisted as a JSON file on the device's disk
+/// (Application Support), injected into every voice session's instructions,
+/// and edited through the orchestrator's remember / forget_memory /
+/// list_memories tools.
 ///
-/// Deliberately small and bounded: memories ride inside the session prompt,
-/// so the store caps entry length and count and evicts oldest-first.
+/// Disk, not UserDefaults: memory can grow large, and UserDefaults is a
+/// preferences plist loaded whole into every process. The store still bounds
+/// itself (entry count, entry length) so the file stays readable in one
+/// synchronous load, and the SESSION-PROMPT injection is budgeted separately
+/// (`promptBudgetCharacters`, newest notes win) because instructions cannot
+/// carry megabytes regardless of what the disk holds.
 @MainActor
 public final class MobileVoiceMemory {
     public struct Entry: Codable, Equatable, Sendable, Identifiable {
@@ -22,24 +27,49 @@ public final class MobileVoiceMemory {
         }
     }
 
-    public static let maximumEntries = 100
-    public static let maximumEntryLength = 500
+    public static let maximumEntries = 5_000
+    public static let maximumEntryLength = 4_000
     /// Budget for the block injected into session instructions; oldest
     /// entries fall off first when the rendered list exceeds it.
     public static let promptBudgetCharacters = 2_000
+    /// Budget for the list_memories tool result, which can afford more than
+    /// the always-present prompt block.
+    public static let toolListBudgetCharacters = 8_000
 
-    private static let defaultsKey = "cmux.mobile.voice.memories"
+    /// Pre-disk builds kept memories in UserDefaults; imported once.
+    private static let legacyDefaultsKey = "cmux.mobile.voice.memories"
 
-    // UserDefaults is Apple-documented thread-safe; reads/writes here happen
-    // on the main actor anyway.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let fileURL: URL
     public private(set) var entries: [Entry]
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        if let data = defaults.data(forKey: Self.defaultsKey),
+    /// The production store location: Application Support/cmux-voice/memories.json.
+    public nonisolated static func defaultFileURL() -> URL {
+        let support = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        )[0]
+        return support
+            .appendingPathComponent("cmux-voice", isDirectory: true)
+            .appendingPathComponent("memories.json")
+    }
+
+    /// - Parameters:
+    ///   - fileURL: Backing file; tests pass a temporary location.
+    ///   - migratingFrom: Defaults that may hold the pre-disk store; imported
+    ///     into the file once and removed. Pass nil to skip migration.
+    public init(
+        fileURL: URL = MobileVoiceMemory.defaultFileURL(),
+        migratingFrom legacyDefaults: UserDefaults? = .standard
+    ) {
+        self.fileURL = fileURL
+        if let data = try? Data(contentsOf: fileURL),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
             entries = decoded
+        } else if let legacyDefaults,
+                  let data = legacyDefaults.data(forKey: Self.legacyDefaultsKey),
+                  let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
+            entries = decoded
+            persist()
+            legacyDefaults.removeObject(forKey: Self.legacyDefaultsKey)
         } else {
             entries = []
         }
@@ -86,13 +116,22 @@ public final class MobileVoiceMemory {
     /// later corrections read after what they correct; nil when empty.
     /// Trims oldest entries beyond the prompt budget.
     public var promptSummary: String? {
+        summary(budget: Self.promptBudgetCharacters)
+    }
+
+    /// The larger rendering for the list_memories tool.
+    public var toolListSummary: String? {
+        summary(budget: Self.toolListBudgetCharacters)
+    }
+
+    private func summary(budget: Int) -> String? {
         guard !entries.isEmpty else { return nil }
         var lines: [String] = []
         var total = 0
         for entry in entries.reversed() {
             let line = "- \(entry.text)"
             total += line.count + 1
-            if total > Self.promptBudgetCharacters { break }
+            if total > budget { break }
             lines.append(line)
         }
         guard !lines.isEmpty else { return nil }
@@ -101,6 +140,10 @@ public final class MobileVoiceMemory {
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: Self.defaultsKey)
+        let directory = fileURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true
+        )
+        try? data.write(to: fileURL, options: [.atomic])
     }
 }
