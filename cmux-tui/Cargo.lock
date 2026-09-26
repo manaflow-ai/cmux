@@ -721,6 +721,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http",
  "url",
