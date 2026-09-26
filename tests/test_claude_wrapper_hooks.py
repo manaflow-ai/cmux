@@ -2869,16 +2869,20 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
 
 
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-tmp-") as td:
-        tmpdir = Path(td)
-        guard_dir = tmpdir / "cmux-claude-node-options"
-        guard_dir.mkdir(parents=True, exist_ok=True)
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        home = tmp / "home"
+        guard_dir = home / ".cmuxterm" / "cmux-claude-node-options"
+        guard_dir.mkdir(parents=True)
+        # Literal mktemp template names left behind by an older wrapper.
+        (guard_dir / ".restore-node-options.cjs.XXXXXX").write_text("stale", encoding="utf-8")
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
-        code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
-            socket_state="live",
-            argv=["hello"],
-            tmpdir=str(tmpdir),
-        )
+        env["HOME"] = str(home)
+
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=setup,
+    )
     expect(code == 0, f"stale mktemp literal: wrapper exited {code}: {stderr}", failures)
     expect("mktemp:" not in stderr, f"stale mktemp literal: unexpected mktemp warning: {stderr!r}", failures)
     require_flag, _, remaining_flags = node_options.partition(" ")
