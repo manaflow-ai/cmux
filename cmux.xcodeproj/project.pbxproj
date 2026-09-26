@@ -15981,7 +15981,6 @@
 					C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */,
 					C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */,
 				068FDFC30E2B11E77FF01524 /* CMUXCLIVMEnvSpecTests.swift in Sources */,
-				CE11E0010000000000000005 /* CMUXCLI+VMEnvSpec.swift in Sources */,
 				A5FB1305 /* CmuxConfigActionSaverTests.swift in Sources */,
 				C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */,
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
