@@ -260,6 +260,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         super.viewWillMove(toSuperview: newSuperview)
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        checklistSection.reconcilePopoverAfterRowReparent()
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         for action in retirePresentation() {

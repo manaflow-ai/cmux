@@ -493,6 +493,23 @@ final class SidebarRowChecklistSection: NSView {
         }
     }
 
+    /// Reconcile a transient popover after the pooled row cell has been
+    /// reattached. The checklist section remains a child of the cell, so its
+    /// own window callbacks are not guaranteed during a same-window reparent.
+    func reconcilePopoverAfterRowReparent() {
+        guard let model, model.isChecklistPopoverPresented, usesPopoverStyle else { return }
+        guard !popoverPresenter.isShown else { return }
+        awaitingPopoverDismissAck = false
+        popoverAnchorDetachedWhilePresented = false
+        pendingPopoverPresentation = true
+        needsLayout = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil, self.model?.isChecklistPopoverPresented == true else { return }
+            self.needsLayout = true
+            self.layoutSubtreeIfNeeded()
+        }
+    }
+
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, popoverPresenter.isShown {
             popoverAnchorDetachedWhilePresented = true
