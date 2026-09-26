@@ -15,6 +15,9 @@ import Testing
 final class PlainPastePTYFixture {
     let root: URL
     let launches: URL
+    let timings: URL
+    private let failureLog: PlainPastePTYFailureLog
+    var failures: [String] { failureLog.entries }
     let surface: TerminalSurface
     let window: NSWindow
     private let previousMenu: NSMenu?
@@ -26,12 +29,19 @@ final class PlainPastePTYFixture {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         launches = root.appendingPathComponent("launches.txt")
         try Data().write(to: launches)
+        timings = root.appendingPathComponent("timings.txt")
+        try Data().write(to: timings)
         let app = try #require(Bundle.main.executableURL)
         let helper = try #require(Bundle.main.url(forResource: "cmux-paste-text-worker", withExtension: nil, subdirectory: "bin"))
         let fullWrapper = root.appendingPathComponent("full")
         let textWrapper = root.appendingPathComponent("text")
         for (url, executable, label) in [(fullWrapper, app, "full"), (textWrapper, helper, "text")] {
-            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\nexec \(executable.path.terminalShellEscaped) \"$@\"\n"
+            // Diagnostic: time each worker run and keep its exit status.
+            let clock = "/usr/bin/perl -MTime::HiRes=time -e 'printf \"%.3f\", time'"
+            let script = "#!/bin/sh\nprintf '%s\\n' '\(label)' >> \(launches.path.terminalShellEscaped)\n" +
+                "start=$(\(clock))\n\(executable.path.terminalShellEscaped) \"$@\"\nstatus=$?\n" +
+                "printf '%s start=%s end=%s status=%s\\n' '\(label)' \"$start\" \"$(\(clock))\" \"$status\" >> \(timings.path.terminalShellEscaped)\n" +
+                "exit $status\n"
             try script.write(to: url, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
         }
@@ -40,9 +50,14 @@ final class PlainPastePTYFixture {
             executableURL: fullWrapper, pasteboardService: owner,
             plainTextExecutableURL: optimized ? textWrapper : nil
         )
+        let failureLog = PlainPastePTYFailureLog()
+        self.failureLog = failureLog
         let service = TerminalImageTransferPreparationService(
             operation: { try await client.prepare($0) },
-            cleanup: { $0.cleanupTransferredTemporaryFiles(using: owner) }
+            cleanup: { $0.cleanupTransferredTemporaryFiles(using: owner) },
+            failureSignal: { failure in
+                failureLog.entries.append("\(failure)@\(Date().timeIntervalSince1970)")
+            }
         )
         let live = GhosttyApp.terminalSurfaceRuntimeDependencies
         let dependencies = TerminalSurfaceRuntimeDependencies(
@@ -126,9 +141,15 @@ final class PlainPastePTYFixture {
         }
         try #require(FileManager.default.fileExists(atPath: url.path), Comment(rawValue:
             "No PTY receipt; launches=\(String(describing: try? String(contentsOf: launches, encoding: .utf8))) " +
+            "timings=\(diagnostics) " +
             "screen=\(surface.readText(region: .screen) ?? "unavailable")"
         ))
         return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    }
+
+    var diagnostics: String {
+        "timings=\(String(describing: try? String(contentsOf: timings, encoding: .utf8))) failures=\(failures) " +
+            "changeCount=\(NSPasteboard.general.changeCount)"
     }
 
     func close() {
@@ -137,4 +158,10 @@ final class PlainPastePTYFixture {
         window.orderOut(nil)
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+/// Paste-preparation failures the fixture's service reported (diagnostic).
+@MainActor
+final class PlainPastePTYFailureLog {
+    var entries: [String] = []
 }
