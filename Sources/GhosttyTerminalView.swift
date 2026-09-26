@@ -5787,6 +5787,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    /// Joins soft-wrapped rows in the plain-text representations.
+    ///
+    /// Rich representations (HTML, RTF) pass through unchanged: their row
+    /// breaks cannot be remapped from the plain text without re-rendering the
+    /// styled output, and dropping them would lose the colors a rich-text
+    /// destination pastes today. Plain-text destinations get the joined text.
     private func representationsJoiningSoftWraps(
         _ representations: [TerminalClipboardRepresentation],
         surface: ghostty_surface_t,
@@ -5802,8 +5808,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             joiningEnabled: true
         )
         guard joined != representations[plainIndex].string else { return representations }
-        return representations.compactMap { representation in
-            guard self.isPlainTextClipboardRepresentation(representation) else { return nil }
+        return representations.map { representation in
+            guard self.isPlainTextClipboardRepresentation(representation) else { return representation }
             return TerminalClipboardRepresentation(
                 mimeType: representation.mimeType,
                 string: joined
