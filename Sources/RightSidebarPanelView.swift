@@ -30,7 +30,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .beads, .customSidebar:
             return false
         }
     }
@@ -469,6 +469,8 @@ struct RightSidebarPanelView: View {
                     tabManager: tabManager,
                     teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation
                 )
+            case .beads:
+                BeadsSidebarView()
             case .customSidebar:
                 customSidebarPanel
             }

@@ -125,11 +125,9 @@ extension ContentView {
             { _ in value }
         }
 
-        // Palette execution resolves through the mode's shortcut action;
-        // customSidebar has none yet (a new cmux-owned shortcut carries the
-        // full settings/config/docs policy), so it stays out of the palette
-        // until that lands. The mode bar, CLI, and socket verb cover it.
-        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
+        // Built-in modes have palette handlers even without a dedicated shortcut.
+        // Custom sidebar selection remains on its existing CLI path.
+        return RightSidebarMode.availableModes().filter { $0 != .customSidebar }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
@@ -169,6 +167,8 @@ extension ContentView {
             return "palette.showRightSidebarDock"
         case .machines:
             return "palette.showRightSidebarMachines"
+        case .beads:
+            return "palette.showRightSidebarBeads"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -195,7 +195,7 @@ extension ContentView {
             return "palette.openVaultPane"
         case .machines:
             return "palette.openCloudPane"
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .beads, .customSidebar:
             return nil
         }
     }
@@ -210,7 +210,7 @@ extension ContentView {
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
         case .machines:
             return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .beads, .customSidebar:
             return nil
         }
     }

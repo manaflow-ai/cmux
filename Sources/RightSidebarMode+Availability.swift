@@ -15,6 +15,8 @@ extension RightSidebarMode {
             return .feed
         case "dock":
             return .dock
+        case "beads":
+            return .beads
         case "cloud", "machines", "vms":
             return .machines
         case "devices", "device", "macs":
@@ -93,7 +95,7 @@ extension RightSidebarMode {
         devicesEnabled: Bool = false
     ) -> Bool {
         switch self {
-        case .files, .find, .sessions:
+        case .files, .find, .sessions, .beads:
             return true
         case .feed:
             return feedEnabled

@@ -1,4 +1,8 @@
 {
+  "rightSidebar.mode.beads": {
+    "source": "Beads",
+    "class": "brand"
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
