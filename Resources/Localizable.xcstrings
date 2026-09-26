@@ -556833,6 +556833,1285 @@
           }
         }
       }
+    },
+    "browser.import.error.scopeInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope が無効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope가 유효하지 않습니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр scope недійсний."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 无效。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope n’est pas valide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 無效。"
+          }
+        }
+      }
+    },
+    "browser.import.error.scopeRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope must be a non-empty string."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope は空でない文字列である必要があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope는 비어 있지 않은 문자열이어야 합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметр scope має бути непорожнім рядком."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必须是非空字符串。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope muss eine nicht leere Zeichenfolge sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope doit être une chaîne non vide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون scope سلسلة غير فارغة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope debe ser una cadena no vacía."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scope 必須是非空字串。"
+          }
+        }
+      }
+    },
+    "cli.forwarding.error.forwardingLoop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تمرير هذا الأمر إلى أداة سطر الأوامر المضمّنة لأن إعادة التوجيه عادت إلى التطبيق نفسه. أعد تثبيت cmux أو شغّل الأمر من تثبيت قياسي لواجهة cmux لسطر الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao proslijediti ovu komandu svom ugrađenom alatu komandne linije jer je prosljeđivanje vratilo na samu aplikaciju. Ponovo instalirajte cmux ili pokrenite komandu iz standardne cmux CLI instalacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke videregive denne kommando til det medfølgende kommandolinjeværktøj, fordi videresendelsen pegede tilbage på selve appen. Geninstallér cmux, eller kør kommandoen fra en standard cmux CLI-installation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diesen Befehl nicht an das mitgelieferte Kommandozeilenwerkzeug übergeben, weil die Weiterleitung zurück zur App selbst führte. Installieren Sie cmux neu oder führen Sie den Befehl aus einer standardmäßigen cmux-CLI-Installation aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not hand this command to its bundled command-line tool because forwarding resolved back to the app itself. Reinstall cmux or run the command from a standard cmux CLI installation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo entregar este comando a su herramienta de línea de comandos integrada porque el reenvío volvió a la propia aplicación. Reinstala cmux o ejecuta el comando desde una instalación estándar de la CLI de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu transmettre cette commande à son outil en ligne de commande intégré car le transfert est revenu vers l'application elle-même. Réinstallez cmux ou exécutez la commande depuis une installation standard de la CLI cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a passare questo comando allo strumento a riga di comando integrato perché l'inoltro è tornato all'app stessa. Reinstalla cmux oppure esegui il comando da un'installazione standard della CLI di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送がアプリ自体に戻ってしまったため、cmux はこのコマンドを同梱のコマンドラインツールに引き渡せませんでした。cmux を再インストールするか、標準の cmux CLI インストールからコマンドを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចប្រគល់ពាក្យបញ្ជានេះទៅឱ្យឧបករណ៍បន្ទាត់ពាក្យបញ្ជាដែលភ្ជាប់មកជាមួយបានទេ ព្រោះការបញ្ជូនបន្តបានវិលត្រឡប់មកកម្មវិធីខ្លួនឯងវិញ។ សូមដំឡើង cmux ឡើងវិញ ឬដំណើរការពាក្យបញ្ជាពីការដំឡើង cmux CLI ស្តង់ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달이 앱 자신으로 되돌아와 cmux 가 이 명령을 내장 명령줄 도구에 넘기지 못했습니다. cmux 를 다시 설치하거나 표준 cmux CLI 설치에서 명령을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke overlevere denne kommandoen til det medfølgende kommandolinjeverktøyet fordi videresendingen pekte tilbake på selve appen. Installer cmux på nytt, eller kjør kommandoen fra en standard cmux CLI-installasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przekazać tego polecenia do dołączonego narzędzia wiersza poleceń, ponieważ przekierowanie wróciło do samej aplikacji. Zainstaluj cmux ponownie lub uruchom polecenie ze standardowej instalacji cmux CLI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu entregar este comando à sua ferramenta de linha de comando integrada porque o encaminhamento voltou para o próprio aplicativo. Reinstale o cmux ou execute o comando a partir de uma instalação padrão da CLI do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не смог передать эту команду встроенному инструменту командной строки, потому что перенаправление вернулось к самому приложению. Переустановите cmux или выполните команду из стандартной установки cmux CLI."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถส่งต่อคำสั่งนี้ไปยังเครื่องมือบรรทัดคำสั่งที่มาพร้อมแอปได้ เนื่องจากการส่งต่อวนกลับมาที่ตัวแอปเอง โปรดติดตั้ง cmux ใหม่ หรือเรียกใช้คำสั่งจากการติดตั้ง cmux CLI แบบมาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönlendirme uygulamanın kendisine geri döndüğü için cmux bu komutu birlikte gelen komut satırı aracına aktaramadı. cmux'u yeniden yükleyin veya komutu standart bir cmux CLI kurulumundan çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не зміг передати цю команду вбудованому інструменту командного рядка, оскільки переспрямування повернулося до самого застосунку. Перевстановіть cmux або виконайте команду зі стандартної інсталяції cmux CLI."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于转发又回到了应用本身,cmux 无法将此命令交给随附的命令行工具。请重新安装 cmux,或从标准的 cmux CLI 安装中运行该命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由於轉發又回到了應用程式本身,cmux 無法將此命令交給隨附的命令列工具。請重新安裝 cmux,或從標準的 cmux CLI 安裝中執行該命令。"
+          }
+        }
+      }
+    },
+    "detectedSSH.fileDrop.error.uploadFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر رفع الملف إلى الجلسة البعيدة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otpremiti fajl u udaljenu sesiju: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke uploade filen til fjernsessionen: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht in die Remote-Sitzung hochgeladen werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the file to the remote session: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el archivo a la sesión remota: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de téléverser le fichier vers la session distante : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il file nella sessione remota: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートセッションにファイルをアップロードできませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកឯកសារឡើងទៅវគ្គពីចម្ងាយបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 세션에 파일을 업로드할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste opp filen til den eksterne økten: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przesłać pliku do sesji zdalnej: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo para a sessão remota: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить файл в удалённый сеанс: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอัปโหลดไฟล์ไปยังเซสชันระยะไกลได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya uzak oturuma yüklenemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вивантажити файл у віддалений сеанс: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将文件上传到远程会话：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將檔案上傳到遠端工作階段：%@"
+          }
+        }
+      }
+    },
+    "notification.terminalUpload.failed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم كتابة أي شيء في الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ništa nije upisano u terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke skrevet noget i terminalen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal wurde nichts eingegeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was typed into the terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se escribió nada en el terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien n’a été saisi dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel terminale non è stato digitato nulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルには何も入力されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ្វីត្រូវបានវាយបញ្ចូលក្នុងទែមីណាល់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에 아무것도 입력되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingenting ble skrevet inn i terminalen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nic nie zostało wpisane do terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada foi digitado no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В терминал ничего не введено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการพิมพ์สิ่งใดลงในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminale hiçbir şey yazılmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У термінал нічого не введено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未向终端输入任何内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在終端機中輸入任何內容"
+          }
+        }
+      }
+    },
+    "notification.terminalUpload.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر رفع الملف المُفلت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otpremiti ispušteni fajl"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke uploade den slupne fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die abgelegte Datei konnte nicht hochgeladen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the dropped file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el archivo soltado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de téléverser le fichier déposé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il file trascinato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップしたファイルをアップロードできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកឯកសារដែលបានទម្លាក់ឡើងបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌어다 놓은 파일을 업로드할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste opp den slupne filen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przesłać upuszczonego pliku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo solto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить перетащенный файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอัปโหลดไฟล์ที่วางได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bırakılan dosya yüklenemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вивантажити перетягнутий файл"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法上传拖放的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法上傳拖放的檔案"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive local echo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予測ローカルエコー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预测性本地回显"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorausschauendes lokales Echo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écho local prédictif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدى المحلي التنبؤي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eco local predictivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預測性本機回顯"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예측 로컬 에코"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows characters you type over a slow remote link before the remote echoes them, underlined until confirmed. Stays off at a password prompt and inside full-screen applications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低速なリモート接続で、リモートがエコーする前に入力した文字を表示し、確定するまで下線を付けます。パスワード入力時とフルスクリーンアプリケーションではオフのままです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在缓慢的远程连接上，于远端回显之前先显示你输入的字符，确认前以下划线标示。在密码提示和全屏应用程序中保持关闭。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt über eine langsame Remoteverbindung getippte Zeichen an, bevor die Gegenstelle sie zurücksendet; sie bleiben unterstrichen, bis sie bestätigt sind. Bei Passwortabfragen und in Vollbildanwendungen bleibt die Funktion aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les caractères que vous tapez sur une liaison distante lente avant que l'hôte ne les renvoie ; ils restent soulignés jusqu'à confirmation. Reste désactivé aux invites de mot de passe et dans les applications plein écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض الأحرف التي تكتبها عبر اتصال بعيد بطيء قبل أن يردّها الجهاز البعيد، مع تسطيرها حتى تأكيدها. يظل معطّلاً عند مطالبات كلمة المرور وداخل التطبيقات ملء الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los caracteres que escribes en una conexión remota lenta antes de que el host los devuelva; quedan subrayados hasta confirmarse. Permanece desactivado en las solicitudes de contraseña y en las aplicaciones a pantalla completa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在緩慢的遠端連線上，於遠端回顯之前先顯示你輸入的字元，確認前以底線標示。在密碼提示與全螢幕應用程式中保持關閉。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "느린 원격 연결에서 원격이 에코하기 전에 입력한 문자를 먼저 표시하며, 확인될 때까지 밑줄로 표시합니다. 비밀번호 프롬프트와 전체 화면 응용 프로그램에서는 꺼진 상태를 유지합니다."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.predictedEcho.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waits for the remote to echo every character, so typing lags by one round trip."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートが各文字をエコーするのを待つため、入力が往復時間ぶん遅れます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待远端回显每个字符，因此输入会延迟一次往返传输的时间。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf das Echo jedes Zeichens, sodass die Eingabe um eine Übertragungsrunde verzögert ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attend que l'hôte renvoie chaque caractère, la saisie accuse donc un aller-retour de retard."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتظر أن يردّ الجهاز البعيد كل حرف، فتتأخر الكتابة بمقدار رحلة ذهاب وإياب واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espera a que el host devuelva cada carácter, por lo que la escritura se retrasa un viaje de ida y vuelta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待遠端回顯每個字元，因此輸入會延遲一次來回傳輸的時間。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격이 모든 문자를 에코할 때까지 기다리므로 입력이 왕복 시간만큼 지연됩니다."
+          }
+        }
+      }
+    },
+    "cli.window.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window handle is blank"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف النافذة فارغ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster-Handle ist leer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador de ventana está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant de fenêtre est vide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウハンドルが空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 핸들이 비어 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗控制代碼為空"
+          }
+        }
+      }
+    },
+    "cli.workspace.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace handle is blank"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف مساحة العمل فارغ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace-Handle ist leer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador del espacio de trabajo está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant d’espace de travail est vide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースハンドルが空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 핸들이 비어 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區控制代碼為空"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.revealInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中显示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Finder anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Révéler dans le Finder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار في Finder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en el Finder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 보기"
+          }
+        }
+      }
+    },
+    "shortcut.focusHistoryLast.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Last"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز الأخير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Fokus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前のフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 포커스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到上一个焦点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到上一個焦點"
+          }
+        }
+      }
+    },
+    "menu.history.focusLast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Last"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز الأخير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Fokus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前のフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 포커스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到上一个焦点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到上一個焦點"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalize Splits on Create"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسوية التقسيمات عند الإنشاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungen beim Erstellen angleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar divisiones al crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser les divisions à la création"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成時に分割を均等にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성 시 분할 균등화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建时均分面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立時均等分割"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits take half of the pane they were created from."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغل التقسيمات الجديدة نصف الجزء الذي أُنشئت منه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen nehmen die Hälfte des Bereichs ein, aus dem sie erstellt wurden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ocupan la mitad del panel desde el que se crearon."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions occupent la moitié du volet à partir duquel elles ont été créées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割は、作成元のペインの半分を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할은 생성된 원래 창의 절반을 차지합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建的分屏会占用其来源面板的一半。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增的分割會佔用其來源窗格的一半。"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits resize the panes in that direction to equal sizes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيد التقسيمات الجديدة تحجيم الأجزاء في ذلك الاتجاه إلى أحجام متساوية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen gleichen die Bereiche in dieser Richtung auf dieselbe Größe an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ajustan los paneles en esa dirección a tamaños iguales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions redimensionnent les volets dans cette direction à des tailles égales."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割を作成すると、その方向のペインが同じサイズに調整されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할을 만들면 해당 방향의 창 크기가 같아지도록 조정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分屏时，会将该方向上的面板调整为相同大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
