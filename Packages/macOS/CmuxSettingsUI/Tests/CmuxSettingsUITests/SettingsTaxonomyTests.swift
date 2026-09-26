@@ -8,9 +8,9 @@ struct SettingsTaxonomyTests {
     @Test func everyNavigationLeafAppearsExactlyOnce() {
         let sections = SettingsTaxonomyGroup.sectionsInDisplayOrder
 
-        #expect(sections.count == SettingsSectionID.allCases.count - 1)
+        #expect(sections.count == SettingsSectionID.allCases.count)
         #expect(Set(sections).count == sections.count)
-        #expect(Set(sections) == Set(SettingsSectionID.allCases).subtracting([.computers]))
+        #expect(Set(sections) == Set(SettingsSectionID.allCases))
     }
 
     /// Locks the intended concept-to-leaf mapping for the browse sidebar.
@@ -21,7 +21,7 @@ struct SettingsTaxonomyTests {
         #expect(SettingsTaxonomyGroup.sidebarAndDock.sections == [.sidebarAppearance, .customSidebars])
         #expect(SettingsTaxonomyGroup.agentsAndAutomation.sections == [.automation, .computerUse])
         #expect(SettingsTaxonomyGroup.browserAndFiles.sections == [.browser, .browserImport])
-        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.mobile, .cloudMachines, .networking])
+        #expect(SettingsTaxonomyGroup.remoteAndDevices.sections == [.mobile, .computers, .cloudMachines, .networking])
         #expect(
             SettingsTaxonomyGroup.keyboardAndAdvanced.sections
                 == [.globalHotkey, .keyboardShortcuts, .betaFeatures, .settingsJSON, .reset]
@@ -36,13 +36,7 @@ struct SettingsTaxonomyTests {
 
         // Search keeps its original declaration order and stable IDs.
         // Taxonomy is only the empty-query browse presentation.
-        #expect(
-            sectionEntries.map(\.id)
-                == SettingsSectionID.allCases
-                    .filter { $0 != .computers }
-                    .map { "section:\($0.rawValue)" }
-        )
-        #expect(sectionEntries.contains { $0.id == "section:computers" } == false)
+        #expect(sectionEntries.map(\.id) == SettingsSectionID.allCases.map { "section:\($0.rawValue)" })
 
         for section in SettingsTaxonomyGroup.sectionsInDisplayOrder {
             let entryID = "section:\(section.rawValue)"

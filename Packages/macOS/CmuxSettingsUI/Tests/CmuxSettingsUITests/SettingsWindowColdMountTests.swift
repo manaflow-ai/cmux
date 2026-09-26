@@ -161,24 +161,28 @@ import Testing
         #expect(model.deferredScroll == nil)
     }
 
-    @Test func legacyComputersNavigationTargetsMobileComputersSubsection() async {
+    /// `cmux settings open computers`, persisted targets, and anchors saved
+    /// while Devices was nested under Mobile all land on the Devices section
+    /// and select its sidebar row (https://github.com/manaflow-ai/cmux/issues/14771).
+    @Test(arguments: zip(
+        [SettingsSectionID.computers, .computers, .computers, .mobile],
+        [nil, "section:computers", "setting:computers:pair", "setting:mobile:computers"] as [String?]
+    ))
+    func devicesNavigationTargetsTheDevicesSection(target: SettingsSectionID, anchor: String?) async {
         let fixture = Self.makeFixture()
         let model = Self.makeMountModel()
         let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
         defer { window.orderOut(nil) }
 
-        NotificationCenter.default.post(
-            name: SettingsWindowRoot.navigationRequestName,
-            object: nil,
-            userInfo: [
-                "target": SettingsSectionID.computers.rawValue,
-                "highlight": true
-            ]
-        )
+        var userInfo: [String: Any] = ["target": target.rawValue, "highlight": true]
+        if let anchor { userInfo["anchor"] = anchor }
+        NotificationCenter.default.post(name: SettingsWindowRoot.navigationRequestName, object: nil, userInfo: userInfo)
 
-        await Self.wait(for: model) { model.pinnedScroll?.section == .mobile }
-        #expect(model.pinnedScroll?.section == .mobile)
-        #expect(model.pinnedScroll?.anchorID == "setting:mobile:computers")
+        await Self.wait(for: model) { model.pinnedScroll.map { $0.section != .account } ?? false }
+        #expect(model.pinnedScroll?.section == .computers)
+        #expect(model.pinnedScroll?.anchorID == "section:computers")
+        #expect(model.mounted.contains(.computers))
+        #expect(fixture.defaults.string(forKey: SettingsWindowRoot.selectedSectionDefaultsKey) == "computers")
     }
 
     @Test func targetedOpenDoesNotRestoreTheLastViewedSection() {

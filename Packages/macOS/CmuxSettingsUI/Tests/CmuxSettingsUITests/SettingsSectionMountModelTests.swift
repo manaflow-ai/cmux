@@ -10,20 +10,17 @@ import Testing
 struct SettingsSectionMountModelTests {
     private let order: [SettingsSectionID] = [.account, .app, .terminal, .browser, .reset]
 
-    @Test func mobileHostsComputersBeforeCloudInTheDetailStack() throws {
+    @Test func devicesSitsBetweenMobileAndCloudInTheDetailStack() throws {
         let order = SettingsSectionMountModel.displayOrder
         let mobile = try #require(order.firstIndex(of: .mobile))
-        let cloud = try #require(order.firstIndex(of: .cloudMachines))
-        #expect(cloud == mobile + 1)
-        #expect(order.firstIndex(of: .computers) == nil)
+        #expect(Array(order[(mobile + 1)...].prefix(2)) == [.computers, .cloudMachines])
     }
 
     @Test func displayOrderGivesEverySectionASlotExceptTheEmbeddedBrowserImport() {
         let slots = Set(SettingsSectionMountModel.displayOrder)
         #expect(slots.count == SettingsSectionMountModel.displayOrder.count)
-        #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport, .computers]))
-        #expect(!SettingsSectionMountModel.displayOrder.contains(.computers))
-        #expect(SettingsSectionMountModel.hostSection(for: .computers) == .mobile)
+        #expect(slots == Set(SettingsSectionID.allCases).subtracting([.browserImport]))
+        #expect(SettingsSectionMountModel.hostSection(for: .computers) == .computers)
     }
 
     @Test func firstPassMountsOnlyTheInitialSection() {
