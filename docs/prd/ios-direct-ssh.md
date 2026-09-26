@@ -266,3 +266,4 @@ Open: this Mac is out of PTYs (other sessions hold ~230), so PTY-backed lab test
 - 2026-09-24: Round 3: D31-D37, one host serves cmux-tui, tmux, and shells at once; per-host persistence removed.
 - 2026-09-25: Round 4: D38 close confirmation, D39 Mac relay routing (3a); M6 fixed in cmux-tui; B1-B3 launch/trust fixes; conventions refactor; four UX fixes. See Round 4 verification.
 - 2026-09-26: D40-D43: hashed cmux-tui sockets listed, cmux-tui rows follow remote topology via `subscribe`, cmux-tui Split Pane, phone creations keep the laptop's view.
+- 2026-09-26: Overnight: main merged, CI fixes; D40-D43 (cmux-tui hashed sockets, live topology via subscribe, Split Pane, laptop focus kept); shell cwd via OSC 7, Browse Files menu item, last SSH host restored, SSH attach on subscribe at real size (B6), Reconnect only when disconnected, + menu follows host switch.
