@@ -45,6 +45,16 @@ struct AgentHookDeliveryPolicyTests {
         #expect(!policy.supportsQueuedDelivery(agent: "codex", subcommand: "subagent-start"))
     }
 
+    @Test("The queued hook answers itself before the agent kills it")
+    func wallClockFitsInsideDeclaredTimeout() {
+        #expect(AgentHookDeliveryPolicy.admissionWallClockSeconds
+            > AgentHookDeliveryPolicy.admissionResponseTimeoutSeconds)
+        // Leave at least half the declared timeout for process launch, which
+        // happens before the hook can arm its own bound.
+        #expect(AgentHookDeliveryPolicy.admissionWallClockSeconds * 2
+            <= Double(AgentHookDeliveryPolicy.declaredTimeoutSeconds))
+    }
+
     @Test("Agent names produce stable ASCII PID environment keys")
     func pidEnvironmentKey() {
         #expect(policy.pidEnvironmentVariable(agentName: "claude") == "CMUX_CLAUDE_PID")

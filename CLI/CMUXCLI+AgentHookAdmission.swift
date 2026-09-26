@@ -1,5 +1,76 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
+
+/// Bounds the wall-clock time of one `cmux hooks enqueue` process.
+///
+/// Socket waits already carry deadlines, but password resolution can reach the
+/// keychain, and stdin, process setup and the app's own stalls are not socket
+/// waits. An agent kills a hook at its declared timeout and discards whatever
+/// it printed, so past the budget the process answers with the neutral `{}`
+/// the shell fallback would print and exits. Exactly one response is written:
+/// the command's own output and the watchdog both go through ``respond(_:)``.
+final class AgentHookEnqueueWallClock: @unchecked Sendable {
+    static let shared = AgentHookEnqueueWallClock()
+
+    /// Test harnesses may lower the budget, never raise it.
+    static let budgetOverrideEnvironmentKey = "CMUX_AGENT_HOOK_ENQUEUE_BUDGET_SEC"
+
+    private let lock = NSLock()
+    private var responded = false
+    private var timer: DispatchSourceTimer?
+
+    static func budgetSeconds(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> TimeInterval {
+        let budget = AgentHookDeliveryPolicy.admissionWallClockSeconds
+        guard let raw = environment[budgetOverrideEnvironmentKey],
+              let override = TimeInterval(raw),
+              override.isFinite,
+              override > 0 else {
+            return budget
+        }
+        return min(override, budget)
+    }
+
+    func arm(budgetSeconds: TimeInterval) {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        timer.schedule(deadline: .now() + budgetSeconds)
+        timer.setEventHandler { [weak self] in self?.expire() }
+        lock.lock()
+        self.timer?.cancel()
+        self.timer = timer
+        lock.unlock()
+        timer.resume()
+    }
+
+    /// Runs `write` as the command's single response unless the budget
+    /// already expired. After expiry the process is exiting, so the caller
+    /// never observes the skipped write.
+    func respond(_ write: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !responded else { return }
+        responded = true
+        timer?.cancel()
+        timer = nil
+        write()
+    }
+
+    private func expire() {
+        lock.lock()
+        guard !responded else {
+            lock.unlock()
+            return
+        }
+        responded = true
+        // Keep the lock: a racing respond(_:) must not write a second answer
+        // while this process exits.
+        let response = Array("{}\n".utf8)
+        _ = response.withUnsafeBytes { Darwin.write(STDOUT_FILENO, $0.baseAddress, $0.count) }
+        Darwin._exit(0)
+    }
+}
 
 extension CMUXCLI {
     static let agentHookAdmissionResponseTimeoutSeconds =
@@ -20,6 +91,10 @@ extension CMUXCLI {
     static let relayClaudeForkSessionPayloadKey = "_cmux_claude_fork_session"
     static let relayClaudeForkParentSessionIDPayloadKey = "_cmux_claude_fork_parent_session_id"
     private static let maximumAgentHookInputBytes = 1 * 1_024 * 1_024
+    /// Agents write the hook payload and close stdin at once. One that keeps
+    /// stdin open must not hold the hook until the agent kills it; what
+    /// arrived by this deadline is admitted.
+    private static let agentHookInputReadTimeoutSeconds: TimeInterval = 1
     private static let relayFilesystemIdentityKeys: Set<String> = [
         "cwd",
         "working_directory",
@@ -145,11 +220,10 @@ extension CMUXCLI {
         let routeClient = SocketClient(path: client.socketPath)
         defer { routeClient.close() }
         guard (try? routeClient.connect()) != nil,
-              (try? authenticateClientIfNeeded(
+              (try? authenticateAgentHookRouteClient(
                   routeClient,
-                  explicitPassword: socketPassword,
-                  socketPath: client.socketPath,
-                  responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+                  admissionClient: client,
+                  socketPassword: socketPassword
               )) != nil,
               let payload = try? routeClient.sendV2(
                   method: "agent.resolve_delivery_target",
@@ -170,6 +244,32 @@ extension CMUXCLI {
         return CallerTerminalBinding(
             workspaceId: workspaceID,
             surfaceId: surfaceID
+        )
+    }
+
+    /// Authenticates the route client with the password the admission client
+    /// already resolved, including a resolved absence of one. Resolving again
+    /// can repeat keychain lookups, which have no deadline.
+    private func authenticateAgentHookRouteClient(
+        _ routeClient: SocketClient,
+        admissionClient: SocketClient,
+        socketPassword: String?
+    ) throws {
+        guard admissionClient.hasConfiguredAuthentication else {
+            try authenticateClientIfNeeded(
+                routeClient,
+                explicitPassword: socketPassword,
+                socketPath: admissionClient.socketPath,
+                responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds
+            )
+            return
+        }
+        routeClient.configureAuthentication(
+            password: admissionClient.configuredAuthenticationPassword
+        )
+        try routeClient.authenticateIfNeeded(
+            responseTimeout: Self.agentHookRouteResolutionTimeoutSeconds,
+            deadline: nil
         )
     }
 
@@ -311,7 +411,10 @@ extension CMUXCLI {
             params: params,
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
-        print("{}")
+        AgentHookEnqueueWallClock.shared.respond {
+            print("{}")
+            fflush(stdout)
+        }
     }
 
     /// Converts remote filesystem/process evidence into bounded, portable
@@ -488,25 +591,47 @@ extension CMUXCLI {
     /// or JSON parsing. Hooks above 1 MiB fail open with a neutral payload: the
     /// lifecycle event is still admitted, but oversized untrusted detail is
     /// discarded instead of making the foreground hook process scale with stdin.
+    /// A writer that keeps stdin open past the read deadline gets what it wrote
+    /// by then admitted when that is complete JSON, and the neutral payload
+    /// when the deadline cut it mid-document, not an unbounded wait for EOF.
     private static func readBoundedAgentHookInput(
-        handle: FileHandle = .standardInput
+        handle: FileHandle = .standardInput,
+        timeout: TimeInterval = agentHookInputReadTimeoutSeconds
     ) -> String? {
+        let fileDescriptor = handle.fileDescriptor
+        let deadline = Date.now.addingTimeInterval(timeout)
         var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
         while data.count <= maximumAgentHookInputBytes {
-            let remainingBytes = maximumAgentHookInputBytes + 1 - data.count
-            let chunkSize = min(64 * 1_024, remainingBytes)
-            let chunk: Data
-            do {
-                chunk = try handle.read(upToCount: chunkSize) ?? Data()
-            } catch {
+            let remainingSeconds = deadline.timeIntervalSinceNow
+            guard remainingSeconds > 0 else { break }
+            var descriptor = pollfd(fd: fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let remainingMilliseconds = Int32(min(ceil(remainingSeconds * 1_000), Double(Int32.max)))
+            let ready = poll(&descriptor, 1, remainingMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
                 return nil
             }
-            guard !chunk.isEmpty else {
+            guard ready > 0 else { break }
+            let remainingBytes = maximumAgentHookInputBytes + 1 - data.count
+            let chunkSize = min(buffer.count, remainingBytes)
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, chunkSize)
+            }
+            if count < 0 {
+                if errno == EINTR || errno == EAGAIN { continue }
+                return nil
+            }
+            guard count > 0 else {
                 return String(data: data, encoding: .utf8)
             }
-            data.append(chunk)
+            data.append(contentsOf: buffer[0..<count])
         }
-        return nil
+        guard data.count <= maximumAgentHookInputBytes, !data.isEmpty,
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private func compactAgentHookPayload(
