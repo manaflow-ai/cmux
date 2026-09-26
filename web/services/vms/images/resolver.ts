@@ -3,6 +3,11 @@ import { allowUnmanifestedImages, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError, type VmImageSource } from "../errors";
 import manifest from "./manifest.json";
 import {
+  isMachineRuntimeConnectable,
+  parseVmImageManifest,
+  type MachineRuntime,
+} from "./schema";
+import {
   isVmImageSizeName,
   pickVmImageSizeForMemory,
   vmImageSizeRank,
@@ -65,6 +70,7 @@ export type VmImageManifestEntry = {
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
+  readonly machineRuntime: MachineRuntime;
   readonly notes?: string;
 };
 
@@ -76,6 +82,8 @@ export type VmImageSelection = {
   readonly kind: VmImageKind;
   /** The shape the machine boots at, when the manifest knows it. */
   readonly size: VmImageManifestSize | null;
+  /** True only for an approved image matching the machine protocol contract. */
+  readonly machineConnectable: boolean;
 };
 
 export type VmImageResolveOptions = {
@@ -87,10 +95,28 @@ export type VmImageResolveOptions = {
   readonly memoryMb?: number;
 };
 
-const typedManifest = manifest as {
+const typedManifest = parseVmImageManifest(manifest) as unknown as {
   readonly schemaVersion: number;
   readonly images: readonly VmImageManifestEntry[];
 };
+
+export function isVmImageMachineConnectable(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const candidate = entry as {
+    readonly provider?: unknown;
+    readonly validationStatus?: unknown;
+    readonly machineRuntime?: unknown;
+  };
+  return candidate.validationStatus === "passed" &&
+    isMachineRuntimeConnectable(candidate.machineRuntime, candidate.provider);
+}
+
+export function imageIsMachineConnectable(provider: ProviderId, imageId: string): boolean {
+  const entry = typedManifest.images.find((candidate) =>
+    candidate.provider === provider && candidate.imageId === imageId
+  );
+  return entry ? isVmImageMachineConnectable(entry) : false;
+}
 
 export function listVmImageManifestEntries(): readonly VmImageManifestEntry[] {
   return typedManifest.images;
@@ -305,6 +331,7 @@ function resolveRequested(
       manifestEntry: null,
       kind: kind ?? deriveVmImageKind(null, image),
       size: null,
+      machineConnectable: false,
     };
   }
 
@@ -399,6 +426,7 @@ function selectionFromEntry(entry: VmImageManifestEntry): VmImageSelection {
     manifestEntry: entry,
     kind: deriveVmImageKind(entry, entry.imageId),
     size: entry.size ?? null,
+    machineConnectable: isVmImageMachineConnectable(entry),
   };
 }
 

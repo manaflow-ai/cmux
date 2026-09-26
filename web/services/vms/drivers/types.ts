@@ -6,7 +6,7 @@ import type { GuestPromptIdentity } from "../guestPrompt";
 
 export type ProviderId = "freestyle";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
+export const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
