@@ -147,3 +147,5 @@ public final class TerminalPredictionOverlayView: NSView {
         isHidden = true
     }
 }
+
+// Control run for #14860 (comment only; do not merge).

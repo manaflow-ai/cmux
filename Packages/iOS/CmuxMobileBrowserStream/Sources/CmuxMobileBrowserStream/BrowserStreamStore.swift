@@ -411,3 +411,5 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         return decoder
     }
 }
+
+// Control run for #14860 (comment only; do not merge).
