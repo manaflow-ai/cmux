@@ -3228,14 +3228,17 @@ class TerminalController {
                 }
                 let paneUUID = projection?.paneID
                 let surfaceUUID = projection?.surfaceID
+                let stableSurfaceUUID = projection?.panel.stableSurfaceId
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
                     "workspace_id": wsId.uuidString,
+                    "stable_workspace_id": ws.stableId.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                     "surface_id": v2OrNull(surfaceUUID?.uuidString),
+                    "stable_surface_id": v2OrNull(stableSurfaceUUID?.uuidString),
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
@@ -3522,6 +3525,7 @@ class TerminalController {
         return [
             "kind": "workspace",
             "id": topology.workspaceID.uuidString,
+            "stable_id": workspace.stableId.uuidString,
             "ref": v2Ref(kind: .workspace, uuid: topology.workspaceID),
             "index": topology.index,
             "title": topology.title,
@@ -3540,6 +3544,7 @@ class TerminalController {
         var item: [String: Any] = [
             "kind": "surface",
             "id": surface.surfaceID.uuidString,
+            "stable_id": v2OrNull(surface.stableSurfaceID?.uuidString),
             "ref": v2Ref(kind: .surface, uuid: surface.surfaceID),
             "index": surface.index,
             "type": surface.typeRawValue,

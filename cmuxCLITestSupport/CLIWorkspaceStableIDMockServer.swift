@@ -190,10 +190,12 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             "id": Self.paneID,
             "ref": "pane:1",
             "index": 0,
-            "focused": true,
-            "surface_count": 1,
-            "surface_ids": [Self.surfaceID],
-            "surface_refs": ["surface:1"],
+                    "focused": true,
+                    "surface_count": 1,
+                    "surface_ids": [Self.surfaceID],
+                    "stable_surface_ids": [Self.stableSurfaceID],
+                    "surface_refs": ["surface:1"],
+                    "selected_stable_surface_id": Self.stableSurfaceID,
         ]
     }
 
@@ -205,6 +207,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             "selected": true,
             "title": "terminal",
             "type": "terminal",
+            "stable_id": Self.stableSurfaceID,
         ]
     }
 
@@ -212,6 +215,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
         var row: [String: Any] = [
             "id": workspaceID,
             "ref": "workspace:1",
+            "stable_id": Self.stableWorkspaceID,
             "index": 0,
             "title": "remote",
             "has_custom_title": false,
@@ -224,6 +228,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                 "surfaces": [[
                     "id": Self.surfaceID,
                     "ref": "surface:1",
+                    "stable_id": Self.stableSurfaceID,
                     "type": "terminal",
                 ]],
             ]],
@@ -287,4 +292,6 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
 
     private static let paneID = "33333333-3333-3333-3333-333333333333"
     private static let surfaceID = "44444444-4444-4444-4444-444444444444"
+    private static let stableWorkspaceID = "55555555-5555-5555-5555-555555555555"
+    private static let stableSurfaceID = "66666666-6666-6666-6666-666666666666"
 }

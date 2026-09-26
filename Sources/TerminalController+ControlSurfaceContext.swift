@@ -168,6 +168,7 @@ extension TerminalController: ControlSurfaceContext {
             let simulatorPanel = dock.panels[summary.surfaceID] as? SimulatorPanel
             return ControlSurfaceSummary(
                 surfaceID: summary.surfaceID,
+                stableSurfaceID: summary.stableSurfaceID,
                 typeRawValue: summary.typeRawValue,
                 title: summary.title,
                 isFocused: summary.isFocused,

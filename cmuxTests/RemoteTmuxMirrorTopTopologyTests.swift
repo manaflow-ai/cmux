@@ -38,6 +38,7 @@ struct RemoteTmuxMirrorTopTopologyTests {
         let topWorkspace = try #require(workspaces.first {
             $0["id"] as? String == harness.workspace.id.uuidString
         })
+        #expect(topWorkspace["stable_id"] as? String == harness.workspace.stableId.uuidString)
         let topPanes = try #require(topWorkspace["panes"] as? [[String: Any]])
 
         let workspaceRef = try #require(topWorkspace["ref"] as? String)
@@ -87,6 +88,10 @@ struct RemoteTmuxMirrorTopTopologyTests {
 
             for (surfaceIndex, surface) in surfaces.enumerated() {
                 let surfaceID = surfaceIDs[surfaceIndex]
+                let expectedStableSurfaceID = try #require(
+                    expectedPane.surfaces[surfaceIndex].stableSurfaceID
+                )
+                #expect(surface["stable_id"] as? String == expectedStableSurfaceID.uuidString)
                 let surfaceRef = try #require(surface["ref"] as? String)
                 #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == surfaceID)
 

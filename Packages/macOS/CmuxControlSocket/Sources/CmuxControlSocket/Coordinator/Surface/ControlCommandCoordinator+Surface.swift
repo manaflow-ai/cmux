@@ -160,6 +160,9 @@ extension ControlCommandCoordinator {
                     "index_in_pane": surface.indexInPane.map { .int(Int64($0)) } ?? .null,
                     "selected_in_pane": surface.selectedInPane.map { .bool($0) } ?? .null,
                 ]
+                if let stableSurfaceID = surface.stableSurfaceID {
+                    item["stable_id"] = .string(stableSurfaceID.uuidString)
+                }
                 if let dev = surface.developerToolsVisible {
                     item["developer_tools_visible"] = .bool(dev)
                 }
