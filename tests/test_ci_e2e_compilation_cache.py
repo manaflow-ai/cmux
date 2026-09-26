@@ -181,8 +181,10 @@ exit 97
             upload = by_id(upload_id)
             self.assertEqual(
                 upload['with']['name'],
-                'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
-                'publish under the name ci.yml uses, so a later run can adopt it')
+                'app-host-products-v1-${{ steps.reuse.outputs.product_key'
+                ' || steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+                'publish under the name ci.yml uses, so a later run can adopt it,'
+                ' or the name of the root a reused product moved this job to')
 
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'],
@@ -231,6 +233,23 @@ exit 97
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')
+
+    def test_an_owned_mac_takes_the_gui_token_before_testing_here(self):
+        # The tests share the owned Mac's one console session, so this job
+        # takes glaeda's gui token just before them, and leaves them to the
+        # `test` job when take-gui gives way (3) or times out (1).
+        here = step('Run the selected tests here', 'build')
+        self.assertEqual(here['env']['OWNED'], "${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}")
+        run = here['run']
+        self.assertIn('/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root', run)
+        self.assertIn('take-gui --wait 300', run)
+        self.assertIn('0|2) ;;', run, 'held, or a hook that gave the token at job start')
+        self.assertIn('echo "tested=false"', run)
+        self.assertNotIn('set -e', run, 'take-gui exit statuses decide, they must not fail the step')
+        # Left to the `test` job, the tests still find the product: the late
+        # upload runs whenever the early one stood aside.
+        self.assertEqual(by_id('late-upload-check')['if'],
+                         "${{ always() && steps.package.outcome == 'success' && steps.upload-product.outcome == 'skipped' }}")
 
     def test_an_owned_mac_uploads_the_product_after_its_tests(self):
         # An owned Mac uploads at 6-7 MB/s, about 130 s for the product, which
@@ -480,6 +499,15 @@ exit 97
         def explode(*_):
             raise OSError('unreachable')
         self.assertFalse(revision_on_main.contained_in_main('o/r', sha, 't', compare=explode))
+
+    def test_an_owned_mac_neither_restores_nor_saves_the_cache(self):
+        # 8 owned builds on 2026-09-25 hit 0 to 6 entries (one outlier, 409)
+        # while the transfers cost 1.5 to 3.5 min at the owned Macs' bandwidth.
+        owned = "!startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
+        self.assertIn(owned, step('Restore E2E compilation cache')['if'])
+        self.assertIn(owned, step('Bound E2E compilation cache')['if'])
+        # The save only follows a bound that allowed it.
+        self.assertIn("steps.compilation-cache-bound.outputs.save == 'true'", step('Save E2E compilation cache')['if'])
 
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()

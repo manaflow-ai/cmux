@@ -13,6 +13,8 @@ from unittest import mock
 
 import yaml
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import seed_derived_data as seed  # noqa: E402
@@ -156,6 +158,45 @@ class SeedDerivedData(unittest.TestCase):
         # The kept copy is untouched by the build that follows.
         (self.derived / "Build/App.o").write_text("rebuilt")
         self.assertEqual((cache / key / "Build/App.o").read_text(), "object")
+
+    def test_a_seed_job_keeps_what_it_built_for_the_next_one(self):
+        """A trusted seed Mac keeps the seed it just saved, so the next seed
+        job on it clones it instead of downloading it back from R2."""
+        self.derived.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        (self.derived / "Build").mkdir()
+        (self.derived / "Build/App.o").write_text("built")
+        self.assertEqual(seed.main(["seed", "keep", str(self.derived), "p-j14-abc"]), 0)
+        self.assertIsNone(seed.cached("p-j14-abc"), "no local cache: nothing kept")
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        try:
+            self.assertEqual(seed.main(["seed", "keep", str(self.derived), "p-j14-abc"]), 0)
+            self.assertEqual(seed.cached("p-j14-abc"), cache / "p-j14-abc")
+            self.assertEqual((cache / "p-j14-abc/Build/App.o").read_text(), "built")
+            (self.derived / "Build/App.o").write_text("product staging rewrote it")
+            self.assertEqual((cache / "p-j14-abc/Build/App.o").read_text(), "built")
+        finally:
+            del os.environ["CMUX_SEED_LOCAL_CACHE"]
+
+    def test_the_trusted_seed_job_keeps_its_seeds_between_save_and_the_product_steps(self):
+        seeder = steps("seed-derived-data.yml", "seed")
+        choose_at, choose = named(seeder, "Keep seeds on a trusted Mac")
+        adopt_at, _ = named(seeder, "Adopt the newest seed")
+        save_at, _ = named(seeder, "Save seed")
+        keep_at, keep = named(seeder, "Keep the seed on this Mac")
+        stage_at, _ = named(seeder, "Stage compiled package frameworks")
+        self.assertLess(choose_at, adopt_at)
+        self.assertLess(save_at, keep_at)
+        self.assertLess(keep_at, stage_at)
+        self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
+        # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
+        self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
+        self.assertIn('[ -d "$cache" ]', choose["run"])  # once on, prune_local holds the disk
+        self.assertIn("CMUX_SEED_LOCAL_CACHE=$cache", choose["run"])
+        self.assertIn('cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"', choose["run"])
+        self.assertIs(keep["continue-on-error"], True)
+        self.assertEqual(keep["env"]["SEED_KEY"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
 
     def test_start_downloads_nothing_for_a_kept_seed(self):
         cache = self.root / "seeds"
@@ -1184,21 +1225,24 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
-    def test_only_the_rescue_retries_a_refused_owned_job_on_the_fleet(self):
+    def test_attempt_2_retries_an_owned_job_on_the_fleet_whoever_starts_it(self):
         # owned_pool_rescue.py re-runs a refused job's failed jobs with
-        # github.token, so attempt 2 is triggered by github-actions[bot] and
-        # takes the owned label once more. A person's "Re-run failed jobs" is
-        # also attempt 2 with the same outputs, but nothing watches it, so it
-        # takes the Blacksmith retry runner.
+        # github.token, so its attempt 2 is triggered by github-actions[bot]. A
+        # person's or agent's "Re-run failed jobs" is also attempt 2 with the
+        # same outputs, and the sweeper follows it the same way (sweep_target),
+        # so both take the owned label once more. Attempt 3 always takes the
+        # Blacksmith retry runner.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for actor, runner in (("github-actions[bot]", "glaeda-std-xcode-26.6"),
-                              ("someone", "blacksmith-12vcpu-macos-26")):
+        for actor, attempt, runner in (("github-actions[bot]", "2", "glaeda-std-xcode-26.6"),
+                                       ("someone", "2", "glaeda-std-xcode-26.6"),
+                                       ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
+                                       ("someone", "3", "blacksmith-12vcpu-macos-26")):
             context = github_context("pull_request", ref="refs/pull/1/merge")
-            context["github"].update(repository="manaflow-ai/cmux", run_attempt="2", triggering_actor=actor,
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner="blacksmith-12vcpu-macos-26",
                                      pr_refused_retry_runner="glaeda-std-xcode-26.6", pr_owned_jobs=" admission ")
-            with self.subTest(actor=actor):
+            with self.subTest(actor=actor, attempt=attempt):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
@@ -1221,8 +1265,8 @@ class Wiring(unittest.TestCase):
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
         # glaeda refuses a canonical-root job on a mini whose root is taken, so
-        # a placed root job takes the root label, on attempt 1 and on the
-        # rescue's attempt 2. Without pr_root_runner nothing changes.
+        # a placed root job takes the root label, on attempt 1 and on any
+        # attempt 2. Without pr_root_runner nothing changes.
         macos = load("ci-macos.yml")["jobs"]
         root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
         for attempt, actor, owned_jobs, root_runner, runner in (
@@ -1231,7 +1275,8 @@ class Wiring(unittest.TestCase):
             ("1", "someone", " cli-pipe ", root, retry),
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
-            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, root),
+            ("3", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
@@ -1263,7 +1308,8 @@ class Wiring(unittest.TestCase):
             ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
             ("2", "github-actions[bot]", warm, root),
-            ("2", "someone", warm, retry),
+            ("2", "someone", warm, root),
+            ("3", "someone", warm, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
@@ -1289,7 +1335,8 @@ class Wiring(unittest.TestCase):
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
                                        ("2", "github-actions[bot]", root),
-                                       ("2", "someone", retry)):
+                                       ("2", "someone", root),
+                                       ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      sha="head")

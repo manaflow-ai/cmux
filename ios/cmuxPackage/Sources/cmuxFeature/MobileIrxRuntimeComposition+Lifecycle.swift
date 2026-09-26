@@ -282,6 +282,9 @@ extension MobileIrxRuntimeComposition {
         lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
+        let oldEventLaneHubs = eventLaneHubs.values.map(\.hub)
+        eventLaneHubs.removeAll()
+        for hub in oldEventLaneHubs { Task { await hub.stop() } }
         publish()
         await MainActor.run { self.macListAuthState.clear() }
         return DetachedRuntime(

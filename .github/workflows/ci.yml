@@ -122,8 +122,13 @@ jobs:
       # for this run's merge base: ["<root label>", "glaeda-runner-<name>"],
       # the labels compile admission's attempt 1 takes instead.
       macos_pr_admission_runner: ${{ steps.macos-pool.outputs.admission_runner }}
+      # JSON tiers of root runner names warm for this run (merge base first,
+      # then this pull request), for ci-macos.yml's admission-placement.
+      macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
     permissions:
       actions: read
+      # The delta step reads the ci-status check run of the last green head.
+      checks: read
       contents: read
       pull-requests: read
     steps:
@@ -145,6 +150,41 @@ jobs:
           EOF
           echo "parent1=${parent1:-}" >> "$GITHUB_OUTPUT"
 
+      # Delta CI (#14631): when this head only merged main into a head whose
+      # ci-status passed, plus at most one resolution commit, the pull
+      # request's own changes are already proven there, so routing diffs from
+      # that green head instead of from main. Fail open: any doubt (another
+      # shape, a red or missing verdict, shallow history, an API error) leaves
+      # base_sha empty and the detector routes the usual pull request diff.
+      # The base revision's copy runs, like the trusted router below, so a
+      # pull request cannot change how its own diff is chosen. Same-repository
+      # pull requests only: fork runs get no repository variables, so the
+      # switch could not turn them off, and GitHub ties no pull request to a
+      # fork run, which the verdict needs. Set the repository variable
+      # CI_DELTA_SINCE_GREEN to 0 to turn it off.
+      - name: Diff from the last green head when this push only merged main
+        id: delta
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_DELTA_SINCE_GREEN || '1') != '0' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -uo pipefail
+          selector="$RUNNER_TEMP/delta_since_green.py"
+          if ! git show HEAD^1:scripts/ci/delta_since_green.py > "$selector" 2>/dev/null; then
+            echo "The base revision has no delta selector; routing the pull request diff."
+            exit 0
+          fi
+          python3 -I "$selector" --repository "$GITHUB_REPOSITORY" \
+            --merge-sha "$MERGE_SHA" --head-sha "$HEAD_SHA" \
+            --pull-request "$PR_NUMBER" --base-ref "$BASE_REF" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
       - name: Detect CI change areas
         id: detect
         env:
@@ -152,6 +192,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_SHA: ${{ github.sha }}
+          # Empty unless the delta step found a green head to diff from.
+          DELTA_BASE_SHA: ${{ steps.delta.outputs.base_sha }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -174,6 +216,12 @@ jobs:
             # first parent is the base it was actually built on.
             if git rev-parse -q --verify "$MERGE_SHA^2" > /dev/null; then
               BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"
+            fi
+            # Everything below, including the base-revision comparisons of
+            # ci.yml, ci-macos.yml, the registry and the Xcode project, then
+            # reads "what changed since the green head".
+            if [ -n "${DELTA_BASE_SHA:-}" ]; then
+              BASE_SHA="$DELTA_BASE_SHA"
             fi
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
@@ -266,7 +314,7 @@ jobs:
                 tests/test_ci_change_areas.py)
                   ci_router_changed=true
                   ;;
-                scripts/ci/detect_ci_change_areas.py)
+                scripts/ci/detect_ci_change_areas.py|scripts/ci/delta_since_green.py)
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
@@ -342,7 +390,7 @@ jobs:
               : > "$product_files"
               while IFS= read -r path; do
                 case "$path" in
-                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
+                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/delta_since_green.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_delta_since_green.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
                     ;;
                   *)
                     printf '%s\n' "$path" >> "$product_files"
@@ -703,6 +751,8 @@ jobs:
           # The main commit this run merges onto: compile admission may take
           # the root runner the snapshot calls warm for it (warm affinity).
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
+          # Or, failing that, the root runner warm for this pull request.
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/pr_runner_pool.py
 
@@ -773,7 +823,7 @@ jobs:
                   full_guard_matrix=true
                   other_full_guard_matrix=true
                   ;;
-                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
+                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/delta_since_green.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_delta_since_green.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
                   routing_policy_changed=true
                   ;;
                 .github/workflows/ci-macos.yml)
@@ -1126,7 +1176,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && github.run_attempt == 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1271,9 +1321,10 @@ jobs:
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
+      pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
       pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
-    # ci-macos.yml's late-placement reads idle root runners with it.
+    # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
@@ -1546,3 +1597,45 @@ jobs:
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")
           PY
+
+  ci-timing:
+    # The run's timing readout in the job summary: the chain of jobs that set
+    # the wall time, where each ran, and each against the last week of the
+    # same jobs (percentiles from the build controller's webhook feed, no API
+    # budget). Beside ci-status rather than a step of it, so the required
+    # check never waits on it or fails with it.
+    name: CI timing
+    needs:
+      - changes
+      - claude-wrapper
+      - suite-coverage
+      - static-preflight
+      - guards
+      - ghosttykit-release-check
+      - browser
+      - remote-daemon
+      - web
+      - linux-preflight
+      - macos-admission-gate
+      - macos
+      - tests
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout the readout script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ci_timing_readout.py
+          sparse-checkout-cone-mode: false
+
+      - name: Write the timing readout
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_TIMING_STATS_URL: ${{ vars.CI_TIMING_STATS_URL || 'https://gh-events.glaeda.com/ci-timing.json' }}
+        run: python3 scripts/ci/ci_timing_readout.py
