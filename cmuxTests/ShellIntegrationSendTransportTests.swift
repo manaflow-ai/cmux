@@ -89,6 +89,10 @@ struct ShellIntegrationSendTransportTests {
         let integrationFile = directory.appendingPathComponent("config.fish")
         let logFile = directory.appendingPathComponent("tmux.log")
         try integration.write(to: integrationFile, atomically: true, encoding: .utf8)
+        // The integration only publishes to a running default tmux server, so
+        // give it one in a private TMUX_TMPDIR instead of depending on
+        // whether the host happens to run tmux.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
 
         let process = Process()
         let standardOutput = Pipe()
@@ -115,11 +119,13 @@ struct ShellIntegrationSendTransportTests {
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
             "TERM": "xterm-256color",
+            "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
         ]
         process.standardOutput = standardOutput
         process.standardError = standardError
         try process.run()
         process.waitUntilExit()
+        withExtendedLifetime(tmuxServer) {}
         let output = String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let error = String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 
@@ -196,11 +202,13 @@ struct ShellIntegrationSendTransportTests {
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
             "TERM": "xterm-256color",
+            "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
         ]
         process.standardOutput = standardOutput
         process.standardError = standardError
         try process.run()
         process.waitUntilExit()
+        withExtendedLifetime(tmuxServer) {}
         let output = String(
             decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
@@ -525,4 +533,63 @@ private final class UnixLineListener: @unchecked Sendable {
     }
 
     deinit { close(serverFD) }
+}
+
+/// A bound `default` tmux server socket in a private `TMUX_TMPDIR`. The shell
+/// integrations publish cmux environment to tmux only when the default
+/// server's socket exists, so tests of the publish path need one rather than
+/// relying on a tmux server the host may or may not be running.
+final class TmuxDefaultServerSocketFixture {
+    let tmuxTemporaryDirectory: URL
+    private let serverFD: Int32
+
+    init() throws {
+        // Short root: the socket path must fit sockaddr_un.sun_path (104 bytes
+        // on Darwin); the default temporaryDirectory under /var/folders can overflow it.
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-tmx-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let socketDirectory = root.appendingPathComponent("tmux-\(getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: socketDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let socketPath = socketDirectory.appendingPathComponent("default").path
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            try? FileManager.default.removeItem(at: root)
+            throw POSIXError(.EMFILE)
+        }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path) - 1
+        let utf8 = Array(socketPath.utf8)
+        guard utf8.count <= maxLength else {
+            close(fd)
+            try? FileManager.default.removeItem(at: root)
+            throw POSIXError(.ENAMETOOLONG)
+        }
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            raw.copyBytes(from: utf8)
+            raw[utf8.count] = 0
+        }
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bound == 0 else {
+            close(fd)
+            try? FileManager.default.removeItem(at: root)
+            throw POSIXError(.EADDRINUSE)
+        }
+        serverFD = fd
+        tmuxTemporaryDirectory = root
+    }
+
+    deinit {
+        close(serverFD)
+        try? FileManager.default.removeItem(at: tmuxTemporaryDirectory)
+    }
 }
