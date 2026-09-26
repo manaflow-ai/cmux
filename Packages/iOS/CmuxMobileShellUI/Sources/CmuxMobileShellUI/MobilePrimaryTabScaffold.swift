@@ -15,6 +15,8 @@ struct MobilePrimaryTabScaffold<
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
     let feedNeedsInputCount: Int
+    /// False when the Feed replaces the Notifications tab (CMUX Labs).
+    let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
     let feed: Feed
@@ -26,6 +28,7 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         feedNeedsInputCount: Int = 0,
+        showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder feed: () -> Feed,
@@ -36,6 +39,7 @@ struct MobilePrimaryTabScaffold<
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.feedNeedsInputCount = feedNeedsInputCount
+        self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
         self.feed = feed()
@@ -95,10 +99,12 @@ struct MobilePrimaryTabScaffold<
                     .tabItem { feedLabel }
                     .tag(MobilePrimaryTab.feed)
                     .badge(feedNeedsInputCount)
-                notifications
-                    .tabItem { notificationsLabel }
-                    .tag(MobilePrimaryTab.notifications)
-                    .badge(notificationUnreadCount)
+                if showsNotificationsTab {
+                    notifications
+                        .tabItem { notificationsLabel }
+                        .tag(MobilePrimaryTab.notifications)
+                        .badge(notificationUnreadCount)
+                }
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
@@ -149,12 +155,14 @@ struct MobilePrimaryTabScaffold<
         }
         .badge(feedNeedsInputCount)
 
-        Tab(value: MobilePrimaryTab.notifications) {
-            notifications
-        } label: {
-            notificationsLabel
+        if showsNotificationsTab {
+            Tab(value: MobilePrimaryTab.notifications) {
+                notifications
+            } label: {
+                notificationsLabel
+            }
+            .badge(notificationUnreadCount)
         }
-        .badge(notificationUnreadCount)
     }
 
     private var feedLabel: some View {

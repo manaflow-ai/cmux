@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.settings.feedReplacesNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Replaces Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードで通知を置き換え"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed ersetzt Mitteilungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fil remplace les notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموجز يحل محل الإشعارات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El feed reemplaza las notificaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以動態取代通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以动态取代通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드로 알림 대체"
+          }
+        }
+      }
+    },
+    "mobile.settings.feedReplacesNotificationsCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the Notifications tab and use the Feed for agent activity."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知タブを非表示にし、エージェントのアクティビティにはフィードを使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet den Tab „Mitteilungen“ aus und nutzt den Feed für Agent-Aktivität."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque l’onglet Notifications et utilise le fil pour l’activité des agents."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء علامة تبويب الإشعارات واستخدام الموجز لنشاط الوكلاء."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la pestaña Notificaciones y usa el feed para la actividad de los agentes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏「通知」分頁，改用動態查看代理活動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏“通知”标签页，改用动态查看代理活动。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 탭을 숨기고 에이전트 활동에는 피드를 사용합니다."
+          }
+        }
+      }
+    },
     "mobile.agentFeed.retry": {
       "extractionState": "manual",
       "localizations": {

@@ -36,6 +36,7 @@ public final class MobileDisplaySettings {
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
     private static let feedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
+    private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -186,6 +187,14 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Persisted CMUX Labs switch that hides the Notifications tab so the
+    /// Feed can be dogfooded as its replacement. Off by default.
+    var feedReplacesNotifications: Bool {
+        didSet {
+            defaults.set(feedReplacesNotifications, forKey: Self.feedReplacesNotificationsKey)
+        }
+    }
+
     /// DEBUG-only override forcing the rebuilt keyboard dock path on this
     /// device (iOS ≤26; legacy is the shipping default), exposed in
     /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
@@ -208,6 +217,8 @@ public final class MobileDisplaySettings {
     var taskComposerFullLiquidGlass: Bool { false }
     /// Production builds keep the shipping leading-bar quotes.
     var feedBubbleQuotes: Bool { false }
+    /// Production builds keep the Notifications tab.
+    var feedReplacesNotifications: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -252,6 +263,7 @@ public final class MobileDisplaySettings {
         self.feedBubbleQuotes = defaults.object(
             forKey: Self.feedBubbleQuotesKey
         ) as? Bool ?? true
+        self.feedReplacesNotifications = defaults.bool(forKey: Self.feedReplacesNotificationsKey)
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }

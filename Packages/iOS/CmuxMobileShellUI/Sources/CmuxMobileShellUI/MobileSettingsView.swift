@@ -425,6 +425,22 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
 
+                    Toggle(isOn: $displaySettings.feedReplacesNotifications) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedReplacesNotifications",
+                                defaultValue: "Feed Replaces Notifications"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedReplacesNotificationsCaption",
+                                defaultValue: "Hide the Notifications tab and use the Feed for agent activity."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedReplacesNotifications")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {

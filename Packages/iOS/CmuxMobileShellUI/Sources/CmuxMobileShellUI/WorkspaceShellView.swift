@@ -375,6 +375,13 @@ struct WorkspaceShellView: View {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
                 }
             }
+            .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
+                // A hidden destination cannot stay selected; the Feed is its
+                // replacement.
+                if replaces, selectedPrimaryTab == .notifications {
+                    selectedPrimaryTab = .feed
+                }
+            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 store.recordAppEvent(
                     .primaryTabSelected,
@@ -435,6 +442,7 @@ struct WorkspaceShellView: View {
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
             feedNeedsInputCount: presentation.agentFeedNeedsInputCount,
+            showsNotificationsTab: !displaySettings.feedReplacesNotifications,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
                 : taskComposerAction
@@ -1074,7 +1082,8 @@ struct WorkspaceShellView: View {
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
                 feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
+                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
+                showsNotifications: !displaySettings.feedReplacesNotifications
             )
         }
         if #available(iOS 26.0, *) {
@@ -1101,6 +1110,7 @@ struct WorkspaceShellView: View {
         let workspacesTitle: String
         let feedTitle: String
         let notificationsTitle: String
+        let showsNotifications: Bool
 
         var body: some View {
             HStack(spacing: 0) {
@@ -1114,11 +1124,13 @@ struct WorkspaceShellView: View {
                     title: feedTitle,
                     accessibilityID: "MobileSplitSidebarFeed"
                 )
-                destinationButton(
-                    .notifications,
-                    title: notificationsTitle,
-                    accessibilityID: "MobileSplitSidebarNotifications"
-                )
+                if showsNotifications {
+                    destinationButton(
+                        .notifications,
+                        title: notificationsTitle,
+                        accessibilityID: "MobileSplitSidebarNotifications"
+                    )
+                }
             }
             .frame(minHeight: 44)
             .fixedSize(horizontal: true, vertical: false)
