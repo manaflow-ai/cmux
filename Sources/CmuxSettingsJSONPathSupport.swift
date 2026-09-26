@@ -1,7 +1,29 @@
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import Foundation
+
+// Keep the portable settings skill's source fallback aware of catalog-owned
+// viewer paths when the generated all-keys reference is unavailable.
+private enum SettingsJSONPathFallbackCatalog {
+    static let viewerPaths = [
+        "app.openSupportedFilesInCmux",
+        "app.openMarkdownInCmuxViewer",
+        "app.preferredEditor",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
+        "fileEditor.syntaxHighlighting",
+        "fileEditor.lineNumbers",
+        "fileEditor.indentGuides",
+        "fileEditor.currentLineHighlight",
+        "fileEditor.tabWidth",
+        "fileExplorer.doubleClickAction",
+        "diffViewer.defaultLayout",
+    ]
+}
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
@@ -159,6 +181,10 @@ enum AppSettingsFileMapping {
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
         ),
         .init(
             jsonKey: "openSupportedFilesInCmux",

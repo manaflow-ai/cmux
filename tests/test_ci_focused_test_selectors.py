@@ -22,6 +22,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/focused_test_selectors.py"
 E2E = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+# test-e2e.yml's build job, or its fallback test job, runs the tests through
+# this composite action.
+E2E_TESTS = yaml.safe_load((ROOT / ".github/actions/e2e-run-tests/action.yml").read_text())
 MACOS_SUITE = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())
 
 
@@ -31,6 +34,13 @@ def load():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def action_step(action, name):
+    found = [s for s in action["runs"]["steps"] if s.get("name") == name]
+    if len(found) != 1:
+        raise AssertionError(f"expected one {name!r} step in the action, found {len(found)}")
+    return found[0]
 
 
 def step(workflow, job, name):
@@ -313,15 +323,23 @@ path = args[args.index("-test-enumeration-output-path") + 1]
 open(path, "w").write({json.dumps(json.dumps(enumeration))})
 ''')
 
-    def test_the_test_job_resolves_selectors_before_running_them(self):
-        resolve = step(E2E, "test", "Resolve selectors against the built tests")
-        self.assertEqual(resolve["if"], "${{ needs.filter.outputs.target == 'cmuxTests' }}")
-        run = step(E2E, "test", "Run selected tests")
+    def test_every_e2e_test_run_passes_the_filter_jobs_selectors(self):
+        for job, name in (("build", "Run selected tests"), ("test", "Run selected tests")):
+            with self.subTest(job=job):
+                call = step(E2E, job, name)
+                self.assertEqual(call["uses"], "./.e2e-workflow/.github/actions/e2e-run-tests")
+                self.assertEqual(call["with"]["target"], "${{ needs.filter.outputs.target }}")
+                self.assertEqual(call["with"]["selectors"], "${{ needs.filter.outputs.selectors }}")
+
+    def test_the_test_steps_resolve_selectors_before_running_them(self):
+        resolve = action_step(E2E_TESTS, "Resolve selectors against the built tests")
+        self.assertEqual(resolve["if"], "${{ inputs.target == 'cmuxTests' }}")
+        run = action_step(E2E_TESTS, "Run selected tests")
         self.assertEqual(
             run["env"]["TEST_SELECTORS"],
-            "${{ steps.resolve-selectors.outputs.selectors || needs.filter.outputs.selectors }}",
+            "${{ steps.resolve-selectors.outputs.selectors || inputs.selectors }}",
         )
-        names = [s.get("name") for s in E2E["jobs"]["test"]["steps"]]
+        names = [s.get("name") for s in E2E_TESTS["runs"]["steps"]]
         self.assertLess(names.index("Prepare isolated app-host home"), names.index(resolve["name"]))
         self.assertLess(names.index(resolve["name"]), names.index("Run selected tests"))
 
@@ -338,7 +356,7 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
     def test_a_selector_matching_no_built_test_fails_before_the_run(self):
         self.fake_enumeration()
         result = self.run_script(
-            step(E2E, "test", "Resolve selectors against the built tests")["run"],
+            action_step(E2E_TESTS, "Resolve selectors against the built tests")["run"],
             TEST_SELECTORS="cmuxTests/ModernTests/plain,cmuxTests/ModernTests/misspelled",
         )
         self.assertNotEqual(result.returncode, 0)
@@ -346,7 +364,7 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
         self.assertNotIn("selectors", self.outputs())
 
     def test_an_older_revision_or_failed_enumeration_runs_selectors_as_given(self):
-        script = step(E2E, "test", "Resolve selectors against the built tests")["run"]
+        script = action_step(E2E_TESTS, "Resolve selectors against the built tests")["run"]
         self.tool("xcodebuild", "#!/bin/sh\nexit 70\n")
         result = self.run_script(script, TEST_SELECTORS="cmuxTests/ModernTests/plain")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -357,7 +375,7 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
         self.assertNotIn("selectors", self.outputs())
 
     def backstop(self):
-        script = step(E2E, "test", "Run selected tests")["run"]
+        script = action_step(E2E_TESTS, "Run selected tests")["run"]
         start = script.index("if [ -f scripts/ci/focused_test_selectors.py ]; then")
         end = script.index("# Name each", start)
         return script[start:end]
