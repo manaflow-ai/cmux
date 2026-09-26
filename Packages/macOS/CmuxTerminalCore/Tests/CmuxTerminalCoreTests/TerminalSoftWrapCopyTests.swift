@@ -173,4 +173,37 @@ struct TerminalSoftWrapCopyTests {
             ) == "abcdefghij more text"
         )
     }
+
+    @Test func hardWrapReflowLeavesLinesWiderThanTheGridAlone() {
+        let text = "abcdefghijklmno\ndone"
+
+        #expect(
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joiningSoftWraps(
+                in: text,
+                wrapFlags: nil
+            ) == text
+        )
+    }
+
+    @Test func hardWrapReflowCountsNarrowPunctuationAsOneCell() {
+        let text = "a \u{2014} \u{201C}b\u{201D}\nnext"
+
+        #expect(
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joiningSoftWraps(
+                in: text,
+                wrapFlags: nil
+            ) == text
+        )
+    }
+
+    @Test func hardWrapReflowCountsWideCharactersAsTwoCells() {
+        let text = "\u{65E5}\u{672C}\u{8A9E}\u{65E5}\u{672C}\nnext"
+
+        #expect(
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joiningSoftWraps(
+                in: text,
+                wrapFlags: nil
+            ) == "\u{65E5}\u{672C}\u{8A9E}\u{65E5}\u{672C} next"
+        )
+    }
 }
