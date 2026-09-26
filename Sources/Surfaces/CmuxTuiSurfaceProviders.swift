@@ -68,7 +68,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
     private var portsCache: (ports: [Int], at: Date)?
-    private let portsTTL: TimeInterval = 30
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
     let loadPortSummary: @MainActor (String) async throws -> VMSummary
@@ -364,7 +363,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // that had just resumed, which held New Machine's first terminal
             // back for nothing (it only feeds port-preview rows).
             portScan = Task { [weak self] in
-                await self?.ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
+                await self?.ports(link: link, socketPath: connected.socketPath, force: force, lifecycle: lifecycle, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
             }
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             watchChanges(link: link, generation: lifecycle)
@@ -1366,36 +1365,37 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return updated
     }
 
-    private func ports(link: CloudMachineLink, socketPath: String, force: Bool, generation: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
+    private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
         guard portDiscovery.mayScan else { return portsCache?.ports }
-        if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
+        let previousState = portDiscovery.state
+        if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
+            if portDiscovery.state != previousState { publishPortDiscovery() }
             return cached.ports.filter {
                 !CmuxTuiSnapshotParser.internalPorts.contains($0)
                     && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
             }
         }
+        // The request id, not the refresh generation, fences this scan: routine
+        // summary polls bump the generation mid-scan, while a newer scan, route
+        // change, or link failure supersedes the request.
+        let request = portDiscovery.beginScan()
         guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stdout = object["stdout"] as? String else {
             // A cancelled scan belongs to whichever pass cancelled it.
-            guard generation == refreshGeneration, !Task.isCancelled else { return nil }
-            let request = portDiscovery.beginScan()
+            guard isCurrentLifecycleGeneration(lifecycle), !Task.isCancelled else { return nil }
             if portDiscovery.complete(nil, request: request, at: Date.now, socketPath: socketPath) {
                 publishPortDiscovery()
             }
             return nil
         }
+        guard isCurrentLifecycleGeneration(lifecycle) else { return nil }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        guard let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned) else {
-            portDiscovery.linkFailed()
-            publishPortDiscovery()
-            return nil
-        }
-        guard generation == refreshGeneration else { return nil }
-        let request = portDiscovery.beginScan()
+        let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)
         guard portDiscovery.complete(scan, request: request, at: Date.now, socketPath: socketPath) else { return nil }
         publishPortDiscovery()
+        guard let scan else { return nil }
         portsCache = (scan.ports, Date.now)
         return scan.ports
     }

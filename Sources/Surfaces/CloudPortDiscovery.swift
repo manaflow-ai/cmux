@@ -47,9 +47,14 @@ struct CloudPortDiscovery: Sendable {
         return scan
     }
 
+    /// A rescan keeps the settled result visible; only a machine with no inventory shows loading.
     mutating func beginScan() -> UInt64 {
         requestID &+= 1
-        state = blocker ?? .loading
+        if let blocker {
+            state = blocker
+        } else if scan == nil {
+            state = .loading
+        }
         return requestID
     }
 
