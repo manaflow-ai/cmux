@@ -1711,6 +1711,7 @@
 		D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
 		D10799040000000000000001 /* DragPasteboardCapabilityCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */; };
+		0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */; };
 		D75280040000000000000001 /* DynamicTracingSignpostInterval.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */; };
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		A7206C010000000000000001 /* EffectiveAppearanceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */; };
@@ -5686,6 +5687,7 @@
 		D86860000000000000000002 /* DockWorkingDirectoryInheritanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockWorkingDirectoryInheritanceTests.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
 		D10799030000000000000001 /* DragPasteboardCapabilityCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragPasteboardCapabilityCleaner.swift; sourceTree = "<group>"; };
+		5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DuplicateInstanceHandlerTests.swift"; sourceTree = "<group>"; };
 		D75280040000000000000002 /* DynamicTracingSignpostInterval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicTracingSignpostInterval.swift; sourceTree = "<group>"; };
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		A7206C020000000000000001 /* EffectiveAppearanceObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EffectiveAppearanceObservation.swift; sourceTree = "<group>"; };
@@ -12073,6 +12075,7 @@
 				511EAB11A81C099E4F5A8ECF /* DeferredAgentResumeAdmissionOwnerTests.swift */,
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
+				5647CF47CFF9FE064EB0A704 /* DuplicateInstanceHandlerTests.swift */,
 				4001006DC1929AEB446F2B37 /* RemoteTmuxPaneColorReportingTests.swift */,
 				283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */,
 				DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */,
@@ -16099,6 +16102,7 @@
 				A9042D0C0000000000000001 /* DockTerminalPointerFocusTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D86860000000000000000001 /* DockWorkingDirectoryInheritanceTests.swift in Sources */,
+				0BD2AA506F906B6A5382A280 /* DuplicateInstanceHandlerTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
 				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				C0A716900000000000000002 /* ExternalApplicationWindowTrackerTests.swift in Sources */,
