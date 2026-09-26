@@ -220,6 +220,8 @@ struct WorkspaceShellView: View {
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileVoiceSettings.self) private var voiceSettings: MobileVoiceSettings?
+    @State private var voiceOrchestratorPresented = false
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
@@ -428,7 +430,10 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: presentation.notificationUnreadCount,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
-                : taskComposerAction
+                : taskComposerAction,
+            voiceModeAction: usesCompactStack && !compactNavigationPath.isEmpty
+                ? nil
+                : voiceModeAction
         ) {
             workspaceTabContent(
                 presentation: presentation
@@ -611,6 +616,15 @@ struct WorkspaceShellView: View {
                 onSwitchDraft: switchDraft,
                 submitTaskComposer: submitTaskComposerFromShell
             )
+        }
+        .sheet(isPresented: $voiceOrchestratorPresented) {
+            if let voiceSettings {
+                VoiceModeView(
+                    store: store,
+                    settings: voiceSettings,
+                    mode: .orchestrator
+                )
+            }
         }
         // Wait for the first remote-list attempt before presenting, so a
         // cached native page cannot overtake a newer remote announcement.
@@ -865,6 +879,15 @@ struct WorkspaceShellView: View {
         guard store.supportsTaskComposer else { return nil }
         return openTaskComposer
     }
+
+    #if os(iOS)
+    /// The orchestrator voice entrypoint, hidden when voice mode is switched
+    /// off in Settings or no settings store is injected (previews).
+    private var voiceModeAction: (() -> Void)? {
+        guard let voiceSettings, voiceSettings.voiceModeEnabled else { return nil }
+        return { voiceOrchestratorPresented = true }
+    }
+    #endif
 
     #if os(iOS)
     private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {

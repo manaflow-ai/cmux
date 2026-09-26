@@ -28,7 +28,9 @@ import Testing
             buildType: .beta
         )
         #expect(team.stableVersion == "0.64.20")
-        #expect(team.nightlyVersion == nil)
+        // The 1.0.6 compatibility release (#14112) gave the baked 1.0.4 beta
+        // tier the historical nightly floor; before that it had none.
+        #expect(team.nightlyVersion == "0.64.22-nightly.3345650013202")
     }
 
     @Test func whatsNewMacUpdateDetailUsesTheResolvedFloor() {

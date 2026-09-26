@@ -5,6 +5,19 @@ cross-tag Mac access, and dev auth profiles live in `ios/AGENTS.md` at the
 repository root. They apply to work under `Packages/iOS/` as well, so read that
 file too.
 
+## Expose every capability to voice mode
+
+Every new iOS feature or capability, however small, must also be reachable
+through voice mode. When you add or change something a user can do in the app,
+extend the orchestrator's tool surface in
+`Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/Voice/VoiceOrchestratorTools.swift`
+(declaration, execution against the shell store, and a permission tier in
+`VoiceToolPermission.swift`: read / act / destructive, where destructive means
+the on-screen approval card) plus the permission-tier test in
+`CmuxMobileShellUITests/VoiceToolPermissionTests.swift`. If a capability
+genuinely cannot be voiced (pure visual output, gesture-only interactions),
+say so in the PR description instead of skipping silently.
+
 ## Follow the Apple Human Interface Guidelines
 
 Before you add or change iOS UI, fetch and read the Apple Human Interface

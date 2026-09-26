@@ -58,6 +58,10 @@ struct WorkspaceDetailView: View {
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
     @Environment(MobileDisplaySettings.self) var displaySettings
+    @Environment(MobileVoiceSettings.self) var voiceSettings: MobileVoiceSettings?
+    // Internal (not private): the composer's voice button lives in
+    // WorkspaceDetailView+TerminalArtifacts and presents through this state.
+    @State var voiceModePresented = false
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
@@ -333,6 +337,18 @@ struct WorkspaceDetailView: View {
                         ?? .failure()
                 }
             }
+            .sheet(isPresented: $voiceModePresented) {
+                if let voiceSettings {
+                    VoiceModeView(
+                        store: store,
+                        settings: voiceSettings,
+                        mode: .terminal(
+                            workspaceID: workspace.id,
+                            terminalID: store.selectedTerminalID
+                        )
+                    )
+                }
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -515,6 +531,12 @@ struct WorkspaceDetailView: View {
         if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
         if workspaceChangesAreAvailable { keys.append("changes") }
         return keys
+    }
+
+    // Internal (not private): read by the composer wiring in
+    // WorkspaceDetailView+TerminalArtifacts.
+    var voiceModeIsAvailable: Bool {
+        voiceSettings?.voiceModeEnabled ?? false
     }
 
     private var workspaceTitleToolbarMenu: some View {
