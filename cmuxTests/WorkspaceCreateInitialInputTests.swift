@@ -190,14 +190,10 @@ extension WorkspaceCreateWorkingDirectoryTests {
                 hasUserGhosttyCommand: false
             ) == .typedCommand
         )
-        #expect(WelcomeBannerDelivery.typedCommand.hasPrefix(" "))
+        #expect(WelcomeBannerDelivery.typedCommandText.hasPrefix(" "))
     }
 
     @Test func automaticWelcomeRidesShellStartupEnvironmentInsteadOfTypedInput() throws {
-        try #require(
-            WelcomeBannerDelivery.current() == .shellStartup,
-            "Test host shell must load cmux shell integration"
-        )
         let defaults = UserDefaults.standard
         let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
         let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
@@ -210,19 +206,77 @@ extension WorkspaceCreateWorkingDirectoryTests {
         }
 
         let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.welcomeBannerDeliveryResolver = { .shellStartup }
+        var typedWelcomeWorkspaces: [UUID] = []
+        manager.typedWelcomeSender = { typedWelcomeWorkspaces.append($0.id) }
         defaults.removeObject(forKey: welcomeShownKey)
         let created = try #require(manager.addWorkspaceIfActive(select: true))
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
 
-        #expect(
-            panel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey] == "1"
+        let tokenPath = try #require(
+            panel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey]
         )
+        defer { try? FileManager.default.removeItem(atPath: tokenPath) }
+        #expect(FileManager.default.fileExists(atPath: tokenPath))
         #expect(panel.surface.debugInitialInputForTesting() == nil)
+        #expect(typedWelcomeWorkspaces.isEmpty)
         #expect(defaults.bool(forKey: welcomeShownKey))
 
         let second = try #require(manager.addWorkspaceIfActive(select: true))
         let secondPanel = try #require(second.panels.values.compactMap { $0 as? TerminalPanel }.first)
         #expect(secondPanel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey] == nil)
+        #expect(typedWelcomeWorkspaces.isEmpty)
+    }
+
+    @Test func automaticWelcomeTypesFallbackWhenShellIntegrationIsUnavailable() throws {
+        let defaults = UserDefaults.standard
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
+            } else {
+                defaults.removeObject(forKey: welcomeShownKey)
+            }
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.welcomeBannerDeliveryResolver = { .typedCommand }
+        var typedWelcomeWorkspaces: [UUID] = []
+        manager.typedWelcomeSender = { typedWelcomeWorkspaces.append($0.id) }
+        defaults.removeObject(forKey: welcomeShownKey)
+        let created = try #require(manager.addWorkspaceIfActive(select: true))
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+
+        #expect(typedWelcomeWorkspaces == [created.id])
+        #expect(panel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey] == nil)
+        // The typed fallback marks the banner shown only once it is sent.
+        #expect(defaults.object(forKey: welcomeShownKey) == nil)
+
+        _ = try #require(manager.addWorkspaceIfActive(select: false))
+        #expect(typedWelcomeWorkspaces == [created.id])
+    }
+
+    @Test func welcomeShellStartupFallsBackToTypedWhenTokenCannotBeWritten() throws {
+        let blocker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-welcome-token-blocker-\(UUID().uuidString)")
+        try Data().write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+
+        let blocked = WelcomeBannerDelivery.prepareLaunch(.shellStartup, tempDirectory: blocker)
+        #expect(blocked.delivery == .typedCommand)
+        #expect(blocked.environment.isEmpty)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-welcome-token-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = WelcomeBannerDelivery.prepareLaunch(.shellStartup, tempDirectory: directory)
+        let second = WelcomeBannerDelivery.prepareLaunch(.shellStartup, tempDirectory: directory)
+        let firstPath = try #require(first.environment[WelcomeBannerDelivery.environmentKey])
+        let secondPath = try #require(second.environment[WelcomeBannerDelivery.environmentKey])
+        #expect(first.delivery == .shellStartup)
+        #expect(firstPath != secondPath)
+        #expect(FileManager.default.fileExists(atPath: firstPath))
     }
 
     @Test(
