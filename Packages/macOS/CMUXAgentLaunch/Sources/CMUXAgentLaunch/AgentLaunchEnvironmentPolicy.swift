@@ -72,6 +72,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_CUSTOM_AMP_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -108,6 +109,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
         "OLLAMA_NOHISTORY",
+        "OMP_AGENT_DIR",
         "PI_CACHE_RETENTION",
         "PI_CONFIG_DIR",
         "PI_CODING_AGENT_DIR",

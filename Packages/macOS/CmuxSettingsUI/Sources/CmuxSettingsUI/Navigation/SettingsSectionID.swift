@@ -1,16 +1,20 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; the sidebar lists them in
-/// declaration order, the search index filters across all of them.
+/// its own SwiftUI view in `Sections/`; visible sections appear in the
+/// taxonomy and the search index filters across them. Legacy raw-value
+/// aliases may remain here for deep-link compatibility without owning a pane.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    /// Legacy raw-value target; the visible destination is ``mobile``.
+    case computers
     case app
     case terminal
     case textBox
@@ -27,6 +31,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case customSidebars
     case betaFeatures
     case automation
+    /// Local computer-use integration, permissions, and menu-bar controls.
+    case computerUse
     case browser
     case browserImport
     case globalHotkey
@@ -37,28 +43,41 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
-        case .account: return "Account"
-        case .app: return "App"
-        case .terminal: return "Terminal"
+        case .account: return String(localized: "settings.section.account", defaultValue: "Account")
+        case .computers: return String(localized: "settings.section.computers", defaultValue: "Computers")
+        case .app: return String(localized: "settings.section.app", defaultValue: "App")
+        case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
-        case .sidebarAppearance: return "Sidebar"
+        case .sidebarAppearance: return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
-        case .betaFeatures: return "Beta Features"
-        case .automation: return "Automation"
-        case .browser: return "Browser"
-        case .browserImport: return "Import Browser Data"
-        case .globalHotkey: return "Global Hotkey"
-        case .keyboardShortcuts: return "Keyboard Shortcuts"
-        case .workspaceColors: return "Workspace Colors"
+        case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
+        case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
+        case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
+        case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        case .keyboardShortcuts: return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .workspaceColors: return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .settingsJSON: return "cmux.json"
-        case .reset: return "Reset"
+        case .reset: return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
     }
 
@@ -66,6 +85,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var symbolName: String {
         switch self {
         case .account: return "person.crop.circle"
+        case .computers: return "desktopcomputer"
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
@@ -77,6 +97,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
+        case .computerUse: return "cursorarrow.rays"
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
@@ -93,6 +114,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
+        case .computers: return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
@@ -104,6 +126,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
+        case .computerUse:
+            return String(
+                localized: "settings.search.keywords.computerUse",
+                defaultValue: "computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding"
+            )
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"

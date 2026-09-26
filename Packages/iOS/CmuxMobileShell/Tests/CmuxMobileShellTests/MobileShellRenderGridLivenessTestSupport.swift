@@ -56,6 +56,8 @@ actor LivenessHostRouter {
     private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
+    private var successfulSubscribeRequestCount = 0
+    private var successfulSubscribeStreamIDValues: [String] = []
     private var holdSubscribe = false
     private var unsubscribeRequestCount = 0
     private var heldUnsubscribeRequestNumbers: Set<Int> = []
@@ -153,6 +155,14 @@ actor LivenessHostRouter {
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
+    }
+
+    func successfulSubscribeCount() -> Int {
+        successfulSubscribeRequestCount
+    }
+
+    func successfulSubscribeStreamIDs() -> [String] {
+        successfulSubscribeStreamIDValues
     }
 
     func requests(for method: String) -> [RecordedRequest] {
@@ -314,6 +324,11 @@ actor LivenessHostRouter {
 
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
+    }
+
+    /// Replace the pending screen snapshot as the host terminal changes offline.
+    func replaceReplayText(_ text: String) {
+        replayTexts = [text]
     }
 
     func enqueueReplayPayload(text: String?, sequence: UInt64?) {
@@ -602,6 +617,8 @@ actor LivenessHostRouter {
             }
             let alreadySubscribed = hasActiveSubscription
             hasActiveSubscription = true
+            successfulSubscribeRequestCount += 1
+            successfulSubscribeStreamIDValues.append(streamID ?? "")
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": invalidSubscribeRequestNumbers.contains(
                     subscribeRequestCount
@@ -811,7 +828,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     }
 }
 
-actor LivenessTransport: CmxByteTransport {
+actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private let router: LivenessHostRouter
     private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
@@ -906,6 +923,10 @@ actor LivenessTransport: CmxByteTransport {
         isClosed
     }
 
+    func isTransportClosed() async -> Bool {
+        isClosed
+    }
+
     /// Deliver a frame to the client's read loop. Also used by tests to push
     /// unsolicited server-side event envelopes.
     func deliver(_ frame: Data) {
@@ -989,14 +1010,22 @@ func pollUntil(
     return await condition()
 }
 
+/// Waits until the router served `expectedCount` replay responses AND the
+/// store applied them. The router counts a response when it writes it, before
+/// the client handles it; live output delivered in that gap lands behind the
+/// still-armed replay barrier and is dropped, which made byte-gap and
+/// staleness tests fail intermittently on loaded runners.
 @MainActor
 func waitForReplayResponsesServed(
     _ expectedCount: Int,
+    store: MobileShellComposite,
     router: LivenessHostRouter,
     _ message: String
 ) async throws {
     let settled = try await pollUntil {
-        await router.replayResponsesServed() >= expectedCount
+        guard await router.replayResponsesServed() >= expectedCount else { return false }
+        return store.terminalReplaySurfaceIDsInFlight.isEmpty
+            && store.terminalReplayBarrierTokensBySurfaceID.isEmpty
     }
     #expect(settled, "\(message)")
 }

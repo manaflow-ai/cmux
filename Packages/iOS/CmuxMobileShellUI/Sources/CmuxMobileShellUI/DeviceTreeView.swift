@@ -30,9 +30,6 @@ struct DeviceTreeView: View {
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
-
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
@@ -72,8 +69,11 @@ struct DeviceTreeView: View {
                                 visibleComputers: section.computers,
                                 hiddenComputers: [],
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                setCaffeine: setCaffeine,
+                                caffeineMutatingComputerIDs: store.caffeineMutatingPairingIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(section.title)
@@ -85,8 +85,9 @@ struct DeviceTreeView: View {
                                 visibleComputers: [],
                                 hiddenComputers: store.hiddenComputers,
                                 mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
                                 hide: hideComputer,
-                                unhide: unhideComputer,
+                                unhide: unhideComputer
                             )
                         } header: {
                             Text(L10n.string(
@@ -196,18 +197,16 @@ struct DeviceTreeView: View {
     }
 
     private var emptyDescription: String {
-        if connectionMethodStore?.method == .tailscale {
-            return MobilePairingScannerSheet.emptyStateGuidanceText
-        }
-        return showAddDevice != nil
+        let description = showAddDevice != nil
             ? L10n.string(
-                "mobile.connections.empty",
-                defaultValue: "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                "mobile.v2.connections.empty",
+                defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
             )
             : L10n.string(
-                "mobile.devices.emptyDescription",
-                defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                "mobile.v2.devices.emptyDescription",
+                defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
             )
+        return "\(description) \(MobilePairingCopy().emptyWorkspaceMessage)"
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
@@ -215,6 +214,18 @@ struct DeviceTreeView: View {
             representativeID: computer.id,
             aliasIDs: computer.aliasIDs
         )
+    }
+
+    /// Leading-swipe keep-awake toggle: targets exactly the swiped Computer's
+    /// own connection, never whichever Mac happens to be active.
+    private func setCaffeine(_ computer: MacComputerSnapshot, _ enabled: Bool) {
+        Task {
+            await store.setCaffeineEnabled(
+                enabled,
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
+        }
     }
 
     private func unhideComputer(_ computer: MobileHiddenComputer) {
@@ -225,10 +236,13 @@ struct DeviceTreeView: View {
     }
 
     private func reload() async {
-        // Load the local paired Macs first so the list has a fallback source the
-        // instant it appears, then refresh from the registry.
-        await store.loadPairedMacs()
-        await store.loadRegistryDevices()
+        // These are independent account-scoped reads. Start them together so
+        // the slower registry request cannot delay the paired-Mac list, while
+        // each loader's generation gate keeps stale results from publishing.
+        async let pairedMacs: Bool = store.loadPairedMacs()
+        async let registryDevices: Void = store.loadRegistryDevices()
+        _ = await pairedMacs
+        await registryDevices
     }
 }
 #endif

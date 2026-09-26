@@ -22,6 +22,9 @@ extension WorkspaceDetailView {
         workspaceID: workspace.id.rawValue,
         surfaceID: terminalID,
         store: store,
+        terminalWorkPopulation: .init(
+            population: .workspace, workspaceCount: 1, surfaceCount: workspace.surfaces.count
+        ),
         fontSize: MobileTerminalFontPreference.defaultSize,
         terminalPresentationIsActive: scenePhase == .active,
         // Do not let a terminal reattach steal focus while the
@@ -29,6 +32,8 @@ extension WorkspaceDetailView {
         autoFocusOnWindowAttach: shouldAutoFocus,
         isComposerActive: store.isComposerPresented,
         terminalTheme: store.activeTerminalTheme,
+        topContentInset: terminalSurfaceTopContentInset,
+        bottomSafeAreaInset: terminalSurfaceBottomSafeAreaInset,
         terminalConfigTheme: store.activeTerminalConfigTheme,
         // Drives the live recolor: when the synced theme changes the
         // shell bumps this, and the representable rebuilds the runtime
@@ -40,6 +45,7 @@ extension WorkspaceDetailView {
         terminalFolderTapEnabled: terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
+        useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in
@@ -137,8 +143,26 @@ extension WorkspaceDetailView {
     // ignore changes nothing in the steady state.
     .ignoresSafeArea([.container, .keyboard], edges: .bottom)
     .terminalKeyboardGeometryProbe("leaf-outside")
-    // Keep the grid clear of the Dynamic Island and nav bar.
-    .padding(.top, terminalTopPadding)
+    // Scroll-edge band (iOS 26): the surface underlaps the top bar so its
+    // render-only overscan rows sit beneath the glass, giving the scroll
+    // edge effect live content to blur. The grid itself stays below the
+    // bar: the surface reserves `topContentInset` internally.
+    .ignoresSafeArea(
+        .container,
+        edges: terminalScrollEdgeBandEnabled ? .top : []
+    )
+    // Captured OUTSIDE the top-edge ignore: once the leaf underlaps the
+    // bar, geometry inside it (and the UIKit view) reads a zero top inset.
+    .onGeometryChange(for: CGFloat.self) { proxy in
+        proxy.safeAreaInsets.top
+    } action: { inset in
+        if terminalCapturedTopInset != inset {
+            terminalCapturedTopInset = inset
+        }
+    }
+    // Keep the grid clear of the Dynamic Island and nav bar (pre-26 layout;
+    // with the band on, the surface owns that clearance via the inset).
+    .padding(.top, terminalScrollEdgeBandEnabled ? 0 : terminalTopPadding)
     }
 }
 #endif

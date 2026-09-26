@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 
 extension TerminalController {
@@ -101,17 +102,26 @@ extension TerminalController {
                 }
             }
             v2MainSync {
+                let initialTerminalInput = execution.layoutNode == nil ? execution.initialInput : nil
                 guard let ws = tabManager.addWorkspaceIfActive(
                     title: execution.title,
                     workingDirectory: execution.workingDirectory,
                     initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
+                    initialTerminalInput: initialTerminalInput,
                     initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
                     workspaceEnvironment: execution.workspaceEnvironment,
                     select: execution.shouldFocus,
                     eagerLoadTerminal: execution.shouldEagerLoadTerminal,
+                    autoWelcomeIfNeeded: initialTerminalInput == nil,
                     autoRefreshMetadata: execution.shouldAutoRefreshMetadata
                 ) else { return }
                 ws.taskCreateOperationID = operationID
+                if execution.titleSource == .auto, execution.title != nil {
+                    // The source is captured before this create returns to the
+                    // caller, so a later bind can distinguish the placeholder
+                    // from an explicit user rename with identical text.
+                    ws.customTitleSource = .auto
+                }
                 ws.setCustomDescription(execution.description)
                 if let layoutNode = execution.layoutNode {
                     ws.applyCustomLayout(
@@ -166,6 +176,11 @@ extension TerminalController {
     }
 
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -200,11 +215,17 @@ extension TerminalController {
     }
 
     func v2WorkspaceCloudVMTerminalReady(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+        // A UUID or a handle ref (`workspace:3`), like every other workspace_id on the socket:
+        // `cmux vm open <machine> --workspace workspace:3` lands here.
+        guard let workspaceId = v2UUIDAny(params["workspace_id"]) else {
             return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -216,10 +237,8 @@ extension TerminalController {
         }
 
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
-        guard let panel = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
-            workspaceId: workspaceId,
-            initialCommand: command,
-            focus: focus
+        guard let panelID = workspace.prepareCloudTerminalAttachment(
+            command: command, deferTerminal: v2Bool(params, "defer_terminal") ?? false, focus: focus
         ) else {
             return .err(
                 code: "not_found",
@@ -233,8 +252,8 @@ extension TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": panel.id.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+            "surface_id": panelID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: panelID),
         ])
     }
 
@@ -242,11 +261,17 @@ extension TerminalController {
     /// Runs on the main actor like `workspace.cloud_vm_terminal_ready`: it mutates a
     /// published workspace property the sidebar observes. No focus change.
     func v2WorkspaceCloudVMBind(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+        // A UUID or a handle ref (`workspace:3`), like every other workspace_id on the socket:
+        // `cmux vm open <machine> --workspace workspace:3` lands here.
+        guard let workspaceId = v2UUIDAny(params["workspace_id"]) else {
             return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
         }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -255,13 +280,33 @@ extension TerminalController {
         guard let vmID = WorkspaceCloudVMBinding.normalizedVMID(v2RawString(params, "vm_id")) else {
             return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
         }
-        let isBase = v2Bool(params, "base") ?? false
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase)
+        let previousBinding = workspace.cloudVMBinding
+        let sameMachine = previousBinding?.vmID == vmID
+        let isBase = v2Bool(params, "base") ?? (sameMachine ? (previousBinding?.isBase ?? false) : false)
+        // Optional: which cmux-tui workspace on the machine this local workspace stands
+        // for. A rebind that omits it keeps the recorded one (Base re-opens rebind).
+        let remoteRaw = v2RawString(params, "remote_workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteWorkspaceID = remoteRaw?.isEmpty == false
+            ? remoteRaw
+            : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
+        let generatedTitle = v2RawString(params, "generated_title")
+        let remoteWorkspaceName = v2RawString(params, "remote_workspace_name")
+        SurfaceCatalog.shared.bindCloudWorkspace(
+            localWorkspaceID: workspaceId,
+            machine: .cloud(vmID),
+            remoteWorkspaceID: remoteWorkspaceID,
+            isBase: isBase,
+            generatedTitle: generatedTitle,
+            remoteWorkspaceName: remoteWorkspaceName
+        )
         return .ok([
+            "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "vm_id": vmID,
             "base": isBase,
+            "remote_workspace_id": remoteWorkspaceID ?? NSNull(),
+            "remote_workspace_name": remoteWorkspaceName ?? NSNull(),
             "transport": "cmux-remote",
         ])
     }

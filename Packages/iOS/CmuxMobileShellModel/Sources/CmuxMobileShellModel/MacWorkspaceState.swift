@@ -38,6 +38,9 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// connecting/reconnecting/offline and the derivation can decide whether a
     /// dropped Mac's last-known rows stay (greyed) or are dropped.
     public var status: MobileMacConnectionStatus
+    /// Whether the rows came from a complete workspace snapshot for the
+    /// current connection generation. Retained rows stay false during recovery.
+    public var workspaceSnapshotIsAuthoritative: Bool
     /// Workspace actions supported by this Mac.
     public var actionCapabilities: MobileWorkspaceActionCapabilities
 
@@ -61,6 +64,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         groups: [MobileWorkspaceGroupPreview] = [],
         workspaceGroupsAreAuthoritative: Bool = false,
         status: MobileMacConnectionStatus = .reconnecting,
+        workspaceSnapshotIsAuthoritative: Bool = false,
         actionCapabilities: MobileWorkspaceActionCapabilities = .none
     ) {
         let identity = CmxMacAppInstanceIdentity(
@@ -74,6 +78,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
         self.groups = groups
         self.workspaceGroupsAreAuthoritative = workspaceGroupsAreAuthoritative
         self.status = status
+        self.workspaceSnapshotIsAuthoritative = workspaceSnapshotIsAuthoritative
         self.actionCapabilities = actionCapabilities
     }
 }
