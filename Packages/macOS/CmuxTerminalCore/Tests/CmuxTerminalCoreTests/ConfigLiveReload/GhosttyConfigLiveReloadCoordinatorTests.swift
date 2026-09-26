@@ -5,6 +5,7 @@ import Testing
 /// Snapshot reader whose result the test replaces between file events.
 private actor ScriptedSnapshotReader: GhosttyConfigLiveReloadSnapshotReading {
     private var current: GhosttyConfigLiveReloadSnapshot
+    private var upcoming: [GhosttyConfigLiveReloadSnapshot] = []
     private(set) var readCount = 0
 
     init(_ initial: GhosttyConfigLiveReloadSnapshot) {
@@ -15,8 +16,16 @@ private actor ScriptedSnapshotReader: GhosttyConfigLiveReloadSnapshotReading {
         current = snapshot
     }
 
+    /// Makes the next reads return `snapshots` in order, then the last one.
+    func setSequence(_ snapshots: [GhosttyConfigLiveReloadSnapshot]) {
+        upcoming = snapshots
+    }
+
     func snapshot() async -> GhosttyConfigLiveReloadSnapshot {
         readCount += 1
+        if !upcoming.isEmpty {
+            current = upcoming.removeFirst()
+        }
         return current
     }
 }
@@ -204,27 +213,6 @@ private extension GhosttyConfigLiveReloadSnapshot {
     @Test func reloadCmuxStartedAbsorbsItsOwnFileWrite() async {
         let reader = ScriptedSnapshotReader(original)
         let source = ManualChangeSource()
-        let counter = ReloadCounter()
-        let coordinator = makeCoordinator(reader: reader, source: source, counter: counter)
-        var outcomes = coordinator.outcomes.makeAsyncIterator()
-        coordinator.start()
-        #expect(await outcomes.next() == .baselineRecorded)
-
-        // `cmux themes set` writes the config and reloads it itself.
-        await reader.set(edited)
-        coordinator.noteConfigurationDidReload()
-        #expect(await outcomes.next() == .baselineRecorded)
-
-        // The watcher's event for that write must not reload a second time.
-        await source.emitChange()
-        #expect(await outcomes.next() == .unchanged)
-        #expect(counter.count == 0)
-        coordinator.stop()
-    }
-
-    @Test func pendingUserEditSurvivesAnExternalReload() async {
-        let reader = ScriptedSnapshotReader(original)
-        let source = ManualChangeSource()
         let clock = GatedClock()
         let counter = ReloadCounter()
         let coordinator = makeCoordinator(reader: reader, source: source, clock: clock, counter: counter)
@@ -233,16 +221,38 @@ private extension GhosttyConfigLiveReloadSnapshot {
         coordinator.start()
         #expect(await outcomes.next() == .baselineRecorded)
 
+        // `cmux themes set` writes the config, then reloads it. The write's
+        // event arrives first and is still debouncing when the reload
+        // notification lands.
         await reader.set(edited)
         await source.emitChange()
         _ = await sleeps.next()
-        // An unrelated reload finishes while the edit is still debouncing; its
-        // baseline refresh must not swallow the edit.
         coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
         await clock.releaseAll()
 
-        #expect(await outcomes.next() == .reloaded)
-        #expect(counter.count == 1)
+        // The debounced evaluation sees nothing new: no second reload.
+        #expect(await outcomes.next() == .unchanged)
+        #expect(counter.count == 0)
+        coordinator.stop()
+    }
+
+    @Test func reloadNotificationBeforeTheWriteEventAlsoAbsorbsIt() async {
+        let reader = ScriptedSnapshotReader(original)
+        let source = ManualChangeSource()
+        let counter = ReloadCounter()
+        let coordinator = makeCoordinator(reader: reader, source: source, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+
+        await reader.set(edited)
+        coordinator.noteConfigurationDidReload()
+        #expect(await outcomes.next() == .baselineRecorded)
+        await source.emitChange()
+
+        #expect(await outcomes.next() == .unchanged)
+        #expect(counter.count == 0)
         coordinator.stop()
     }
 
@@ -272,6 +282,35 @@ private extension GhosttyConfigLiveReloadSnapshot {
         await source.emitChange()
         #expect(await outcomes.next() == .reloaded)
         #expect(counter.count == 2)
+        coordinator.stop()
+    }
+
+    @Test func writeLandingWhileRearmingStillReloads() async {
+        let reader = ScriptedSnapshotReader(.fixture(paths: ["/cfg/config"], contents: ["/cfg/config": ""]))
+        let source = ManualChangeSource()
+        let counter = ReloadCounter()
+        let coordinator = makeCoordinator(reader: reader, source: source, counter: counter)
+        var outcomes = coordinator.outcomes.makeAsyncIterator()
+        coordinator.start()
+        #expect(await outcomes.next() == .baselineRecorded)
+
+        // The evaluation adds an include; the include is written before its
+        // watcher attaches, so only the re-read after re-arming can see it.
+        await reader.setSequence([
+            .fixture(
+                paths: ["/cfg/config", "/cfg/colors.conf"],
+                contents: ["/cfg/config": "config-file = colors.conf\n"]
+            ),
+            .fixture(
+                paths: ["/cfg/config", "/cfg/colors.conf"],
+                contents: ["/cfg/config": "config-file = colors.conf\n", "/cfg/colors.conf": "background = #000\n"]
+            ),
+        ])
+        await source.emitChange()
+
+        #expect(await outcomes.next() == .reloaded)
+        #expect(counter.count == 2)
+        #expect(await reader.readCount == 3)
         coordinator.stop()
     }
 

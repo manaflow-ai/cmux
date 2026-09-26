@@ -48,7 +48,10 @@ import Testing
         try "font-size = 14\n".write(to: config, atomically: false, encoding: .utf8)
         #expect(await nextChange(subscription))
 
-        // The watch followed the new inode: a later in-place write still reports.
+        // Smoke check that the subscription is still live after the save. The
+        // stream keeps the newest undelivered event, so this can also be
+        // satisfied by a late event from the save burst; FileWatcherTests
+        // covers the inode reattachment itself.
         try "font-size = 15\n".write(to: config, atomically: false, encoding: .utf8)
         #expect(await nextChange(subscription))
 

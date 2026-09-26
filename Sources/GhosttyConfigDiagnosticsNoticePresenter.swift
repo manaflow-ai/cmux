@@ -10,9 +10,10 @@ import SwiftUI
 /// distinct set of errors, so reloads that keep the same errors stay quiet,
 /// and hidden again after a clean load. The card is a borderless,
 /// non-activating child panel, so it never takes focus from the terminal. It
-/// hides itself after ``autoDismissDelay``. When no window is available yet
-/// (the first config load runs before any window exists), the notice waits for
-/// the next window to become key.
+/// hides itself after ``autoDismissDelay``. When no main window is available
+/// yet (the first config load runs before any window exists), the notice waits
+/// for the next window to become key. The card is placed once and does not
+/// follow a later window resize.
 @MainActor
 final class GhosttyConfigDiagnosticsNoticePresenter {
     static let autoDismissDelay: Duration = .seconds(20)
@@ -23,14 +24,17 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
     private var windowKeyObserver: NSObjectProtocol?
     private var autoDismissTask: Task<Void, Never>?
     private let homeDirectory: String
+    private let isMainWindow: @MainActor (NSWindow) -> Bool
     private let openFile: @MainActor (URL, Int?) -> Void
 
     init(
+        isMainWindow: @escaping @MainActor (NSWindow) -> Bool,
         homeDirectory: String = NSHomeDirectory(),
         openFile: @escaping @MainActor (URL, Int?) -> Void = { url, line in
             PreferredEditorService(defaults: .standard).open(url, line: line, column: nil)
         }
     ) {
+        self.isMainWindow = isMainWindow
         self.homeDirectory = homeDirectory
         self.openFile = openFile
     }
@@ -51,7 +55,7 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
 
     private func present(_ notice: GhosttyConfigDiagnosticsNotice) {
         dismiss()
-        guard let host = Self.hostWindow() else {
+        guard let host = hostWindow() else {
             pendingNotice = notice
             installWindowKeyObserverIfNeeded()
             return
@@ -74,7 +78,7 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
             openConfig: openConfig,
             dismiss: { [weak self] in self?.dismiss() }
         )
-        let hostingView = NSHostingView(rootView: view)
+        let hostingView = GhosttyConfigDiagnosticsNoticeHostingView(rootView: view)
         let size = hostingView.fittingSize
 
         let panel = NSPanel(
@@ -156,20 +160,26 @@ final class GhosttyConfigDiagnosticsNoticePresenter {
     }
 
     private func presentPendingNoticeIfPossible() {
-        guard let notice = pendingNotice, let host = Self.hostWindow() else { return }
+        guard let notice = pendingNotice, let host = hostWindow() else { return }
         pendingNotice = nil
         removeWindowKeyObserver()
         show(notice, in: host)
     }
 
-    private static func hostWindow() -> NSWindow? {
-        let candidates = [NSApp.keyWindow, NSApp.mainWindow]
-        return candidates.lazy
-            .compactMap { $0 }
-            .first { window in
-                window.isVisible
-                    && !(window is NSPanel)
-                    && window.styleMask.contains(.titled)
-            }
+    /// The key main window, else the frontmost visible main window, so the
+    /// card never lands on Settings or another auxiliary window.
+    private func hostWindow() -> NSWindow? {
+        let candidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+        return candidates.first { window in
+            window.isVisible && !window.isMiniaturized && isMainWindow(window)
+        }
+    }
+}
+
+/// Lets the card's buttons respond to the first click: the panel is
+/// non-activating, so it never becomes key before the click lands.
+private final class GhosttyConfigDiagnosticsNoticeHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 }

@@ -28,7 +28,6 @@ struct GhosttyConfigDiagnosticsNoticeView: View {
                         .cmuxFont(size: 11, design: .monospaced)
                         .lineLimit(2)
                         .truncationMode(.middle)
-                        .textSelection(.enabled)
                 }
                 if notice.unlistedCount > 0 {
                     Text(String(

@@ -903,7 +903,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }()
     /// Shows Ghostty config errors after a load, once per distinct set.
-    private lazy var ghosttyConfigDiagnosticsNoticePresenter = GhosttyConfigDiagnosticsNoticePresenter()
+    private lazy var ghosttyConfigDiagnosticsNoticePresenter = GhosttyConfigDiagnosticsNoticePresenter(
+        isMainWindow: { [weak self] window in
+            self?.isMainTerminalWindow(window) ?? false
+        }
+    )
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
