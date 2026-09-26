@@ -4420,16 +4420,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // on the main actor so the runtime's deinit, which frees the app,
         // never runs on the output queue. A full queue refuses the free; the
         // surface then leaks, and so does this retain, which keeps the app
-        // alive under the surface's queued work. The free also holds its
-        // queue, which keeps itself only weakly between work items: releasing
-        // this view would otherwise drop a free still waiting behind them.
+        // alive under the surface's queued work.
         let retainedRuntime = Unmanaged.passRetained(runtime)
         queue.async { [weak self] in
-            withExtendedLifetime(queue) {
-                let userdata = ghostty_surface_userdata(surface)
-                ghostty_surface_free(surface)
-                GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            }
+            let userdata = ghostty_surface_userdata(surface)
+            ghostty_surface_free(surface)
+            GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
             Task { @MainActor in
                 self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
                 completion?()
