@@ -59,8 +59,12 @@ final class TerminalLinkHoverIndicatorView: NSView {
         fatalError("init(coder:) not implemented")
     }
 
+    /// The link currently under the pointer, or `nil` when no link is hovered.
+    private(set) var url: String?
+
     func setURL(_ url: String?) {
         let url = url?.isEmpty == false ? url : nil
+        self.url = url
         label.stringValue = url ?? ""
         label.setAccessibilityLabel(url)
         isHidden = url == nil

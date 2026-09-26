@@ -33,7 +33,7 @@ async function restoreUnknownSnapshot(): Promise<unknown> {
         billingTeamId: "user-snapshot-dispatch",
         billingPlanId: "pro",
         maxActiveVms: 5,
-        provider: "blaxel",
+        provider: "freestyle",
         snapshotId: "snap-missing",
       }).pipe(Effect.provide(layer)),
     );
@@ -62,7 +62,7 @@ describe("snapshot-not-found error dispatch", () => {
     const thrown = await restoreUnknownSnapshot();
     // Exactly what runVmWorkflow rethrows to the restore route's catch block.
     const routeError = vmWorkflowErrorCause(thrown) ?? thrown;
-    const response = vmCreateLikeErrorResponse(routeError, {
+    const response = await vmCreateLikeErrorResponse(routeError, {
       operation: "restore",
       planId: "pro",
       retryAction: "unused in this test",

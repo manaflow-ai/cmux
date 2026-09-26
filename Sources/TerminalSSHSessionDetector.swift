@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSettings
 import CmuxRemoteSession
 import Foundation
 import Darwin
@@ -82,10 +84,17 @@ struct DetectedSSHSession: Equatable {
     }
 #endif
 
-    private func uploadDroppedFilesSync(
+    func uploadDroppedFilesSync(
         _ fileURLs: [URL],
-        operation: TerminalImageTransferOperation
+        operation: TerminalImageTransferOperation,
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()
     ) throws -> [String] {
+        // `DisableFileTransfer` (MDM): the detected-SSH transfer is cmux
+        // mediating an upload, so it fails closed. A user's own `scp` typed
+        // into the same terminal is deliberately out of scope.
+        guard !managedDevicePolicy.isEnforced(.disableFileTransfer) else {
+            throw ManagedFileTransferPolicy.refusalError()
+        }
         guard !fileURLs.isEmpty else { return [] }
 
         var uploadedRemotePaths: [String] = []
@@ -110,11 +119,30 @@ struct DetectedSSHSession: Equatable {
                     operation: operation
                 )
                 guard result.status == 0 else {
-                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: String(
+                    // scp's own stderr is the only thing that says WHY, and it is
+                    // often the whole answer — "Permission denied
+                    // (keyboard-interactive)" for a host whose 2FA this transport
+                    // cannot answer, say, which the generic "check the host is
+                    // reachable" actively misdirects away from. It is already
+                    // captured, so carry it.
+                    let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let message: String
+                    if detail.isEmpty {
+                        message = String(
                             localized: "detectedSSH.fileDrop.error.uploadFailed",
                             defaultValue: "Couldn't upload the file to the remote session. Check that the remote host is reachable, then try again."
-                        ),
+                        )
+                    } else {
+                        message = String.localizedStringWithFormat(
+                            String(
+                                localized: "detectedSSH.fileDrop.error.uploadFailedWithDetail",
+                                defaultValue: "Couldn't upload the file to the remote session: %@"
+                            ),
+                            detail
+                        )
+                    }
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: message,
                     ])
                 }
 
@@ -169,7 +197,10 @@ struct DetectedSSHSession: Equatable {
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
-        for option in sshOptions {
+        let nonInteractiveSSHOptions = SSHAgentSocketResolver().nonInteractiveOptions(
+            from: sshOptions
+        )
+        for option in nonInteractiveSSHOptions {
             args += ["-o", option]
         }
 
@@ -431,8 +462,13 @@ enum TerminalSSHSessionDetector {
 
         for candidate in candidates {
             guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
-                  let session = parseCommandLine(arguments, for: transport) else {
+                  let arguments = argumentsByPID[candidate.pid] else {
+                continue
+            }
+            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+                continue
+            }
+            guard let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
             return session

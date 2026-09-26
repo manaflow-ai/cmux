@@ -55,6 +55,12 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CMUX_IROH_V2_ENVIRONMENT</key>
+	<string>$(CMUX_IROH_V2_ENVIRONMENT)</string>
+	<key>CMUX_IROH_V2_BASE_URL</key>
+	<string>$(CMUX_IROH_V2_BASE_URL)</string>
+	<key>CMUX_IROH_V2_FORCE_RELAY</key>
+	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
@@ -96,6 +102,8 @@
 	<string>A program running within cmux would like to access motion data.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>A program running within cmux requires elevated privileges.</string>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>cmux installs a network extension so this Mac can reach your Cloud machines on their private network. It runs only while you use cmux Cloud.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>NSAppleEventsUsageDescription</key>
@@ -292,39 +300,6 @@
 	<integer>86400</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.sidebar-tab-reorder</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux File Preview Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.filepreview.transfer</string>
-		</dict>
-	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -350,6 +325,16 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.cmux.cloud-sidebar-row</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Cloud Sidebar Row</string>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.splittabbar.tabtransfer</string>
 			<key>UTTypeDescription</key>
 			<string>Bonsplit Tab Transfer</string>
@@ -363,6 +348,16 @@
 			<string>com.cmux.sidebar-tab-reorder</string>
 			<key>UTTypeDescription</key>
 			<string>cmux Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.right-sidebar-mode-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Right Sidebar Tab Reorder</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

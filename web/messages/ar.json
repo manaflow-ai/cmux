@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "تم اكتشاف إعداد harness",
+    "selectionNotice": "لا يؤدي اختيار موفر إلى تشغيل هذه الـ harness أو تفعيلها.",
+    "selectProvider": "اختيار {provider}",
+    "foundPath": "تم العثور على {path}",
+    "foundCommand": "تم العثور على الأمر {command}",
+    "installed": "الموفر مثبت",
+    "missing": "الموفر غير مثبت",
+    "install": "التثبيت باستخدام: {command}",
+    "benefitPi": "ضغط السياق والذاكرة وتوجيه الموفرين",
+    "benefitOpenagent": "متخصصون متوازون واسترداد لـ OpenCode",
+    "benefitClaude": "فرق وتحقق لـ Claude Code",
+    "benefitSuperpowers": "التخطيط وTDD والوكلاء الفرعيون والمراجعة"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "لم يكتمل إعداد Cloud VM",
+      "reason": "لم يكتمل إعداد الضيف لـ Cloud VM.",
+      "message": "تعذر على cmux إكمال إعداد Cloud VM.",
+      "action": "أعد المحاولة. إذا استمرت المشكلة، تواصل مع الدعم."
+    },
+    "createCleanupPending": {
+      "title": "تنظيف آلة Cloud الافتراضية معلق",
+      "message": "فشل إعداد آلة Cloud الافتراضية وما زال التنظيف معلقًا.",
+      "action": "تواصل مع الدعم وأرفق معرّف التتبع قبل إنشاء آلة أخرى."
+    },
     "unsupported": {
       "title": "عملية Cloud VM غير متاحة",
       "reason": "هذا النوع من الأجهزة لا يوفر هذه العملية.",
@@ -7,12 +32,14 @@
         "snapshot": "لا يدعم Cloud VM هذا حالة VM المحفوظة.",
         "restore": "لا يدعم هذا النوع من Cloud VM استعادة حالة VM المحفوظة.",
         "fork": "لا يدعم Cloud VM هذا النسخ إلى VM جديد.",
+        "openPort": "لا يستطيع موفّر Cloud VM هذا إتاحة منافذ الجهاز كعناوين URL للمعاينة.",
         "default": "لا يدعم Cloud VM هذا العملية المطلوبة."
       },
       "action": {
         "snapshot": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "restore": "لا تعاود المحاولة. يُحفظ العمل على هذا النوع من الأجهزة في وحدة التخزين المنزلية الدائمة.",
         "fork": "لا تعاود المحاولة. أنشئ VM جديدًا باستخدام `cmux vm new`.",
+        "openPort": "لا تعاود المحاولة. صِل إلى الخدمة من داخل الجهاز باستخدام `cmux vm exec`، أو استخدم نوع جهاز يدعم فتح المنافذ.",
         "default": "لا تعاود المحاولة. شغّل `cmux vm ls` أو تواصل مع الدعم إذا اعتقدت أن هذا خطأ."
       }
     },
@@ -20,6 +47,34 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "displayName": {
+      "title": "اسم الجهاز غير صالح",
+      "message": "يجب أن يكون اسم الجهاز نصًا قابلًا للطباعة لا يزيد عن {maxLength} حرفًا.",
+      "action": "استخدم اسمًا أقصر بدون أحرف تحكم، أو اتركه فارغًا لمسحه."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "goLimit": {
+      "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     }
   },
   "billingRecovery": {
@@ -56,9 +111,19 @@
   "authError": {
     "emailUnverifiedTitle": "تحقّق من بريدك الإلكتروني للمتابعة",
     "emailUnverifiedBody": "سجّل الدخول بالطريقة التي استخدمتها أول مرة، ثم تحقّق من بريدك الإلكتروني قبل استخدام طريقة تسجيل الدخول هذه.",
+    "signupPendingBody": "إذا كان لديك حساب بالفعل، فسجّل الدخول بالطريقة التي استخدمتها من قبل. إذا أنشأت حسابًا للتو، فتحقق من بريدك الإلكتروني قبل تسجيل الدخول.",
     "genericTitle": "تعذّر إكمال تسجيل الدخول",
     "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
     "backToSignIn": "العودة إلى تسجيل الدخول"
+  },
+  "cloudPublicationAccess": {
+    "title": "ليس لديك حق الوصول",
+    "signIn": "تسجيل الدخول إلى cmux",
+    "signedInAs": "تم تسجيل الدخول باسم {identity}",
+    "switchAccount": "تبديل الحساب",
+    "invalidTitle": "رابط الوصول هذا غير صالح",
+    "invalidBody": "ارجع إلى الموقع وحاول مرة أخرى.",
+    "footer": "تتم إدارة الوصول بواسطة cmux."
   },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
@@ -141,6 +206,42 @@
     "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Engineer",
     "applyEmailSubject": "التقديم لوظيفة Founding Engineer في cmux",
     "applyCta": "إرسال بريد إلكتروني",
+    "foundingChromiumEngineer": {
+      "metaTitle": "وظيفة Founding Chromium Engineer في cmux",
+      "metaDescription": "انضم إلى cmux كمهندس Chromium مؤسس لتتولى نسختنا المشتقة من Chromium وتحضر cmux إلى Windows وLinux باستخدام C++ وRust.",
+      "section": "الوظائف",
+      "eyebrow": "عن الدور",
+      "title": "Founding Chromium Engineer",
+      "tagline": "أحضر cmux إلى Windows وLinux.",
+      "intro": "cmux هو طرفية macOS أصلية مبنية على Ghostty، ومصممة لتشغيل عدة وكلاء برمجة بالذكاء الاصطناعي بالتوازي. يستخدم مئات الآلاف من المطورين cmux لإدارة سير عمل البرمجة بالوكلاء.",
+      "hiring": "نوظّف مهندسًا مؤسسًا يتولى cmux على Windows (وLinux)، مبنيًا على نسختنا الخاصة المشتقة من Chromium.",
+      "whatYoullDo": "ما ستفعله",
+      "whatYoullDoItems": [
+        "تولَّ مسؤولية نسختنا المشتقة من Chromium: تتبّع المشروع الأم، وأعد الدمج (rebase) بشكل نظيف، واحمل تصحيحات cmux (تكامل النوافذ/الإدخال/العرض، واجهة الطرفية، واجهة الوكلاء).",
+        "تولَّ cmux على Windows وLinux من البداية إلى النهاية: C++ والمثبّت والتحديث التلقائي والإبلاغ عن الأعطال.",
+        "انقل نواة الطرفية المبنية على Ghostty وميزات تنسيق الوكلاء (التبويبات العمودية، حلقات الإشعارات، التقسيمات، CLI) إلى Windows.",
+        "اجعل الأداء يبدو أصيلًا: زمن الإقلاع، العرض عبر GPU، وزمن استجابة الإدخال.",
+        "استخدم المنتج بنفسك واختبره وتحقق منه باستمرار."
+      ],
+      "excitedLead": "يسعدنا بشكل خاص أن تكون:",
+      "excitedItems": [
+        "إتقان عميق لـ C++ وخبرة حقيقية في Chromium - ويُفضّل أن تكون قد أدرت نسخة مشتقة: حمل التصحيحات، إعادة الدمج على إصدارات المشروع الأم، التصحيح في content/ أو blink.",
+        "Rust ميزة كبيرة (واجهة TUI وخدمة الشبكات لدينا مكتوبتان بـ Rust).",
+        "لديك خبرة في شحن أو صيانة تطبيق سطح مكتب حقيقي لنظام Windows.",
+        "ميزة إضافية: مساهمات في Chromium الأم، فضول تجاه Swift/AppKit، مشرف على مشاريع مفتوحة المصدر، مؤسس سابق."
+      ],
+      "details": "التفاصيل",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "التعويض",
+      "compensation": "$130k–$170k + حصة 0.5%–1.5%",
+      "benefitsLabel": "المزايا",
+      "benefits": "تأمين صحي وأسنان ونظر",
+      "locationLabel": "الموقع",
+      "location": "سان فرانسيسكو",
+      "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Chromium Engineer",
+      "applyEmailSubject": "التقديم لوظيفة Founding Chromium Engineer في cmux",
+      "applyCta": "إرسال بريد إلكتروني"
+    },
     "foundingDesigner": {
       "metaTitle": "وظيفة Founding Designer في cmux",
       "metaDescription": "انضم إلى cmux كمصمم مؤسس وساعد في تصميم مستقبل البرمجة بالذكاء الاصطناعي على macOS وTUI وWindows وLinux وiOS وCloud وcmux.com وchatmux.",
@@ -247,7 +348,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "نظرة عامة",
-      "team": "الفريق"
+      "team": "الفريق",
+      "mobileDevices": "الأجهزة المحمولة"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -261,7 +363,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "إدارة حسابات الذكاء الاصطناعي المشتركة وتوجيه الطلبات باستخدام coderouter.",
       "title": "coderouter",
-      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام."
+      "description": "يوجّه coderouter طلبات نماذج اللغة عبر حسابات المزوّدين مع تجاوز الأعطال وجدولة تراعي الاستخدام.",
+      "machines": {
+        "title": "الأجهزة",
+        "description": "استخدام coderouter لكل جهاز لفريق {team} خلال آخر {days} يومًا.",
+        "machineColumn": "الجهاز",
+        "tokensColumn": "إجمالي الرموز",
+        "apiEquivalentColumn": "القيمة المكافئة لواجهة API",
+        "unnamed": "جهاز بدون اسم",
+        "empty": "لم يستخدم أي جهاز coderouter خلال آخر {days} يومًا.",
+        "unavailable": "استخدام الأجهزة غير متاح مؤقتًا.",
+        "estimateNote": "القيمة المكافئة لواجهة API تقدير يستند إلى الأسعار المعلنة وليس الإنفاق الفعلي."
+      }
     },
     "accountMenu": {
       "label": "قائمة الحساب",
@@ -273,64 +386,6 @@
       "organizationSwitchError": "تعذّر تبديل المؤسسة. حاول مرة أخرى.",
       "signIn": "تسجيل الدخول"
     },
-    "aiAccounts": {
-      "metaTitle": "حسابات الذكاء الاصطناعي — cmux",
-      "metaDescription": "إدارة حسابات مزوّدي الذكاء الاصطناعي للفريق في cmux.",
-      "section": "لوحة التحكم",
-      "title": "حسابات الذكاء الاصطناعي",
-      "description": "أدر حسابات المزوّدين التي يمكن لهذا الفريق استخدامها مع cmux AI.",
-      "personalTeam": "شخصي",
-      "teamSwitcherLabel": "الفريق",
-      "notConfiguredTitle": "إدارة حسابات الذكاء الاصطناعي غير متاحة بعد",
-      "notConfiguredBody": "حسابات الذكاء الاصطناعي للفرق غير مفعّلة في هذا النشر. حاول لاحقًا أو تواصل مع الدعم.",
-      "loadErrorTitle": "تعذّر تحميل الحسابات",
-      "loadErrorBody": "تعذّر الوصول إلى خدمة الحسابات. حاول مرة أخرى بعد قليل.",
-      "accountsTitle": "الحسابات المتصلة",
-      "accountsCount": "{count, plural, zero {لا حسابات} one {حساب واحد} two {حسابان} few {# حسابات} many {# حسابًا} other {# حساب}}",
-      "emptyTitle": "لا توجد حسابات بعد",
-      "emptyBody": "أضف حساب مزوّد ليصبح متاحًا لهذا الفريق.",
-      "providerColumn": "المزوّد",
-      "labelColumn": "التسمية",
-      "createdColumn": "تاريخ الإنشاء",
-      "actionsColumn": "الإجراءات",
-      "unlabeledAccount": "بدون تسمية",
-      "unknownCreatedAt": "غير معروف",
-      "addAccountsTitle": "إضافة حساب",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "مفتاح API من Anthropic",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "مفتاح API من OpenAI",
-      "providerUnknown": "مزوّد غير معروف",
-      "labelField": "التسمية",
-      "labelPlaceholder": "افتراضي للفريق",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "مفتاح API",
-      "addClaude": "إضافة Claude",
-      "addAnthropic": "إضافة Anthropic",
-      "addCodex": "إضافة Codex",
-      "addOpenAi": "إضافة OpenAI",
-      "addSuccess": "تمت إضافة الحساب.",
-      "addError": "تعذّر حفظ الحساب.",
-      "deleteError": "تعذّر حذف الحساب.",
-      "jsonError": "الصق كائن JSON صالحًا.",
-      "validationError": "تحقق من بيانات الحساب وحاول مرة أخرى.",
-      "teamAccessError": "ليست لديك صلاحية الوصول إلى هذا الفريق.",
-      "deletingAction": "جارٍ الحذف",
-      "deleteAction": "حذف",
-      "deleteConfirmTitle": "هل تريد حذف هذا الحساب؟",
-      "deleteConfirmBody": "سيُزال حساب المزوّد للفريق بأكمله. ستحتاج إلى بيانات الاعتماد الأصلية لإضافته مجددًا.",
-      "cancelAction": "إلغاء",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "خطتك الشخصية",
@@ -338,6 +393,85 @@
         "pro": "Pro",
         "loading": "جارٍ التحميل…"
       }
+    },
+    "mobileDevices": {
+      "title": "الأجهزة المحمولة",
+      "description": "إدارة الوصول إلى أجهزة الكمبيوتر والهواتف والأجهزة اللوحية المتصلة.",
+      "team": "الفريق",
+      "teamSwitchError": "تعذر تبديل الفريق. حاول مرة أخرى.",
+      "loading": "جارٍ تحميل الأجهزة…",
+      "empty": "لا توجد أجهزة مسجلة لهذا الفريق.",
+      "unavailable": "تعذر تحميل أجهزتك. حدّث الصفحة وحاول مرة أخرى.",
+      "retry": "حاول مرة أخرى",
+      "mutationError": "تعذر إكمال تغيير الجهاز.",
+      "revoke": "إلغاء الوصول",
+      "deviceId": "الجهاز",
+      "revision": "المراجعة",
+      "status": "الحالة",
+      "active": "نشط",
+      "revoked": "تم إلغاؤه",
+      "relaySettings": "إعدادات الترحيل",
+      "relaySettingsDescription": "اختر خوادم الترحيل التي يستخدمها هذا الفريق. أدخل عنوان URL واحدًا في كل سطر.",
+      "saveRelaySettings": "حفظ إعدادات الترحيل",
+      "eyebrow": "السحابة / الأجهزة",
+      "scopeActive": "عرض هذا الفريق",
+      "emptyTitle": "لا توجد أجهزة متصلة بعد",
+      "emptyDescription": "عند إقران جهاز cmux بهذا الفريق، سيظهر هنا مع منصته وإصداره وعناصر التحكم في الوصول.",
+      "revoking": "جارٍ إلغاء الوصول…",
+      "registeredDevices": "الأجهزة المسجلة",
+      "activeDevices": "الأجهزة النشطة",
+      "directoryRevision": "مراجعة الدليل",
+      "savingRelaySettings": "جارٍ الحفظ…"
+    },
+    "coderouterAccounts": {
+      "transferAction": "نقل",
+      "transferringAction": "جارٍ النقل…",
+      "transferDialogTitle": "نقل الحساب إلى فريق آخر",
+      "transferChooseBody": "اختر الفريق الذي سيستلم {account}. ينتمي حاليًا إلى {source}.",
+      "transferDestinationLabel": "الفريق الوجهة",
+      "continueAction": "متابعة",
+      "backAction": "رجوع",
+      "transferConfirmTitle": "هل تريد نقل {account}؟",
+      "transferConfirmBody": "سينتقل {account} من {source} إلى {destination}. ستتوقف الأجهزة السحابية وأعضاء {source} عن استخدامه فورًا. يحتفظ بإعداد المشاركة الحالي في {destination}.",
+      "transferConfirmAction": "نقل الحساب",
+      "transferSuccess": "تم نقل {account} إلى {destination}.",
+      "transferError": "تعذّر نقل هذا الحساب. حاول مرة أخرى.",
+      "transferForbiddenError": "لم يعد بإمكانك نقل الحسابات إلى ذلك الفريق.",
+      "transferNotFoundError": "لم يعد هذا الحساب ضمن هذا الفريق. حدّث الصفحة لمعرفة مكانه.",
+      "transferConflictError": "تغيّر الحساب أثناء نقله. حدّث الصفحة وحاول مرة أخرى.",
+      "transferUnavailableError": "النقل غير متاح مؤقتًا، أو يجري تحديث الحساب. حاول مرة أخرى بعد قليل.",
+      "shareWithTeam": "مشاركة مع الفريق",
+      "makePrivate": "جعله خاصًا",
+      "privateImportHint": "الحسابات الجديدة خاصة. شارك الحساب لإتاحته لأجهزة Cloud VM الخاصة بهذا الفريق.",
+      "description": "الحسابات المشتركة متاحة للأجهزة الافتراضية السحابية لهذا الفريق. تبقى الحسابات الخاصة متاحة فقط للشخص الذي أضافها.",
+      "cancelAction": "إلغاء",
+      "apiKeysTitle": "مفاتيح API",
+      "apiKeysDescription": "أنشئ مفاتيح طويلة الأمد للنصوص البرمجية والوكلاء. يظهر السر مرة واحدة.",
+      "apiKeysCount": "{count, plural, zero {# مفتاح} one {# مفتاح} two {# مفتاحان} few {# مفاتيح} many {# مفتاحًا} other {# مفتاح}}",
+      "apiKeysLoading": "جارٍ تحميل مفاتيح API…",
+      "apiKeysLoadError": "تعذر تحميل مفاتيح API. أعد المحاولة بعد قليل.",
+      "apiKeysRetry": "إعادة المحاولة",
+      "apiKeysEmptyBody": "لا توجد مفاتيح API بعد. أنشئ مفتاحًا لمصادقة عميل CodeRouter.",
+      "apiKeyPrefixColumn": "المفتاح",
+      "apiKeyStatusColumn": "الحالة",
+      "apiKeySecretTitle": "انسخ هذا المفتاح الآن",
+      "apiKeySecretBody": "لن يظهر هذا السر مرة أخرى.",
+      "apiKeyCopy": "نسخ مفتاح API",
+      "apiKeyCopied": "تم النسخ",
+      "apiKeyCreatedAt": "أُنشئ {at}",
+      "apiKeyLastUsed": "آخر استخدام {at}",
+      "apiKeyRevoked": "مُلغى",
+      "apiKeyLabelPlaceholder": "مثل CI أو الإنتاج",
+      "createApiKeyAction": "إنشاء مفتاح API",
+      "creatingApiKeyAction": "جارٍ الإنشاء",
+      "apiKeyCreateError": "تعذر إنشاء مفتاح API.",
+      "revokeApiKeyAction": "إلغاء",
+      "revokingApiKeyAction": "جارٍ الإلغاء",
+      "apiKeyRevokeError": "تعذر إلغاء مفتاح API.",
+      "revokeApiKeyConfirmTitle": "هل تريد إلغاء مفتاح API هذا؟",
+      "apiKeyUsageDetail": "آخر 30 يومًا: {completions} إكمال · {tokens} رمز ({input} إدخال / {output} إخراج) · ما يعادل {value} من API",
+      "apiKeyUsageUnavailable": "الاستخدام غير متاح",
+      "revokeApiKeyConfirmBody": "سيتوقف العملاء الذين يستخدمون هذا المفتاح عن المصادقة فورًا."
     }
   },
   "community": {
@@ -912,6 +1046,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: أتمتة Mac بوكلاء الذكاء الاصطناعي",
+      "metaDescription": "دع Claude Code وCodex يتحكمان في Mac عبر cmux Computer Use. أتمتة التطبيقات الأصلية بلقطات الشاشة وإمكانية الوصول والنقر والكتابة ولوحة المفاتيح.",
+      "docsMetaTitle": "إعداد Computer Use وأدوات الوكلاء",
+      "docsMetaDescription": "إعداد cmux Computer Use على macOS: الأذونات وأدوات Claude Code وCodex واختيار التطبيقات والتحكم بالجلسات والمهارات وحل المشكلات.",
+      "tagline": "دع Claude Code وCodex يتحكمان في جهاز Mac الخاص بك.",
+      "intro": "امنح وكلاء البرمجة بالذكاء الاصطناعي إمكانية استخدام تطبيقات Mac الأصلية. يتيح cmux Computer Use قراءة الواجهات والتقاط الشاشة والنقر على عناصر التحكم وكتابة النصوص.",
+      "imageAlt": "إعداد cmux Computer Use مع أذونات إمكانية الوصول ولقطات الشاشة",
+      "caption": "يدير أذونات Computer Use برنامج مساعد منفصل، لذلك تظل جلسات الطرفية مفتوحة أثناء الإعداد الأولي.",
+      "featuresTitle": "التحكم بتطبيقات Mac الأصلية",
+      "featureInspect": "افحص واجهات التطبيقات باستخدام أشجار إمكانية الوصول ولقطات الشاشة.",
+      "featureAct": "انقر واكتب ومرّر واسحب واستخدم اختصارات لوحة المفاتيح في تطبيقات macOS.",
+      "featureReview": "تابع مؤشر الوكيل المرئي، وافحص النتيجة، ثم عُد إلى الطرفية التي بدأت العملية.",
+      "agentsTitle": "وكلاء البرمجة في cmux",
+      "agentsBody": "شغّل {agents} وغيرهم من وكلاء سطر الأوامر داخل cmux.",
+      "supportTitle": "الوكلاء المدعومون",
+      "supportBody": "تتصل أدوات Computer Use الأصلية تلقائيًا بجلسات Claude Code وCodex التي تبدأ داخل cmux. يمكن للوكلاء الآخرين العمل في الطرفية، لكنهم لا يحصلون بعد على هذا التكامل التلقائي للتحكم في Mac.",
+      "setupTitle": "البدء",
+      "step1": "ثبّت cmux لنظام Mac وافتحه. فعّل Computer Use من الإعدادات → Computer Use.",
+      "step2": "استخدم عناصر الأذونات لمنح cmux Computer Use صلاحيتَي إمكانية الوصول وتسجيل الشاشة في إعدادات النظام. إذا لم يظهر المساعد في القائمة، فأضف مربع تطبيقه أو اسحبه إلى لوحة الأذونات.",
+      "step3": "ابدأ جلسة Claude Code أو Codex جديدة داخل cmux. اطلب استخدام Computer Use وحدد التطبيق والمهمة. تتصل الأدوات تلقائيًا دون إعداد MCP يدوي.",
+      "permissionsTitle": "الأذونات والإعداد",
+      "permissionsBody": "تسمح إمكانية الوصول بقراءة واجهات التطبيقات والتفاعل معها، ويسمح تسجيل الشاشة بالتقاط الصور. امنح الإذنين إلى cmux Computer Use. فتح cmux أو بدء وكيل لا يمنح الوصول ولا يفتح الإعداد تلقائيًا.",
+      "tahoeBody": "على macOS Tahoe، وافق أيضًا على التأكيد الإضافي لالتقاط الشاشة أثناء الإعداد. أعد المحاولة عندما يُظهر cmux أن الإذنين ممنوحان.",
+      "promptTitle": "جرّب باستخدام الآلة الحاسبة",
+      "prompt": "استخدم cmux Computer Use لفتح الآلة الحاسبة، والنقر لإدخال 100 + 105، ثم أرني النتيجة.",
+      "workflowBody": "افحص الهدف أولًا، ثم تفاعل مع عناصر اللقطة الحالية، وأعد الفحص للتحقق من النتيجة. فهارس العناصر تخص اللقطة الحالية فقط؛ حدّثها بعد التنقل أو تغيّر التخطيط. تأكيد نجاح النقر وحده لا يثبت اكتمال المهمة.",
+      "toolsTitle": "أدوات الوكلاء",
+      "toolsBody": "cmux-cua هو خادم MCP المضمّن الذي يوفّر أدوات منظّمة للتحكم بالتطبيقات الأصلية. هذه أسماء أدوات وليست أوامر shell. تختلف الوسائط حسب ملف الوكيل؛ راجع المخططات المتاحة في الجلسة.",
+      "codexBody": "يستخدم Codex أداة get_app_state مع اسم التطبيق أو معرّف الحزمة للحصول على لقطة وشجرة إمكانية الوصول. نفّذ الإجراء باستخدام element_index حالي أو إحداثيات اللقطة، ثم استدعِ get_app_state مجددًا. الأدوات:",
+      "claudeBody": "يستخدم Claude Code أداتَي list_apps وlist_windows لاختيار الهدف، ثم get_window_state مع pid وwindow_id. فضّل رموز العناصر أو الفهارس الحديثة. يدعم الملف الأصلي perform_actions لمجموعات إجراءات لا تُبطل الأهداف اللاحقة.",
+      "controlTitle": "متابعة Computer Use وإيقافه",
+      "controlBody": "يعرض Computer Use في شريط القوائم الوكيل النشط. يتابع Focus Computer Use التطبيق الذي يتحكم به، بينما يعيد Focus Calling Terminal الطرفية الأصلية دون إيقاف الأتمتة. استخدم إجراء الإيقاف في القائمة لإنهاء جلسة التحكم.",
+      "disableBody": "عطّل Computer Use من الإعدادات. لاستبعاد الأدوات من جلسة وكيل جديدة، اضبط CMUX_COMPUTER_USE_MCP_DISABLED=1 قبل تشغيله.",
+      "skillTitle": "المهارات",
+      "skillBody": "تشرح مهارة cmux-cua خطوات الفحص والتنفيذ. هي اختيارية ولا تمنح أذونات macOS. للتثبيت الدائم، استخدم مثبّت مهارات الوكيل؛ لا يثبّت cmux مهارات عامة افتراضيًا.",
+      "skillLink": "اقرأ مهارة cmux-cua",
+      "browserTitle": "التطبيقات الأصلية وأتمتة المتصفح",
+      "browserBody": "يتحكم Computer Use بنوافذ Mac الأصلية عبر الصور وإمكانية الوصول. استخدم cmux browser للوحات المتصفح في cmux للتعامل مع لقطات DOM والمحددات والنماذج وJavaScript. يختلف مرجع سطح المتصفح عن فهرس عنصر التطبيق الأصلي.",
+      "browserLink": "مرجع أتمتة المتصفح",
+      "troubleTitle": "حل المشكلات",
+      "missingTitle": "الوكيل لا يملك أدوات Computer Use",
+      "missingBody": "فعّل Computer Use وابدأ جلسة Claude Code أو Codex جديدة داخل cmux. قد تحتفظ الجلسات الموجودة بإعداد أدواتها القديم. تحقق من عدم تعطيل الميزة بمتغير بيئة أو سياسة إدارية.",
+      "blockedTitle": "إعداد غير مكتمل أو نقرات فاشلة أو لقطات فارغة",
+      "blockedBody": "أعد فتح الإعدادات → Computer Use وأكمل خطوتَي الأذونات، بما في ذلك أي تأكيد إضافي للالتقاط، ثم أعد المحاولة. يمكن إبقاء الطرفيات مفتوحة إذا احتاج المساعد إلى إعادة التشغيل.",
+      "targetTitle": "نافذة غير مقصودة أو نقرة محظورة",
+      "targetBody": "افحص التطبيق مجددًا واختر عنصرًا من حالته الحالية. إذا حجبت نافذة أخرى الهدف، فأظهر النافذة المطلوبة وافحصها قبل المحاولة. لا تُعد استخدام إحداثيات أو فهارس قديمة.",
+      "productLink": "نظرة عامة على cmux Computer Use",
+      "copyTitle": "نسخ مطالبة Computer Use",
+      "copyPrompt": "نسخ المطالبة",
+      "copiedPrompt": "تم النسخ",
+      "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
+    },
     "remoteTmux": {
       "moshContrast": "للتجوال بين الشبكات، استخدم cmux mosh-tmux. يفتح طرفية Mosh متكاملة متصلة بجلسة tmux مسماة؛ ولا يستبدل مرآة مساحات العمل وعلامات التبويب والأجزاء الأصلية التي يوفرها وضع تحكم tmux عبر SSH."
     },
@@ -1099,6 +1287,12 @@
       "exampleConfig": "مثال على الإعدادات",
       "metaTitle": "الإعدادات",
       "schemaDescriptions": {
+        "root": "إعدادات cmux. يدعم ملف cmux.json العام إعدادات التطبيق والاختصارات والإجراءات والأوامر المخصصة وخطافات الإشعارات وتخطيطات مساحات العمل. ويدعم ملف .cmux/cmux.json أو cmux.json الخاص بالمشروع الإجراءات والأوامر وخطافات الإشعارات وربط إجراءات الواجهة وتجاوزات Agent Chat ووكلاء الخزنة وتجاوزات مجموعات مساحات العمل وإعداد تشغيل مساحات العمل وأزرارها.",
+        "rightSidebar": "إعداد الشريط الجانبي الأيمن القديم والذي تديره الإضافات، والمحفوظ في cmux.json.",
+        "packs": {
+          "description": "ملفات أو مجلدات حزم cmux المحلية التي تُحمّل قبل هذا الإعداد. تشير المجلدات إلى cmux.pack.json. استخدم مسارًا نصيًا أو كائنًا يحتوي على حقل path.",
+          "path": "مسار ملف أو مجلد محلي، نسبي إلى ملف الإعداد هذا ما لم يكن مطلقًا."
+        },
         "paneBorderColor": "تجاوز لون فاصل ألواح cmux في مساحات العمل المقسمة. يؤثر هذا على حدود ألواح cmux، وليس على التقسيمات الداخلية في Ghostty.",
         "activePaneBorderColor": "لون حدود اختياري يُرسم حول لوح cmux المركّز في مساحات العمل المقسمة.",
         "automation": {
@@ -1110,6 +1304,7 @@
         "app": {
           "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
           "windowTitleTemplate": "قالب اختياري لعنوان NSWindow. اتركه فارغاً للحفاظ على سلوك العنوان الافتراضي الحالي في cmux، بما في ذلك الرجوع إلى الدليل الحالي. العناصر النائبة المدعومة: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "اسم عرض يُستخدم فقط في إصدارات DEBUG عند فتح نوافذ جديدة. تستخدم القيمة الفارغة الإعداد الافتراضي للنظام.",
           "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة.",
           "warnBeforeClosingTabXButton": "اعرض تأكيدًا قبل إغلاق تبويب بزر إغلاق التبويب.",
           "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء.",
@@ -1117,6 +1312,7 @@
           "globalFontMagnification": "يضبط بهذا المقدار النسبي أحجام الخطوط في الطرفيات وعناوين التبويبات والأشرطة الجانبية والإعدادات والتراكبات وواجهة التطبيق التي يملكها cmux. لا يشمل محتوى صفحات المتصفح المعروض."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "عند تعيين true (الافتراضي)، يوفر cmux لوحة ألوان افتراضية تتكيف مع المظهر ما لم يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى. عند تعيين false، يستخدم Ghostty لوحة ألوانه المدمجة الثابتة. تكون الأولوية دائمًا للسمات والألوان المحددة صراحةً، بما في ذلك theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "حد أقصى اختياري للعرض، بالنقاط، لمحتوى الطرفية ودردشة الوكيل المضمنة. عيّن false لاستخدام عرض الجزء بالكامل.",
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",
@@ -1161,6 +1357,14 @@
         "shortcuts": {
           "when": "مسندات سياق اختيارية لكل إجراء (عبارات `when` على نمط VS Code)، مفهرسة بمعرّف إجراء cmux. كل قيمة هي تعبير منطقي فوق مفاتيح السياق، مدمجة باستخدام ! و && و || والأقواس. المفاتيح المنطقية: sidebarFocus و browserFocus و markdownFocus و filePreviewTextEditorFocus و simulatorFocus و terminalFocus و commandPaletteVisible و terminalFindVisible و workspaceCanvasLayout. تدعم المفاتيح المصنّفة المقارنات: السلسلة النصية sidebarMode (files أو find أو sessions أو feed أو dock) والعددان الصحيحان paneCount و workspaceCount. عوامل المقارنة هي == و != و =~ (تعبير نمطي) و < و <= و > و >= و `in [a, b]`؛ المفتاح غير المعروف أو الغائب يُقرأ على أنه false. تُقبل أيضًا القيمتان المنطقيتان الحرفيتان true و false؛ و`key == false` تكافئ `!key`. لا يعمل اختصار الإجراء (ولا يتعارض مع اختصارات أخرى) إلا عندما تكون العبارة صحيحة. أمثلة: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } يحدد مساحات العمل بواسطة Ctrl+1–9 في كل مكان ما عدا عندما يكون الشريط الجانبي الأيمن مركزًا؛ { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } يقصر الارتباط على الشريط الجانبي للبحث عندما تحتوي مساحة العمل على عدة ألواح.",
           "showModifierHoldHints": "إظهار شرائح تلميحات الاختصارات أثناء الضغط باستمرار على Cmd أو Control."
+        },
+        "fileEditor": {
+          "wordWrap": "لف الأسطر الطويلة عند الحافة اليمنى للمحرر بدلًا من التمرير أفقيًا.",
+          "syntaxHighlighting": "لوّن الرموز البرمجية في محرر الملفات المدمج.",
+          "lineNumbers": "اعرض هامش أرقام الأسطر في محرر الملفات المدمج.",
+          "indentGuides": "ارسم أدلة مسافة بادئة عمودية في محرر الملفات المدمج.",
+          "currentLineHighlight": "ميّز سطر المؤشر عندما لا يوجد تحديد.",
+          "tabWidth": "عرض علامة التبويب بالأعمدة المستخدمة للمسافة البادئة وأدلة المسافة البادئة."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1223,7 +1427,7 @@
       "plusButtonScreenshotAlt": "قائمة زر الإضافة بالنقر بزر الفأرة الأيمن تعرض Worktree Agents و New Terminal و New Browser",
       "plusButtonScreenshotCaption": "تتبع قائمة النقر بزر الفأرة الأيمن الترتيب المحدد في ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "إجراءات مخصصة لزر الإضافة",
-      "newWorkspaceButtonDesc": "استخدم <action>ui.newWorkspace.action</action> لتجاوز ما يفعله زر الإضافة. استخدم <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (أو الاسم البديل <rightClick>rightClick</rightClick>) لتعريف قائمة النقر بزر الفأرة الأيمن المرتبة. يمكن أن تكون عناصر القائمة معرفات إجراءات أو كائنات إجراءات أو <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "استخدم <action>ui.newWorkspace.action</action> لتجاوز ما يفعله زر الإضافة. استخدم <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (أو الاسم البديل <rightClick>rightClick</rightClick>) لتعريف قائمة النقر بزر الفأرة الأيمن المرتبة. يمكن أن تكون عناصر القائمة معرفات إجراءات أو كائنات إجراءات أو <separator>{ \"type\": \"separator\" }</separator>. عند عدم ضبطه، تعرض القائمة cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) مع اختصار كل منها الحالي. تظهر العناصر السحابية فقط عند تفعيل Cloud Machines. تستخدم New Cloud Workspace الجهاز المرتبط بآخر مساحة عمل Cloud محددة، وإذا لم يعد متاحًا أو صالحًا للحساب أو الفريق الحالي، تستخدم أول جهاز في الشريط الجانبي الأيمن؛ أما New Cloud Machine فينشئ جهازًا عمدًا.",
       "newWorkspaceWorktreeNote": "يجعل هذا المثال النقر العادي على زر الإضافة يشغّل الإجراء <action>worktree-agents</action>. يستخدم أمر مساحة العمل من <commands>commands</commands> طرفية إعداد مرئية لإنشاء <worktree>worktree</worktree> في Git أولا. يبدأ Codex و Claude في الوقت نفسه، وينتظران ملف الحالة الخاص بمساحة العمل، ثم ينتقلان إلى المجلد المنشأ قبل exec.",
       "simpleCommands": "أوامر بسيطة",
       "simpleCommandsDesc": "الأمر البسيط ينفذ أمر shell في الطرفية المحددة حالياً:",
@@ -1276,6 +1480,7 @@
       "restartNew": "إنشاء مساحة عمل جديدة (الافتراضي)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "تبديل التفاف الكلمات في محرر الملفات (Option+Z).",
       "title": "اختصارات لوحة المفاتيح",
       "description": "جميع اختصارات لوحة المفاتيح المتاحة في cmux، مجمعة حسب الفئة.",
       "metaDescription": "جميع اختصارات لوحة مفاتيح cmux لمساحات العمل والأسطح والألواح المقسمة والمتصفح والإشعارات والبحث وإدارة النوافذ على macOS.",
@@ -1583,6 +1788,7 @@
       }
     },
     "navItems": {
+      "computerUse": "التحكم بالكمبيوتر",
       "gettingStarted": "البدء",
       "concepts": "المفاهيم",
       "workspaceGroups": "مجموعات مساحات العمل",
@@ -3857,5 +4063,22 @@
         "action": "إدارة الخطة"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "البريد الإلكتروني",
+    "emailUnavailable": "البريد الإلكتروني غير متاح",
+    "organization": "المؤسسة",
+    "personalAccount": "حساب شخصي",
+    "switchAccountButton": "استخدام حساب مختلف"
+  },
+  "MobileRelease106": {
+    "title": "الجديد في 1.0.6",
+    "releaseLabel": "1.0.6 · سبتمبر 2026",
+    "connectionTitle": "تحديث اتصالات Mac",
+    "connectionDetail": "يستخدم هذا التحديث خدمة الاتصال الجديدة ونقل Iroh. تحتاج إصدارات Mac القديمة إلى تحديث كي تتصل.",
+    "updateTitle": "حدّث cmux على Mac",
+    "updateDetail": "يتطلب cmux {stableVersion} أو أحدث، أو NIGHTLY {nightlyVersion} أو أحدث. فعّل إقران iOS في الإعدادات > الهاتف المحمول على كل Mac.",
+    "rollbackTitle": "هل تحتاج إلى الاحتفاظ بإصدار Mac قديم؟",
+    "rollbackDetail": "استخدم cmux BETA 1.0.5 ({rollbackBuild}) من TestFlight > الإصدارات السابقة ما دام متاحًا. اختر هذا الإصدار بالتحديد، لأن الإصدارات اللاحقة تستخدم خدمة اتصال أحدث."
   }
 }

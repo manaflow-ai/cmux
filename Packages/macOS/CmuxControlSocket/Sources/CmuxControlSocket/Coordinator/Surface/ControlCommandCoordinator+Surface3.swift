@@ -1,14 +1,11 @@
 internal import Foundation
-
 /// The surface-domain resume (`surface.resume.*`) and reporting
 /// (`surface.report_tty` / `report_pwd` / `report_shell_state` / `ports_kick`)
 /// bodies, plus the shared resume-binding payload helper, split out of
 /// `ControlCommandCoordinator+Surface.swift` to keep each file under the 500-line
 /// budget. See that file's doc comment for the domain overview.
 extension ControlCommandCoordinator {
-
     // MARK: - resume target param validation
-
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
     /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
@@ -23,16 +20,13 @@ extension ControlCommandCoordinator {
         }
         return nil
     }
-
     /// The legacy `v2PublicSurfaceResumeSource`: `process-detected` → `manual`.
     private func publicResumeSource(_ params: [String: JSONValue]) -> String? {
         let source = optionalTrimmedRawString(params, "source")
         return source == "process-detected" ? "manual" : source
     }
-
     // MARK: - resume.set
-
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
@@ -44,7 +38,6 @@ extension ControlCommandCoordinator {
             !command.isEmpty else {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
-
         let source = publicResumeSource(params)
         let remoteWorkspaceID = uuid(params, "_cmux_remote_workspace_id")
         if hasNonNull(params, "_cmux_remote_workspace_id"), remoteWorkspaceID == nil {
@@ -84,7 +77,6 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
             resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
@@ -213,12 +205,12 @@ extension ControlCommandCoordinator {
                 "surface_id": .string(snapshot.surfaceID.uuidString),
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
+                "agent_restore_admission_supported": .bool(true),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }
@@ -340,11 +332,13 @@ extension ControlCommandCoordinator {
             "prepared_arguments_working_directory": orNull(
                 record.preparedArgumentsWorkingDirectory
             ),
+            "fork_arguments": record.forkArguments.map { .array($0.map(JSONValue.string)) } ?? .null,
+            "fork_arguments_working_directory": orNull(record.forkArgumentsWorkingDirectory),
             "permission_mode": orNull(record.permissionMode),
             "legacy_command": orNull(record.legacyCommand),
+            "fork_command": orNull(record.forkCommand),
         ])
     }
-
     private func doubleValue(_ value: JSONValue?) -> Double? {
         switch value {
         case .double(let value): value
@@ -353,7 +347,6 @@ extension ControlCommandCoordinator {
         default: nil
         }
     }
-
     // MARK: - report_pwd
 
     /// `surface.report_pwd` — record a surface's current working directory.
@@ -439,7 +432,13 @@ extension ControlCommandCoordinator {
             workspaceID: workspaceID,
             requestedSurfaceID: requestedSurfaceID,
             terminalLifecycleID: terminalLifecycleID,
-            stateRawValue: stateRawValue
+            stateRawValue: stateRawValue,
+            remoteRelayOwnerWorkspaceID: params["_cmux_remote_workspace_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            },
+            remoteRelayConnectionID: params["_cmux_remote_connection_id"].flatMap { value in
+                self.uuid(["value": value], "value")
+            }
         ) ?? .pending
         switch resolution {
         case .explicit(let surfaceID, let published):
