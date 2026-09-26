@@ -27678,7 +27678,7 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: acceptedSessionId,
                     cwd: hookCwd,
-                    launchCommand: launchCommand,
+                    launchCommand: launchCommand, isRestorable: true,
                     observedPermissionMode: observedHookPermissionMode
                 )
                 emitAgentJournalEvent(
@@ -27885,7 +27885,7 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand,
+                        launchCommand: mappedSession?.launchCommand, isRestorable: true,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
                     )
@@ -28087,7 +28087,7 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand, isRestorable: true,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
@@ -31735,7 +31735,7 @@ struct CMUXCLI {
         sessionId: String,
         cwd: String?,
         launchCommand: AgentHookLaunchCommandRecord?,
-        transcriptPath: String? = nil,
+        transcriptPath: String? = nil, isRestorable: Bool? = nil,
         observedPermissionMode: String? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
@@ -31744,6 +31744,7 @@ struct CMUXCLI {
         guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
             return
         }
+        var evidenceIsRestorable = isRestorable
         if kind == "hermes-agent" {
             var stateEnvironment = ProcessInfo.processInfo.environment
             if let launchEnvironment = launchCommand?.environment {
@@ -31755,7 +31756,14 @@ struct CMUXCLI {
             )
             switch existence {
             case .exists:
-                break
+                // A durable Hermes state-database identity is positive restore
+                // evidence even when the reaped process no longer has a launch
+                // command. Preserve explicit negative evidence, though: a
+                // rejected or known non-restorable invocation must not regain a
+                // default resume binding merely because its ID remains indexed.
+                if isRestorable != false {
+                    evidenceIsRestorable = true
+                }
             case .missing:
                 clearAgentSurfaceResumeBinding(
                     client: client,
@@ -31776,7 +31784,7 @@ struct CMUXCLI {
         if kind == "codex" {
             guard agentHookSessionHasDurableResumeEvidence(
                 kind: kind,
-                launchCommand: launchCommand
+                launchCommand: launchCommand, isRestorable: isRestorable, transcriptPath: transcriptPath
             ) else {
                 logCodexResumeBindingRejection(
                     reason: "launch-evidence-rejected",
@@ -31831,7 +31839,7 @@ struct CMUXCLI {
                 )
                 return
             }
-        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand, isRestorable: evidenceIsRestorable, transcriptPath: transcriptPath) {
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
@@ -35160,6 +35168,7 @@ export default CMUXSessionRestore;
                 ),
                 launchCommand: resumeLaunchCommand,
                 transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                isRestorable: mapped?.isRestorable,
                 responseTimeout: cursorCriticalTimeout(),
                 deadline: cursorShellDeadline,
                 telemetry: telemetry
@@ -35501,6 +35510,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         launchCommand: resumeLaunchCommand,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        isRestorable: mapped?.isRestorable,
                         telemetry: telemetry
                     )
                 }
@@ -35646,6 +35656,7 @@ export default CMUXSessionRestore;
                     cwd: latest.cwd,
                     launchCommand: latest.launchCommand,
                     transcriptPath: latest.transcriptPath,
+                    isRestorable: latest.isRestorable,
                     telemetry: telemetry
                 )
                 // A stale prompt-submit may have journaled a spurious
@@ -35837,6 +35848,7 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: transcriptPathForStore,
+                    isRestorable: mapped?.isRestorable,
                     responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
                     deadline: cursorShellDeadline,
                     telemetry: telemetry
@@ -36355,6 +36367,7 @@ export default CMUXSessionRestore;
                     cwd: cwd,
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    isRestorable: mapped?.isRestorable,
                     responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil,
                     deadline: cursorShellDeadline,
                     telemetry: telemetry
@@ -36634,6 +36647,7 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     launchCommand: resumeLaunchCommand,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    isRestorable: mapped?.isRestorable,
                     telemetry: telemetry
                 )
             }
