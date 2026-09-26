@@ -484,15 +484,13 @@ final class SidebarRowChecklistSection: NSView {
         )
     }
 
-    override func viewWillMove(toSuperview newSuperview: NSView?) {
-        // Replacing a table row's transient root can remove the anchor from
-        // its old superview before AppKit reports the window transition. Mark
-        // that detach as presentation-preserving so NSPopover's close callback
-        // does not write the presented binding back to false.
-        if newSuperview == nil, popoverPresenter.isShown {
+    /// Called by the pooled row cell when its root is reparented. AppKit can
+    /// move the cell while leaving this section attached to the cell, so the
+    /// section itself does not receive a useful superview callback.
+    func markAnchorDetachedForReparentIfPresented() {
+        if popoverPresenter.isShown {
             popoverAnchorDetachedWhilePresented = true
         }
-        super.viewWillMove(toSuperview: newSuperview)
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {

@@ -251,6 +251,15 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        // Reparenting the pooled cell can transiently detach the checklist
+        // anchor without moving the checklist section itself to a new window.
+        // Record the presentation-preserving transition before NSPopover's
+        // close callback runs.
+        checklistSection.markAnchorDetachedForReparentIfPresented()
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         for action in retirePresentation() {
