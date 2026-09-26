@@ -854,7 +854,7 @@ class Wiring(unittest.TestCase):
                      "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
                      "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
-                     "Upload the owned Mac's warm keys"):
+                     "Upload the owned Mac's warm keys", "Record warm-state distance"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():

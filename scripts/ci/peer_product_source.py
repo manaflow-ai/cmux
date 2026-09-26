@@ -8,6 +8,15 @@ server bounds client socket time plus concurrent requests so a slow peer falls
 through to the existing sources. Transport is acceleration only: callers still
 verify the content digest and run the canonical product restore validator before
 publishing locally.
+
+On an owned Mac, `fetch` first asks glaeda's LAN helper (LAN_FETCH_HELPER) for the
+object by content digest from another PR mini's node-local cache: about 7 s for the
+~830 MB product instead of ~130 s from GitHub. Another PR mini is not a trust root
+(PR jobs there can write its cache), so the helper's answer counts only when the
+bytes hash to the digest GitHub recorded (EXPECTED_SHA256); anything else is a miss
+and the existing sources run. The helper is used only when it and every directory
+above it are root-owned and not group- or other-writable, so a job can neither
+rewrite nor rename it, and it runs with a minimal environment: no tokens.
 """
 from __future__ import annotations
 
@@ -21,7 +30,9 @@ import os
 import re
 import socket
 import ssl
+import pwd
 import stat
+import subprocess
 import tempfile
 import threading
 import time
@@ -41,6 +52,12 @@ DEFAULT_SERVER_CLIENT_TIMEOUT_SECONDS = 30.0
 DEFAULT_SERVER_MAX_ACTIVE_REQUESTS = 16
 OBJECT_PATH_PREFIX = "/v1/objects/"
 OBJECT_KEY_RE = re.compile(r"[a-f0-9]{64}")
+# glaeda-lan-fetch (glaeda scripts/glaeda-lan-fetch), installed root-owned by the operator
+# (glaeda-seed-lan helper-install). Not under /Users/Shared/cmux-build-fleet: the fleet
+# user owns that tree, so a job could rename a root-owned file there.
+LAN_FETCH_HELPER = Path("/Library/Application Support/glaeda/bin/glaeda-lan-fetch")
+# Its own lookup (6 s) and transfer (180 s) limits, plus margin.
+LAN_FETCH_TIMEOUT_SECONDS = 200.0
 
 
 class PeerUnavailable(RuntimeError):
@@ -461,6 +478,138 @@ def fetch_exact(
     }
 
 
+def _root_owned_chain(path: Path) -> bool:
+    """PATH and every directory above it up to / are root-owned, not symlinks, and
+    not group- or other-writable: nothing a non-root job can rewrite or rename."""
+    for part in [path, *path.parents]:
+        try:
+            info = os.lstat(part)
+        except OSError:
+            return False
+        if info.st_uid != 0 or stat.S_ISLNK(info.st_mode) or info.st_mode & 0o022:
+            return False
+    return True
+
+
+def lan_helper(env=os.environ, helper: Path = LAN_FETCH_HELPER) -> Path | None:
+    """glaeda's LAN helper, when this job may run it; else None.
+
+    Only on an owned Mac (a glaeda runner), for a job that is not root, and only
+    an executable regular file in a root-owned chain (_root_owned_chain) that
+    this job user cannot write.
+    """
+    if not cache.OWNED_RUNNER.fullmatch(env.get("RUNNER_NAME", "").strip()):
+        return None
+    if os.geteuid() == 0 or not helper.is_absolute():
+        return None
+    try:
+        info = os.lstat(helper)
+    except OSError:
+        return None
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or not info.st_mode & 0o111
+        or not _root_owned_chain(helper)
+        or os.access(helper, os.W_OK)
+    ):
+        return None
+    return helper
+
+
+def lan_fetch_exact(
+    identity: cache.Identity,
+    destination: Path,
+    helper: Path,
+    *,
+    timeout: float = LAN_FETCH_TIMEOUT_SECONDS,
+) -> dict:
+    """Ask glaeda's LAN helper for the exact archive; a hit only when its bytes match the digest.
+
+    The result's `source` ("lan" on a hit) and `lan_status`, `lan_seconds` and
+    `lan_peer` are a contract: they become step outputs that the fleet routing's
+    admissions.jsonl reads. Keep their names and meanings stable; add fields
+    rather than renaming these.
+    """
+    started = time.monotonic()
+    miss = {
+        "status": "miss",
+        "hit": False,
+        "source": "",
+        "source_index": -1,
+        "lookup_seconds": 0.0,
+        "transfer_seconds": 0.0,
+        "bytes_transferred": 0,
+        "lan_status": "miss",
+    }
+    if destination.exists():
+        return {**miss, "lan_status": "destination-occupied"}
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="cmux-lan-product-", dir=destination.parent) as raw:
+            staging = Path(raw)
+            obj = staging / cache.ARCHIVE_NAME
+            env = {"PATH": "/usr/bin:/bin", "HOME": pwd.getpwuid(os.getuid()).pw_dir, "LANG": "C"}
+            try:
+                proc = subprocess.run(
+                    [str(helper), "product", identity.archive_digest, str(obj),
+                     "--max-bytes", str(MAX_OBJECT_BYTES)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=timeout,
+                )
+            except (OSError, subprocess.SubprocessError):
+                return {**miss, "lan_status": "error", "lan_seconds": round(time.monotonic() - started, 6)}
+            elapsed = time.monotonic() - started
+            if proc.returncode != 0:
+                status = "miss" if proc.returncode == 3 else "error"
+                return {**miss, "lan_status": status, "lan_seconds": round(elapsed, 6)}
+            info = obj.lstat()
+            # One link, checked before hashing: a helper that kept another name for the file
+            # could change it after the digest check.
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= MAX_OBJECT_BYTES:
+                return {**miss, "lan_status": "unsafe-file", "lan_seconds": round(elapsed, 6)}
+            if _sha256(obj) != identity.archive_digest:
+                return {**miss, "lan_status": "digest-mismatch", "lan_seconds": round(elapsed, 6)}
+            record = {}
+            for line in reversed(proc.stdout.splitlines()):
+                with contextlib.suppress(ValueError):
+                    value = json.loads(line)
+                    if isinstance(value, dict):
+                        record = value
+                        break
+            # No-replace: claim DESTINATION with mkdir (fails if anything is there), then move
+            # the verified file in.
+            try:
+                destination.mkdir()
+            except FileExistsError:
+                return {**miss, "lan_status": "destination-occupied"}
+            try:
+                os.rename(obj, destination / cache.ARCHIVE_NAME)
+            except OSError:
+                with contextlib.suppress(OSError):
+                    destination.rmdir()
+                raise
+    except OSError:
+        return {**miss, "lan_status": "error", "lan_seconds": round(time.monotonic() - started, 6)}
+    peer_name = record.get("peer") if isinstance(record.get("peer"), str) else ""
+    return {
+        "status": "hit",
+        "hit": True,
+        "source": "lan",
+        "source_index": -1,
+        "object_key": identity.key(),
+        "archive_bytes": info.st_size,
+        "lookup_seconds": float(record.get("lookup_seconds") or 0.0) if isinstance(record.get("lookup_seconds"), (int, float)) else 0.0,
+        "transfer_seconds": round(elapsed, 6),
+        "bytes_transferred": info.st_size,
+        "lan_status": "hit",
+        "lan_seconds": round(elapsed, 6),
+        "lan_peer": re.sub(r"[^A-Za-z0-9.-]", "", peer_name)[:64],
+    }
+
+
 def _append_outputs(values: dict) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
@@ -704,12 +853,18 @@ def main() -> None:
     }
     try:
         identity = cache.Identity.from_env()
-        result = fetch_exact(
-            identity,
-            args.destination,
-            configured_sources(),
-            token_loader=configured_token_loader(),
-        )
+        helper = lan_helper()
+        lan = lan_fetch_exact(identity, args.destination, helper) if helper else {"lan_status": "unavailable"}
+        if lan.get("hit"):
+            result = lan
+        else:
+            result = fetch_exact(
+                identity,
+                args.destination,
+                configured_sources(),
+                token_loader=configured_token_loader(),
+            )
+            result.update({key: value for key, value in lan.items() if key.startswith("lan_")})
     except (OSError, ValueError, TypeError, PeerUnavailable):
         pass
     _append_outputs(result)

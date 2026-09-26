@@ -33,6 +33,14 @@ def load(name: str, path: Path):
 
 
 pool = load("pr_runner_pool", ROOT / "scripts/ci/pr_runner_pool.py")
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import warm_distance  # noqa: E402
+
+# Warm routing's cost model in the picker tests: a kept build of the merge base
+# compiles in 100 s, one of the pull request in 150 s, anything else in 400 s.
+ROUTE_MODEL = {"start_classes": {"base": {"expected": 100.0}, "pr": {"expected": 150.0},
+                                 "none": {"expected": 400.0}},
+               "job_seconds": {"macos-compile-admission": {"p50": 420.0, "p90": 800.0}}}
 janitor = load("queue_janitor", ROOT / "scripts/ci/queue_janitor.py")
 e2e_pool = load("e2e_runner_pool", ROOT / "scripts/ci/e2e_runner_pool.py")
 ios_pool = load("ios_runner_pool", ROOT / "scripts/ci/ios_runner_pool.py")
@@ -367,6 +375,18 @@ class JanitorSnapshot(unittest.TestCase):
         snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
         self.assertEqual((snap["pools"][mini]["running"], snap["pools"][mini]["queued"]), (2, 1))
         self.assertEqual(set(snap["pools"]), {mini})
+
+    def test_the_snapshot_says_what_each_owned_runner_is_running(self):
+        # pr_runner_pool.py's warm routing estimates a busy warm runner's wait from it.
+        runs = [{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}]
+        root = "glaeda-root-std-xcode-26.6"
+        running = {**self.job(root, "in_progress"), "runner_name": "cmux14-glaeda-1",
+                   "name": "macOS / macOS compile admission", "started_at": "2026-09-24T10:25:00Z"}
+        jobs = {1: [running, {**self.job(root, "queued"), "runner_name": ""},
+                    {**self.job(SMALL, "in_progress"), "runner_name": "blacksmith-1"}]}
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual(snap["running"], {"cmux14-glaeda-1": {"job": "macOS / macOS compile admission",
+                                                               "started_at": "2026-09-24T10:25:00Z"}})
 
     def test_owned_pool_commitments_count_jobs_not_created_yet(self):
         mini = "glaeda-std-xcode-26.6"
@@ -1855,14 +1875,17 @@ class WarmAffinity(unittest.TestCase):
                          [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
-                owned_warm="1", state=None, attempt="1", pr_number=""):
+                owned_warm="1", state=None, attempt="1", pr_number="", running=None, rounds=""):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh["warm"] = warm(2) if state is None else state
+        if running is not None:
+            fresh["running"] = running
         with tempfile.TemporaryDirectory() as tmp, \
                 unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
                 unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
                 unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
+                unittest.mock.patch.object(warm_distance, "load_model", return_value=ROUTE_MODEL), \
                 unittest.mock.patch("sys.stdout", io.StringIO()):
             out, summary = Path(tmp, "out"), Path(tmp, "summary")
             env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
@@ -1871,7 +1894,7 @@ class WarmAffinity(unittest.TestCase):
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                    "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm,
-                   "PR_NUMBER": pr_number}
+                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
@@ -1902,6 +1925,20 @@ class WarmAffinity(unittest.TestCase):
         for off in ("", "0"):
             values = self.outputs(runners, owned_warm=off)
             self.assertEqual((values["admission_runner"], values["admission_warm"]), ("", ""), off)
+
+    def test_main_waits_for_a_busy_warm_runner_when_it_costs_less(self):
+        # cmux2 is warm and a minute from done (its admission ran 400 of a 420 s p50): 60 + 100 s
+        # beats the idle cmux1's 400 s cold compile, within the one queue round's wait limit.
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, busy=True)]
+        started = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=400)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        running = {"cmux2-glaeda": {"job": "macOS / macOS compile admission", "started_at": started}}
+        values = self.outputs(runners, running=running)
+        self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
+        # With no queue rounds the rescue budget covers no wait: idle runners only.
+        self.assertEqual(self.outputs(runners, running=running, rounds="0")["admission_runner"], "")
+        # A job that just started leaves too long a wait to pay.
+        running["cmux2-glaeda"]["started_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual(self.outputs(runners, running=running)["admission_runner"], "")
 
     def test_main_hands_admission_placement_the_pull_request_tier_too(self):
         state = {"through": 9, "runners": {
