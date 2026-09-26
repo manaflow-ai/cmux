@@ -1806,6 +1806,7 @@ extension CMUXCLI {
         workspaceRaw: String?,
         focus: Bool?,
         printOnly: Bool,
+        viaProxy: Bool = false,
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
@@ -1827,7 +1828,7 @@ extension CMUXCLI {
                 ))
             }
         case .port(let machine, let port):
-            try openVMPort(vmId: machine, port: port, printOnly: printOnly, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
+            try openVMPort(vmId: machine, port: port, printOnly: printOnly, viaProxy: viaProxy, workspaceRaw: workspaceRaw, client: client, jsonOutput: jsonOutput)
         case .terminal(let machine, let remoteWorkspace, let terminal, let tab):
             // The path contains a remote workspace selector. Resolve it before
             // opening so the catalog can retain the exact placement instead of
@@ -1957,6 +1958,7 @@ extension CMUXCLI {
         vmId: String,
         port: Int,
         printOnly: Bool,
+        viaProxy: Bool = false,
         workspaceRaw: String?,
         client: SocketClient,
         jsonOutput: Bool
@@ -1973,6 +1975,7 @@ extension CMUXCLI {
         }
         var params: [String: Any] = ["id": vmId, "port": port]
         if let workspaceRaw { params["workspace_id"] = workspaceRaw }
+        if viaProxy { params["proxy"] = true }
         let payload = try client.sendV2(method: "vm.port_open", params: params, responseTimeout: 120)
         if jsonOutput {
             print(jsonString(payload))

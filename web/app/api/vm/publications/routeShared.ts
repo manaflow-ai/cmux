@@ -121,6 +121,13 @@ export function publicationForwardAuthConfig(
 ): PublicationForwardAuthConfig | undefined {
   const serviceToken = environment.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET?.trim();
   if (!serviceToken) return undefined;
+  // The edge callback defaults to the browser origin. A deployment whose browser
+  // origin the edge cannot reach (a Tailscale-only dev stack) names a public
+  // callback URL explicitly; sign-in still happens on the browser origin.
+  const explicitCallback = environment.CMUX_VM_PUBLICATION_FORWARD_AUTH_URL?.trim();
+  if (explicitCallback?.startsWith("https://")) {
+    return { url: explicitCallback, serviceToken };
+  }
   const origin = normalizePublicationAuthOrigin(environment.CMUX_VM_PUBLICATION_AUTH_ORIGIN);
   return {
     url: origin ? new URL("/api/freestyle/forward-auth", origin).href : "",
