@@ -8478,6 +8478,13 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: paneSizingContributions(subtitle: workspaceSubtitle))
+        contributions.append(
+            contentsOf: Self.commandPaletteShortcutParityContributions(
+                workspaceSubtitle: workspaceSubtitle,
+                terminalSubtitle: terminalPanelSubtitle,
+                browserSubtitle: browserPanelSubtitle
+            )
+        )
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
@@ -9356,6 +9363,10 @@ struct ContentView: View {
             }
         }
         registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
+        registerShortcutParityCommandHandlers(
+            &registry,
+            performBrowserAction: performBrowserAction
+        ) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
 
         for issue in cmuxConfigStore.configurationIssues {
             let captured = issue

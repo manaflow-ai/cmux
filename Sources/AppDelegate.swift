@@ -15595,8 +15595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .left)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.left), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
@@ -15616,8 +15615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .right)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.right), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
@@ -15637,8 +15635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .up)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.up), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
@@ -15658,8 +15655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            routedTabs?.movePaneFocus(direction: .down)
+            AppDelegate.moveMainAreaPaneFocus(.direction(.down), tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
 #endif
@@ -15682,8 +15678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: false) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.previous, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -15706,8 +15701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
-            let moved = routedTabs?.cyclePaneFocus(forward: true) ?? false
+            let moved = AppDelegate.moveMainAreaPaneFocus(.next, tabManager: routedTabs, window: shortcutRoutingKeyWindow)
 #if DEBUG
             if moved, let workspace = routedTabs?.selectedWorkspace {
                 GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
@@ -16222,6 +16216,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    /// Runs a workspace terminal font size action from a non-keyboard
+    /// entrypoint (command palette) through the same coordinator enqueue as
+    /// the keyboard shortcut.
+    ///
+    /// - Returns: Whether a workspace resolved and the change was not rejected.
+    @discardableResult
+    func performWorkspaceTerminalFontSizeAction(
+        _ action: KeyboardShortcutSettings.Action,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let routedTabs = activeTabManagerForCommands(
+            preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
+        )
+        guard let workspace = routedTabs?.selectedWorkspace else { return false }
+        switch enqueueWorkspaceTerminalFontSizeChange(
+            action,
+            workspace: workspace,
+            tabManager: routedTabs,
+            deferFlush: false
+        ) {
+        case .rejected:
+            return false
+        case .acceptedMutation, .consumedWithoutMutation:
+            return true
+        }
     }
 
     private func enqueueWorkspaceTerminalFontSizeChange(
