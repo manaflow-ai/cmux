@@ -21,7 +21,7 @@ extension CMUXCLI {
         attempts: Int = 4
     ) throws -> [String: Any] {
         var lastError: Error?
-        for attempt in 0..<attempts {
+        for _ in 0..<attempts {
             do {
                 return try client.sendV2(
                     method: "vm.exec",
