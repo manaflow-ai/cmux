@@ -213,7 +213,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="pb-4" data-pagefind-ignore="all">
       <div className="relative">
-        <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted/40">
+        <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted">
           <svg
             width="14"
             height="14"
@@ -243,7 +243,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-activedescendant={
             activeIndex >= 0 ? `docs-search-result-${activeIndex}` : undefined
           }
-          className="w-full rounded-md border border-transparent bg-code-bg/60 py-1.5 pl-8 pr-3 text-[13px] transition-colors placeholder:text-muted/40 hover:bg-code-bg focus:border-border focus:bg-code-bg focus:outline-none"
+          className="w-full rounded-md border border-border bg-code-bg py-1.5 pl-8 pr-3 text-[13px] text-foreground transition-colors placeholder:text-muted hover:border-muted/40 focus:border-muted/60 focus:outline-none"
         />
       </div>
 
@@ -256,12 +256,12 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
           aria-live="polite"
         >
           {statusMessage ? (
-            <div className="rounded-md bg-code-bg/35 px-2 py-2 text-[12px] text-muted/60">
+            <div className="rounded-md bg-code-bg/35 px-2 py-2 text-[12px] text-muted">
               {statusMessage}
             </div>
           ) : (
             <div className="space-y-1 rounded-md bg-code-bg/35 p-1">
-              <div className="px-1 pb-1 text-[11px] text-muted/50">
+              <div className="px-1 pb-1 text-[11px] text-muted">
                 {t("resultsCount", { count: results.length })}
               </div>
               {results.map((result, index) => (
@@ -284,11 +284,11 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   </div>
                   {result.excerptHtml && (
                     <div
-                      className="docs-search-excerpt mt-1 line-clamp-2 text-[12px] leading-5 text-muted/80"
+                      className="docs-search-excerpt mt-1 line-clamp-2 text-[12px] leading-5 text-muted"
                       dangerouslySetInnerHTML={{ __html: result.excerptHtml }}
                     />
                   )}
-                  <div className="mt-1 truncate text-[11px] text-muted/45">
+                  <div className="mt-1 truncate text-[11px] text-muted">
                     {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
                   </div>
                 </DocsLink>
