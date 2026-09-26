@@ -365,6 +365,7 @@ extension SessionPersistencePolicy {
 extension SessionWindowSnapshot {
     /// Whether this window carries nothing to restore: no workspaces and no
     /// window Dock. See `SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows`.
+    // Control run for #14860 (comment only; do not merge).
     var isPhantomSessionWindow: Bool {
         tabManager.workspaces.isEmpty && dock == nil
     }

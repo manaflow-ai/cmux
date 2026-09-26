@@ -7488,6 +7488,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
         }
+        // Control run for #14860 (comment only; do not merge).
         // Asked before ghostty_surface_key, which advances a pending key
         // sequence or one-shot key table: afterwards a Backspace that key
         // binding consumed no longer reports as bound.
