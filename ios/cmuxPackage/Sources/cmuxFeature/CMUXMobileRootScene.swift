@@ -4,6 +4,9 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileCloud
+import CmuxMobileCloudBridge
+import CmuxMobileCloudUI
 import CmuxMobileRPC
 import CmuxPhonePush
 import CmuxMobileShell
@@ -87,6 +90,13 @@ public struct CMUXMobileRootScene: View {
     /// Injected as a plain environment value through
     /// `\.mobileWebAppSession`.
     private let webAppSession: MobileWebAppSessionBroker
+    /// The Cloud section's tunnel and link owner, built once per scene and
+    /// injected through `\.cloudSessionController`. Nil when the build has
+    /// no API origin, which hides the Cloud entry.
+    @State private var cloudSessionController: CloudSessionController?
+    /// Publishes Cloud machines' workspaces into the shell store. Built with
+    /// the controller so both live for the app's lifetime.
+    @State private var cloudWorkspaceBridge: CloudWorkspaceBridge?
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -158,6 +168,7 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
+        cloudDeviceID: @escaping @Sendable () async -> String?,
         appLog: AppLog? = nil,
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
@@ -195,6 +206,12 @@ public struct CMUXMobileRootScene: View {
             tokens: auth.coordinator,
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
+        )
+        let cloudComposition = MobileCloudComposition(auth: auth, deviceID: cloudDeviceID)
+        let controller = cloudComposition.makeController()
+        _cloudSessionController = State(initialValue: controller)
+        _cloudWorkspaceBridge = State(
+            initialValue: controller.map(cloudComposition.makeWorkspaceBridge(controller:))
         )
     }
     #else
@@ -349,6 +366,13 @@ public struct CMUXMobileRootScene: View {
         return scopedStore
     }
 
+    #if os(iOS)
+    private var cloudAccountScope: String? {
+        guard let userID = auth.coordinator.currentUser?.id else { return nil }
+        return [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
+    }
+    #endif
+
     public var body: some View {
         applyingRootEnvironment(to: content)
     }
@@ -380,6 +404,36 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            .environment(\.cloudSessionController, cloudSessionController)
+            // The shell owns no Cloud code; it mounts what is supplied here.
+            .environment(
+                \.mobileCloudTabContent,
+                cloudSessionController == nil
+                    ? nil
+                    : MobileCloudTabContent { CloudPrimaryTabView() }
+            )
+            .onChange(of: cloudSessionController?.machines.elements ?? [], initial: true) { _, machines in
+                // Every machine the account owns joins the workspace list;
+                // the Computers sheet is where one is hidden again.
+                cloudWorkspaceBridge?.setAdmittedMachines(machines)
+            }
+            .onChange(of: cloudSessionController?.tunnel) { _, phase in
+                // A catalog read attempted before the tunnel was up published
+                // the machine as reconnecting. Nothing else re-reads it, so
+                // without this the rows would stay that way until the machine
+                // list happened to change.
+                guard let bridge = cloudWorkspaceBridge else { return }
+                guard case .ready = phase else {
+                    // The controller closes its machine links with the tunnel,
+                    // so the bridge's attachments are dead and must not be
+                    // sent into.
+                    bridge.linksDidBecomeUnavailable()
+                    return
+                }
+                for machine in bridge.admittedMachines {
+                    bridge.refreshCatalog(for: machine)
+                }
+            }
             #endif
     }
 
@@ -423,15 +477,23 @@ public struct CMUXMobileRootScene: View {
         let browserStreamStore = BrowserStreamStore()
         let simulatorStreamStore = MobileSimulatorStreamStore()
         #if os(iOS)
+        let store = makeStore(
+            browserStreamEvents: browserStreamStore,
+            simulatorStreamStore: simulatorStreamStore
+        )
+        // Cloud machines contribute their workspaces to the same store a
+        // paired Mac writes to, so they appear in the Workspaces tab and open
+        // into the same detail screen, terminal and composer.
+        cloudWorkspaceBridge?.attach(to: store)
         return CMUXMobileAppView(
-            store: makeStore(
-                browserStreamEvents: browserStreamStore,
-                simulatorStreamStore: simulatorStreamStore
-            ),
+            store: store,
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: MobileSignOutHook {
+                cloudWorkspaceBridge?.detachFromStore()
+                return signOutHook.begin()
+            }
         )
         #else
         return CMUXMobileAppView(

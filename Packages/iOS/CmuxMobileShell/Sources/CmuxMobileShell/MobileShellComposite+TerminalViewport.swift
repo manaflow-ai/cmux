@@ -202,6 +202,32 @@ extension MobileShellComposite {
                 renderRevisionFloor: nil
             )
         }
+        // An external host owns its own pseudo-terminal, so the phone's grid
+        // is authoritative: hand the report to the host and accept it here
+        // rather than negotiating with a Mac that does not know this surface.
+        // Placed with the demonstration fork, before the barrier prearm, for
+        // the same reason.
+        if externalHostOwnsSurface(surfaceID) {
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            handleExternalHostViewportReport(
+                surfaceID: surfaceID,
+                columns: columns,
+                rows: rows
+            )
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: columns * rows
+            )
+            finishPreparation()
+            return (
+                columns: columns,
+                rows: rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
         guard let client = remoteClient else {
             recordAppEvent(
                 .terminalViewportReportFailed,

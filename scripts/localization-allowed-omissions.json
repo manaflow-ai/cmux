@@ -3390,5 +3390,54 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "mobile.tabs.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "cmux Cloud is a product name; German uses the English word unchanged.",
+      "fr": "cmux Cloud is a product name; French uses the English word unchanged.",
+      "es": "cmux Cloud is a product name; Spanish uses the English word unchanged.",
+      "zh-Hant": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "zh-Hans": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ko": "cmux Cloud is a product name, left in Latin script in this locale.",
+      "ja": "cmux Cloud is a product name, left in Latin script in this locale."
+    }
+  },
+  "mobile.cloud.machines.header": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": "\"Machines\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.kind": {
+    "source": "Type",
+    "identityLocales": {
+      "fr": "\"Type\" is spelled identically in French."
+    }
+  },
+  "mobile.cloud.create.base": {
+    "source": "Base",
+    "identityLocales": {
+      "fr": "\"Base\" is spelled identically in French.",
+      "es": "\"Base\" is spelled identically in Spanish."
+    }
+  },
+  "mobile.cloud.create.desktop": {
+    "source": "Desktop",
+    "identityLocales": {
+      "de": "\"Desktop\" is the established German loanword, spelled identically."
+    }
   }
 }
