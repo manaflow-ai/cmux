@@ -122,7 +122,7 @@ public struct SettingsWindowRoot: View {
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
     /// is unrecognized (e.g., after dropping a case).
-    private var selectedSection: SettingsSectionID {
+    var selectedSection: SettingsSectionID {
         SettingsSectionID(rawValue: selectedSectionRaw)?.canonicalSection ?? .account
     }
     /// Whether the user currently has a non-empty search query. When
