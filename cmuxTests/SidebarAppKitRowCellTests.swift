@@ -1982,6 +1982,41 @@ struct SidebarAppKitRowCellTests {
         #expect(activeCell.currentModelForMeasurement?.isActive == true)
     }
 
+    /// Moving the pointer off a just-clicked row repaints it for hover. That
+    /// repaint used the stored (still unselected) model and snapped the
+    /// highlight off until the selection render landed.
+    @Test
+    func hoverRepaintKeepsOptimisticSelection() {
+        let cell = Self.configuredCell(model: Self.makeModel(isActive: false))
+        var appliedActive: [Bool] = []
+        cell.applyModelProbeForTesting = { appliedActive.append($0.isActive) }
+
+        cell.showOptimisticSelectionHighlight()
+        cell.enforcePointerHovering(true)
+        cell.enforcePointerHovering(false)
+
+        #expect(appliedActive == [true, true, true])
+        #expect(cell.hasOptimisticSelectionForTesting)
+
+        cell.restoreStoredModelPaint()
+        #expect(appliedActive.last == false)
+        #expect(!cell.hasOptimisticSelectionForTesting)
+    }
+
+    /// Rapid clicks: the previous click's row is only optimistically
+    /// highlighted, so the next click's peel must see the painted state.
+    @Test
+    func optimisticDeselectionPeelsOptimisticallyHighlightedRow() {
+        let cell = Self.configuredCell(model: Self.makeModel(isActive: false))
+        var appliedActive: [Bool] = []
+        cell.applyModelProbeForTesting = { appliedActive.append($0.isActive) }
+
+        cell.showOptimisticSelectionHighlight()
+        cell.showOptimisticDeselection()
+
+        #expect(appliedActive == [true, false])
+    }
+
     @Test
     func defaultSettingsResolveTheSameStackedVerticalBranchLayoutForBothRows() {
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())

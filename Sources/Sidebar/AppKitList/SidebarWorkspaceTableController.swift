@@ -700,6 +700,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
             }
+            // Drop the preview first. configure() early-returns when the
+            // authoritative model equals the stored one, so a preview whose
+            // selection did not land (replaced by a newer click, or an
+            // unrelated apply arriving first) otherwise kept its paint.
+            dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
         // Release pump geometry only when this apply actually supersedes the
@@ -2040,6 +2045,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             guard let self, !Task.isCancelled, self.applyGeneration == generation else { return }
             self.previewBailoutTask = nil
             self.restoreVisibleCellPaint()
+        }
+    }
+
+    /// `rows` still describes the table here (flushApply calls this before
+    /// installing the next rows), so indexes map to the mounted cells.
+    private func dropOptimisticPaint(onRowsWithIds ids: Set<SidebarWorkspaceRenderItemID>) {
+        guard let table = containerView?.tableView else { return }
+        table.enumerateAvailableRowViews { _, row in
+            guard rows.indices.contains(row), ids.contains(rows[row].id) else { return }
+            let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
+            (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
         }
     }
 
