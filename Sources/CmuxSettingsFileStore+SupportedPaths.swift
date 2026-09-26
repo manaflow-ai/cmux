@@ -144,6 +144,7 @@ extension CmuxSettingsFileStore {
         "browser.showImportHintOnBlankTabs",
         "browser.reactGrabVersion",
         "mobile.artifactFolderAccess",
+        "mobile.browserTunnel.allowOtherHosts",
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",

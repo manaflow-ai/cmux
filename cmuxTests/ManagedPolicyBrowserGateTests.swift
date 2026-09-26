@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import struct CMUXMobileCore.MobileBrowserStreamCapability
+import CmuxIrxTransport
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -148,6 +149,30 @@ struct ManagedPolicyBrowserGateTests {
         #expect(!withoutBrowser.contains(MobileBrowserStreamCapability.identifier))
         #expect(!withoutBrowser.contains(MobileBrowserStreamCapability.createIdentifier))
         #expect(withoutBrowser.contains("terminal.bytes.v1"))
+        // The phone browser tunnel is a browser affordance too.
+        #expect(withBrowser.contains(IrxTunnelCapability.current.identifier))
+        #expect(!withoutBrowser.contains(IrxTunnelCapability.current.identifier))
+    }
+
+    @Test func browserTunnelIsUnavailableUnderManagedPolicy() {
+        withBrowserPolicy(managed: true, userDisabled: nil) {
+            #expect(!MobileHostBrowserTunnel.isAvailable)
+        }
+        withBrowserPolicy(managed: false, userDisabled: true) {
+            // A user-level disable keeps live panes, and the tunnel with them.
+            #expect(MobileHostBrowserTunnel.isAvailable)
+        }
+    }
+
+    @Test func browserTunnelPolicyIsLoopbackOnlyUntilOptIn() throws {
+        let suite = "cmux.tests.browser-tunnel.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(MobileHostBrowserTunnel.policy(defaults: defaults).allowsNonLoopbackHosts == false)
+        #expect(MobileHostBrowserTunnel.policy(defaults: defaults).evaluate(host: "10.0.0.2", port: 80) == .deny)
+        defaults.set(true, forKey: "mobile.browserTunnel.allowOtherHosts")
+        #expect(MobileHostBrowserTunnel.policy(defaults: defaults).allowsNonLoopbackHosts)
+        #expect(MobileHostBrowserTunnel.policy(defaults: defaults).evaluate(host: "169.254.169.254", port: 80) == .deny)
     }
 
     /// Regression coverage for issue #10866.

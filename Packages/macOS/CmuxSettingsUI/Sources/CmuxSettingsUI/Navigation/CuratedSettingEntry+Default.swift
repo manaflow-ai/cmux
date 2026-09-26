@@ -350,6 +350,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["mobile.artifactFolderAccess"],
                 synonyms: "ios iphone ipad mobile files folders directory subtree one level authorization security"
             ),
+            .init(
+                section: .mobile,
+                id: "browserTunnelAllowOtherHosts",
+                title: String(localized: "settings.mobile.browserTunnel.allowOtherHosts", defaultValue: "iOS Browser Reaches Other Hosts"),
+                detailText: String(localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOff", defaultValue: "The iOS browser reaches only this Mac's localhost through this Mac. Other sites load over the phone's own network."),
+                paths: ["mobile.browserTunnel.allowOtherHosts"],
+                synonyms: "ios iphone ipad mobile browser on iphone tunnel proxy localhost lan vpn internet hosts network security"
+            ),
 
             // Custom Sidebars
             .init(section: .customSidebars, id: "enabled", title: String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), synonyms: "custom sidebars enable show vibe swift json interpreted picker beta"),

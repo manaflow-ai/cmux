@@ -15,6 +15,8 @@ struct TerminalPickerMenuValue: Equatable {
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
     let activeBrowserStreamPanelID: String?
+    /// The streamed tab the phone-local browser shows "On iPhone", if any.
+    let onDeviceBrowserStreamPanelID: String?
     let simulatorStreamRows: [SimulatorStreamPickerRow]
     let supportsSimulatorStream: Bool
     let activeSimulatorStreamPanelID: String?
@@ -38,6 +40,7 @@ struct TerminalPickerMenuValue: Equatable {
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
         activeBrowserStreamPanelID: String? = nil,
+        onDeviceBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
         activeSimulatorStreamPanelID: String? = nil,
@@ -61,6 +64,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
+        self.onDeviceBrowserStreamPanelID = onDeviceBrowserStreamPanelID
         self.simulatorStreamRows = simulatorStreamRows
         self.supportsSimulatorStream = supportsSimulatorStream
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
@@ -79,7 +83,7 @@ struct TerminalPickerMenuValue: Equatable {
 
     /// The single row that carries the checkmark. Nil while the phone-local
     /// browser or a Mac browser stream overlays the workspace (the stream row
-    /// draws its own check from `activeBrowserStreamPanelID`); a Mac-surface
+    /// draws its own check from `checkedBrowserStreamPanelID`); a Mac-surface
     /// selection whose row has disappeared falls back to the resolved
     /// terminal, matching `selectedName`.
     var checkedRowID: TerminalPickerMenuRow.ID? {
@@ -89,6 +93,22 @@ struct TerminalPickerMenuValue: Equatable {
             return .macSurface(selectedMacSurfaceID)
         }
         return selectedID.map(TerminalPickerMenuRow.ID.terminal)
+    }
+
+    /// The Mac Browsers row that carries the checkmark: the streamed tab on
+    /// screen, in either mode. "On iPhone" shows the tab through the
+    /// phone-local browser, but it is still that tab.
+    var checkedBrowserStreamPanelID: String? {
+        if let activeBrowserStreamPanelID { return activeBrowserStreamPanelID }
+        guard hasActiveBrowser, let onDeviceBrowserStreamPanelID,
+              browserStreamRows.contains(where: { $0.id == onDeviceBrowserStreamPanelID }) else { return nil }
+        return onDeviceBrowserStreamPanelID
+    }
+
+    /// Whether "New Browser" carries the checkmark: a phone-local browser is
+    /// up and it is not a streamed tab shown "On iPhone".
+    var checksNewBrowser: Bool {
+        hasActiveBrowser && checkedBrowserStreamPanelID == nil
     }
 
     var terminalRows: [TerminalPickerMenuRow] {

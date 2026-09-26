@@ -120,6 +120,9 @@
          location = "group:CmuxMobileTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileTunnel">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileWorkspace">
       </FileRef>
    </Group>

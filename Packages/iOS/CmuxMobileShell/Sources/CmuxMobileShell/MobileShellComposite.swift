@@ -1390,6 +1390,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// SSH computers (hosts, keys, live sessions). Local to this device and
     /// independent of the cmux account. See `MobileShellComposite+SSHComputers.swift`.
     public let sshComputers: MobileSSHComputers
+    /// The "On iPhone" browser network per paired Mac, keyed by Mac device
+    /// id. See `MobileShellComposite+MacBrowserTunnel.swift`.
+    @ObservationIgnored var macBrowserNetworks: [String: MobileMacBrowserNetwork] = [:]
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -2206,6 +2209,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not survive an account boundary or leak into the next session's
         // projections.
         resetStateSyncForAccountBoundary()
+        // Browser tunnels to the previous account's Macs end with it.
+        Task { await stopMacBrowserNetworks() }
         lastPresenceReconnectEvidence = nil
         presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil

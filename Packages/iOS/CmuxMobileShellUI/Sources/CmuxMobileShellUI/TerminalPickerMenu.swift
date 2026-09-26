@@ -102,7 +102,7 @@ struct TerminalPickerMenu: View, Equatable {
                         Button { actions.selectBrowserStream(panel.id) } label: {
                             Label(
                                 panel.label,
-                                systemImage: panel.id == value.activeBrowserStreamPanelID
+                                systemImage: panel.id == value.checkedBrowserStreamPanelID
                                     ? "checkmark.circle.fill"
                                     : "globe"
                             )
@@ -145,7 +145,7 @@ struct TerminalPickerMenu: View, Equatable {
             Button(action: actions.openBrowser) {
                 Label(
                     L10n.string("mobile.browser.new", defaultValue: "New Browser"),
-                    systemImage: value.hasActiveBrowser ? "checkmark.circle.fill" : "globe"
+                    systemImage: value.checksNewBrowser ? "checkmark.circle.fill" : "globe"
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
