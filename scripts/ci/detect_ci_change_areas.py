@@ -897,11 +897,11 @@ CLI_LANE_INPUT_PREFIXES = (
 # deliberate on both sides:
 #
 #   * select_package_tests.py fails open, so an unrecognized path (or an edit
-#     to the lane's own workflow) selects all 33 packages. On main that is
+#     to the lane's own workflow) selects every package. On main that is
 #     right, because the lane is running regardless and only its list is in
 #     question. Routing a pull request that way would be the 30-minute sweep
 #     under another name: over the last 200 merged pull requests it would have
-#     queued 34 full 33-package runs. Those changes keep their existing
+#     queued 34 full package sweeps. Those changes keep their existing
 #     coverage from the push to main.
 #   * A package outside the job's own list selects nothing, so the lane would
 #     start, check out submodules, and test zero packages. Asking the selector
