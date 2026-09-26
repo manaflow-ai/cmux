@@ -5527,6 +5527,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
+    private static func isCurrentPaneOwner(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
+        if let paneOwnershipOverride {
+            return paneOwnershipOverride
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            return false
+        }
+        return currentPaneId.id == paneId.id
+    }
+
     final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override init(frame frameRect: NSRect) {
