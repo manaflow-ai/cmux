@@ -6707,6 +6707,12 @@ struct CMUXCLI {
 
         case "workspace-action":
             try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+        case "park":
+            try runParkCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+        case "unpark":
+            try runUnparkCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "parked":
+            try runParkedCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "tab-action":
             try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
         case "move-tab-to-new-workspace", "detach-tab":
@@ -10072,6 +10078,77 @@ struct CMUXCLI {
             summaryParts.append("color=\(color)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
+    }
+
+    private func runParkCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let forwardedArgs: [String]
+        if let first = commandArgs.first, !first.hasPrefix("-") {
+            forwardedArgs = ["--workspace", first] + Array(commandArgs.dropFirst())
+        } else {
+            forwardedArgs = commandArgs
+        }
+        try runWorkspaceAction(
+            commandArgs: ["--action", "park"] + forwardedArgs,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            windowOverride: windowOverride
+        )
+    }
+
+    private func runUnparkCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let parkedID = commandArgs.first,
+              UUID(uuidString: parkedID) != nil else {
+            throw CLIError(message: "Usage: cmux unpark <workspace-id>")
+        }
+        let payload = try client.sendV2(method: "workspace.action", params: [
+            "action": "unpark",
+            "parked_id": parkedID,
+        ])
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK unparked=\(parkedID)")
+    }
+
+    private func runParkedCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased(), ["list", "search"].contains(subcommand) else {
+            throw CLIError(message: "Usage: cmux parked list | cmux parked search <query>")
+        }
+        let query = commandArgs.dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        var params: [String: Any] = ["action": "parked_\(subcommand)"]
+        if subcommand == "search" {
+            guard !query.isEmpty else { throw CLIError(message: "Usage: cmux parked search <query>") }
+            params["query"] = query
+        }
+        let payload = try client.sendV2(method: "workspace.action", params: params)
+        if jsonOutput {
+            printV2Payload(payload, jsonOutput: true, idFormat: idFormat, fallbackText: "")
+            return
+        }
+        guard let rows = payload["workspaces"] as? [[String: Any]], !rows.isEmpty else {
+            print("No parked workspaces")
+            return
+        }
+        for row in rows {
+            let id = row["workspace_id"] as? String ?? "?"
+            let title = row["title"] as? String ?? "Untitled Workspace"
+            let directory = row["directory"] as? String ?? ""
+            print("\(id)\t\(title)\t\(directory)")
+        }
     }
 
     func runTabAction(
@@ -18947,6 +19024,7 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              park
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -18970,6 +19048,25 @@ struct CMUXCLI {
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
+            """
+        case "park":
+            return """
+            Usage: cmux park [--workspace <id|ref|index>]
+
+            Park the selected workspace, saving its layout and agent resume state before terminating its live surfaces.
+            """
+        case "unpark":
+            return """
+            Usage: cmux unpark <workspace-id>
+
+            Restore a parked workspace.
+            """
+        case "parked":
+            return """
+            Usage: cmux parked list
+                   cmux parked search <query>
+
+            List or search persisted parked workspaces.
             """
         case "tab-action":
             return """

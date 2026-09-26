@@ -882,6 +882,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var parkedWorkspaceStore = ParkedWorkspaceStore.shared
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -7500,6 +7501,39 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.parkWorkspace",
+                title: constant(String(localized: "command.parkWorkspace.title", defaultValue: "Park Workspace")),
+                subtitle: constant(String(localized: "command.parkWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["park", "workspace", "pause", "suspend"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.unparkWorkspace",
+                title: constant(String(localized: "command.unparkWorkspace.title", defaultValue: "Restore Parked Workspace")),
+                subtitle: constant(String(localized: "command.unparkWorkspace.subtitle", defaultValue: "Workspace")),
+                keywords: ["restore", "unpark", "parked", "workspace", "resume"]
+            )
+        )
+        for record in parkedWorkspaceStore.records {
+            let title = record.snapshot.customTitle ?? record.snapshot.processTitle
+            let transcriptTerms = record.snapshot.panels
+                .compactMap { $0.terminal?.scrollback }
+                .joined(separator: " ")
+                .prefix(20_000)
+                .split(whereSeparator: { $0.isWhitespace })
+                .map(String.init)
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: "palette.unparkWorkspace.\(record.id.uuidString)",
+                    title: constant(title),
+                    subtitle: constant(String(localized: "command.unparkWorkspace.subtitle", defaultValue: "Workspace")),
+                    keywords: ["restore", "unpark", "parked", "workspace", "resume", title, record.snapshot.currentDirectory] + transcriptTerms
+                )
+            )
+        }
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
                 title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
                 subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
@@ -8770,6 +8804,31 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.closeWorkspace") {
             tabManager.closeCurrentWorkspaceWithConfirmation()
+        }
+        registry.register(commandId: "palette.parkWorkspace") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  tabManager.parkWorkspaceNonInteractively(workspace) else {
+                NSSound.beep()
+                return
+            }
+        }
+        registry.register(commandId: "palette.unparkWorkspace") {
+            guard let record = parkedWorkspaceStore.records.first,
+                  tabManager.unparkWorkspace(record) else {
+                NSSound.beep()
+                return
+            }
+        }
+        for record in parkedWorkspaceStore.records {
+            let commandId = "palette.unparkWorkspace.\(record.id.uuidString)"
+            let recordID = record.id
+            registry.register(commandId: commandId) {
+                guard let parked = parkedWorkspaceStore.records.first(where: { $0.id == recordID }),
+                      tabManager.unparkWorkspace(parked) else {
+                    NSSound.beep()
+                    return
+                }
+            }
         }
         registry.register(commandId: "palette.closeWindow") {
             guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
@@ -15052,6 +15111,13 @@ struct VerticalTabsSidebar: View, Equatable {
             closeWorkspace: {
                 guard let tab = workspace() else { return }
                 tabManager.closeWorkspaceFromTabCloseButton(tab)
+            },
+            parkTargets: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                    _ = tabManager.parkWorkspaceNonInteractively(workspace)
+                }
+                syncWorkspaceRowSelectionAfterMutation()
             },
             moveBy: { delta in
                 guard let tab = workspace() else { return }

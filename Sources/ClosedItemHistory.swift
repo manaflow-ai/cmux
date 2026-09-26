@@ -62,6 +62,223 @@ struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
+
+/// A durable workspace snapshot that was explicitly parked by the user.
+struct ParkedWorkspaceRecord: Codable, Identifiable, Sendable {
+    let id: UUID
+    let parkedAt: Date
+    let workspaceIndex: Int
+    let windowId: UUID?
+    let snapshot: SessionWorkspaceSnapshot
+
+    var workspaceId: UUID { id }
+
+    init(
+        id: UUID,
+        parkedAt: Date = Date(),
+        workspaceIndex: Int,
+        windowId: UUID?,
+        snapshot: SessionWorkspaceSnapshot
+    ) {
+        self.id = id
+        self.parkedAt = parkedAt
+        self.workspaceIndex = workspaceIndex
+        self.windowId = windowId
+        self.snapshot = snapshot
+    }
+}
+
+/// Owns persisted workspace snapshots that are intentionally absent from the live sidebar.
+@MainActor
+final class ParkedWorkspaceStore: ObservableObject {
+    static let shared = ParkedWorkspaceStore(fileURL: defaultFileURL())
+
+    @Published private(set) var revision: UInt64 = 0
+    @Published private(set) var records: [ParkedWorkspaceRecord] = []
+
+    private let fileURL: URL?
+    private let persistsSynchronously: Bool
+
+    init(
+        fileURL: URL?,
+        loadPersisted: Bool = true,
+        persistsSynchronously: Bool = false
+    ) {
+        self.fileURL = fileURL
+        self.persistsSynchronously = persistsSynchronously
+        if loadPersisted, let fileURL {
+            records = Self.loadRecords(fileURL: fileURL)
+        }
+    }
+
+    var isEmpty: Bool { records.isEmpty }
+
+    @discardableResult
+    func append(_ record: ParkedWorkspaceRecord) -> Bool {
+        records.removeAll { $0.id == record.id }
+        records.append(record)
+        records.sort { $0.parkedAt > $1.parkedAt }
+        return persist()
+    }
+
+    @discardableResult
+    func remove(id: UUID) -> ParkedWorkspaceRecord? {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return nil }
+        let record = records.remove(at: index)
+        persist()
+        return record
+    }
+
+    func search(_ query: String?) -> [ParkedWorkspaceRecord] {
+        let normalized = query?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !normalized.isEmpty else { return records }
+        return records.filter { record in
+            let title = [record.snapshot.customTitle, record.snapshot.processTitle, record.snapshot.currentDirectory]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: "\n")
+            guard !title.contains(normalized) else { return true }
+            let panelText = record.snapshot.panels.map { panel in
+                [
+                    panel.customTitle,
+                    panel.terminal?.agent?.sessionId,
+                    panel.terminal?.agent?.kind.rawValue,
+                    panel.terminal?.scrollback,
+                ]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: "\n")
+            }.joined(separator: "\n")
+            let sidebarText = record.snapshot.statusEntries
+                .map { "\($0.key) \($0.value)" }
+                .joined(separator: "\n")
+                + "\n"
+                + record.snapshot.logEntries.map(\.message).joined(separator: "\n")
+            return (panelText + "\n" + sidebarText).contains(normalized)
+        }
+    }
+
+    /// Removes snapshots that retain a Cloud VM attachment after account or policy transitions.
+    func removeManagedCloudVMRecords() {
+        let filtered = records.filter { record in
+            !ClosedItemHistoryStore.workspaceSnapshotHostsCloudVM(record.snapshot)
+        }
+        guard filtered.count != records.count else { return }
+        records = filtered
+        _ = persist()
+    }
+
+    @discardableResult
+    func flush() -> Bool {
+        guard let fileURL else { return true }
+        let snapshot = records
+        let revisionSnapshot = revision
+        if persistsSynchronously {
+            return Self.saveRecords(snapshot, fileURL: fileURL)
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        let result = ParkedWorkspaceSaveResult()
+        Task.detached(priority: .userInitiated) {
+            result.value = await ParkedWorkspacePersistenceActor.shared.save(
+                snapshot,
+                fileURL: fileURL,
+                revision: revisionSnapshot
+            )
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result.value
+    }
+
+    @discardableResult
+    private func persist() -> Bool {
+        revision &+= 1
+        guard let fileURL else { return true }
+        let revisionSnapshot = revision
+        if persistsSynchronously {
+            return Self.saveRecords(records, fileURL: fileURL)
+        } else {
+            let snapshot = records
+            Task {
+                _ = await ParkedWorkspacePersistenceActor.shared.save(
+                    snapshot,
+                    fileURL: fileURL,
+                    revision: revisionSnapshot
+                )
+            }
+            return true
+        }
+    }
+
+    static func defaultFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> URL? {
+        guard !isRunningUnderAutomatedTests else { return nil }
+        let appSupport: URL
+        if let appSupportDirectory {
+            appSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            appSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleID = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBundleID = bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app"
+        let safeBundleID = resolvedBundleID.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("parked-workspaces-\(safeBundleID).json", isDirectory: false)
+    }
+
+    private static func loadRecords(fileURL: URL) -> [ParkedWorkspaceRecord] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        return (try? JSONDecoder().decode([ParkedWorkspaceRecord].self, from: data)) ?? []
+    }
+
+    @discardableResult
+    nonisolated fileprivate static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) -> Bool {
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(records)
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            closedItemHistoryLogger.error("parkedWorkspace.save.failed error=\(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+}
+
+private final class ParkedWorkspaceSaveResult: @unchecked Sendable {
+    var value = false
+}
+
+private actor ParkedWorkspacePersistenceActor {
+    static let shared = ParkedWorkspacePersistenceActor()
+
+    private var latestRevisionByPath: [String: UInt64] = [:]
+
+    @discardableResult
+    func save(
+        _ records: [ParkedWorkspaceRecord],
+        fileURL: URL,
+        revision: UInt64
+    ) -> Bool {
+        let path = fileURL.standardizedFileURL.path
+        if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
+            return false
+        }
+        latestRevisionByPath[path] = revision
+        return ParkedWorkspaceStore.saveRecords(records, fileURL: fileURL)
+    }
+}
 struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot

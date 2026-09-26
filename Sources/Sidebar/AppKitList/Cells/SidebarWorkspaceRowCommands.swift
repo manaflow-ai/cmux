@@ -130,6 +130,15 @@ struct SidebarWorkspaceRowCommands {
         tabManager?.closeWorkspaceWithConfirmation(tab)
     }
 
+    func parkWorkspaceTargets(_ workspaceIds: [UUID]) {
+        guard let tabManager else { return }
+        for workspaceId in workspaceIds {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+            _ = tabManager.parkWorkspaceNonInteractively(workspace)
+        }
+        syncSelectionAfterMutation()
+    }
+
     func reconnectRemoteConnection() {
         tab.reconnectRemoteConnection()
     }
@@ -329,6 +338,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         menu.addItem(.separator())
         addMoveItems(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
+        addParkItems(to: menu, tabManager: tabManager)
         addCloseItems(to: menu, tabManager: tabManager)
         // The notification section needs the store; the rest of the menu
         // must not disappear with it.
@@ -715,6 +725,19 @@ struct SidebarWorkspaceRowMenuBuilder {
                   let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
             let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
             commands.closeTabs(idsToClose, allowPinned: true)
+        })
+    }
+
+    private func addParkItems(to menu: NSMenu, tabManager: TabManager) {
+        let label = label(
+            multi: String(localized: "contextMenu.parkWorkspaces", defaultValue: "Park Workspaces"),
+            single: String(localized: "contextMenu.parkWorkspace", defaultValue: "Park Workspace")
+        )
+        menu.addItem(item(
+            label,
+            enabled: !targetIds.isEmpty
+        ) { [commands] in
+            commands.parkWorkspaceTargets(commands.contextMenuWorkspaceIds)
         })
     }
 
