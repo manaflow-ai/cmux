@@ -29,6 +29,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let url: URL
         let status: SidebarPullRequestStatus
         let isStale: Bool
+        let deliveryStatus: SidebarPullRequestDeliveryStatus?
     }
 
     struct Snapshot: Equatable {

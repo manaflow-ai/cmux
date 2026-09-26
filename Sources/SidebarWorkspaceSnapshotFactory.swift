@@ -345,7 +345,8 @@ struct SidebarWorkspaceSnapshotFactory {
                 label: $0.label,
                 url: $0.url,
                 status: $0.status,
-                isStale: $0.isStale
+                isStale: $0.isStale,
+                deliveryStatus: $0.deliveryStatus
             )
         }
     }

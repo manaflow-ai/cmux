@@ -564,7 +564,42 @@ final class SidebarRowPullRequestLine: NSView {
         case .merged: statusText = String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
         case .closed: statusText = String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
         }
-        statusLabel.stringValue = statusText
+        var detailTexts = [statusText]
+        if let checks = display.deliveryStatus?.checks {
+            let checkText: String?
+            switch checks.state {
+            case .success:
+                checkText = String(localized: "sidebar.pullRequest.ciPassed", defaultValue: "CI passed")
+            case .failure:
+                checkText = String(localized: "sidebar.pullRequest.ciFailed", defaultValue: "CI failed")
+            case .pending:
+                checkText = String(localized: "sidebar.pullRequest.ciPending", defaultValue: "CI pending")
+            case .neutral, .unknown:
+                checkText = nil
+            }
+            if let checkText {
+                detailTexts.append(checkText)
+            }
+        }
+        if let deployment = display.deliveryStatus?.deployment {
+            let stateText: String?
+            switch deployment.state {
+            case .live:
+                stateText = String(localized: "sidebar.pullRequest.deploymentLive", defaultValue: "live")
+            case .failure:
+                stateText = String(localized: "sidebar.pullRequest.deploymentFailed", defaultValue: "failed")
+            case .pending:
+                stateText = String(localized: "sidebar.pullRequest.deploymentPending", defaultValue: "pending")
+            case .inactive:
+                stateText = String(localized: "sidebar.pullRequest.deploymentInactive", defaultValue: "inactive")
+            case .unknown:
+                stateText = nil
+            }
+            if let stateText {
+                detailTexts.append("\(deployment.name) \(stateText)")
+            }
+        }
+        statusLabel.stringValue = detailTexts.joined(separator: " · ")
         statusLabel.font = font
         statusLabel.textColor = color
         alphaValue = display.isStale ? 0.5 : 1
@@ -589,7 +624,9 @@ final class SidebarRowPullRequestLine: NSView {
         let titleX = iconSize.width + 4
         // The short status word keeps its natural width; the title absorbs
         // any shortfall (it is the long, truncatable part).
-        let titleWidth = max(10, bounds.width - titleX - ceil(statusSize.width) - 8)
+        let availableWidth = max(10, bounds.width - titleX)
+        let statusWidth = min(ceil(statusSize.width), max(10, floor(availableWidth * 0.45)))
+        let titleWidth = max(0, availableWidth - statusWidth - 4)
         let title: NSView = titleButton.isHidden ? titleLabel : titleButton
         let titleSize = titleButton.isHidden
             ? titleLabel.sidebarNaturalCellSize
@@ -600,7 +637,7 @@ final class SidebarRowPullRequestLine: NSView {
         )
         statusLabel.frame = NSRect(
             x: title.frame.maxX + 4, y: (bounds.height - statusSize.height) / 2,
-            width: ceil(statusSize.width), height: statusSize.height
+            width: statusWidth, height: statusSize.height
         )
     }
 }
