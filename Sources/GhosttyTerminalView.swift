@@ -3339,6 +3339,20 @@ class GhosttyApp {
             let terminalSurface = surfaceView.terminalSurface
             DispatchQueue.main.async { guard surfaceView.terminalSurface === terminalSurface, surfaceView.isVisibleInUI else { return }; terminalSurface?.hostedView.setLinkHoverURL(url) }
             return true
+        case GHOSTTY_ACTION_SECURE_INPUT:
+            // Ghostty sends ON/OFF when its termios poll sees the foreground
+            // program enter or leave canonical mode with echo off (a password
+            // prompt). TOGGLE comes from the `toggle_secure_input` keybind,
+            // which is not an echo change, so it is left unhandled.
+            let mode = action.action.secure_input
+            guard mode == GHOSTTY_SECURE_INPUT_ON || mode == GHOSTTY_SECURE_INPUT_OFF else { return false }
+            let echoDisabled = mode == GHOSTTY_SECURE_INPUT_ON
+            let terminalSurface = surfaceView.terminalSurface
+            DispatchQueue.main.async {
+                guard surfaceView.terminalSurface === terminalSurface else { return }
+                terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
+            }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
@@ -7117,6 +7131,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+        recordPasswordInputKeystrokeIfNeeded(event)
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
@@ -10195,6 +10210,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -10445,6 +10461,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
         linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
+        passwordInputIndicatorView = TerminalPasswordInputIndicatorView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -10657,6 +10674,9 @@ final class GhosttySurfaceScrollView: NSView {
         linkHoverIndicatorView.frame = bounds
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
+        passwordInputIndicatorView.frame = bounds
+        passwordInputIndicatorView.autoresizingMask = [.width, .height]
+        addSubview(passwordInputIndicatorView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -10972,6 +10992,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        _ = setFrameIfNeeded(passwordInputIndicatorView, to: contentFrame)
         if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
@@ -11236,7 +11257,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
-        if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
+        if surfaceView.terminalSurface !== terminalSurface {
+            setLinkHoverURL(nil)
+            setPasswordInputActive(false)
+        }
         surfaceView.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.

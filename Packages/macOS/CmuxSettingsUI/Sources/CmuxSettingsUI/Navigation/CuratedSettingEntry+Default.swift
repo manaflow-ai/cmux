@@ -185,6 +185,22 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["terminal.reflowHardWrapOnCopy"],
                 synonyms: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
             ),
+            .init(
+                section: .terminal,
+                id: "password-input-indicator",
+                title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh."),
+                paths: ["terminal.showPasswordInputIndicator"],
+                synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
+            ),
+            .init(
+                section: .terminal,
+                id: "password-input-dots",
+                title: String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
+                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters."),
+                paths: ["terminal.showPasswordInputDots"],
+                synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
                 section: .terminal,
