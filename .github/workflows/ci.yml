@@ -1597,3 +1597,45 @@ jobs:
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")
           PY
+
+  ci-timing:
+    # The run's timing readout in the job summary: the chain of jobs that set
+    # the wall time, where each ran, and each against the last week of the
+    # same jobs (percentiles from the build controller's webhook feed, no API
+    # budget). Beside ci-status rather than a step of it, so the required
+    # check never waits on it or fails with it.
+    name: CI timing
+    needs:
+      - changes
+      - claude-wrapper
+      - suite-coverage
+      - static-preflight
+      - guards
+      - ghosttykit-release-check
+      - browser
+      - remote-daemon
+      - web
+      - linux-preflight
+      - macos-admission-gate
+      - macos
+      - tests
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout the readout script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ci_timing_readout.py
+          sparse-checkout-cone-mode: false
+
+      - name: Write the timing readout
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_TIMING_STATS_URL: ${{ vars.CI_TIMING_STATS_URL || 'https://gh-events.glaeda.com/ci-timing.json' }}
+        run: python3 scripts/ci/ci_timing_readout.py
