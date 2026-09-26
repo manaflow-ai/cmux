@@ -44,11 +44,18 @@ extension CMUXCLI {
     ) -> String {
         let pidEnvironmentVariable = agentHookPIDEnvironmentVariable(agentName: agent)
         let executableExpression = agentHookCLIExecutableExpression(agent: agent)
+        // Codex hooks are installed globally, so they must stay inert outside
+        // cmux. A restored Codex process can lose CMUX_SURFACE_ID while still
+        // carrying CMUX_WORKSPACE_ID; `hooks enqueue` resolves the live surface
+        // from the agent PID, so either identifier is enough to dispatch.
+        let dispatchContextTest = agent == "codex"
+            ? "[ -n \"${CMUX_SURFACE_ID:-}${CMUX_WORKSPACE_ID:-}\" ]"
+            : "[ -n \"$CMUX_SURFACE_ID\" ]"
         var commandParts = [
             "cmux_cli=\"\(executableExpression)\"",
             "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "agent_pid=\"${\(pidEnvironmentVariable):-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(disableEnvironmentVariable)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || { cat >/dev/null; echo '{}'; }; else \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi",
+            "if \(dispatchContextTest) && [ \"$\(disableEnvironmentVariable)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || { cat >/dev/null; echo '{}'; }; else \(pidEnvironmentVariable)=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=\(agentHookAdmissionResponseTimeoutSeconds) \"$cmux_cli\" hooks enqueue \(agent) \(subcommand) 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi",
         ]
         if let identityMarker {
             commandParts.insert(": \(identityMarker)", at: 0)
