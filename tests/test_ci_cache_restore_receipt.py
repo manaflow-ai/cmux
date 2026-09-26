@@ -25,6 +25,7 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         inspected = {
             ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
             ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
+            ".github/workflows/seed-derived-data.yml",
             ".github/workflows/ci-cache-receipts.yml", "scripts/check-test-determinism.py",
             "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
             "tests/test_ci_pull_request_caches_are_read_only.py",
@@ -56,12 +57,12 @@ class CacheRestoreReceiptTests(unittest.TestCase):
     def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)
-            for name in ("tests/test_ci_pull_request_caches_are_read_only.py",
-                         ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
-                         ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml"):
-                destination = fixture / name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / name, destination)
+            # The guard reads every workflow (it globs .github/workflows), so
+            # the fixture carries the whole tree rather than a list that drifts.
+            shutil.copytree(ROOT / ".github", fixture / ".github")
+            guard = "tests/test_ci_pull_request_caches_are_read_only.py"
+            (fixture / guard).parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / guard, fixture / guard)
             action_path = fixture / ".github/actions/cache-restore/action.yml"
             original = action_path.read_text()
             for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):
