@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 
@@ -71,6 +72,7 @@ extension CmuxSettingsFileStore {
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
+                    "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "preferredEditor": "",
                     "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
