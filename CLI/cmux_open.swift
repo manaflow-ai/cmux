@@ -3522,12 +3522,22 @@ extension CMUXCLI {
         for (name, rawValue) in values {
             guard Self.diffViewerCustomPropertyNames.contains(name),
                   let rawColor = rawValue as? String,
+                  isSixDigitDiffViewerCustomPropertyColor(rawColor),
                   let color = normalizedDiffViewerHexColor(rawColor) else {
                 continue
             }
             guard managedNames.insert(name).inserted else { continue }
             appearance.customProperties[name] = color
         }
+    }
+
+    private func isSixDigitDiffViewerCustomPropertyColor(_ rawValue: String) -> Bool {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 7,
+              trimmed.first == "#" else {
+            return false
+        }
+        return trimmed.dropFirst().allSatisfy(\.isHexDigit)
     }
 
     private func defaultDiffViewerAppearance() -> DiffViewerAppearance {

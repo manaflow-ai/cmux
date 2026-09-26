@@ -624,7 +624,10 @@ final class CMUXOpenCommandTests: XCTestCase {
           "diffViewer": {
             "cssVariables": {
               "--cmux-diff-accent": "#123456",
-              "--cmux-diff-error": "#abcdef"
+              "--cmux-diff-error": "#abcdef",
+              "--cmux-diff-renamed-dark": "#abc",
+              "--cmux-diff-deletion-fg-light": "123456",
+              "--cmux-diff-deletion-fg-dark": "#12zz56"
             }
           }
         }
@@ -768,6 +771,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(customProperties["--cmux-diff-accent"], "#123456")
         XCTAssertEqual(customProperties["--cmux-diff-error"], "#abcdef")
         XCTAssertEqual(customProperties["--cmux-diff-renamed-light"], "#654321")
+        XCTAssertNil(customProperties["--cmux-diff-renamed-dark"])
+        XCTAssertNil(customProperties["--cmux-diff-deletion-fg-light"])
+        XCTAssertNil(customProperties["--cmux-diff-deletion-fg-dark"])
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
         XCTAssertTrue(html.contains("\"fontSize\":13"), html)
         XCTAssertFalse(html.contains("\"fontSize\":15"), html)
