@@ -417,6 +417,16 @@ public struct CMUXMobileRootScene: View {
                 // the Computers sheet is where one is hidden again.
                 cloudWorkspaceBridge?.setAdmittedMachines(machines)
             }
+            .onChange(of: cloudSessionController?.tunnel) { _, phase in
+                // A catalog read attempted before the tunnel was up published
+                // the machine as reconnecting. Nothing else re-reads it, so
+                // without this the rows would stay that way until the machine
+                // list happened to change.
+                guard case .ready = phase, let bridge = cloudWorkspaceBridge else { return }
+                for machine in bridge.admittedMachines {
+                    bridge.refreshCatalog(for: machine)
+                }
+            }
             #endif
     }
 
