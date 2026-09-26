@@ -74,13 +74,14 @@ jobs:
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
     # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
-    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
-    # (four API calls at most; see e2e_runner_pool.py for the budget).
+    # (four or five API calls; see e2e_runner_pool.py for the budget), and the
+    # owned runners through the routing App's own budget.
     permissions:
       contents: read
       actions: read
@@ -103,10 +104,44 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # The org's manaflow-glaeda-route App, read-only on runners, so an
+        # `auto` pick sees which owned Macs are idle now instead of estimating
+        # from the janitor snapshot (e2e_runner_pool.py, "Live owned
+        # capacity"). This repository's runs only, on this ephemeral Linux
+        # runner; no Mac holds it. Any failure leaves the token empty and the
+        # snapshot decides, as before.
+        if: github.repository_owner == 'manaflow-ai' && (inputs.runner == '' || inputs.runner == 'auto') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
       - name: Pick the macOS pool
         id: pool
         env:
           GH_TOKEN: ${{ github.token }}
+          # Empty unless a step above minted it: idle owned runners, live.
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
