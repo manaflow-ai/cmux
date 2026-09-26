@@ -5312,15 +5312,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
-        resolvedWorkingDirectory(panelId: focusedPanelId)
-    }
-
-    /// ``resolvedWorkingDirectory()`` for a specific panel, such as the tab a
-    /// surface tab bar button belongs to. `nil` skips the panel tiers.
-    func resolvedWorkingDirectory(panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { panelDirectories[$0] },
-            panelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            focusedPanelId.flatMap { panelDirectories[$0] },
+            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ]
         for candidate in candidates {

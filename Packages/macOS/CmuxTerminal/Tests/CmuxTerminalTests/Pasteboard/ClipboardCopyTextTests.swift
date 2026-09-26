@@ -80,4 +80,45 @@ struct TerminalCopyClipboardWriteTests {
         }
         #expect(standard.string(forType: .string) == "/tmp/project")
     }
+
+    @Test("a delayed copy loses to a newer clipboard write")
+    func delayedCopyLosesToNewerClipboardWrite() async {
+        let (service, standard, selection) = makeService()
+        defer {
+            standard.releaseGlobally()
+            selection.releaseGlobally()
+        }
+        standard.clearContents()
+        let startedAt = service.standardClipboardChangeCount
+        standard.clearContents()
+        standard.setString("user copied this later", forType: .string)
+
+        let didWrite = await service.copyToStandardClipboard(
+            "/tmp/project",
+            ifUnchangedSince: startedAt
+        )
+
+        #expect(didWrite == false)
+        #expect(standard.string(forType: .string) == "user copied this later")
+    }
+
+    @Test("a delayed copy writes when the clipboard is unchanged")
+    func delayedCopyWritesWhenClipboardUnchanged() async {
+        let (service, standard, selection) = makeService()
+        defer {
+            standard.releaseGlobally()
+            selection.releaseGlobally()
+        }
+        standard.clearContents()
+        standard.setString("old", forType: .string)
+        let startedAt = service.standardClipboardChangeCount
+
+        let didWrite = await service.copyToStandardClipboard(
+            "/tmp/project",
+            ifUnchangedSince: startedAt
+        )
+
+        #expect(didWrite)
+        #expect(standard.string(forType: .string) == "/tmp/project")
+    }
 }

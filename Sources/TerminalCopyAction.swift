@@ -7,7 +7,7 @@ import CmuxTerminal
 /// `cmux.copyScreen`), their command palette entries, and surface tab bar
 /// buttons, so every entrypoint copies the same text.
 enum TerminalCopyAction: Sendable, Equatable {
-    /// The terminal's current working directory, as the shell last reported it.
+    /// The terminal's current working directory, as its shell last reported it.
     case workingDirectory
     /// The root of the git work tree containing the working directory, or the
     /// working directory itself outside a repository.
@@ -30,55 +30,91 @@ extension CmuxSurfaceTabBarBuiltInAction {
     }
 }
 
-/// Runs a ``TerminalCopyAction`` against one terminal and writes the result to
-/// the standard clipboard through the terminal pasteboard service. Nothing is
-/// written when there is nothing to copy; the user hears a beep instead.
+/// The directory a copy action reads for one terminal panel.
+struct TerminalCopyDirectoryTarget: Equatable {
+    /// The panel's working directory: a local path, or a path on the remote
+    /// or cloud host the panel runs on.
+    let path: String
+    /// Whether `path` is on this Mac, so a local git walk is meaningful.
+    let isLocal: Bool
+}
+
+extension Workspace {
+    /// The directory a copy action targets for the terminal `panelId`, or
+    /// `nil` when `panelId` is not a terminal in this workspace or its
+    /// directory is unknown.
+    ///
+    /// Uses the same provenance rules as the sidebar
+    /// (``effectivePanelDirectory(panelId:localFallback:)``): a remote, cloud,
+    /// or remote-tmux panel only yields a directory its host reported, never
+    /// this Mac's workspace directory. There is deliberately no fallback to
+    /// another panel's or the workspace's directory.
+    func copyActionDirectoryTarget(panelId: UUID?) -> TerminalCopyDirectoryTarget? {
+        guard let panelId, terminalPanel(for: panelId) != nil,
+              let path = effectivePanelDirectory(panelId: panelId) else {
+            return nil
+        }
+        return TerminalCopyDirectoryTarget(
+            path: path,
+            isLocal: allowsLocalDirectoryFallback(panelId: panelId)
+        )
+    }
+}
+
+/// Runs a ``TerminalCopyAction`` against one terminal panel and writes the
+/// result to the standard clipboard through the terminal pasteboard service.
+/// Nothing is written when there is nothing to copy; the user hears a beep
+/// instead.
 @MainActor
 enum TerminalCopyActionRunner {
-    /// Copies the requested text for `panelId` in `workspace`.
+    /// Copies the requested text for the terminal `panelId` in `workspace`.
     ///
-    /// The working directory comes from ``Workspace/resolvedWorkingDirectory(panelId:)``.
-    /// Remote paths are copied as text; they are never opened locally.
+    /// Callers pass the panel the user acted on: the focused panel for the
+    /// palette and shortcuts, the clicked pane's selected tab for a surface
+    /// tab bar button. A missing or non-terminal panel beeps rather than
+    /// copying some other pane's text.
     ///
     /// - Parameters:
     ///   - action: What to copy.
     ///   - workspace: The workspace that owns the target panel.
-    ///   - panelId: The target panel. `nil` uses the workspace's focused panel.
+    ///   - panelId: The target panel.
     /// - Returns: `true` when the copy ran or was started (project-root
-    ///   resolution finishes asynchronously), `false` when there was nothing to
-    ///   copy.
+    ///   resolution finishes asynchronously), `false` when there was nothing
+    ///   to copy.
     @discardableResult
-    static func run(_ action: TerminalCopyAction, workspace: Workspace?, panelId: UUID? = nil) -> Bool {
-        guard let workspace else {
+    static func run(_ action: TerminalCopyAction, workspace: Workspace?, panelId: UUID?) -> Bool {
+        guard let workspace, let panelId, let terminalPanel = workspace.terminalPanel(for: panelId) else {
             NSSound.beep()
             return false
         }
-        let targetPanelId = panelId ?? workspace.focusedPanelId
         switch action {
         case .workingDirectory:
-            return copy(workspace.resolvedWorkingDirectory(panelId: targetPanelId))
+            return copy(workspace.copyActionDirectoryTarget(panelId: panelId)?.path)
         case .projectRoot:
-            guard let directory = workspace.resolvedWorkingDirectory(panelId: targetPanelId) else {
+            guard let target = workspace.copyActionDirectoryTarget(panelId: panelId) else {
                 NSSound.beep()
                 return false
             }
-            // A remote or cloud workspace's directory lives on another host, so
-            // a local repository walk would be wrong. Copy the directory itself,
+            // A remote or cloud panel's directory lives on another host, so a
+            // local repository walk would be wrong. Copy the directory itself,
             // the same fallback used outside a repository.
-            if workspace.usesRemoteDirectoryProvenance {
-                return copy(directory)
+            guard target.isLocal else {
+                return copy(target.path)
             }
+            let pasteboard = GhosttyApp.terminalPasteboard
+            let startedAt = pasteboard.standardClipboardChangeCount
             Task { @MainActor in
-                let root = await GitMetadataService().workTreeRoot(forDirectory: directory)
-                Self.copy(root ?? directory)
+                let root = await GitMetadataService().workTreeRoot(forDirectory: target.path)
+                // A copy the user made while the walk ran wins over this one.
+                if !(await pasteboard.copyToStandardClipboard(
+                    root ?? target.path,
+                    ifUnchangedSince: startedAt
+                )) {
+                    NSSound.beep()
+                }
             }
             return true
         case .visibleScreen:
-            guard let targetPanelId,
-                  let terminalPanel = workspace.terminalPanel(for: targetPanelId) else {
-                NSSound.beep()
-                return false
-            }
             let text = TerminalController.shared.readTerminalTextForSnapshot(
                 terminalPanel: terminalPanel,
                 includeScrollback: false,

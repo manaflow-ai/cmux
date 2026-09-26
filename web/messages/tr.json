@@ -1413,6 +1413,7 @@
       "actionTypes": "Eylem türleri",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight veya cmux.splitDown gibi yerleşik bir cmux eylemi için alias oluşturur.",
       "actionTypeBuiltinCopy": "Yerleşik kopyalama eylemleri: cmux.copyWorkingDirectory terminalin çalışma dizinini, cmux.copyProjectRoot git deposunun kökünü (depo dışında çalışma dizinini) ve cmux.copyScreen görünür ekranı kopyalar.",
+      "actionTypeBuiltinCopyRemote": "SSH, bulut veya uzak tmux çalışma alanında cmux, diğer ana makinedeki git deposunu bulamadığı için cmux.copyProjectRoot uzak çalışma dizinini kopyalar.",
       "actionTypeCommand": "Terminalde shell metni çalıştırır. Geçerli terminali veya geçerli bölmedeki yeni sekmeyi seçmek için target kullanın.",
       "actionTypeAgent": "Desteklenen bir kodlama ajanı başlatır. Bugün codex ve claude desteklenir, isteğe bağlı argümanlarla.",
       "actionTypeWorkspaceCommand": "commands içinden adlandırılmış bir çalışma alanı tanımını çalıştırır. Çok bölmeli düzenler, özel çalışma dizinleri ve başlangıç komutları için kullanın.",

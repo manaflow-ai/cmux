@@ -195,7 +195,7 @@ export default function CustomCommandsPage() {
       </p>
       <DocsHeading level={3} id="action-types">{t("actionTypes")}</DocsHeading>
       <ul>
-        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")} {t("actionTypeBuiltinCopy")}</li>
+        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")} {t("actionTypeBuiltinCopy")} {t("actionTypeBuiltinCopyRemote")}</li>
         <li><code>&quot;command&quot;</code>: {t("actionTypeCommand")}</li>
         <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>

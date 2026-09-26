@@ -17707,9 +17707,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // The runner beeps when there is nothing to copy. Report the
                 // action as handled either way so a bound shortcut is consumed
                 // instead of falling through to the terminal after the beep.
+                let workspace = context.tabManager.selectedWorkspace
                 if TerminalCopyActionRunner.run(
                     copyAction,
-                    workspace: context.tabManager.selectedWorkspace
+                    workspace: workspace,
+                    panelId: workspace?.focusedPanelId
                 ) {
                     onExecuted?()
                 }

@@ -44,3 +44,16 @@ import Testing
         #expect(root == nil)
     }
 }
+
+@Suite struct GitWorkTreeRootDeadlineTests {
+    @Test func expiredDeadlineReturnsNilInsteadOfWalking() async throws {
+        let fixture = try GitRepositoryFixture()
+
+        let root = await GitMetadataService().workTreeRoot(
+            forDirectory: fixture.root.path,
+            timeout: .zero
+        )
+
+        #expect(root == nil)
+    }
+}

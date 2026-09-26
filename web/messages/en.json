@@ -2707,6 +2707,7 @@
       "actionTypes": "Action types",
       "actionTypeBuiltin": "Alias a built-in cmux action such as cmux.newTerminal, cmux.newBrowser, cmux.splitRight, or cmux.splitDown.",
       "actionTypeBuiltinCopy": "Copy built-ins: cmux.copyWorkingDirectory copies the terminal's working directory, cmux.copyProjectRoot copies the root of its git repository (or the working directory outside one), and cmux.copyScreen copies the visible screen.",
+      "actionTypeBuiltinCopyRemote": "In an SSH, cloud, or remote tmux workspace, cmux.copyProjectRoot copies the remote working directory, because cmux can't look up the git repository on the other host.",
       "actionTypeCommand": "Run shell text in a terminal. Use target to choose the current terminal or a new tab in the current pane.",
       "actionTypeAgent": "Start a coding agent in a new terminal tab. Any CLI name works (claude, codex, opencode, or your own binary), with optional args.",
       "actionTypeWorkspaceCommand": "Run a named workspace definition from commands. Use this for multi-pane layouts, custom working directories, and startup commands.",

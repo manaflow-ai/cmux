@@ -1413,6 +1413,7 @@
       "actionTypes": "操作类型",
       "actionTypeBuiltin": "为内置 cmux 操作创建别名，例如 cmux.newTerminal、cmux.newBrowser、cmux.splitRight 或 cmux.splitDown。",
       "actionTypeBuiltinCopy": "复制类内置操作：cmux.copyWorkingDirectory 复制终端的工作目录，cmux.copyProjectRoot 复制其 Git 仓库的根目录（不在仓库中时复制工作目录），cmux.copyScreen 复制当前可见的屏幕内容。",
+      "actionTypeBuiltinCopyRemote": "在 SSH、云端或远程 tmux 工作区中，cmux 无法查找另一台主机上的 Git 仓库，因此 cmux.copyProjectRoot 会复制远程工作目录。",
       "actionTypeCommand": "在终端中运行 shell 文本。使用 target 选择当前终端或当前面板中的新标签。",
       "actionTypeAgent": "启动受支持的编码代理。目前支持 codex 和 claude，并可传入可选参数。",
       "actionTypeWorkspaceCommand": "运行 commands 中的命名工作区定义。用于多面板布局、自定义工作目录和启动命令。",

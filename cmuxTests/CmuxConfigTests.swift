@@ -1463,9 +1463,12 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let copyScreen = try XCTUnwrap(store.resolvedAction(id: "cmux.copyScreen"))
         XCTAssertEqual(copyScreen.title, "Grab Screen")
         XCTAssertFalse(copyScreen.palette)
-        // Built-ins reach the palette through native entries, never as
-        // duplicate custom rows.
-        XCTAssertFalse(store.paletteCustomActions().contains { $0.id.hasPrefix("cmux.copy") })
+        // The native palette rows look up their overrides through these ids.
+        XCTAssertEqual(
+            ContentView.commandPaletteCopyActionCommandID(.copyScreen),
+            "palette.copyScreen"
+        )
+        XCTAssertEqual(store.resolvedAction(id: "copyWorkingDirectory")?.id, "cmux.copyWorkingDirectory")
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {

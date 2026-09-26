@@ -1413,6 +1413,7 @@
       "actionTypes": "Типы действий",
       "actionTypeBuiltin": "Псевдоним встроенного действия cmux, например cmux.newTerminal, cmux.newBrowser, cmux.splitRight или cmux.splitDown.",
       "actionTypeBuiltinCopy": "Встроенные действия копирования: cmux.copyWorkingDirectory копирует рабочий каталог терминала, cmux.copyProjectRoot — корень его git-репозитория (или рабочий каталог вне репозитория), а cmux.copyScreen — видимый экран.",
+      "actionTypeBuiltinCopyRemote": "В рабочем пространстве SSH, облака или удалённого tmux cmux.copyProjectRoot копирует удалённый рабочий каталог, потому что cmux не может найти git-репозиторий на другом хосте.",
       "actionTypeCommand": "Запускает shell-текст в терминале. Используйте target, чтобы выбрать текущий терминал или новую вкладку в текущей панели.",
       "actionTypeAgent": "Запускает поддерживаемого кодового агента. Сейчас поддерживаются codex и claude с необязательными аргументами.",
       "actionTypeWorkspaceCommand": "Запускает именованное определение рабочей области из commands. Используйте для многопанельных раскладок, пользовательских рабочих каталогов и стартовых команд.",

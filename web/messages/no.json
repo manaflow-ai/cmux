@@ -1413,6 +1413,7 @@
       "actionTypes": "Handlingstyper",
       "actionTypeBuiltin": "Alias til en innebygd cmux-handling som cmux.newTerminal, cmux.newBrowser, cmux.splitRight eller cmux.splitDown.",
       "actionTypeBuiltinCopy": "Innebygde kopihandlinger: cmux.copyWorkingDirectory kopierer terminalens arbeidsmappe, cmux.copyProjectRoot kopierer roten av git-repositoriet (eller arbeidsmappen utenfor et repository), og cmux.copyScreen kopierer den synlige skjermen.",
+      "actionTypeBuiltinCopyRemote": "I et SSH-, sky- eller eksternt tmux-arbeidsområde kopierer cmux.copyProjectRoot den eksterne arbeidsmappen, fordi cmux ikke kan slå opp git-repositoriet på den andre verten.",
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
       "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",

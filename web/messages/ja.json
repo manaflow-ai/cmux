@@ -2630,6 +2630,7 @@
       "actionTypes": "アクションの種類",
       "actionTypeBuiltin": "cmux.newTerminal、cmux.newBrowser、cmux.splitRight、cmux.splitDown などの組み込み cmux アクションに別名を付けます。",
       "actionTypeBuiltinCopy": "コピー用のビルトイン: cmux.copyWorkingDirectory はターミナルの作業ディレクトリを、cmux.copyProjectRoot は Git リポジトリのルート（リポジトリ外では作業ディレクトリ）を、cmux.copyScreen は表示中の画面をコピーします。",
+      "actionTypeBuiltinCopyRemote": "SSH、クラウド、リモート tmux のワークスペースでは、リモート側の Git リポジトリを cmux が調べられないため、cmux.copyProjectRoot はリモートの作業ディレクトリをコピーします。",
       "actionTypeCommand": "ターミナルでシェルテキストを実行します。target で現在のターミナルまたは現在のペイン内の新しいタブを選びます。",
       "actionTypeAgent": "コーディングエージェントを新しいターミナルタブで起動します。任意の CLI 名(claude、codex、opencode、独自バイナリなど)を指定でき、args も併用できます。",
       "actionTypeWorkspaceCommand": "commands から名前付きのワークスペース定義を実行します。複数ペインのレイアウト、カスタム作業ディレクトリ、起動コマンドに使います。",

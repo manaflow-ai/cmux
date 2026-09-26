@@ -11,13 +11,14 @@ extension String {
         allSatisfy(\.isWhitespace) ? nil : self
     }
 
-    /// This terminal viewport text with the blank rows below the last line of
-    /// output removed, or `nil` when the screen is blank.
+    /// This terminal viewport text with all trailing whitespace removed, or
+    /// `nil` when the screen is blank.
     ///
     /// A viewport reads back as one line per row, so a mostly empty screen
-    /// ends in a run of blank rows. Those are dropped, the same as
-    /// `$(cmux read-screen)` in a shell drops trailing newlines. Leading rows
-    /// and indentation are kept.
+    /// ends in a run of blank rows. Every trailing space, tab, and newline is
+    /// dropped, including trailing spaces on the last line of output (a shell
+    /// `$(cmux read-screen)` would keep those). Leading rows and indentation
+    /// are kept.
     public var visibleScreenClipboardText: String? {
         var end = endIndex
         while end > startIndex {

@@ -1397,6 +1397,7 @@
       "actionTypes": "Типи дій",
       "actionTypeBuiltin": "Псевдонім для вбудованої дії cmux, наприклад cmux.newTerminal, cmux.newBrowser, cmux.splitRight або cmux.splitDown.",
       "actionTypeBuiltinCopy": "Вбудовані дії копіювання: cmux.copyWorkingDirectory копіює робочий каталог термінала, cmux.copyProjectRoot — корінь його git-репозиторію (або робочий каталог поза репозиторієм), а cmux.copyScreen — видимий екран.",
+      "actionTypeBuiltinCopyRemote": "У робочому просторі SSH, хмари або віддаленого tmux cmux.copyProjectRoot копіює віддалений робочий каталог, бо cmux не може знайти git-репозиторій на іншому хості.",
       "actionTypeCommand": "Запускає shell-текст у терміналі. Використовуйте target, щоб вибрати поточний термінал або нову вкладку в поточній панелі.",
       "actionTypeAgent": "Запускає підтримуваного кодового агента. Наразі підтримуються codex і claude з необов’язковими аргументами.",
       "actionTypeWorkspaceCommand": "Запускає іменоване визначення робочого простору з commands. Використовуйте для багатопанельних розкладок, власних робочих каталогів і стартових команд.",

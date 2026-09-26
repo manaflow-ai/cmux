@@ -159,4 +159,36 @@ extension TerminalPasteboardService {
         guard let payload = text?.nonBlankClipboardText else { return false }
         return writeString(payload, to: standardPasteboard)
     }
+
+    /// The standard clipboard's current generation, for a later
+    /// ``copyToStandardClipboard(_:ifUnchangedSince:)``.
+    public var standardClipboardChangeCount: Int {
+        standardPasteboard.changeCount
+    }
+
+    /// Copies text to the standard clipboard only if nothing else has written
+    /// it since `changeCount` was read.
+    ///
+    /// Use this when the text is computed asynchronously: a copy the user made
+    /// in the meantime wins, and this late write is dropped.
+    ///
+    /// - Parameters:
+    ///   - text: The already-normalized text to copy.
+    ///   - changeCount: ``standardClipboardChangeCount`` read when the copy
+    ///     action started.
+    /// - Returns: `true` when the text was published, `false` when there was
+    ///   nothing to copy, the clipboard changed, or the write was rejected.
+    public func copyToStandardClipboard(
+        _ text: String?,
+        ifUnchangedSince changeCount: Int
+    ) async -> Bool {
+        guard let payload = text?.nonBlankClipboardText else { return false }
+        let item = NSPasteboardItem()
+        guard item.setString(payload, forType: .string) else { return false }
+        return await replaceContentsAndWait(
+            of: standardPasteboard,
+            with: [item],
+            expectedChangeCount: changeCount
+        ).didWrite
+    }
 }

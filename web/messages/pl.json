@@ -1414,6 +1414,7 @@
       "actionTypes": "Typy akcji",
       "actionTypeBuiltin": "Alias wbudowanej akcji cmux, takiej jak cmux.newTerminal, cmux.newBrowser, cmux.splitRight lub cmux.splitDown.",
       "actionTypeBuiltinCopy": "Wbudowane akcje kopiowania: cmux.copyWorkingDirectory kopiuje katalog roboczy terminala, cmux.copyProjectRoot kopiuje katalog główny jego repozytorium git (lub katalog roboczy poza repozytorium), a cmux.copyScreen kopiuje widoczny ekran.",
+      "actionTypeBuiltinCopyRemote": "W obszarze roboczym SSH, w chmurze lub zdalnym tmux cmux.copyProjectRoot kopiuje zdalny katalog roboczy, ponieważ cmux nie może odnaleźć repozytorium git na drugim hoście.",
       "actionTypeCommand": "Uruchamia tekst shell w terminalu. Użyj target, aby wybrać bieżący terminal albo nową kartę w bieżącym panelu.",
       "actionTypeAgent": "Uruchamia obsługiwanego agenta programistycznego. Obecnie obsługuje codex i claude, z opcjonalnymi argumentami.",
       "actionTypeWorkspaceCommand": "Uruchamia nazwaną definicję obszaru roboczego z commands. Używaj do układów wielopanelowych, własnych katalogów roboczych i poleceń startowych.",

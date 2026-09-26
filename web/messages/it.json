@@ -1413,6 +1413,7 @@
       "actionTypes": "Tipi di azione",
       "actionTypeBuiltin": "Crea un alias per un’azione cmux integrata come cmux.newTerminal, cmux.newBrowser, cmux.splitRight o cmux.splitDown.",
       "actionTypeBuiltinCopy": "Azioni integrate di copia: cmux.copyWorkingDirectory copia la directory di lavoro del terminale, cmux.copyProjectRoot copia la radice del suo repository git (o la directory di lavoro al di fuori di un repository) e cmux.copyScreen copia lo schermo visibile.",
+      "actionTypeBuiltinCopyRemote": "In un workspace SSH, cloud o tmux remoto, cmux.copyProjectRoot copia la directory di lavoro remota, perché cmux non può individuare il repository git sull'altro host.",
       "actionTypeCommand": "Esegue testo shell in un terminale. Usa target per scegliere il terminale corrente o una nuova scheda nel pannello corrente.",
       "actionTypeAgent": "Avvia un agente di programmazione supportato. Oggi supporta codex e claude, con argomenti opzionali.",
       "actionTypeWorkspaceCommand": "Esegue una definizione di spazio di lavoro con nome da commands. Usalo per layout multipannello, directory di lavoro personalizzate e comandi di avvio.",

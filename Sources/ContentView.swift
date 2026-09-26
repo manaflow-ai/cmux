@@ -9341,7 +9341,12 @@ struct ContentView: View {
         ] {
             registry.register(commandId: Self.commandPaletteCopyActionCommandID(copyAction)) {
                 if let terminalCopyAction = copyAction.terminalCopyAction {
-                    TerminalCopyActionRunner.run(terminalCopyAction, workspace: tabManager.selectedWorkspace)
+                    let workspace = tabManager.selectedWorkspace
+                    TerminalCopyActionRunner.run(
+                        terminalCopyAction,
+                        workspace: workspace,
+                        panelId: workspace?.focusedPanelId
+                    )
                 }
             }
         }
