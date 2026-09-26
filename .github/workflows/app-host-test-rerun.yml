@@ -115,8 +115,12 @@ jobs:
     # check comes first so a fork is never pointed at a label it cannot run.
     # Otherwise run on the Blacksmith pool whose macOS matches the one that
     # compiled the products (plan reads it from the source run's compile
-    # admission): only that image carries the products' Xcode.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    # admission): only that image carries the products' Xcode. Products built
+    # on macOS 26 (Blacksmith or the minis, both Xcode 26.6) rerun on the std
+    # minis' side runners first, as a side lane: attempts 1 and 2 there
+    # (ci-owned-pool-rescue.yml moves a stuck or refused one), then Blacksmith.
+    # glaeda's hook classes `rerun` as gui, and it takes its root itself.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner == 'blacksmith-6vcpu-macos-26' && (vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"

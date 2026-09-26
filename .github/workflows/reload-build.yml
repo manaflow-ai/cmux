@@ -39,7 +39,7 @@ on:
           This is the dev-build offload path (reload-cloud), not required CI, so
           targeting the fleet for a build is intentional.
         required: false
-        default: blacksmith-6vcpu-macos-26
+        default: auto
         type: string
       nonce:
         description: Opaque marker echoed into run-name so the dispatcher can find this run.
@@ -81,7 +81,11 @@ jobs:
   build:
     needs: resolve-ref
     # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
+    # The default runner (auto, or blacksmith-6vcpu-macos-26, which older
+    # reload-cloud checkouts pass explicitly) builds on the std minis' side
+    # runners first: attempts 1 and 2 there (ci-owned-pool-rescue.yml moves a
+    # stuck or refused build), then Blacksmith. Any other label is honored.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (contains(fromJSON('["","auto","blacksmith-6vcpu-macos-26"]'), inputs.runner) && (vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.

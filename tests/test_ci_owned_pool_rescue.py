@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import io
@@ -936,10 +937,27 @@ class SideLanes(unittest.TestCase):
             target = rescue.target_from_event(side_event(path=path), "manaflow-ai/cmux")
             self.assertTrue(target.side, path)
             self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
-        for why, payload in {"push": side_event(event="push"), "attempt 2": side_event(run_attempt=2),
+        for why, payload in {"merge group": side_event(event="merge_group"),
+                             "workflow_run": side_event(event="workflow_run"),
+                             "pull_request_target": side_event(event="pull_request_target"),
+                             "attempt 2": side_event(run_attempt=2),
                              "fork": side_event(head_repository={"full_name": "someone/cmux"}),
+                             "fork push": side_event(event="push", head_repository={"full_name": "someone/cmux"}),
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+
+    def test_trusted_non_pull_request_side_runs_are_watched_without_a_head(self):
+        # A push, schedule or dispatch runs this repository's own branch: owned-eligible, and no
+        # pull request head can move under it.
+        for kind in ("push", "schedule", "workflow_dispatch"):
+            for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
+                target = rescue.target_from_event(side_event(path=path, event=kind, pull_requests=[]),
+                                                  "manaflow-ai/cmux")
+                self.assertTrue(target.side, (kind, path))
+                self.assertEqual((target.pr_number, target.e2e, target.main), (0, False, False))
+        target = rescue.target_from_event(side_event(event="workflow_dispatch", pull_requests=[]), "manaflow-ai/cmux")
+        clock = Clock()
+        self.assertEqual(rescue.pull_moved(FakeAPI(clock, lambda s: []), target, clock.sleep, lambda text: None), "")
 
     def test_a_run_with_no_owned_job_stops_when_it_finishes(self):
         clock = Clock()
@@ -966,15 +984,22 @@ class SideLanes(unittest.TestCase):
         self.assertIn("a side-lane job asked for a persistent pool", summary)
         self.assertIn("the fleet accepted the side-lane jobs", summary)
 
-    def test_a_stuck_side_job_moves_to_blacksmith_keeping_what_passed_and_is_not_followed(self):
+    def test_a_stuck_side_job_moves_to_the_std_minis_keeping_what_passed_and_is_followed(self):
         clock = Clock()
         api = FakeAPI(clock, side_run())
         code, summary = run_main(api, clock, payload=side_event())
         self.assertEqual(code, 0)
         self.assertIn("cancel", api.calls)
-        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 takes Blacksmith; no watch of it
+        self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-        self.assertIn("Blacksmith default", summary)
+        # Attempt 2 takes CI_SIDE_LANE_RUNNER, so the watch follows it.
+        self.assertIn("std minis' side label", summary)
+        self.assertIn("attempt 2", summary)
+
+    def test_a_side_lane_attempt_3_takes_blacksmith(self):
+        target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
+        self.assertIn("std minis' side label", rescue.next_attempt(target))
+        self.assertIn("Blacksmith default", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
@@ -983,8 +1008,10 @@ class SideLanes(unittest.TestCase):
         clock = Clock()
         api = FakeAPI(clock, jobs, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=side_event())
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
+        # Attempt 2 is on the std minis' side label, so the watch looks at it.
+        self.assertIn("jobs:2", api.calls[api.calls.index("rerun-failed"):])
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -1365,7 +1392,8 @@ class Workflow(unittest.TestCase):
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
-                     "(github.event.workflow_run.event == 'pull_request' && "
+                     "(contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
+                     "github.event.workflow_run.event) && "
                      "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
                      "github.event.workflow_run.event == 'workflow_dispatch') && "
