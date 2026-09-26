@@ -1086,7 +1086,7 @@ class Wiring(unittest.TestCase):
                 calls = Path(tmp, "calls").read_text().split() if Path(tmp, "calls").exists() else []
                 return out.returncode, calls, "" if "::warning" not in out.stdout else out.stdout
 
-        self.assertEqual(run(0)[:2], (0, ["take", "/private/tmp/cmux-ci", "--wait", "600"]))
+        self.assertEqual(run(0)[:2], (0, ["take", "/private/tmp/cmux-ci", "--wait", "1800"]))
         # 2: the hook placed the job; quiet when it placed it here, a warning when elsewhere.
         self.assertEqual(run(2, placed="/private/tmp/cmux-ci")[::2], (0, ""))
         code, _, out = run(2, placed="/private/tmp/cmux-ci-2")
