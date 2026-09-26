@@ -178,6 +178,9 @@
          location = "group:CMUXDebugLog">
       </FileRef>
       <FileRef
+         location = "group:CmuxDictation">
+      </FileRef>
+      <FileRef
          location = "group:CmuxDiffComments">
       </FileRef>
       <FileRef

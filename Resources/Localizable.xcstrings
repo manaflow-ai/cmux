@@ -1,6 +1,90 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.betaFeatures.dictation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "الإملاء الصوتي"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diktat"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Dictation"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dictado"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dictée"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "音声入力（ディクテーション）"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "받아쓰기"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "语音听写"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "語音聽寫"}}
+      }
+    },
+    "settings.betaFeatures.dictation.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "النقر المزدوج على fn يشغّل الإملاء في الطرفية النشطة؛ والضغط المطوّل للتحدّث المستمر. يستخدم التعرف على الكلام على الجهاز عند توفره."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Doppeltes Fn drücken startet das Diktat im fokussierten Terminal; Fn halten für Sprechbetrieb. Verwendet wenn möglich On-Device-Spracherkennung."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Double-tap fn toggles dictation into the focused terminal; hold fn for push-to-talk. Uses on-device speech recognition when available."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Pulsar fn dos veces activa el dictado en la terminal enfocada; mantén fn para hablar por empuje. Usa reconocimiento de voz en el dispositivo cuando esté disponible."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Double-appui sur fn pour dicter dans le terminal actif ; maintenir fn pour le mode pousse-parler. Utilise la reconnaissance vocale sur l'appareil quand disponible."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "fn を2回押すとフォーカス中のターミナルへ音声入力を開始し、長押しでは押している間だけ録音します。可能な場合はオンデバイスの音声認識を使用します。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "fn을 두 번 누르면 포커스된 터미널에 받아쓰기가 켜지고, 길게 누르면 누르는 동안만 입력합니다. 가능한 경우 온디바이스 음성 인식을 사용합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "双击 fn 键在焦点终端启动听写；按住 fn 键为按住说话。可用时使用设备端语音识别。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "雙擊 fn 鍵在焦點終端機啟動聽寫；按住 fn 鍵則為按住說話。可用時使用裝置端語音辨識。"}}
+      }
+    },
+    "settings.betaFeatures.dictation.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يُبقي مشغّلات الإملاء بمفتاح fn والوصول إلى الميكروفون مغلقَين حتى تفعّلها هنا."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hält die Fn-Diktat-Auslöser und den Mikrofonzugriff deaktiviert, bis sie hier aktiviert werden."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Keeps the fn-key dictation triggers and microphone access off until you enable them here."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantiene los activadores de dictado con fn y el acceso al micrófono desactivados hasta que los active aquí."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Maintient les déclencheurs de dictée par fn et l'accès au microphone désactivés tant que vous ne les activez pas ici."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ここで有効にするまで、fn キーの音声入力トリガーとマイクへのアクセスを無効のままにします。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "여기서 활성화하기 전까지 fn 키 받아쓰기 트리거와 마이크 접근을 비활성화합니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在您于此启用前，保持 fn 键听写触发与麦克风访问为关闭。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在您於此啟用前，保持 fn 鍵聽寫觸發與麥克風存取為關閉。"}}
+      }
+    },
+    "dictation.hud.listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستمع…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Hört zu…"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Listening…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Escuchando…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Écoute…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "音声を認識中…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "듣는 중…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聆听中…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聆聽中…"}}
+      }
+    },
+    "dictation.hud.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يجري الإنهاء…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schließe ab…"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Finishing…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Finalizando…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Finalisation…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "整理中…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "마무리 중…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "收尾中…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "收尾中…"}}
+      }
+    },
+    "dictation.hud.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "الإملاء غير متاح — تحقق من أذونات الميكروفون والتعرف على الكلام"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diktat nicht verfügbar — Mikrofon- und Spracherkennungsberechtigungen prüfen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Dictation unavailable — check Microphone and Speech Recognition permissions"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Dictado no disponible: revise los permisos de micrófono y Reconocimiento de voz"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dictée indisponible — vérifiez les autorisations Micro et Reconnaissance vocale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "音声入力を利用できません — マイクと音声認識の権限を確認してください"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "받아쓰기를 사용할 수 없음 — 마이크 및 음성 인식 권한을 확인하세요"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "听写不可用 — 请检查麦克风与语音识别权限"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聽寫無法使用 — 請檢查麥克風與語音辨識權限"}}
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {

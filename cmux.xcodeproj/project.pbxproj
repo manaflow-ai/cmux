@@ -1195,6 +1195,8 @@
 		CC0DE00000000000000000A5 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
 		C85390090000000000000003 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
+		C9A2D00000000000000000D3 /* CmuxDictation in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2D00000000000000000D2 /* CmuxDictation */; };
+		C9A2D00000000000000000D4 /* CmuxDictation in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2D00000000000000000D2 /* CmuxDictation */; };
 		CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */ = {isa = PBXBuildFile; productRef = CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */; };
 		CC0033E15A1B2C3D4E5F0013 /* CmuxDiffComments in Frameworks */ = {isa = PBXBuildFile; productRef = CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */; };
 		9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */; };
@@ -1641,6 +1643,9 @@
 				DEC1CE000000000000000048 /* DeviceWorkspaceProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */; };
 		DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */; };
 		DE000A010000000000000001 /* DevWindowDisplayDefault.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A010000000000000002 /* DevWindowDisplayDefault.swift */; };
+		D1C7A7000000000000000002 /* DictationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C7A7000000000000000001 /* DictationCoordinator.swift */; };
+		D1C7A7000000000000000004 /* DictationHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C7A7000000000000000003 /* DictationHUDController.swift */; };
+		D1C7A7000000000000000006 /* DictationSurfaceTextSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C7A7000000000000000005 /* DictationSurfaceTextSink.swift */; };
 		D1FFC0DE000000000000B002 /* DiffCommentsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000B001 /* DiffCommentsBridge.swift */; };
 		D1FFC0DE000000000000A002 /* DiffCommentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000A001 /* DiffCommentStore.swift */; };
 		D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */; };
@@ -5616,6 +5621,9 @@
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceWorkspaceProjectionTests.swift; sourceTree = "<group>"; };
 		DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevWindowDisplayDebugWindow.swift; sourceTree = "<group>"; };
 		DE000A010000000000000002 /* DevWindowDisplayDefault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevWindowDisplayDefault.swift; sourceTree = "<group>"; };
+		D1C7A7000000000000000001 /* DictationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DictationCoordinator.swift; sourceTree = "<group>"; };
+		D1C7A7000000000000000003 /* DictationHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DictationHUDController.swift; sourceTree = "<group>"; };
+		D1C7A7000000000000000005 /* DictationSurfaceTextSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DictationSurfaceTextSink.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000B001 /* DiffCommentsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DiffCommentsBridge.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000A001 /* DiffCommentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentStore.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentStoreTests.swift; sourceTree = "<group>"; };
@@ -8010,6 +8018,7 @@
 				C0C0A2026091900000000003 /* CmuxComputerUse in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
+				C9A2D00000000000000000D3 /* CmuxDictation in Frameworks */,
 				CC0033E15A1B2C3D4E5F0013 /* CmuxDiffComments in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
@@ -8126,6 +8135,7 @@
 				A79840010000000000000003 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
 				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
+				C9A2D00000000000000000D4 /* CmuxDictation in Frameworks */,
 				CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */,
 				D0F1A0000000000000000004 /* CmuxFilePreviewCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
@@ -10049,6 +10059,9 @@
 				F1A0C0DE0000000000000001 /* FindTextFieldSupport.swift */,
 				A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */,
 				79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */,
+				D1C7A7000000000000000001 /* DictationCoordinator.swift */,
+				D1C7A7000000000000000003 /* DictationHUDController.swift */,
+				D1C7A7000000000000000005 /* DictationSurfaceTextSink.swift */,
 				93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */,
 				89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */,
 				8362A0020000000000000002 /* TerminalCallerTTYResolver.swift */,
@@ -12430,6 +12443,7 @@
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
 				C4B1E0000000000000000002 /* CmuxMobileHost */,
+				C9A2D00000000000000000D2 /* CmuxDictation */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -12539,6 +12553,7 @@
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
+				C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxDictation" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
@@ -13618,6 +13633,9 @@
 				DEC1CE00000000000000001C /* DeviceWorkspaceProjection.swift in Sources */,
 				DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */,
 				DE000A010000000000000001 /* DevWindowDisplayDefault.swift in Sources */,
+				D1C7A7000000000000000002 /* DictationCoordinator.swift in Sources */,
+				D1C7A7000000000000000004 /* DictationHUDController.swift in Sources */,
+				D1C7A7000000000000000006 /* DictationSurfaceTextSink.swift in Sources */,
 				D1FFC0DE000000000000B002 /* DiffCommentsBridge.swift in Sources */,
 				D1FFC0DE000000000000A002 /* DiffCommentStore.swift in Sources */,
 				D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */,
@@ -17449,6 +17467,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxFeedback;
 		};
+		C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxDictation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxDictation;
+		};
 		C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxTerminalCore;
@@ -17789,6 +17811,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */;
 			productName = CmuxFeedback;
+		};
+		C9A2D00000000000000000D2 /* CmuxDictation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C9A2D00000000000000000D1 /* XCLocalSwiftPackageReference "CmuxDictation" */;
+			productName = CmuxDictation;
 		};
 		5E55200000000000000000B2 /* CmuxWindowing */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -109,5 +109,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.beta.predictedEcho.enabled"
     )
 
+    /// Dictation: double-tap fn toggles voice dictation into the focused
+    /// terminal surface, hold fn is push-to-talk. Uses Apple's
+    /// `SFSpeechRecognizer` (on-device when supported) plus microphone access;
+    /// both permissions are requested lazily on the first trigger. Defaults
+    /// off; while off, the fn-key monitors stay inert and no mic capture runs.
+    public let dictation = DefaultsKey<Bool>(
+        id: "dictation.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "dictation.beta.enabled"
+    )
+
     public init() {}
 }

@@ -569,6 +569,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns fn-key dictation triggers, the session controller, and the HUD;
+    /// composition-root owned. Triggers stay inert until the
+    /// `dictation.beta.enabled` beta toggle is on.
+    let dictationCoordinator = DictationCoordinator()
     lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
         catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
     )
@@ -1847,6 +1851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sentryStartMemoryContextRefresh()
         }
         SystemWideHotkeyController.shared.start()
+        dictationCoordinator.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
         NSApp.servicesProvider = self
