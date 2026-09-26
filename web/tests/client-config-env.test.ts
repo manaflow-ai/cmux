@@ -342,8 +342,13 @@ function importEnv(env: Record<string, string>): { exitCode: number; stderr: str
     {
       env: env as NodeJS.ProcessEnv,
       encoding: "utf8",
+      // A hung child would otherwise stall the whole shard until the job timeout.
+      timeout: 30_000,
     },
   );
+  if (result.error) {
+    throw new Error(`importEnv child failed: ${result.error.message}\n${result.stderr ?? ""}`);
+  }
   return {
     exitCode: result.status ?? 1,
     stderr: result.stderr,
@@ -373,6 +378,8 @@ function inspectIrohMinterUrl(
     {
       env: env as NodeJS.ProcessEnv,
       encoding: "utf8",
+      // A hung child would otherwise stall the whole shard until the job timeout.
+      timeout: 30_000,
     },
   );
   return {
