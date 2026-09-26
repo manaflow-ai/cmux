@@ -4197,14 +4197,6 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
-    // `hooks setup` performs one confirmation for the detected set. The
-    // individual installers consult this process-local gate so setup-all
-    // never asks once per agent.
-    private final class HooksSetupConfirmation: @unchecked Sendable {
-        var approved = false
-    }
-    private static let hooksSetupConfirmation = HooksSetupConfirmation()
-
     private enum NotifyTargetResolution {
         case surface(
             rawSurface: String,
@@ -32804,9 +32796,12 @@ export default CMUXSessionRestore;
         return true
     }
 
-    private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
+    private func installOpenCodePluginHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = Self.hooksSetupConfirmation.approved
+        let skipConfirm = skipConfirmation
             || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
@@ -32862,11 +32857,14 @@ export default CMUXSessionRestore;
 
     private static let antigravityHookGroupName = "cmux"
 
-    private func installAntigravityHooks(_ def: AgentHookDef) throws {
+    private func installAntigravityHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = Self.hooksSetupConfirmation.approved
+        let skipConfirm = skipConfirmation
             || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
@@ -33060,37 +33058,43 @@ export default CMUXSessionRestore;
         return false
     }
 
-    private func installAgentHooks(_ def: AgentHookDef) throws {
+    private func installAgentHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         try Self.validateHookInstallDispatch(for: def)
-        if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
-        if def.name == "pi" { try installPiExtensionHooks(def); return }
-        if def.name == "omp" { try installOmpExtensionHooks(def); return }
-        if def.name == "campfire" { try installCampfireExtensionHooks(def); return }
+        if def.name == "opencode" { try installOpenCodePluginHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "pi" { try installPiExtensionHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "omp" { try installOmpExtensionHooks(def, skipConfirmation: skipConfirmation); return }
+        if def.name == "campfire" {
+            try installCampfireExtensionHooks(def, skipConfirmation: skipConfirmation)
+            return
+        }
         if def.name == "amp" {
-            try installAmpExtensionHooks(def)
+            try installAmpExtensionHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if def.name == "rovodev" {
-            try installRovoDevHooks(def)
+            try installRovoDevHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if def.name == "hermes-agent" {
-            try installHermesAgentHooks(def)
+            try installHermesAgentHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if case .antigravityJSON = def.format {
-            try installAntigravityHooks(def)
+            try installAntigravityHooks(def, skipConfirmation: skipConfirmation)
             return
         }
         if case .tomlArrayTable = def.format {
-            try installKimiHooks(def)
+            try installKimiHooks(def, skipConfirmation: skipConfirmation)
             return
         }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = Self.hooksSetupConfirmation.approved
+        let skipConfirm = skipConfirmation
             || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
@@ -39288,7 +39292,10 @@ export default CMUXSessionRestore;
         return candidates
     }
 
-    private func installOpenCodePlugin(projectLocal: Bool) throws {
+    private func installOpenCodePlugin(
+        projectLocal: Bool,
+        skipConfirmation: Bool = false
+    ) throws {
         let source = try bundledOpenCodePluginSource()
         let path = openCodePluginPath(projectLocal: projectLocal)
         let fm = FileManager.default
@@ -39305,7 +39312,8 @@ export default CMUXSessionRestore;
         try fm.createDirectory(
             atPath: parent, withIntermediateDirectories: true
         )
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         if existing == source {
             print("OpenCode plugin already up to date at \(path)")
@@ -40845,7 +40853,11 @@ export default CMUXSessionRestore;
         return action != "install" && action != "uninstall"
     }
 
-    private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
+    private func installHooksForAgent(
+        _ def: AgentHookDef,
+        arguments: [String],
+        skipConfirmation: Bool = false
+    ) throws {
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
             if projectLocal {
@@ -40853,11 +40865,14 @@ export default CMUXSessionRestore;
                 try installOpenCodePlugin(projectLocal: true)
                 return
             }
-            try installAgentHooks(def)
-            try installOpenCodePlugin(projectLocal: false)
+            try installAgentHooks(def, skipConfirmation: skipConfirmation)
+            try installOpenCodePlugin(
+                projectLocal: false,
+                skipConfirmation: skipConfirmation
+            )
             return
         }
-        try installAgentHooks(def)
+        try installAgentHooks(def, skipConfirmation: skipConfirmation)
     }
 
     private func uninstallHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -41035,12 +41050,22 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
+        let canUseMissingConfigDir: (AgentHookDef) -> Bool = { definition in
+            definition.createConfigDirIfMissing
+                || definition.name == "opencode"
+                || definition.name == "pi"
+                || definition.name == "amp"
+                || (!isUninstall && definition.name == "rovodev")
+        }
 
         let skipConfirm = args.contains("--yes") || args.contains("-y")
         var detectedDefinitions: [AgentHookDef] = []
+        var setupAllApproved = false
         if agentFilterDef == nil, !isUninstall {
             detectedDefinitions = Self.agentDefs.filter { definition in
                 Self.isBinaryOnPath(definition.binaryName)
+                    && (canUseMissingConfigDir(definition)
+                        || fm.fileExists(atPath: definition.resolvedConfigDir()))
             }
             print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
                 .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))
@@ -41055,8 +41080,7 @@ export default CMUXSessionRestore;
                     return
                 }
             }
-            Self.hooksSetupConfirmation.approved = true
-            defer { Self.hooksSetupConfirmation.approved = false }
+            setupAllApproved = true
         }
 
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
@@ -41069,15 +41093,18 @@ export default CMUXSessionRestore;
         var skipped = 0
         var skippedNoBinary: [String] = []
 
-        for def in Self.agentDefs {
+        let definitionsToProcess: [AgentHookDef]
+        if let agentFilterDef {
+            definitionsToProcess = [agentFilterDef]
+        } else if isUninstall {
+            definitionsToProcess = Self.agentDefs
+        } else {
+            definitionsToProcess = detectedDefinitions
+        }
+        for def in definitionsToProcess {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.createConfigDirIfMissing
-                || def.name == "opencode"
-                || def.name == "pi"
-                || def.name == "amp"
-                || (!isUninstall && def.name == "rovodev")
-            if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
+            if !canUseMissingConfigDir(def), !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
                 continue
@@ -41104,7 +41131,11 @@ export default CMUXSessionRestore;
             if isUninstall {
                 try uninstallHooksForAgent(def, arguments: [])
             } else {
-                try installHooksForAgent(def, arguments: [])
+                try installHooksForAgent(
+                    def,
+                    arguments: [],
+                    skipConfirmation: setupAllApproved
+                )
             }
             count += 1
             print("")

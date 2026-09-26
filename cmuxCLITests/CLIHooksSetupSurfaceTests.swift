@@ -91,6 +91,14 @@ struct CLIHooksSetupSurfaceTests {
         process.standardOutput = output
         process.standardError = output
 
+        let outputGroup = DispatchGroup()
+        outputGroup.enter()
+        var outputData = Data()
+        DispatchQueue.global(qos: .userInitiated).async {
+            outputData = (try? output.fileHandleForReading.readToEnd()) ?? Data()
+            outputGroup.leave()
+        }
+
         let exitSignal = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exitSignal.signal() }
         try process.run()
@@ -102,10 +110,10 @@ struct CLIHooksSetupSurfaceTests {
                 _ = exitSignal.wait(timeout: .now() + 1)
             }
         }
-        let data = try output.fileHandleForReading.readToEnd() ?? Data()
+        outputGroup.wait()
         return ProcessResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            output: String(data: data, encoding: .utf8) ?? "",
+            output: String(data: outputData, encoding: .utf8) ?? "",
             timedOut: timedOut
         )
     }

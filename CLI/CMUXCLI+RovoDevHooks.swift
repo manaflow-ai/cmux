@@ -2,11 +2,15 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    func installRovoDevHooks(_ def: AgentHookDef) throws {
+    func installRovoDevHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         var isDirectory = ObjCBool(false)
