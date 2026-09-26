@@ -22,6 +22,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app_host_test_rerun as rerun  # noqa: E402
+import product_input_identity as product_inputs  # noqa: E402
 import e2e_runner_pool as pool  # noqa: E402
 from e2e_runner_pool import SMALL_RUNNER  # noqa: E402
 
@@ -705,6 +706,15 @@ def ui_product_source(commit: str) -> dict | None:
     return pending
 
 
+def same_product_inputs(first: str, second: str) -> bool:
+    """Whether two revisions have one app-host product identity (False if unknown)."""
+    try:
+        with chdir(ROOT):
+            return product_inputs.local_identity(first) == product_inputs.local_identity(second)
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        return False
+
+
 # A product's contract hashes the exact toolchain (Xcode build, SDK, rustc,
 # node, go...), which the owned Macs and the Blacksmith macOS 26 image do not
 # share, so a product only ever moves within one of these families: on
@@ -913,6 +923,10 @@ def main() -> int:
     if test_target == "cmuxUITests" and args.runner in (None, "auto") and not args.full_build:
         ui_source = ui_product_source(commit)
         if ui_source is not None:
+            if ui_source["revision"] != head and same_product_inputs(head, ui_source["revision"]):
+                # The merge compiles to the head's product (main moved only
+                # non-product paths), which test-e2e.yml adopts for the head.
+                ui_source["revision"] = head
             commit = ui_source["revision"]
             if commit != head:
                 print(

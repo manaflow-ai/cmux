@@ -174,6 +174,9 @@ class FocusedLauncherTests(unittest.TestCase):
             # `cat-file commit` answers for a pull request merge: base, then HEAD.
             "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n'
                    '*"cat-file commit"*) printf "tree t\\nparent %s\\nparent %s\\n\\nmerge\\n" "' + BASE + '" "' + HEAD + '";;\n'
+                   # Product identities: equal for every revision with LAUNCHER_SAME_INPUTS, else unknown.
+                   '*ls-tree*) [ -n "${LAUNCHER_SAME_INPUTS:-}" ] || exit 1; printf "100644 blob %s\\tSources/A.swift\\n" "' + "1" * 40 + '";;\n'
+                   'show\\ *:*) cat "' + str(ROOT) + '/${2#*:}";;\n'
                    '*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
             # No shared waiter daemon unless a test says so: --wait falls back to gh.
@@ -244,6 +247,13 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
         self.assertEqual(self.dispatch()["record_video"], "true")
         # An owned Mac compiled it, and only an owned Mac shares its toolchain.
+        self.assertEqual(self.dispatch()["runner"], MINI)
+
+    def test_a_merge_with_the_heads_product_inputs_keeps_the_head(self):
+        result = self.launch("ExampleUITests", LAUNCHER_SAME_INPUTS="1", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotIn("the merge of", result.stdout)
         self.assertEqual(self.dispatch()["runner"], MINI)
 
     def test_a_blacksmith_product_keeps_the_ui_run_on_blacksmith_macos_26(self):
