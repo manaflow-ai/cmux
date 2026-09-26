@@ -950,12 +950,24 @@ normalize_node_options_for_restore() {
     fi
 }
 
+cmux_claude_wrapper_resolve_symlinks() {
+    local path="$1" link hops=0
+    while [[ -L "$path" && $hops -lt 40 ]]; do
+        link="$(readlink "$path")" || break
+        case "$link" in
+            /*) path="$link" ;;
+            *) path="$(dirname "$path")/$link" ;;
+        esac
+        hops=$((hops + 1))
+    done
+    printf '%s' "$path"
+}
+
 cmux_claude_wrapper_target_is_native_executable() {
-    # Version-manager shims are native launchers that may run a Node claude.
-    case "$1" in
-        */.asdf/shims/claude|*/.mise/shims/claude|*/.local/share/mise/shims/claude|*/.volta/bin/claude)
-            return 1
-            ;;
+    # Volta and mise shims are native launchers (symlinks to their own binary)
+    # that may run a Node claude, so they keep the restore preload.
+    case "$(basename "$(cmux_claude_wrapper_resolve_symlinks "$1")")" in
+        volta-shim|mise|rtx) return 1 ;;
     esac
     local magic
     magic="$(LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')" || return 1
@@ -964,6 +976,29 @@ cmux_claude_wrapper_target_is_native_executable() {
         cffaedfe|cefaedfe|feedfacf|feedface|cafebabe|cafebabf|7f454c46) return 0 ;;
     esac
     return 1
+}
+
+# Removes the restore preload cmux injects, and the heap flag merge_node_options
+# places right after it, keeping every other option.
+strip_cmux_node_options() {
+    local -a tokens=()
+    local -a kept=()
+    local index=0
+    read -r -a tokens <<<"$1"
+    while (( index < ${#tokens[@]} )); do
+        if [[ "${tokens[$index]}" == --require=*/cmux-claude-node-options/restore-node-options.cjs ]]; then
+            index=$((index + 1))
+            if [[ "${tokens[$index]:-}" == "--max-old-space-size=4096" ]]; then
+                index=$((index + 1))
+            fi
+            continue
+        fi
+        kept+=("${tokens[$index]}")
+        index=$((index + 1))
+    done
+    if (( ${#kept[@]} > 0 )); then
+        printf '%s' "${kept[*]}"
+    fi
 }
 
 install_cmux_node_options() {
@@ -977,7 +1012,13 @@ install_cmux_node_options() {
             if [[ "${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT:-}" == "1" ]]; then
                 export NODE_OPTIONS="${CMUX_ORIGINAL_NODE_OPTIONS:-}"
             else
-                unset NODE_OPTIONS
+                local remaining
+                remaining="$(strip_cmux_node_options "$NODE_OPTIONS")"
+                if [[ -n "$remaining" ]]; then
+                    export NODE_OPTIONS="$remaining"
+                else
+                    unset NODE_OPTIONS
+                fi
             fi
         fi
         unset CMUX_ORIGINAL_NODE_OPTIONS CMUX_ORIGINAL_NODE_OPTIONS_PRESENT
