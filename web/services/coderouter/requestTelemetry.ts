@@ -44,6 +44,11 @@ import {
 
 /** Ledger request id, echoed on every coderouter response. */
 export const CODEROUTER_REQUEST_ID_HEADER = "x-coderouter-request-id";
+/**
+ * Vercel may strip or rewrite `Server-Timing` at the edge, so every coderouter
+ * response carries the same standards-formatted value under this header too.
+ */
+export const CODEROUTER_SERVER_TIMING_HEADER = "x-coderouter-server-timing";
 /** Marker for proxy helpers invoked outside a route context, such as tests. */
 export const UNSCOPED_CODEROUTER_REQUEST_ID = "unscoped";
 /** Nginx's conventional status for a request closed by the client. */
@@ -60,6 +65,8 @@ export type CoderouterSurface =
   | "session"
   | "claude_upstream"
   | "vm_usage"
+  | "vm_reflection"
+  | "vm_reflection_name"
   | "analytics"
   | "health";
 
@@ -103,7 +110,8 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
-  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">;
+  authMode?: "api_key" | "route_token" | "control_plane";
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
   outcome?: CoderouterOutcome;
@@ -156,16 +164,26 @@ export function currentCoderouterRequestId(): string {
 }
 
 export function recordCoderouterIdentity(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">,
+  authMode: "api_key" | "route_token" | "control_plane" = identity.apiKeyId ? "api_key" : "route_token",
 ): void {
   const context = storage.getStore();
   if (!context) return;
-  context.identity = { teamId: identity.teamId, stackUserId: identity.stackUserId, vmId: identity.vmId };
+  context.identity = {
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    ...(identity.poolId ? { poolId: identity.poolId } : {}),
+    ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+  };
+  context.authMode = authMode;
   const span = trace.getActiveSpan();
   if (span) {
     setSpanAttributes(span, {
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
+      "cmux.coderouter.auth_mode": authMode,
+      "cmux.coderouter.pool_id": identity.poolId ?? undefined,
     });
   }
 }
@@ -299,19 +317,7 @@ export function traceEvents(
   const shouldEmitException = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
   const userId = context.identity?.stackUserId ?? context.userId;
-  const common = {
-    coderouter_request_id: context.requestId,
-    coderouter_surface: context.surface,
-    coderouter_provider: outcome.provider ?? "unknown",
-    coderouter_agent: outcome.agent ?? "unknown",
-    coderouter_outcome: outcome.outcome,
-    coderouter_failure_stage: outcome.failureStage,
-    coderouter_fault: fault,
-    coderouter_status: input.status,
-    ...(context.traceId ? { trace_id: context.traceId } : {}),
-    ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
-    ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
-  };
+  const common = coderouterCommonProperties(context, input.status, outcome, fault);
   const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const events: CoderouterRawEvent[] = [
     {
@@ -319,22 +325,66 @@ export function traceEvents(
       userId,
       teamId,
       timestamp: new Date(context.startedAtEpochMs).toISOString(),
-      properties: {
-        ...common,
-        $ai_trace_id: context.requestId,
-        $ai_span_name: `coderouter ${context.method} ${context.route}`,
-        $ai_latency: input.durationMs / 1_000,
-        $ai_http_status: input.status,
-        $ai_is_error: traceIsError,
-        ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
-        coderouter_attempts: outcome.attempts ?? 0,
-        coderouter_refresh_retries: outcome.refreshRetries ?? 0,
-        coderouter_response_streamed: outcome.responseStreamed === true,
-        ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
-        ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
-      },
+      properties: coderouterTraceProperties(context, input, outcome, common, traceIsError, shouldEmitException),
     },
   ];
+  appendCoderouterSpanEvents(events, context, userId, teamId);
+  if (shouldEmitException) appendCoderouterExceptionEvent(events, context, input, outcome, fault, userId, teamId, common);
+  return events;
+}
+
+function coderouterCommonProperties(
+  context: CoderouterRequestContext,
+  status: number,
+  outcome: CoderouterOutcome,
+  fault: CoderouterFault,
+): Record<string, string | number | boolean> {
+  return {
+    coderouter_request_id: context.requestId,
+    coderouter_surface: context.surface,
+    coderouter_provider: outcome.provider ?? "unknown",
+    coderouter_agent: outcome.agent ?? "unknown",
+    coderouter_outcome: outcome.outcome,
+    coderouter_failure_stage: outcome.failureStage,
+    coderouter_fault: fault,
+    coderouter_status: status,
+    ...(context.traceId ? { trace_id: context.traceId } : {}),
+    ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
+    ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
+    coderouter_auth_mode: context.authMode ?? coderouterAuthMode(context.identity),
+  };
+}
+
+function coderouterTraceProperties(
+  context: CoderouterRequestContext,
+  input: { readonly status: number; readonly durationMs: number },
+  outcome: CoderouterOutcome,
+  common: Readonly<Record<string, string | number | boolean>>,
+  traceIsError: boolean,
+  shouldEmitException: boolean,
+): Record<string, string | number | boolean> {
+  return {
+    ...common,
+    $ai_trace_id: context.requestId,
+    $ai_span_name: `coderouter ${context.method} ${context.route}`,
+    $ai_latency: input.durationMs / 1_000,
+    $ai_http_status: input.status,
+    $ai_is_error: traceIsError,
+    ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
+    coderouter_attempts: outcome.attempts ?? 0,
+    coderouter_refresh_retries: outcome.refreshRetries ?? 0,
+    coderouter_response_streamed: outcome.responseStreamed === true,
+    ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
+    ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
+  };
+}
+
+function appendCoderouterSpanEvents(
+  events: CoderouterRawEvent[],
+  context: CoderouterRequestContext,
+  userId: string | undefined,
+  teamId: string | undefined,
+): void {
   for (const span of context.spans) {
     events.push({
       event: "$ai_span",
@@ -354,23 +404,40 @@ export function traceEvents(
       },
     });
   }
-  if (shouldEmitException) {
-    const summary = input.error !== undefined
-      ? errorSummary(input.error)
-      : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
-    events.push(exceptionEvent({
-      type: input.error instanceof Error ? input.error.name : `coderouter_${outcome.outcome}`,
-      value: summary,
-      fingerprint: `coderouter:${outcome.outcome}:${outcome.failureStage}:${outcome.provider ?? "unknown"}`,
-      level: fault === "operator" ? "error" : "warning",
-      error: input.error,
-      handled: input.error === undefined,
-      userId,
-      teamId,
-      properties: { ...common, $ai_trace_id: context.requestId },
-    }));
-  }
-  return events;
+}
+
+function appendCoderouterExceptionEvent(
+  events: CoderouterRawEvent[],
+  context: CoderouterRequestContext,
+  input: { readonly status: number; readonly durationMs: number; readonly error?: unknown },
+  outcome: CoderouterOutcome,
+  fault: CoderouterFault,
+  userId: string | undefined,
+  teamId: string | undefined,
+  common: Readonly<Record<string, string | number | boolean>>,
+): void {
+  const summary = input.error !== undefined
+    ? errorSummary(input.error)
+    : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
+  events.push(exceptionEvent({
+    type: input.error instanceof Error ? input.error.name : `coderouter_${outcome.outcome}`,
+    value: summary,
+    fingerprint: `coderouter:${outcome.outcome}:${outcome.failureStage}:${outcome.provider ?? "unknown"}`,
+    level: fault === "operator" ? "error" : "warning",
+    error: input.error,
+    handled: input.error === undefined,
+    userId,
+    teamId,
+    properties: { ...common, $ai_trace_id: context.requestId },
+  }));
+}
+
+function coderouterAuthMode(
+  identity: CoderouterRequestContext["identity"],
+): "api_key" | "route_token" | "none" {
+  if (identity?.apiKeyId) return "api_key";
+  if (identity) return "route_token";
+  return "none";
 }
 
 function derivedOutcome(
@@ -489,7 +556,7 @@ export function withCoderouterRoute<Context = unknown>(
                 response = options.unavailable(request);
               }
             }
-            response = withRequestIdHeader(response, context.requestId, context.traceId);
+            response = withRequestHeaders(response, context);
             finalize(context, span, response, thrown, options.telemetry);
             return response;
           },
@@ -506,17 +573,37 @@ function isCallerCancellation(request: Request): boolean {
   return request.signal.aborted;
 }
 
-function withRequestIdHeader(response: Response, requestId: string, traceId?: string): Response {
+function withRequestHeaders(response: Response, context: CoderouterRequestContext): Response {
+  const headers: [string, string][] = [[CODEROUTER_REQUEST_ID_HEADER, context.requestId]];
+  if (context.traceId) headers.push([TRACE_ID_RESPONSE_HEADER, context.traceId]);
+  // A route that reports its own phases keeps them.
+  if (!response.headers.has(CODEROUTER_SERVER_TIMING_HEADER)) {
+    const timing = serverTiming(context);
+    headers.push(["server-timing", timing], [CODEROUTER_SERVER_TIMING_HEADER, timing]);
+  }
   try {
-    response.headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) response.headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
+    for (const [name, value] of headers) response.headers.set(name, value);
     return response;
   } catch {
-    const headers = new Headers(response.headers);
-    headers.set(CODEROUTER_REQUEST_ID_HEADER, requestId);
-    if (traceId) headers.set(TRACE_ID_RESPONSE_HEADER, traceId);
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    const copy = new Headers(response.headers);
+    for (const [name, value] of headers) copy.set(name, value);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers: copy });
   }
+}
+
+/**
+ * `Server-Timing` for the phases recorded as spans, summed by name, plus
+ * `total`: the time until the response headers, which for a stream is the
+ * time to first byte rather than the full body.
+ */
+export function serverTiming(context: CoderouterRequestContext, now = performance.now()): string {
+  const phases = new Map<string, number>();
+  for (const span of context.spans) {
+    const name = span.name.replace(/[^A-Za-z0-9_-]/g, "_");
+    phases.set(name, (phases.get(name) ?? 0) + span.durationMs);
+  }
+  phases.set("total", Math.max(0, now - context.startedAt));
+  return [...phases].map(([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(", ");
 }
 
 function finalize(

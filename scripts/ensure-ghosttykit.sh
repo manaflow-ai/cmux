@@ -58,11 +58,8 @@ if [[ ! -d "$PROJECT_DIR/ghostty" ]]; then
   exit 1
 fi
 
-if ! command -v zig >/dev/null 2>&1; then
-  echo "Error: zig is not installed." >&2
-  echo "Install via: brew install zig" >&2
-  exit 1
-fi
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/ghostty-zig-version.sh"
 
 if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty.h" ]]; then
   echo "error: ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh first." >&2
@@ -222,7 +219,11 @@ else
   elif try_fetch_prebuilt_xcframework; then
     echo "==> Seeding cache from prebuilt GhosttyKit.xcframework"
   else
+    ghostty_require_compatible_zig "$PROJECT_DIR"
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    if [[ -x "$SCRIPT_DIR/ensure-metal-toolchain.sh" ]]; then
+      "$SCRIPT_DIR/ensure-metal-toolchain.sh"
+    fi
     (
       cd ghostty
       # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's

@@ -12,13 +12,13 @@ export function nextHeadersMock(state: {
 }) {
   return {
     headers: async () => state.headers?.() ?? new Headers(),
-    cookies: async () => ({
-      get: (name: string) => {
-        const value = state.refreshToken?.() ?? null;
-        return name === TEST_STACK_REFRESH_COOKIE && value
-          ? { name, value }
-          : undefined;
-      },
-    }),
+    cookies: async () => {
+      const value = state.refreshToken?.() ?? null;
+      const all = value ? [{ name: TEST_STACK_REFRESH_COOKIE, value }] : [];
+      return {
+        get: (name: string) => all.find((cookie) => cookie.name === name),
+        getAll: () => all,
+      };
+    },
   };
 }

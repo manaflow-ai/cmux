@@ -2790,40 +2790,6 @@ struct TextBoxInputContainer: View {
         }
     }
 
-    private func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        guard !standardizedURLs.isEmpty else { return false }
-
-        let plan = TerminalImageTransferPlanner.plan(
-            fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
-            mode: .paste
-        )
-
-        switch plan {
-        case .insertText, .insertTextSegments:
-            textView.insertAttachments(
-                standardizedURLs.map {
-                        TextBoxAttachment(
-                            localURL: $0,
-                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
-                            cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
-                        )
-                }
-            )
-            attachments = textView.inlineAttachments()
-            text = textView.plainText()
-            return true
-        case .uploadFiles(let uploadURLs, let remoteTarget):
-            uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
-            return true
-        case .reject:
-            return false
-        }
-    }
-
     func uploadFileAttachments(
         _ fileURLs: [URL],
         remoteTarget: TerminalRemoteUploadTarget,
@@ -3519,6 +3485,9 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        // IMEs can hand back a stale replacement range past the end of the
+        // UTF-16 storage; NSTextView raises NSRangeException on those.
+        let replacementRange = sanitizedTextStorageReplacementRange(replacementRange)
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
         let isOuterInsertText = activeInsertTextDepth == 0
         if isOuterInsertText {
@@ -3540,12 +3509,46 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        let markedTextLength = Self.textInputStringLength(string)
+        super.setMarkedText(
+            string,
+            selectedRange: Self.sanitizedMarkedTextSelectionRange(selectedRange, markedTextLength: markedTextLength),
+            replacementRange: sanitizedTextStorageReplacementRange(replacementRange)
+        )
         onMarkedTextStateChanged(hasMarkedText())
         // Marked text bypasses textDidChange. Schedule the TextBox measurement boundary so
         // AppKit coalesces rapid preedit updates before laying out TextKit storage.
         needsLayout = true
         needsDisplay = true
+    }
+
+    private func sanitizedTextStorageReplacementRange(_ range: NSRange) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        return Self.sanitizedRange(range, upperBound: attributedString().length)
+    }
+
+    private static func sanitizedRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        let upperBound = max(0, upperBound)
+        let location = min(max(0, range.location), upperBound)
+        let length = min(max(0, range.length), upperBound - location)
+        return NSRange(location: location, length: length)
+    }
+
+    private static func sanitizedMarkedTextSelectionRange(_ range: NSRange, markedTextLength: Int) -> NSRange {
+        let markedTextLength = max(0, markedTextLength)
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedTextLength, length: 0)
+        }
+        return sanitizedRange(range, upperBound: markedTextLength)
+    }
+
+    private static func textInputStringLength(_ string: Any) -> Int {
+        if let attributed = string as? NSAttributedString {
+            return attributed.length
+        }
+        let plain = (string as? String) ?? String(describing: string)
+        return (plain as NSString).length
     }
 
     override func unmarkText() {

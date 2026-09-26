@@ -44,7 +44,7 @@ describe("dashboard session middleware", () => {
       new NextRequest("https://cmux.com/ja/dashboard/cloud", {
         headers: {
           host: "cmux.com",
-          cookie: `${TEST_STACK_REFRESH_COOKIE}=refresh-1`,
+          cookie: `__Host-hexclave-refresh-${TEST_STACK_PROJECT_ID}--abc=refresh-1`,
         },
       }),
     );

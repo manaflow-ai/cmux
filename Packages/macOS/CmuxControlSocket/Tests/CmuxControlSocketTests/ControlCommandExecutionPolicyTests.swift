@@ -42,11 +42,13 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.jump", "feed.push", "agent.restore.admit", "agent.restore.release",
-            "browser.download.wait", "system.top", "system.memory",
+            "auth.team.list", "auth.team.use", "auth.team.create",
+            "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
+            "agent.restore.admit", "agent.restore.release",
+            "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
-            "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
+            "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect", "debug.mobile.transport.reconnect_loop",
             "debug.window.screenshot", "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
             // Vault session-index verbs scan transcript stores on disk and
@@ -54,8 +56,7 @@ struct ControlCommandExecutionPolicyTests {
             "vault.sessions", "vault.search", "vault.checkpoints",
             "vault.checkpoint", "vault.fork",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
-            "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
-            "mobile.panel.artifact.thumbnail",
+            "mobile.panel.artifact.stat", "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
@@ -87,6 +88,9 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
             "mobile.terminal.create", "mobile.task.attachment.upload",
+            // Artifact fetch needs the authenticated mobile execution context;
+            // the local socket must answer method_not_found, not serve bytes.
+            "mobile.panel.artifact.fetch",
             "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
@@ -102,8 +106,6 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "remote.tmux.test_exec", "remote.tmux.test_set_frame",
             "remote.tmux.test_perturb_divider",
-            // window is a DEBUG-only alias of mirror; it must share the worker lane.
-            "remote.tmux.window",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
 #if DEBUG
@@ -114,6 +116,14 @@ struct ControlCommandExecutionPolicyTests {
         }
     }
 
+    @Test func remoteTmuxWindowRunsOnTheReleaseWorkerLane() {
+        #expect(ControlCommandExecutionPolicy.socketWorkerMethods.contains("remote.tmux.window"))
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "remote.tmux.window")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func v2ResolutionReadsRunOnTheWorkerAndAreMainThreadCallable() {
         // Tranche D (issue #5757): the implicit handle-normalization reads.
         // One controlResolveOnMain hop (refresh + witness + ref minting),
@@ -121,7 +131,7 @@ struct ControlCommandExecutionPolicyTests {
         // main-thread in-process callers (cmuxTests drive these verbs via
         // handleSocketLine on the main actor).
         for method in [
-            "surface.list", "surface.current",
+            "surface.list", "browser.download.list", "surface.current",
             "workspace.list", "workspace.current",
             "window.list", "window.current", "window.displays",
             "pane.list", "pane.surfaces",
@@ -172,7 +182,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.stat") == .socketWorker(mainThreadCallable: false))
-        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }

@@ -13,6 +13,7 @@ import {
   normalizeDashboardReturnPath,
 } from "./dashboard-return-path";
 import { isStackConfigured } from "./stack";
+import { stackRefreshCookies } from "./stack-session-cookies";
 import { localizedVaultPath, vaultSignInHref } from "./vault-auth";
 
 /**
@@ -45,23 +46,24 @@ export class DashboardSessionUnavailableError extends Error {
  */
 export const DASHBOARD_SESSION_STALE_SECONDS = 300;
 
-const STACK_REFRESH_COOKIE_PREFIX = "stack-refresh-";
-
 /**
  * Identify the browser session without reading token contents. Only the
- * refresh cookie changes across sign-in and sign-out, so its digest is enough
- * to key the private cache and never cache one user's session for another.
+ * refresh cookies change across sign-in and sign-out, so their digest is
+ * enough to key the private cache and never cache one user's session for
+ * another. Every Stack cookie name variant is included.
  */
 export async function dashboardSessionKey(): Promise<string> {
   const store = await cookies();
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
-  const refreshToken = projectId
-    ? store.get(`${STACK_REFRESH_COOKIE_PREFIX}${projectId}`)?.value
-    : undefined;
-  if (!refreshToken) return "anonymous";
+  const refreshCookies = projectId
+    ? stackRefreshCookies(store.getAll(), projectId)
+    : [];
+  if (refreshCookies.length === 0) return "anonymous";
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(refreshToken),
+    new TextEncoder().encode(
+      refreshCookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("\n"),
+    ),
   );
   return Array.from(new Uint8Array(digest).slice(0, 12), (byte) =>
     byte.toString(16).padStart(2, "0")

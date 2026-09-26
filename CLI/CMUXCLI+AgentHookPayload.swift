@@ -77,7 +77,8 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
+            "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "last_agent_message", "lastAgentMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "stop_reason", "stopReason", "source", "terminationReason", "termination_reason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
@@ -88,6 +89,20 @@ extension CMUXCLI {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
             }
+        }
+        for key in ["fullyIdle", "cmux_notification_routed"] {
+            if let value = object[key] as? Bool {
+                compact[key] = value
+            }
+        }
+
+        // The message keys above are capped at 240 characters, so a consumer
+        // reading the compacted payload cannot tell a long prompt from a short
+        // one. Carry the submitted length alongside it. An integer exposes no
+        // prompt text, so this stays inside the same redaction boundary.
+        for key in Self.hookMessageLengthKeys {
+            guard let raw = object[key] as? String else { continue }
+            compact["\(key)_length"] = raw.count
         }
 
         if let toolInput = object["tool_input"] as? [String: Any] {
@@ -150,6 +165,11 @@ extension CMUXCLI {
                     compactNested[nestedKey] = value
                 }
             }
+            for messageKey in Self.hookMessageLengthKeys {
+                if let raw = nested[messageKey] as? String {
+                    compactNested["\(messageKey)_length"] = raw.count
+                }
+            }
             if !compactNested.isEmpty {
                 compact[key] = compactNested
             }
@@ -176,9 +196,13 @@ extension CMUXCLI {
         return compact
     }
 
+    /// Message-bearing keys whose true length is published beside the
+    /// truncated value. Mirrors `promptMessageKeys` in WorkspacePromptSubmit.
+    static let hookMessageLengthKeys = ["prompt", "text", "message", "body"]
+
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason":
             return 240

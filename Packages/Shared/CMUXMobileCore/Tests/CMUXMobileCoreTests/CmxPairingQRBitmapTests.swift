@@ -102,12 +102,13 @@ import Testing
             expiresAt: Date().addingTimeInterval(600),
             authToken: "minted-but-never-in-the-qr"
         )
+        let pairingURLScheme = try #require(
+            CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+        )
         let payload = try #require(CmxPairingQRCode().encode(
             ticket,
             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
-            pairingURLScheme: try #require(
-                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
-            )
+            pairingURLScheme: pairingURLScheme
         ))
         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2

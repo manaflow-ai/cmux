@@ -13,13 +13,13 @@ extension SettingsWindowRoot {
     }
 
     func anchorID(for section: SettingsSectionID) -> String {
-        "section:\(section.rawValue)"
+        "section:\(section.canonicalSection.rawValue)"
     }
 
     @ViewBuilder
     func sectionStack(proxy: ScrollViewProxy) -> some View {
         // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile, Sidebar, Beta Features,
+        // Account, App, Terminal, TextBox, Mobile (including Computers), Sidebar, Beta Features,
         // Automation, Browser (with embedded Import), Global Hotkey,
         // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         slot(.account, proxy: proxy) {
@@ -56,11 +56,18 @@ extension SettingsWindowRoot {
         }
 
         slot(.mobile, proxy: proxy) {
-            MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+            VStack(alignment: .leading, spacing: 14) {
+                MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+                ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
+            }
         }
 
         slot(.cloudMachines, proxy: proxy) {
-            CloudMachinesSection(hostActions: hostActions)
+            // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
+            // while unavailable, not just no placeholder.
+            if isCloudSectionAvailable {
+                CloudMachinesSection(hostActions: hostActions)
+            }
         }
 
         slot(.networking, proxy: proxy) {
@@ -76,7 +83,8 @@ extension SettingsWindowRoot {
                 defaultsStore: defaultsStore,
                 jsonStore: jsonStore,
                 catalog: catalog,
-                errorLog: runtime.errorLog
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
             )
         }
 

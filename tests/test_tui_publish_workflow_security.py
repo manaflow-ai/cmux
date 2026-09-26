@@ -11,6 +11,7 @@ from pathlib import Path
 
 import tomllib
 import yaml
+import git_fixture_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -222,8 +223,8 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     for job in ("build", "preflight", "verify"):
         block = workflow_job(bootstrap, job)
         assert (
-            "runs-on: ${{ vars.LINUX_RUNNER || "
-            "'blacksmith-4vcpu-ubuntu-2404' }}" in block
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in block
         )
     assert (
         "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -256,7 +257,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -319,7 +320,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -718,7 +719,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -938,6 +939,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
                     "GIT_CONFIG_VALUE_0": "https://github.com/manaflow-ai/cmux.git",
                 }
             )
+            git_fixture_env.without_auto_maintenance(environment)
             result = subprocess.run(
                 ("bash",),
                 input=prepare_script,
@@ -1598,6 +1600,119 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
         assert "workflow_call:" not in workflow(name)
 
 
+def test_tui_delivery_is_checked_independently_of_artifact_completion() -> None:
+    delivery = workflow("cmux-tui-release-delivery.yml")
+    triggers = workflow_triggers(delivery)
+    assert triggers["workflow_run"]["workflows"] == ["cmux-tui release binaries"]
+    assert "schedule" in triggers
+    assert "contents: read" in delivery
+    assert "contents: write" not in delivery
+    assert "check_release_delivery.py" in delivery
+    assert "head_sha" not in delivery
+    assert "persist-credentials: false" in delivery
+    build = workflow("cmux-tui-build-package.yml")
+    wheel_smoke = build.split("- name: Smoke verify PyPI wheels", 1)[1].split("- name:", 1)[0]
+    assert "/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json" in wheel_smoke
+    assert '"build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]' in wheel_smoke
+    assert '"distribution_version": os.environ["NPM_VERSION"]' in wheel_smoke
+
+
+def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
+    document = yaml.safe_load(workflow("cmux-tui-build-package.yml"))
+    smoke = next(
+        step["run"]
+        for job in document["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Smoke verify PyPI wheels"
+    )
+    validation = smoke.rsplit("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    expected = {"build_identity": "a" * 40, "distribution_version": "0.13.2"}
+    env = dict(os.environ, NPM_VERSION="0.13.2", CMUX_TUI_EXPECTED_BUILD_IDENTITY="a" * 40)
+    for key in (None, "build_identity", "distribution_version"):
+        probe = dict(expected)
+        if key:
+            probe[key] = "stale"
+        result = subprocess.run(
+            ["python3", "-c", validation],
+            env=dict(env, CMUX_TUI_WHEEL_PROBE=json.dumps(probe)),
+            capture_output=True,
+            text=True,
+        )
+        assert (result.returncode == 0) == (key is None), result.stderr
+
+
+def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None:
+    """No shipping lane may be gated on the separately deployed Worker.
+
+    This used to be enforced caller by caller: the Worker was a job inside
+    cmux-tui-build-package.yml behind `build_cloudflare_relay`, and each release
+    caller passed false. relay-publish-npm.yml never did, so it inherited the
+    default of true and ran the Worker's `cargo clippy -- -D warnings` and
+    `npm audit --audit-level=high` inside a publishing run, where `publish`
+    needs `build-package`. A third-party advisory or a new lint -- neither of
+    them a change to this repository -- could therefore stop cmux-relay
+    shipping.
+
+    The Worker now has its own lane, so there is no input left to pass and no
+    caller left to get it wrong.
+    """
+    shared = workflow("cmux-tui-build-package.yml")
+    assert "build_cloudflare_relay" not in shared
+    assert "cloudflare-relay:" not in shared
+    assert "cloudflare-do" not in shared
+
+    for name in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        if name.name == "cloudflare-relay.yml":
+            continue
+        text = name.read_text(encoding="utf-8")
+        assert "relays/cloudflare-do" not in text, (
+            f"{name.name} references the Worker directory; verifying it outside "
+            "cloudflare-relay.yml risks gating a shipping lane on it again"
+        )
+
+
+def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> None:
+    """The Worker's only lane must be triggered by changes to the Worker.
+
+    Before it had its own workflow the verification ran only during a
+    cmux-relay publish, which last succeeded 2026-08-27 -- so edits to
+    cmux-tui/relays/cloudflare-do went unverified between releases, and the
+    verification was discovered only at the moment it could block one.
+    """
+    document = yaml.safe_load(workflow("cloudflare-relay.yml"))
+    triggers = document.get("on") or document.get(True)
+    assert "pull_request" in triggers, "the Worker must be verified on pull requests"
+
+    component = "cmux-tui/relays/cloudflare-do/**"
+    for event in ("pull_request", "push"):
+        paths = triggers[event]["paths"]
+        assert component in paths, f"{event} must cover {component}"
+        assert ".github/workflows/cloudflare-relay.yml" in paths, (
+            f"{event} must re-run the lane when the lane itself changes"
+        )
+
+    body = workflow("cloudflare-relay.yml")
+    for check in (
+        "python3 tests/validate_wrangler_config.py",
+        "cargo clippy --locked --all-targets -- -D warnings",
+        "npm audit --audit-level=high",
+        "wrangler deploy --dry-run",
+    ):
+        assert check in body, f"the Worker lane lost {check!r}"
+
+
+def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    publisher = workflow("tui-publish-npm.yml")
+    assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
+    platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
+    assert "cmux-tui-win32-x64" not in platform_block
+    assert "packages+=(cmux-tui-win32-x64)" in publisher
+
+
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
     # family. If the coordinated TUI publish or the nightly lane ever grows a
@@ -1720,7 +1835,9 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
 
 PACKAGE_BUILD_JOBS = (
     "build",
-    "cloudflare-relay",
+    # cloudflare-relay moved to its own lane; it checks out the pull request
+    # directly rather than a caller-supplied ref, so it is no longer one of the
+    # jobs this invariant applies to.
     "build-windows",
     "package",
     "verify-linux-packages",

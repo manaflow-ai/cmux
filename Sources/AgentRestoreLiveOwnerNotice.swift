@@ -25,9 +25,6 @@ struct AgentRestoreLiveOwnerNotice: Sendable {
         message: String,
         dialect: TerminalStartupShellDialect
     ) -> String {
-        let command = "/usr/bin/printf '%s\\n' " +
-            TerminalStartupShellQuoting.singleQuoted(message)
-        return " " + TerminalStartupTypedShellCommand(dialect: dialect)
-            .typedInput(posixCommand: command) + "\n"
+        AgentRestoreNoticeInput(message: message).startupInput(dialect: dialect)
     }
 }

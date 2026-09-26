@@ -1,5 +1,7 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -57,6 +59,7 @@ private struct ComputerRowTransitionPhase: ViewModifier {
 /// Keeping one row identity and one `Toggle` instance lets SwiftUI carry the
 /// native switch transaction through the model update.
 private struct ComputerVisibilityRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     let item: ComputerVisibilityRowItem
     let setVisible: (Bool) -> Void
     let isVisibilityMutating: Bool
@@ -65,6 +68,8 @@ private struct ComputerVisibilityRow: View {
     let isConnecting: Bool
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var isCaffeineMutating: Bool = false
+    var gateWarningPairingIDs: Set<String> = []
+    @State private var showingHiddenVersionGateWarning = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var isBusy: Bool { isVisibilityMutating }
 
@@ -151,7 +156,8 @@ private struct ComputerVisibilityRow: View {
                 computer: computer,
                 style: style,
                 connect: { _ in connect(computer) },
-                isConnecting: isConnecting
+                isConnecting: isConnecting,
+                hasVersionGateWarning: gateWarningPairingIDs.contains(computer.id)
             )
         } else if let computer = item.hiddenComputer {
             hiddenLabel(computer)
@@ -171,6 +177,35 @@ private struct ComputerVisibilityRow: View {
                        tag: computer.instanceTag
                    ) {
                     ComputerBuildBadge(label: buildLabel)
+                }
+                if gateWarningPairingIDs.contains(computer.id)
+                    || ((listAuthState?.hasSnapshot == true)
+                        && listAuthState?.compatibilityEntry(pairingID: computer.id).isOutdated == true) {
+                    Button {
+                        showingHiddenVersionGateWarning = true
+                    } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        L10n.string(
+                            "computers.version.outdated.title",
+                            defaultValue: "Mac update required"
+                        )
+                    )
+                    .popover(isPresented: $showingHiddenVersionGateWarning) {
+                        Text(
+                            L10n.string(
+                                "mobile.pairing.guidance.macUpdateRequired",
+                                defaultValue: "Update cmux on this Mac to connect securely."
+                            )
+                        )
+                        .padding()
+                        .frame(idealWidth: 300, maxWidth: 340)
+                        .presentationCompactAdaptation(.popover)
+                    }
                 }
             }
             Spacer(minLength: 8)
@@ -221,6 +256,7 @@ struct ComputerVisibilityRows: View {
     var mutatingComputerIDs: Set<String> = []
     var setCaffeine: @MainActor (MacComputerSnapshot, Bool) -> Void = { _, _ in }
     var caffeineMutatingComputerIDs: Set<String> = []
+    var gateWarningPairingIDs: Set<String> = []
     let hide: @MainActor (MacComputerSnapshot) -> Void
     let unhide: @MainActor (MobileHiddenComputer) -> Void
 
@@ -239,7 +275,8 @@ struct ComputerVisibilityRows: View {
                 connect: connect,
                 isConnecting: connectingComputerID == item.id,
                 setCaffeine: setCaffeine,
-                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id)
+                isCaffeineMutating: caffeineMutatingComputerIDs.contains(item.id),
+                gateWarningPairingIDs: gateWarningPairingIDs
             )
         }
     }
