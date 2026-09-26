@@ -1265,6 +1265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
+    private var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    private let sessionScrollbackCheckpointQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
+        qos: .utility
+    )
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -3624,7 +3630,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
-        startupSessionSnapshot = sanitizedStartupSnapshot
+        // After a crash the primary snapshot comes from the 8 s autosave, which
+        // never carries scrollback; recover it from the latest checkpoints. A
+        // clean exit already wrote scrollback, so checkpoints are ignored.
+        if previousSessionLaunchWasUnclean,
+           let sanitizedStartupSnapshot,
+           let checkpointStore = sessionScrollbackCheckpointStore() {
+            startupSessionSnapshot = checkpointStore.merging(into: sanitizedStartupSnapshot)
+        } else {
+            startupSessionSnapshot = sanitizedStartupSnapshot
+        }
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3895,6 +3910,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             scheduleScreenChangeReconcileWhenIdle()
         }
         flushPendingStartupNavigationURLRequests()
+        // After a crash restore, the recovered scrollback lives only in memory
+        // under the restored panel ids; write it back as checkpoints so a second
+        // crash keeps it. A clean launch or manual reopen restored from a
+        // scrollback-bearing save, so the next checkpoint suffices there.
+        if !isManualReopen, previousSessionLaunchWasUnclean {
+            sessionScrollbackCheckpointCoordinator?.seed(sessionScrollbackCheckpointRestoredSeeds())
+        }
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
@@ -4294,9 +4316,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             self.runSessionAutosaveTick(source: "timer")
+            self.sessionScrollbackCheckpointCoordinator?.tickIfDue()
         }
         sessionAutosaveTimer = timer
         timer.resume()
+        startSessionScrollbackCheckpointsIfNeeded(environment: env)
+    }
+
+    private func sessionScrollbackCheckpointStore() -> SessionScrollbackCheckpointStore? {
+        sessionSnapshotStore.defaultSnapshotFileURL().map {
+            SessionScrollbackCheckpointStore(primarySnapshotURL: $0)
+        }
+    }
+
+    private func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
+        guard sessionScrollbackCheckpointCoordinator == nil,
+              SessionScrollbackCheckpointPolicy.isEnabled(environment: environment),
+              let store = sessionScrollbackCheckpointStore() else { return }
+        let queue = sessionScrollbackCheckpointQueue
+        sessionScrollbackCheckpointCoordinator = SessionScrollbackCheckpointCoordinator(
+            environment: SessionScrollbackCheckpointCoordinator.Environment(
+                uptime: { ProcessInfo.processInfo.systemUptime },
+                wallClock: { Date().timeIntervalSince1970 },
+                canCheckpoint: { [weak self] in
+                    guard let self else { return false }
+                    return !self.isTerminatingApp
+                        && self.didAttemptStartupSessionRestore
+                        && !self.isApplyingSessionRestore
+                },
+                secondsSinceTyping: { [weak self] in
+                    guard let self, self.lastTypingActivityAt > 0 else { return nil }
+                    return ProcessInfo.processInfo.systemUptime - self.lastTypingActivityAt
+                },
+                candidates: { [weak self] in
+                    self?.sessionScrollbackCheckpointCandidates() ?? []
+                },
+                scheduleNextCapture: { work in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated { work() }
+                    }
+                },
+                persist: { batch in
+                    queue.async {
+                        store.applyMarkingFailuresPending(batch, activity: .shared)
+                    }
+                }
+            )
+        )
     }
 
     private func stopSessionAutosaveTimer() {
@@ -5168,7 +5234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: createdAt,
-            windows: windows
+            windows: windows,
+            scrollbackCapturedAt: includeScrollback ? createdAt : nil
         )
         return (snapshot, didRemoveCrashDiagnosticData)
     }
