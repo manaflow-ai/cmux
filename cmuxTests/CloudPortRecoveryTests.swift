@@ -76,55 +76,40 @@ struct CloudPortRecoveryTests {
     /// The cached pass retires the rescan's refresh, but the rescan still owns the Ports request.
     @Test("A rescan's inventory publishes its rows after a cached refresh retires its pass")
     func rescanRowsSurviveCachedRefresh() async throws {
-        let root = URL(fileURLWithPath: "/tmp/cmux-ports-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let client = root.appendingPathComponent("daemon-fixture")
-        try Self.portsDaemonScript.write(to: client, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: client.path)
-        // The catalog, provider, link and scan request are production paths; only the daemon is a fixture.
-        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
-            terminalProfile: .shell, destination: "ports-fixture.invalid", port: nil, identityFile: nil,
-            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
-            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
-        ))
-        let links = SSHTuiLinkManager(
-            connection: connection, clientURL: client,
-            paths: CloudTuiClientPaths(home: root), isEnabled: { true }
-        )
-        _ = try await links.connected(machineID: connection.id)
-        guard let link = await links.link(machineID: connection.id) else {
-            Issue.record("The fixture link did not connect")
-            await links.disconnect()
-            return
+        try await withPortsFixture { root, provider, catalog in
+            provider.requestPortDiscovery()
+            await provider.refreshCurrentGraph(force: true)
+            #expect(await eventually { Self.portRows(catalog, provider.machine) == [3000] })
+            // The daemon holds the second scan until the cached pass has landed.
+            await provider.refreshCurrentGraph(force: true)
+            #expect(await eventually { Self.fixtureFileExists(root, "scan-started") })
+            await provider.refreshCurrentGraph(force: false)
+            #expect(provider.info.portDiscoveryState == .available)
+            #expect(Self.portRows(catalog, provider.machine) == [3000])
+            Self.createFixtureFile(root, "release-scan")
+            #expect(await eventually { Self.portRows(catalog, provider.machine) == [3000, 8000] })
+            #expect(provider.info.portDiscoveryState == .available)
         }
-        // Drain the connection edge so it cannot start an extra refresh mid-test.
-        var changes = link.changes.makeAsyncIterator()
-        #expect(await changes.next() == .connected)
-        let catalog = SurfaceCatalog()
-        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
-        catalog.register(provider)
-        let machine = provider.machine
-        func rows() -> [Int] {
-            catalog.authoritativeSnapshot.resources(on: machine).compactMap(\.id.forwardedPort).sorted()
+    }
+
+    /// A pass captures the inventory before its snapshot read; a rescan can land during that read.
+    @Test("A snapshot that lands after a rescan does not restore the previous Ports rows")
+    func lateSnapshotKeepsRescanRows() async throws {
+        try await withPortsFixture { root, provider, catalog in
+            provider.requestPortDiscovery()
+            await provider.refreshCurrentGraph(force: true)
+            #expect(await eventually { Self.portRows(catalog, provider.machine) == [3000] })
+            await provider.refreshCurrentGraph(force: true)
+            #expect(await eventually { Self.fixtureFileExists(root, "scan-started") })
+            Self.createFixtureFile(root, "hold-snapshot")
+            let cached = Task { await provider.refreshCurrentGraph(force: false) }
+            #expect(await eventually { Self.fixtureFileExists(root, "snapshot-started") })
+            Self.createFixtureFile(root, "release-scan")
+            #expect(await eventually { Self.portRows(catalog, provider.machine) == [3000, 8000] })
+            Self.createFixtureFile(root, "release-snapshot")
+            _ = await cached.value
+            #expect(Self.portRows(catalog, provider.machine) == [3000, 8000])
         }
-
-        provider.requestPortDiscovery()
-        await provider.refreshCurrentGraph(force: true)
-        #expect(await eventually { rows() == [3000] })
-        // The daemon holds the second scan until the cached pass has landed.
-        await provider.refreshCurrentGraph(force: true)
-        #expect(await eventually { FileManager.default.fileExists(atPath: root.appendingPathComponent("scan-started").path) })
-        await provider.refreshCurrentGraph(force: false)
-        #expect(provider.info.portDiscoveryState == .available)
-        #expect(rows() == [3000])
-        FileManager.default.createFile(atPath: root.appendingPathComponent("release-scan").path, contents: nil)
-        #expect(await eventually { rows() == [3000, 8000] })
-        #expect(provider.info.portDiscoveryState == .available)
-
-        catalog.unregister(machine: machine)
-        await provider.stop()
-        await links.disconnect()
     }
 
     @Test("A metadata result from before retirement cannot revive a provider")
@@ -232,6 +217,59 @@ struct CloudPortRecoveryTests {
         return condition()
     }
 
+    /// Runs `body` against an SSH provider whose daemon is `portsDaemonScript`. The catalog,
+    /// provider, link and scan request are production paths; only the daemon is a fixture.
+    private func withPortsFixture(
+        _ body: (URL, CmuxTuiSurfaceProvider, SurfaceCatalog) async throws -> Void
+    ) async throws {
+        let root = URL(fileURLWithPath: "/tmp/cmux-ports-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let client = root.appendingPathComponent("daemon-fixture")
+        try Self.portsDaemonScript.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: client.path)
+        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "ports-fixture.invalid", port: nil, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
+        ))
+        let links = SSHTuiLinkManager(
+            connection: connection, clientURL: client,
+            paths: CloudTuiClientPaths(home: root), isEnabled: { true }
+        )
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        do {
+            _ = try await links.connected(machineID: connection.id)
+            let link = try #require(await links.link(machineID: connection.id))
+            // Drain the connection edge so it cannot start an extra refresh mid-test.
+            var changes = link.changes.makeAsyncIterator()
+            #expect(await changes.next() == .connected)
+            catalog.register(provider)
+            try await body(root, provider, catalog)
+        } catch {
+            catalog.unregister(machine: provider.machine)
+            await provider.stop()
+            await links.disconnect()
+            throw error
+        }
+        catalog.unregister(machine: provider.machine)
+        await provider.stop()
+        await links.disconnect()
+    }
+
+    private static func portRows(_ catalog: SurfaceCatalog, _ machine: SurfaceMachineID) -> [Int] {
+        catalog.authoritativeSnapshot.resources(on: machine).compactMap(\.id.forwardedPort).sorted()
+    }
+
+    private static func fixtureFileExists(_ root: URL, _ name: String) -> Bool {
+        FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path)
+    }
+
+    private static func createFixtureFile(_ root: URL, _ name: String) {
+        FileManager.default.createFile(atPath: root.appendingPathComponent(name).path, contents: nil)
+    }
+
     /// Work that crosses a real socket needs sleeps, not main-actor spins.
     private func eventually(_ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
@@ -240,7 +278,8 @@ struct CloudPortRecoveryTests {
     }
 
     // A local protocol peer, started and reaped by the real link. It answers the
-    // second port scan only after the test creates `release-scan`.
+    // second port scan only after the test creates `release-scan`, and the first
+    // snapshot read after `hold-snapshot` only after `release-snapshot`.
     private static let portsDaemonScript = #"""
     #!/usr/bin/python3
     import json
@@ -265,6 +304,7 @@ struct CloudPortRecoveryTests {
         "LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\nLISTEN 0 128 0.0.0.0:8000 0.0.0.0:*\n",
     ]
     scans = 0
+    held_snapshot = False
     send_lock = threading.Lock()
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(path)
@@ -276,10 +316,14 @@ struct CloudPortRecoveryTests {
         with send_lock:
             peer.sendall((json.dumps(response) + "\n").encode())
 
-    def release(response):
-        while not (root / "release-scan").exists():
+    def release(response, gate):
+        while not (root / gate).exists():
             time.sleep(0.01)
         send(response)
+
+    def hold(response, marker, gate):
+        (root / marker).touch()
+        threading.Thread(target=release, args=(response, gate), daemon=True).start()
 
     with peer, peer.makefile("r") as reader:
         for line in reader:
@@ -302,8 +346,10 @@ struct CloudPortRecoveryTests {
                 raise AssertionError("unexpected request: " + op)
             response["result" if "operation" in request else "data"] = result
             if op == "machine-listening-tcp" and scans == 2:
-                (root / "scan-started").touch()
-                threading.Thread(target=release, args=(response,), daemon=True).start()
+                hold(response, "scan-started", "release-scan")
+            elif op == "session.snapshot" and not held_snapshot and (root / "hold-snapshot").exists():
+                held_snapshot = True
+                hold(response, "snapshot-started", "release-snapshot")
             else:
                 send(response)
     """#
