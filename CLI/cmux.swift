@@ -4197,6 +4197,14 @@ struct CMUXCLI {
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
 
+    // `hooks setup` performs one confirmation for the detected set. The
+    // individual installers consult this process-local gate so setup-all
+    // never asks once per agent.
+    private final class HooksSetupConfirmation: @unchecked Sendable {
+        var approved = false
+    }
+    private static let hooksSetupConfirmation = HooksSetupConfirmation()
+
     private enum NotifyTargetResolution {
         case surface(
             rawSurface: String,
@@ -32798,7 +32806,9 @@ export default CMUXSessionRestore;
 
     private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
         let pluginURL = openCodeSessionPluginURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes") || ProcessInfo.processInfo.arguments.contains("-y")
+        let skipConfirm = Self.hooksSetupConfirmation.approved
+            || ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: pluginURL, encoding: .utf8)) ?? ""
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         if existing == Self.openCodeSessionPluginSource {
@@ -32856,7 +32866,8 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = Self.hooksSetupConfirmation.approved
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -33079,7 +33090,8 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = Self.hooksSetupConfirmation.approved
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -40690,6 +40702,13 @@ export default CMUXSessionRestore;
 
     /// Reports whether a supported integration leaves a recognizable cmux marker.
     private static func isAgentHookInstalled(_ definition: AgentHookDef) -> Bool {
+        if definition.name == "kimi" {
+            let locations = Self.kimiConfigLocations(for: definition)
+            return ([locations.active] + locations.secondary).contains { url in
+                guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return false }
+                return KimiCodeHookConfig.containsCmuxBlock(in: contents)
+            }
+        }
         let path = hookConfigPath(for: definition)
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8), !contents.isEmpty else {
             return false
@@ -40938,6 +40957,33 @@ export default CMUXSessionRestore;
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
+
+        let skipConfirm = args.contains("--yes") || args.contains("-y")
+        var detectedDefinitions: [AgentHookDef] = []
+        if agentFilterDef == nil, !isUninstall {
+            detectedDefinitions = Self.agentDefs.filter { definition in
+                let configDir = definition.resolvedConfigDir()
+                let canUseMissingConfigDir = definition.createConfigDirIfMissing
+                    || ["opencode", "pi", "amp"].contains(definition.name)
+                return (canUseMissingConfigDir || fm.fileExists(atPath: configDir))
+                    && Self.isBinaryOnPath(definition.binaryName)
+            }
+            print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
+                .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))
+            guard !detectedDefinitions.isEmpty else {
+                print(String(localized: "cli.hooks.setup.noneDetected", defaultValue: "No supported agent CLIs were found on PATH."))
+                return
+            }
+            if !skipConfirm {
+                print(String(localized: "cli.hooks.setup.confirm", defaultValue: "Install cmux hooks for all detected agents? [y/N] "), terminator: "")
+                guard readLine()?.lowercased().hasPrefix("y") == true else {
+                    print(String(localized: "cli.hooks.setup.aborted", defaultValue: "Aborted."))
+                    return
+                }
+            }
+            Self.hooksSetupConfirmation.approved = true
+            defer { Self.hooksSetupConfirmation.approved = false }
+        }
 
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
         if !isUninstall {

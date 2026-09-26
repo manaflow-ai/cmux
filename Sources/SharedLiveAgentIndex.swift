@@ -739,6 +739,7 @@ final class SharedLiveAgentIndex {
                 success: reloadResult.didComplete && !Task.isCancelled
             )
             self.restartForkAvailabilityRefreshIfPending()
+            self.nudgeForMissingAgentHooks()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
@@ -1486,6 +1487,7 @@ final class SharedLiveAgentIndex {
     }
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
+        nudgeForMissingAgentHooks()
         guard !panelIdsByWorkspaceId.isEmpty else {
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             return
@@ -1497,6 +1499,50 @@ final class SharedLiveAgentIndex {
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
             ]
         )
+    }
+
+    /// Publishes one actionable notification when a supported agent process is
+    /// running before cmux has a hook session store for that agent.
+    ///
+    /// Process discovery is the fallback that makes this work precisely when
+    /// hooks are absent; once setup writes the store, the same agent is never
+    /// nudged again. The per-agent default keeps a long-lived workspace from
+    /// repeating the prompt on every index refresh.
+    private func nudgeForMissingAgentHooks() {
+        guard let index else { return }
+        let supported: Set<RestorableAgentKind> = [.codex, .claude, .gemini, .opencode, .amp, .pi]
+        let defaults = UserDefaults.standard
+        let fileManager = FileManager.default
+        for (panelKey, entry) in index.forkValidationEntries() {
+            let kind = entry.snapshot.kind
+            guard supported.contains(kind),
+                  entry.processLiveness == .running,
+                  !entry.agentProcessIDs.isEmpty else { continue }
+            let nudgeKey = "cmux.hooks.nudgeShown.\(kind.rawValue)"
+            guard !defaults.bool(forKey: nudgeKey) else { continue }
+            let hookStoreURL = kind.hookStoreFileURL()
+            guard !fileManager.fileExists(atPath: hookStoreURL.path) else { continue }
+            let title = String.localizedStringWithFormat(
+                String(localized: "cli.hooks.nudge.title", defaultValue: "cmux hooks are not installed for %@"),
+                kind.displayName
+            )
+            let body = String.localizedStringWithFormat(
+                String(localized: "cli.hooks.nudge.body", defaultValue: "Install them with `cmux hooks setup --agent %@` to show agent status in cmux."),
+                kind.rawValue
+            )
+            guard AgentNotificationDelivery().enqueue(
+                workspaceID: panelKey.workspaceId,
+                surfaceID: panelKey.panelId,
+                title: title,
+                subtitle: "",
+                body: body,
+                category: nil,
+                pending: false,
+                agentKind: kind.rawValue,
+                correlationKey: nudgeKey
+            ) else { continue }
+            defaults.set(true, forKey: nudgeKey)
+        }
     }
 
     private func reloadIfLiveAgentProcessFingerprintChanged(

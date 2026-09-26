@@ -6,18 +6,35 @@ import SwiftUI
 public struct AutomationSection: View {
     private struct AgentHookSettingsItem: Identifiable {
         let agent: String
-        let titleKey: String
-        let defaultTitle: String
         var id: String { agent }
+
+        var title: String {
+            switch agent {
+            case "codex":
+                return String(localized: "settings.automation.codex", defaultValue: "Codex Integration")
+            case "claude":
+                return String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration")
+            case "gemini":
+                return String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration")
+            case "opencode":
+                return String(localized: "settings.automation.agentHooks.opencode", defaultValue: "OpenCode", bundle: .module)
+            case "amp":
+                return String(localized: "settings.automation.amp", defaultValue: "Amp Integration")
+            case "pi":
+                return String(localized: "settings.automation.agentHooks.pi", defaultValue: "Pi", bundle: .module)
+            default:
+                return agent
+            }
+        }
     }
 
     private static let agentHookSettingsItems = [
-        AgentHookSettingsItem(agent: "codex", titleKey: "settings.automation.codex", defaultTitle: "Codex"),
-        AgentHookSettingsItem(agent: "claude", titleKey: "settings.automation.claudeCode", defaultTitle: "Claude Code"),
-        AgentHookSettingsItem(agent: "gemini", titleKey: "settings.automation.gemini", defaultTitle: "Gemini"),
-        AgentHookSettingsItem(agent: "opencode", titleKey: "settings.automation.agentHooks.opencode", defaultTitle: "OpenCode"),
-        AgentHookSettingsItem(agent: "amp", titleKey: "settings.automation.amp", defaultTitle: "Amp"),
-        AgentHookSettingsItem(agent: "pi", titleKey: "settings.automation.agentHooks.pi", defaultTitle: "Pi"),
+        AgentHookSettingsItem(agent: "codex"),
+        AgentHookSettingsItem(agent: "claude"),
+        AgentHookSettingsItem(agent: "gemini"),
+        AgentHookSettingsItem(agent: "opencode"),
+        AgentHookSettingsItem(agent: "amp"),
+        AgentHookSettingsItem(agent: "pi"),
     ]
 
     private let catalog: SettingCatalog
@@ -100,7 +117,7 @@ public struct AutomationSection: View {
     private static let columnWidth: CGFloat = 196
     public var body: some View {
         Group {
-            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation", bundle: .module), section: .automation)
+            SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
             hooksSetupCard
             socketControlCard
             automationRulesCard
@@ -191,26 +208,43 @@ public struct AutomationSection: View {
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
-                    String(localized: item.titleKey, defaultValue: item.defaultTitle, bundle: .module),
-                    subtitle: String(
-                        localized: "settings.automation.agentHooks.perAgentSubtitle",
-                        defaultValue: "Install or remove hooks for this agent.", bundle: .module
-                    )
+                    item.title,
+                    subtitle: item.agent == "claude"
+                        ? (claudeCodeModel.current
+                            ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
+                            : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration."))
+                        : String(
+                            localized: "settings.automation.agentHooks.perAgentSubtitle",
+                            defaultValue: "Install or remove hooks for this agent.", bundle: .module
+                        )
                 ) {
-                    HStack(spacing: 8) {
-                        Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install", bundle: .module)) {
-                            hostActions.openAgentHooksInstall(agent: item.agent)
-                        }
-                        .buttonStyle(.bordered)
+                    if item.agent == "claude" {
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { claudeCodeModel.current },
+                                set: { claudeCodeModel.set($0) }
+                            )
+                        )
+                        .labelsHidden()
                         .controlSize(.small)
-                        .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
+                        .accessibilityIdentifier("SettingsAgentHooksClaudeToggle")
+                    } else {
+                        HStack(spacing: 8) {
+                            Button(String(localized: "settings.automation.agentHooks.install", defaultValue: "Install", bundle: .module)) {
+                                hostActions.openAgentHooksInstall(agent: item.agent)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsAgentHooksInstall\(item.agent.capitalized)Button")
 
-                        Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall", bundle: .module)) {
-                            hostActions.openAgentHooksUninstall(agent: item.agent)
+                            Button(String(localized: "settings.automation.agentHooks.uninstall", defaultValue: "Uninstall", bundle: .module)) {
+                                hostActions.openAgentHooksUninstall(agent: item.agent)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsAgentHooksUninstall\(item.agent.capitalized)Button")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("SettingsAgentHooksUninstall\(item.agent.capitalized)Button")
                     }
                 }
             }

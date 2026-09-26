@@ -30,6 +30,14 @@ struct CLIHooksSetupSurfaceTests {
         #expect(result.output.contains("\"codex\""), Comment(rawValue: result.output))
         #expect(!result.output.contains("\"config_path\""), Comment(rawValue: result.output))
         #expect(!result.output.contains("PATH"), Comment(rawValue: result.output))
+    }
+
+    @Test("Human hook status explains unavailable agent CLIs")
+    func humanHookStatusExplainsUnavailableAgents() throws {
+        let result = try runCLI(arguments: ["hooks", "status"])
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(result.output.contains("Agent CLI unavailable"), Comment(rawValue: result.output))
     }
 
