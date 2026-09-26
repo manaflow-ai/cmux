@@ -35,6 +35,7 @@ General app preferences from Settings > App.
 | `app.forkConversationDefaultDestination` | `"right"` or `"left"` or `"top"` or `"bottom"` or `"newTab"` or `"newWorkspace"` | `"right"` | Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination. |
 | `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
 | `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
+| `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
@@ -185,6 +186,45 @@ Embedded browser settings from Settings > Browser.
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
+
+## markdown
+
+Built-in Markdown viewer settings from Settings > App.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `markdown.fontSize` | integer (8–96) | `15` | Default body font size, in points, for newly opened Markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0. |
+| `markdown.fontFamily` | string | `""` | Default body font family for newly opened Markdown viewers. Leave empty for the system Markdown font stack. |
+| `markdown.maxWidth` | integer (320–2400) | `980` | Default maximum reading column width, in CSS pixels, for newly opened Markdown viewers. |
+
+## fileEditor
+
+Built-in text editor settings used by text file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileEditor.wordWrap` | boolean | `false` | Wrap long lines at the editor's right edge instead of scrolling horizontally. |
+| `fileEditor.syntaxHighlighting` | boolean | `true` | Color source tokens in the built-in file editor. |
+| `fileEditor.lineNumbers` | boolean | `true` | Show a line-number gutter in the built-in file editor. |
+| `fileEditor.indentGuides` | boolean | `true` | Draw vertical indent guides in the built-in file editor. |
+| `fileEditor.currentLineHighlight` | boolean | `true` | Highlight the caret's line when the selection is empty. |
+| `fileEditor.tabWidth` | integer (1–8) | `4` | Columns per tab stop for indent guides. |
+
+## fileExplorer
+
+Right-sidebar file explorer routing for file previews.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `fileExplorer.doubleClickAction` | `"preview"` or `"defaultEditor"` or `"preferredEditor"` | `"preview"` | What double-clicking a file in the file explorer does. `preview` opens the built-in cmux file preview; the editor choices use the macOS default app or `app.preferredEditor`. |
+
+## diffViewer
+
+Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#schema-diffViewer) for invocation overrides.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `diffViewer.defaultLayout` | `"unified"` or `"split"` | `"unified"` | Default layout for newly opened diff viewers. The toolbar choice persists and `cmux diff --layout` overrides this value for one invocation. |
 
 ## shortcuts
 
