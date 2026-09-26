@@ -155,6 +155,9 @@ struct MobileHostConnectionEventQueueTests {
             #expect(queue.dequeue() != nil)
         }
         #expect(queue.count == 10)
-        #expect(queue.orderedIDCount <= 4 * (2 * queue.count + 64))
+        // Every event ID the arrival orders still hold, including consumed
+        // ones not yet compacted away.
+        let orderedIDCount = queue.laneOrders.values.reduce(queue.arrivalOrder.ids.count) { $0 + $1.ids.count }
+        #expect(orderedIDCount <= 4 * (2 * queue.count + 64))
     }
 }

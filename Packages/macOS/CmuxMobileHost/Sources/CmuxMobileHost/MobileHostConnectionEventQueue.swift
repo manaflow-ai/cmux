@@ -116,7 +116,7 @@ private struct MobileHostEventShedSummary: Sendable {
 /// its ID behind; readers skip IDs that are no longer queued, and `compact`
 /// drops them once they outnumber the live ones, so every operation stays
 /// amortized O(1).
-private struct MobileHostQueuedEventOrder {
+struct MobileHostQueuedEventOrder {
     private(set) var ids: [UUID] = []
     private(set) var head = 0
 
@@ -176,10 +176,10 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
     private var subscribedTopics: Set<String> = []
     private var queuedEvents: [UUID: QueuedEvent] = [:]
     /// Arrival order across every lane; shedding walks it oldest first.
-    private var arrivalOrder = MobileHostQueuedEventOrder()
+    private(set) var arrivalOrder = MobileHostQueuedEventOrder()
     /// Arrival order within each lane with queued events; a lane's drain
     /// dequeues from its own order.
-    private var laneOrders: [MobileHostEventLane: MobileHostQueuedEventOrder] = [:]
+    private(set) var laneOrders: [MobileHostEventLane: MobileHostQueuedEventOrder] = [:]
     /// The queued Mac grid snapshot for each surface, so a newer snapshot
     /// replaces it without scanning the queue.
     private var gridEventIDs: [String: UUID] = [:]
@@ -228,14 +228,6 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return queuedByteCount
-    }
-
-    /// Event IDs held by the arrival orders, including consumed and removed
-    /// ones not yet compacted away.
-    var orderedIDCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return laneOrders.values.reduce(arrivalOrder.ids.count) { $0 + $1.ids.count }
     }
 
     /// Replaces the subscribed-topic snapshot used for synchronous admission.
