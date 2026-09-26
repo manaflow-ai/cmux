@@ -52,7 +52,7 @@ struct AgentHookDeliveryPolicyTests {
         // Leave at least half the declared timeout for process launch, which
         // happens before the hook can arm its own bound.
         #expect(AgentHookDeliveryPolicy.admissionWallClockSeconds * 2
-            <= TimeInterval(AgentHookDeliveryPolicy.declaredTimeoutSeconds))
+            <= Double(AgentHookDeliveryPolicy.declaredTimeoutSeconds))
     }
 
     @Test("Agent names produce stable ASCII PID environment keys")
