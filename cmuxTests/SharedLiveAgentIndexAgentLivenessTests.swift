@@ -13,6 +13,36 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
+    func hookInstallationDetectionUsesAgentLaunchEnvironmentAndGeneratedCodexScripts() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-nudge-environment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
+        try fm.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        let hooks = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        try "{\"hooks\":{\"SessionStart\":[{\"command\":\"/tmp/cmux/hooks/cmux-codex-hook-abc.sh\"}]}}"
+            .write(to: hooks, atomically: true, encoding: .utf8)
+
+        #expect(
+            SharedLiveAgentIndex.hasInstalledAgentHooks(
+                for: .codex,
+                environment: [
+                    "HOME": root.path,
+                    "CODEX_HOME": codexHome.path,
+                ]
+            )
+        )
+        #expect(
+            !SharedLiveAgentIndex.hasInstalledAgentHooks(
+                for: .codex,
+                environment: ["HOME": root.path]
+            )
+        )
+    }
+
+    @Test
     func processScopeFingerprintTracksUnscopedTTYAndGroupMembers() {
         let workspaceId = UUID()
         let panelId = UUID()

@@ -1150,6 +1150,7 @@
       "requirements": "Requisitos",
       "reqItem1": "macOS 14.0 o posterior",
       "reqItem2": "Apple Silicon o Intel Mac",
+      "hooksGuideLink": "Consulta la <link>guía de hooks de agentes</link> para ver la configuración completa y la matriz de compatibilidad.",
       "metaTitle": "Primeros pasos"
     },
     "concepts": {

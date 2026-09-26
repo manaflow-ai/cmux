@@ -1150,6 +1150,7 @@
       "requirements": "요구 사항",
       "reqItem1": "macOS 14.0 이상",
       "reqItem2": "Apple Silicon 또는 Intel Mac",
+      "hooksGuideLink": "전체 설정 및 지원 매트릭스는 <link>에이전트 후크 가이드</link>를 참조하세요。",
       "metaTitle": "시작하기"
     },
     "concepts": {

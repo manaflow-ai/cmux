@@ -110,10 +110,14 @@ extension CMUXCLI {
         }
     }
 
-    func installPiExtensionHooks(_ def: AgentHookDef) throws {
+    func installPiExtensionHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let extensionURL = piExtensionURL(for: def)
         let fileManager = FileManager.default
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = try existingPiExtensionContents(at: extensionURL, fileManager: fileManager)
         if existing == Self.piExtensionSource {

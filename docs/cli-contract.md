@@ -607,6 +607,7 @@ Hook subcommands:
 | Command | Contract |
 | --- | --- |
 | `hooks setup` | Install hooks for all supported agents whose binaries are on `PATH`. Supports `--agent <name>`, positional agent filters such as `cmux hooks setup rovo`, and `--yes`. |
+| `hooks status` | Show installed hook integrations and agent CLI availability without connecting to a running cmux app. Supports `--agent <name>` and `--json`. |
 | `hooks uninstall` | Remove hooks for all supported agents. Supports `--agent <name>`, positional agent filters such as `cmux hooks uninstall rovo`, and `--yes`. |
 | `hooks <agent> install` | Install hooks for one supported agent. `opencode` also supports `--project` for the project-local Feed plugin. |
 | `hooks <agent> uninstall` | Remove hooks for one supported agent. |
@@ -861,7 +862,7 @@ the expected text without connecting to a cmux socket.
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
-- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]`
+- `cmux hooks --help` -> `Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]` and `cmux hooks status [--agent <name>] [--json]`
 - `cmux codex --help` -> `Usage: cmux codex <install-hooks|uninstall-hooks>`
 - `cmux themes --help` -> `Usage: cmux themes`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`

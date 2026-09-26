@@ -33,14 +33,18 @@ extension CMUXCLI {
         return events
     }
 
-    func installKimiHooks(_ def: AgentHookDef) throws {
+    func installKimiHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let fm = FileManager.default
         let locations = Self.kimiConfigLocations(for: def)
         let activeConfigURL = locations.active
         let configDir = activeConfigURL.deletingLastPathComponent().path
         let filePath = activeConfigURL.path
         let events = kimiCodeHookEvents(def: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(

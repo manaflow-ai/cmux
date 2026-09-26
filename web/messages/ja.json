@@ -2266,6 +2266,7 @@
       "requirements": "動作要件",
       "reqItem1": "macOS 14.0以降",
       "reqItem2": "Apple SiliconまたはIntel Mac",
+      "hooksGuideLink": "完全なセットアップと対応表については、<link>エージェントフックガイド</link>をご覧ください。",
       "metaTitle": "はじめに"
     },
     "sessionRestore": {

@@ -1150,6 +1150,7 @@
       "requirements": "系统要求",
       "reqItem1": "macOS 14.0 或更高版本",
       "reqItem2": "Apple Silicon 或 Intel Mac",
+      "hooksGuideLink": "完整的设置和支持矩阵请参阅<link>代理挂钩指南</link>。",
       "metaTitle": "快速开始"
     },
     "concepts": {

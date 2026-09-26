@@ -1150,6 +1150,7 @@
       "requirements": "Voraussetzungen",
       "reqItem1": "macOS 14.0 oder neuer",
       "reqItem2": "Apple Silicon oder Intel Mac",
+      "hooksGuideLink": "Die vollständige Einrichtungs- und Unterstützungsmatrix finden Sie im <link>Leitfaden für Agent-Hooks</link>.",
       "metaTitle": "Erste Schritte"
     },
     "concepts": {

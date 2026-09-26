@@ -1150,6 +1150,7 @@
       "requirements": "ความต้องการ",
       "reqItem1": "macOS 14.0 หรือใหม่กว่า",
       "reqItem2": "Apple Silicon หรือ Intel Mac",
+      "hooksGuideLink": "ดู<link>คู่มือ Agent Hooks</link> สำหรับการตั้งค่าเต็มรูปแบบและตารางการรองรับ",
       "metaTitle": "เริ่มต้นใช้งาน"
     },
     "concepts": {

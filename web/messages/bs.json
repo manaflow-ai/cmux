@@ -1150,6 +1150,7 @@
       "requirements": "Zahtjevi",
       "reqItem1": "macOS 14.0 ili noviji",
       "reqItem2": "Apple Silicon ili Intel Mac",
+      "hooksGuideLink": "Pogledajte <link>dokumentaciju o kukama agenata</link> za potpunu postavku i matricu podrške.",
       "metaTitle": "Početak"
     },
     "concepts": {

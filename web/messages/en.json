@@ -2344,7 +2344,8 @@
       "sessionRestoreLink": "See the <link>session restore guide</link> for agent hook setup and the supported resume matrix.",
       "requirements": "Requirements",
       "reqItem1": "macOS 14.0 or later",
-      "reqItem2": "Apple Silicon or Intel Mac"
+      "reqItem2": "Apple Silicon or Intel Mac",
+      "hooksGuideLink": "For the full setup and support matrix, see the <link>agent hooks guide</link>."
     },
     "sessionRestore": {
       "title": "Session Restore",

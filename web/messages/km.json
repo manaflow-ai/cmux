@@ -1150,6 +1150,7 @@
       "requirements": "តម្រូវការ",
       "reqItem1": "macOS 14.0 ឬក្រោយ",
       "reqItem2": "Mac Apple Silicon ឬ Intel",
+      "hooksGuideLink": "សូមមើល<link>មគ្គុទ្ទេសក៍ hooks ភ្នាក់ងារ</link> សម្រាប់ការដំឡើងពេញលេញ និងតារាងការគាំទ្រ。",
       "metaTitle": "ចាប់ផ្តើម"
     },
     "concepts": {
