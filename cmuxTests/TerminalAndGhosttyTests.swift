@@ -975,6 +975,96 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 }
 
 @MainActor
+final class TerminalAccessibilityRegressionTests: XCTestCase {
+    private var surfaces: [TerminalSurface] = []
+
+    override func tearDown() {
+        for surface in surfaces {
+            surface.hostedView.removeFromSuperview()
+            surface.teardownSurface()
+        }
+        surfaces.removeAll()
+        super.tearDown()
+    }
+
+    func testAccessibilityValueExposesRenderedTerminalContent() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        surfaces.append(surface)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let hostedView = surface.hostedView
+        hostedView.frame = window.contentView?.bounds ?? .zero
+        hostedView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        window.contentView?.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { surface.surface != nil },
+            "Expected a live Ghostty surface before checking accessibility content"
+        )
+
+        let marker = "cmux-ax-content-\(UUID().uuidString)"
+        XCTAssertTrue(surface.sendText("printf '\\n\(marker)\\n'\n"))
+
+        guard let surfaceView = hostedView.surfaceView else {
+            XCTFail("Expected the hosted Ghostty view")
+            return
+        }
+        XCTAssertTrue(
+            waitUntil(timeout: 5) {
+                (surfaceView.accessibilityValue() as? String)?.contains(marker) == true
+            },
+            "AXValue should contain text rendered by the terminal"
+        )
+    }
+
+    func testMainWindowAccessibilityFocusResolvesFocusedTerminalView() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let terminalView = GhosttyNSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView?.addSubview(terminalView)
+        window.makeKeyAndOrderFront(nil)
+
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        XCTAssertTrue(window.accessibilityFocusedUIElement as AnyObject? === terminalView)
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+}
+
+@MainActor
 final class TerminalOffscreenStartupTests: XCTestCase {
 #if DEBUG
     private final class RecordingMobileTabManager: TabManager {
