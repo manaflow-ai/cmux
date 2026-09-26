@@ -245,12 +245,21 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
 
     /// The detail pane's visible rect: its scroll view, not the sidebar's.
     private func detailViewport(_ window: XCUIElement) -> CGRect {
-        let sidebarMaxX = sidebarList(window).frame.maxX
-        let bounds = window.frame.insetBy(dx: -1, dy: -1)
-        let detail = window.scrollViews.allElementsBoundByIndex
-            .map(\.frame)
-            .filter { $0.minX >= sidebarMaxX - 2 && !$0.isEmpty && bounds.contains($0) }
-            .max { $0.width * $0.height < $1.width * $1.height }
+        // A plain loop: the chained map/filter/max form exceeds the type
+        // checker's time limit on Xcode 26.3 (macOS 15 runners).
+        let sidebarMaxX: CGFloat = sidebarList(window).frame.maxX
+        let bounds: CGRect = window.frame.insetBy(dx: -1, dy: -1)
+        var detail: CGRect?
+        var detailArea: CGFloat = -1
+        for scrollView in window.scrollViews.allElementsBoundByIndex {
+            let frame: CGRect = scrollView.frame
+            guard frame.minX >= sidebarMaxX - 2, !frame.isEmpty, bounds.contains(frame) else { continue }
+            let area: CGFloat = frame.width * frame.height
+            if area > detailArea {
+                detail = frame
+                detailArea = area
+            }
+        }
         return detail ?? window.frame
     }
 
