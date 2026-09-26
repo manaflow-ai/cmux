@@ -11,9 +11,10 @@ enum CloudPortRoutePlan: Equatable, Sendable {
     case unsupported(String)
 
     /// Both discovery and browser opening require this machine's authenticated private identity.
-    static func blocker(supportsPreviews: Bool, privateAddress: String?) -> CloudPortDiscoveryState? {
+    static func blocker(supportsPreviews: Bool, privateAddress: String?, allowLoopback: Bool = false) -> CloudPortDiscoveryState? {
         guard supportsPreviews else { return .unsupported }
-        guard let address = privateAddress, privateURL("http://localhost", address: address) != nil else {
+        guard let address = privateAddress,
+              CloudPortRoutePolicy().privateURL("http://localhost", address: address, allowLoopback: allowLoopback) != nil else {
             return .unavailable(.privateAddress)
         }
         return nil
@@ -25,7 +26,8 @@ enum CloudPortRoutePlan: Equatable, Sendable {
               (1...65_535).contains(port) else {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPort", defaultValue: "%@ has no port to open."), resource.id.rawValue))
         }
-        guard blocker(supportsPreviews: true, privateAddress: privateAddress) == nil, let address = privateAddress else {
+        guard blocker(supportsPreviews: true, privateAddress: privateAddress, allowLoopback: resource.machine.isSSH) == nil,
+              let address = privateAddress else {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPrivateAddress", defaultValue: "%@ has no private network address yet; refresh the machine list and retry."), resource.machine.rawValue))
         }
         let raw = resource.url ?? (desktop
