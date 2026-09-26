@@ -519,7 +519,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ]
+        ] + sidebarAgentUsageEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {

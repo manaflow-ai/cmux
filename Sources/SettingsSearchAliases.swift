@@ -144,6 +144,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:show-ports": localized("settings.search.alias.setting.app.show-ports", defaultValue: "sidebar.showPorts localhost port listener dev server url"),
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
+        "sidebarAppearance:show-agent-usage": localized("settings.search.alias.setting.app.show-agent-usage", defaultValue: "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"),
         "sidebarAppearance:show-agent-activity": localized("settings.search.alias.setting.app.show-agent-activity", defaultValue: "sidebar.showAgentActivity loading spinner active coding agent agents running activity"),
         "sidebarAppearance:loading-spinner-position": localized("settings.search.alias.setting.app.loading-spinner-position", defaultValue: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"),
         "sidebarAppearance:notification-badge-position": localized("settings.search.alias.setting.app.notification-badge-position", defaultValue: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"),

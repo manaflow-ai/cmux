@@ -1282,6 +1282,11 @@
           "default": true,
           "description": "Show progress indicators."
         },
+        "showAgentUsage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Append coding-agent usage (model, context window used, estimated API cost) to the Claude Code or Codex status entry. The cost is an estimate from published per-token API prices, not a bill."
+        },
         "showAgentActivity": {
           "type": "boolean",
           "default": true,

@@ -81,6 +81,13 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelDirectoryDisplayLabelsSubject.send(panelDirectoryDisplayLabels) }
     }
 
+    /// Coding-agent usage keyed by the agent's sidebar status key
+    /// (`claude_code`, `codex`). Rendered next to the matching status entry
+    /// only while `sidebar.showAgentUsage` is on.
+    public var agentUsageByStatusKey: [String: SidebarAgentUsage] = [:] {
+        didSet { agentUsageSubject.send(agentUsageByStatusKey) }
+    }
+
     @ObservationIgnored
     private let limitProvider: any SidebarLogEntryLimitProviding
 
@@ -100,6 +107,8 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
+    @ObservationIgnored
+    private lazy var agentUsageSubject = CurrentValueSubject<[String: SidebarAgentUsage], Never>(agentUsageByStatusKey)
     @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
 
@@ -165,6 +174,20 @@ public final class WorkspaceSidebarMetadataModel {
     /// workspace-wide invalidation).
     public var panelDirectoryDisplayLabelsPublisher: AnyPublisher<[UUID: String], Never> {
         panelDirectoryDisplayLabelsSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current agent usage on subscription, then on every change.
+    public var agentUsagePublisher: AnyPublisher<[String: SidebarAgentUsage], Never> {
+        agentUsageSubject.eraseToAnyPublisher()
+    }
+
+    /// Sets or clears the usage shown next to one agent status entry.
+    /// - Parameters:
+    ///   - usage: The new usage, or `nil` to clear it.
+    ///   - statusKey: The agent's sidebar status key.
+    public func updateAgentUsage(_ usage: SidebarAgentUsage?, forStatusKey statusKey: String) {
+        guard agentUsageByStatusKey[statusKey] != usage else { return }
+        agentUsageByStatusKey[statusKey] = usage
     }
 
     /// Emits a sidebar observation pulse without mutating metadata.

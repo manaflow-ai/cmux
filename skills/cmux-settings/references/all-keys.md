@@ -110,6 +110,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showPorts` | boolean | `true` | Show listening ports. |
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
+| `sidebar.showAgentUsage` | boolean | `false` | Append coding-agent usage (model, context window used, estimated API cost) to the Claude Code or Codex status entry. The cost is an estimate from published per-token API prices, not a bill. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
