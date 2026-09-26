@@ -3162,6 +3162,8 @@
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
 		C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */; };
 		2ED21DB7F76E4F2F23FC4292 /* SSHTuiMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */; };
+		687509121DABB2ADED3C0E9A /* SSHTuiOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */; };
+		B9B1DC92B6B88F225DAD7ABB /* SSHTuiPreflightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */; };
 		0754B84093909FD27762E206 /* SSHTuiWorkspaceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0C06BAA2A8D5347C1E56F76 /* SSHTuiWorkspaceCoordinator.swift */; };
 		A11C00020000000000000001 /* StackAccountAvatarImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C00020000000000000002 /* StackAccountAvatarImageLoader.swift */; };
 		A11C00030000000000000001 /* StackAccountAvatarImageLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C00030000000000000002 /* StackAccountAvatarImageLoaderTests.swift */; };
@@ -7127,6 +7129,8 @@
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		E93262C2928EC5E04F1BD4A0 /* SSHTuiLinkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiLinkManager.swift"; sourceTree = "<group>"; };
 		0AB37AFFC13C8507E428527F /* SSHTuiMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiMigrationTests.swift"; sourceTree = "<group>"; };
+		266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiOpenTests.swift"; sourceTree = "<group>"; };
+		F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHTuiPreflightTests.swift"; sourceTree = "<group>"; };
 		F0C06BAA2A8D5347C1E56F76 /* SSHTuiWorkspaceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SSHTuiWorkspaceCoordinator.swift"; sourceTree = "<group>"; };
 		A11C00020000000000000002 /* StackAccountAvatarImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAccountAvatarImageLoader.swift; sourceTree = "<group>"; };
 		A11C00030000000000000002 /* StackAccountAvatarImageLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAccountAvatarImageLoaderTests.swift; sourceTree = "<group>"; };
@@ -12142,6 +12146,8 @@
 				1EC28906670BF54F49F89FFE /* MobileHostSurfaceEventLaneTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
+				266B552D3FBFED20D1EDE625 /* SSHTuiOpenTests.swift */,
+				F044F74E3A921F191E3F0EAF /* SSHTuiPreflightTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16573,6 +16579,8 @@
 				EF70B7123200D1FB6F03DB26 /* SSHStartupManualReconnectTests.swift in Sources */,
 				F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */,
 				2ED21DB7F76E4F2F23FC4292 /* SSHTuiMigrationTests.swift in Sources */,
+				687509121DABB2ADED3C0E9A /* SSHTuiOpenTests.swift in Sources */,
+				B9B1DC92B6B88F225DAD7ABB /* SSHTuiPreflightTests.swift in Sources */,
 				A11C00030000000000000001 /* StackAccountAvatarImageLoaderTests.swift in Sources */,
 				A11C00050000000000000001 /* StackAccountAvatarViewTests.swift in Sources */,
 				D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */,
