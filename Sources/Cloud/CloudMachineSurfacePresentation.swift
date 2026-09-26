@@ -44,29 +44,27 @@ struct CloudMachineSurfacePresentation {
     }
 
     static func emptyPorts(info: SurfaceMachineInfo) -> CloudTreeNode {
-        let text: String
-        let style: CloudTreePlaceholder.Style
-        switch info.linkState {
-        case .connecting:
-            text = String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…")
-            style = .connecting
-        case .error:
-            text = info.linkError ?? String(localized: "cloudTree.ports.failed", defaultValue: "Couldn’t discover ports. Refresh to retry.")
-            style = .error
-        case .asleep:
-            text = String(localized: "cloudTree.ports.asleep", defaultValue: "Open the machine to discover ports")
-            style = .dimmed
-        case .unavailable, .offline:
-            text = String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry.")
-            style = .dimmed
-        case .connected, .notApplicable:
-            text = String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports")
-            style = .dimmed
-        }
+        let presentation = CloudPortsStatusPresentation.make(info: info)
         return CloudTreeNode(
             id: "machine:\(info.id.rawValue)/ports/status",
             kind: .placeholder(machine: info.id, CloudTreePlaceholder(
-                text: text, style: style, opensMachine: info.linkState == .asleep
+                text: presentation.title,
+                style: presentation.style,
+                opensMachine: presentation.action == .openMachine,
+                portStatus: presentation
+            ))
+        )
+    }
+
+    static func portStatus(info: SurfaceMachineInfo) -> CloudTreeNode? {
+        guard info.portDiscoveryState.keepsStatusAlongsideRows else { return nil }
+        let presentation = CloudPortsStatusPresentation.make(info: info)
+        return CloudTreeNode(
+            id: "machine:\(info.id.rawValue)/ports/status",
+            kind: .placeholder(machine: info.id, CloudTreePlaceholder(
+                text: presentation.title,
+                style: presentation.style,
+                portStatus: presentation
             ))
         )
     }

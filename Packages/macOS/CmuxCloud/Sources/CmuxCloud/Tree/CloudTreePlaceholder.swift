@@ -10,9 +10,11 @@ public struct CloudTreePlaceholder: Equatable, Sendable {
     public let style: Style
     /// Only wake placeholders set this. Empty resource categories remain inert.
     public let opensMachine: Bool
-    public init(text: String, style: Style, opensMachine: Bool = false) {
+    public let portStatus: CloudPortsStatusPresentation?
+    public init(text: String, style: Style, opensMachine: Bool = false, portStatus: CloudPortsStatusPresentation? = nil) {
         self.text = text
         self.style = style
         self.opensMachine = opensMachine
+        self.portStatus = portStatus
     }
 }

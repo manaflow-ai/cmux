@@ -7,6 +7,7 @@ final class CloudTreeContainerView: NSView {
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
     private let layoutMetrics = CloudTreeLayoutMetrics()
+    private var lastMeasuredDocumentWidth: CGFloat?
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
         self.coordinator = coordinator
@@ -92,9 +93,20 @@ final class CloudTreeContainerView: NSView {
             : 0
         let documentHeight = layoutMetrics.documentHeight(
             viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
-        if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
+        let widthChanged = lastMeasuredDocumentWidth.map { abs($0 - documentWidth) > 0.5 } ?? true
+        if widthChanged || abs(outlineView.frame.height - documentHeight) > 0.5 {
             outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
         }
         outlineView.sizeLastColumnToFit()
+        if widthChanged {
+            let statusRows = IndexSet((0..<outlineView.numberOfRows).filter { row in
+                guard let node = outlineView.item(atRow: row) as? CloudTreeNode,
+                      case .placeholder(_, let value) = node.kind else { return false }
+                return value.portStatus != nil
+            })
+            outlineView.noteHeightOfRows(withIndexesChanged: statusRows)
+        }
+        lastMeasuredDocumentWidth = documentWidth
+        coordinator.portsDemand.schedule(coordinator: coordinator)
     }
 }

@@ -372,9 +372,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             return frame
         }
         let trailing = frame.maxX
-        frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
-            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
-        )
+        frame.origin.x = CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
     }

@@ -31,6 +31,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var showsCloudVPNWarning = false
     var reveal: CloudTreeRevealRequest? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -73,7 +74,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
             source: source,
-            devicesSection: devicesSection
+            devicesSection: devicesSection,
+            showsCloudVPNWarning: showsCloudVPNWarning
         ))
         context.coordinator.reveal(reveal)
     }
@@ -82,6 +84,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
+        let portsDemand = CloudPortsDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
@@ -296,6 +299,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
+                portsDemand.update(nodes: self.nodes)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -306,6 +310,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             self.nodes = nodes
+            portsDemand.update(nodes: nodes)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -411,7 +416,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style) { [weak self] in
+                self?.performPortAction($0, machineID: $1)
+            }
             configureMachineReorderAccessibility(cell, node: node)
             return cell
         }
@@ -576,19 +583,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 break
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
-                if placeholder.opensMachine, let machine = machine(id: machineID) {
-                    openMachine(machine)
-                }
+                if let status = placeholder.portStatus { performPortAction(status.action, machineID: machineID) }
+                else if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
         }
-        private func openMachine(_ machine: MachineSnapshot) {
-            if machine.freeAccess == .expired {
-                machineActions.promptUpgrade()
-            } else {
-                nodeActions.newTerminal(.cloud(machine.id), nil)
-            }
-        }
-
         private func toggle(_ node: CloudTreeNode) {
             guard let outlineView else { return }
 #if DEBUG
@@ -601,8 +599,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        private func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in nodes {
+        /// Machines can sit under a section row (`.cloudMachinesSection`), so search the whole tree.
+        func machine(id: SurfaceMachineID) -> MachineSnapshot? {
+            for node in CloudTreeNodeBuilder.flattened(nodes) {
                 if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
             }
             return nil
@@ -788,7 +787,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup, .portsGroup:
+            case .portsGroup(let machine):
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(machine) }]
+            case .browsersGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .resourcesPool, .resource:
                 return []

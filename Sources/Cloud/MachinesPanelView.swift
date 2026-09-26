@@ -604,7 +604,7 @@ struct MachinesPanelView: View {
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
-            ),
+            ), showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")

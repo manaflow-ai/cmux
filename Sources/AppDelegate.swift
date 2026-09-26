@@ -1219,6 +1219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var saveWorkspaceActionTasks: [UUID: Task<Void, Never>] = [:]
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
+    var cloudVPNSetupWindowController: CloudVPNSetupWindowController?
     var cloudOperations: CloudOperationRecorder?
     var cloudDiagnosticsWindowController: NSWindowController?
     /// The in-flight sign-out teardown of that tunnel, so a second sign-out
@@ -2491,6 +2492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.cloudOperations = cloudOperations
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
+        cloudVPNSetupWindowController?.attachIfNeeded(cloudTunnel)
         CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
         let cloudReads = VMClient.bootstrap(
             auth: auth.coordinator,

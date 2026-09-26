@@ -485,7 +485,8 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil, popoverPresenter.isShown {
+        // A close already under way (click-away) stays a dismissal.
+        if newWindow == nil, popoverPresenter.isShown, !popoverPresenter.isClosing {
             popoverAnchorDetachedWhilePresented = true
         }
         super.viewWillMove(toWindow: newWindow)
@@ -493,9 +494,11 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, popoverPresenter.isShown {
-            // The popover survived the reparent, so a later close is a real
-            // click-away rather than a detach side effect.
+        // The detach starts the popover's animated close, which keeps it
+        // shown until after the reattach; only a popover that is not closing
+        // survived the reparent.
+        if window != nil, popoverPresenter.isShown, !popoverPresenter.isClosing {
+            // A later close is a real click-away rather than a detach side effect.
             popoverAnchorDetachedWhilePresented = false
         }
         if window != nil, pendingPopoverPresentation {

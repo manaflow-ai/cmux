@@ -1903,66 +1903,6 @@ public enum SurfacePlacement: String, Codable, Sendable {
     case tab
 }
 
-/// What a provider knows about its machine, for the tree header.
-public struct SurfaceMachineInfo: Hashable, Codable, Sendable {
-    public var id: SurfaceMachineID
-    public var name: String
-    /// `running`, `standby`, … for cloud machines; `running` for the local Mac.
-    public var status: String
-    public var image: String?
-    public var hasDesktop: Bool
-    public var memoryMb: Int?
-    public var diskMb: Int?
-    public var linkState: SurfaceLinkState
-    public var linkError: String?
-    public var cpuPercent: Double?
-    public var memoryUsedMb: Int?
-    public var diskUsedMb: Int?
-    /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
-    /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
-    public var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
-    /// The machine's address on its owner's private network (v4 preferred),
-    /// reachable through the WireGuard tunnel. nil for the local Mac and for
-    /// machines created before private networking.
-    public var privateAddress: String? = nil
-    /// Account presence for another Mac's app instance; nil for local and cloud machines.
-    public var presence: SurfaceDevicePresence? = nil
-
-    public init(
-        id: SurfaceMachineID,
-        name: String,
-        status: String,
-        image: String? = nil,
-        hasDesktop: Bool,
-        memoryMb: Int? = nil,
-        diskMb: Int? = nil,
-        linkState: SurfaceLinkState,
-        linkError: String? = nil,
-        cpuPercent: Double? = nil,
-        memoryUsedMb: Int? = nil,
-        diskUsedMb: Int? = nil,
-        remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
-        privateAddress: String? = nil,
-        presence: SurfaceDevicePresence? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.status = status
-        self.image = image
-        self.hasDesktop = hasDesktop
-        self.memoryMb = memoryMb
-        self.diskMb = diskMb
-        self.linkState = linkState
-        self.linkError = linkError
-        self.cpuPercent = cpuPercent
-        self.memoryUsedMb = memoryUsedMb
-        self.diskUsedMb = diskUsedMb
-        self.remoteWorkspaces = remoteWorkspaces
-        self.privateAddress = privateAddress
-        self.presence = presence
-    }
-}
-
 public enum SurfaceLinkState: String, Codable, Sendable {
     case connected
     case connecting

@@ -10,6 +10,16 @@ import AppKit
 /// the coordinator, decides whether the NetworkExtension controller may exist
 /// at launch, and brings the tunnel down when Cloud Machines is turned off.
 extension AppDelegate {
+    /// Ports and Settings open the same informational window; only its controls activate the VPN.
+    @MainActor
+    func openCloudVPNSetupWindow() {
+        if cloudVPNSetupWindowController == nil {
+            cloudVPNSetupWindowController = CloudVPNSetupWindowController(coordinator: cloudTunnelCoordinator)
+        }
+        if let cloudTunnelCoordinator { cloudVPNSetupWindowController?.attachIfNeeded(cloudTunnelCoordinator) }
+        cloudVPNSetupWindowController?.showManagedWindow()
+    }
+
     @MainActor
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         let tunnelManager = VMTunnelManager()

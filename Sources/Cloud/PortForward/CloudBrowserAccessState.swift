@@ -24,6 +24,9 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    private var unavailableRetry: (@MainActor (UInt64) async -> Void)?
+    private var unavailableRetryTask: Task<Void, Never>?
+    private var unavailableRetryGeneration: UInt64 = 0
     private(set) var desktopConnected = false
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
@@ -49,6 +52,7 @@ final class CloudBrowserAccessState {
     /// current WebKit navigation (for example, a POST redirect to another port).
     func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
         observationGeneration &+= 1
+        cancelUnavailableRetry()
         unavailable = nil
         self.resourceID = resourceID
         self.model = model
@@ -107,11 +111,32 @@ final class CloudBrowserAccessState {
         }
     }
 
-    func showUnavailable(_ message: String) {
+    func showUnavailable(_ message: String, retry: (@MainActor (UInt64) async -> Void)? = nil) {
         let retainedResource = resourceID
         leave()
         resourceID = retainedResource
         unavailable = message
+        unavailableRetry = retry
+    }
+
+    func retryUnavailable() {
+        guard unavailableRetryTask == nil, let unavailableRetry else { return }
+        unavailableRetryGeneration &+= 1
+        let generation = unavailableRetryGeneration
+        unavailableRetryTask = Task { @MainActor [weak self] in
+            await unavailableRetry(generation)
+            guard let self, !Task.isCancelled, self.unavailableRetryGeneration == generation else { return }
+            self.unavailableRetryTask = nil
+        }
+    }
+
+    func isCurrentUnavailableRetry(_ generation: UInt64) -> Bool {
+        unavailableRetryGeneration == generation && unavailable != nil && !Task.isCancelled
+    }
+
+    var unavailableRetryAction: (() -> Void)? {
+        guard unavailableRetry != nil else { return nil }
+        return { [weak self] in self?.retryUnavailable() }
     }
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
@@ -196,6 +221,7 @@ final class CloudBrowserAccessState {
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
         observationGeneration &+= 1
+        cancelUnavailableRetry()
         unavailable = nil
         // WebView/profile replacement reconfigures the existing route without
         // passing the identity again. Keep the stable display ID until an
@@ -348,7 +374,15 @@ final class CloudBrowserAccessState {
         return CloudPortRoutePolicy().privateURL(url.absoluteString, address: address)
     }
 
+    private func cancelUnavailableRetry() {
+        unavailableRetryTask?.cancel()
+        unavailableRetryTask = nil
+        unavailableRetryGeneration &+= 1
+        unavailableRetry = nil
+    }
+
     func leave() {
+        cancelUnavailableRetry()
         observationGeneration &+= 1
         navigate = nil
         connectionDeadline.cancel()
@@ -360,6 +394,7 @@ final class CloudBrowserAccessState {
         model = nil
         remoteURL = nil
         navigationURL = nil
+        hasCommittedNavigation = false
         loaded = false
         error = nil
         desktopFailure = nil
