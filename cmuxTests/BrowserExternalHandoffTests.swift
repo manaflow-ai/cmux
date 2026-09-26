@@ -18,7 +18,7 @@ struct BrowserExternalHandoffTests {
                 let workspace = harness.mainWorkspace
                 let mainPane = try #require(workspace.bonsplitController.focusedPaneId)
                 let sibling = try #require(workspace.newBrowserSurface(inPane: mainPane, focus: true))
-                let url = try #require(URL(string: "https://example.com/handoff?q=cmux#page"))
+                let url = try #require(URL(string: "http://127.0.0.1:1/handoff?q=cmux#page"))
                 let workspaceDock = try #require(workspace.dockSplit)
                 let dockPane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
                 let workspaceBrowser = try #require(workspace.newBrowserSurface(inPane: mainPane, url: url, focus: false))
@@ -56,7 +56,7 @@ struct BrowserExternalHandoffTests {
             try await DockShortcutRoutingTests.withHarness { harness in
                 let workspace = harness.mainWorkspace
                 let pane = try #require(workspace.bonsplitController.focusedPaneId)
-                let url = try #require(URL(string: "https://example.com/keep"))
+                let url = try #require(URL(string: "http://127.0.0.1:1/keep"))
                 let browser = try #require(workspace.newBrowserSurface(inPane: pane, url: url, focus: false))
                 let target = try #require(harness.appDelegate.browserActionTarget(for: browser))
                 var openedURLs: [URL] = []
