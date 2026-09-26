@@ -598,6 +598,11 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func focusTerminalForTextBoxSubmission() -> Bool {
+        focusTerminalSurface(respectForeignFirstResponder: false)
+    }
+
+    @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
         clearTextBoxHideArm: Bool = true,
