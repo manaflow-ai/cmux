@@ -20,7 +20,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -95,7 +95,9 @@ jobs:
       include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
       # Match stable native packages; the Cloudflare Worker deploys separately.
-      build_cloudflare_relay: false
+      # On-demand nightly packages are off the PR critical path: build the
+      # macOS legs on the background lane. See docs/ci-runners.md.
+      macos_runner: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
@@ -196,7 +198,7 @@ jobs:
     needs:
       - version
       - build-package
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       id-token: write

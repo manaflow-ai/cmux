@@ -2,6 +2,9 @@ name: iOS TestFlight (cmux.app)
 
 on:
   # Upload the official bundle for internal testing. App Review remains manual.
+  # Hourly polls batch main: they upload once IOS_APPSTORE_MIN_COMMITS
+  # (default 10) commits are pending or the oldest is
+  # IOS_APPSTORE_MAX_AGE_MINUTES (default 360) old.
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -12,22 +15,30 @@ on:
         default: ""
 
 concurrency:
-  # Serialize with the production App Review workflow.
+  # Serialize with the production App Review workflow. GitHub keeps one run
+  # active and one pending run for a concurrency group; a newer scheduled run
+  # replaces an older pending run, so the decide job must make retries safe.
   group: ios-app-store-production
-  queue: max
   cancel-in-progress: false
 
 permissions:
   contents: read
   actions: read
 
+# r2-cache.sh reads and writes through this URL. Without it every restore is
+# a miss and every save prints "nothing saved", so the package and
+# compilation caches from #14180 never filled (09-24/25: 0 hits, 344 misses).
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   decide:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
-      upload: ${{ steps.decide.outputs.upload }}
+      # The batch step, when it runs, has the last word on scheduled polls.
+      upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
       retry_build_number: ${{ steps.decide.outputs.retry_build_number }}
     steps:
       - name: Skip an unchanged scheduled revision
@@ -41,7 +52,11 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = schedule ]; then
             LAST_SHA="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')"
-            if [ "$LAST_SHA" = "$HEAD_SHA" ]; then
+            # Successful runs can be skipped polls: use durable upload evidence
+            # as the diff base, never advance it merely because a poll succeeded.
+            LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
+            echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
+            if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
               echo 'Latest main already reached official internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
               exit 0
@@ -70,7 +85,113 @@ jobs:
               exit 0
             done
           fi
+          # Preserve same-head assignment retries above before considering a
+          # skip. Missing/expired evidence and comparison failures build safely.
+          if [ "$EVENT_NAME" = schedule ] && [ -n "${LAST_UPLOAD_SHA:-}" ]; then
+            COMPARE_FILE="$(mktemp)"
+            if gh api "repos/$REPOSITORY/compare/$LAST_UPLOAD_SHA...$HEAD_SHA" > "$COMPARE_FILE"; then
+              if python3 - "$COMPARE_FILE" <<'PYCODE'
+          import json, sys
+
+          # All unrecognized paths remain build inputs. In particular iOS uses
+          # Packages/macOS/CmuxPhonePush, shared protocols and scripts outside
+          # ios/, so copying the INTERNAL lane's allowlist would miss inputs.
+          def unrelated(path):
+              if not isinstance(path, str) or not path:
+                  return False
+              if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
+                  return True
+              if path.startswith(".github/workflows/"):
+                  return path not in {
+                      ".github/workflows/ios-appstore-upload.yml",
+                      ".github/workflows/ios-testflight.yml",
+                  }
+              return False
+
+          try:
+              with open(sys.argv[1]) as handle:
+                  comparison = json.load(handle)
+              files = comparison["files"]
+              # The compare API caps changed paths at 300. A full page cannot
+              # prove that the omitted paths are unrelated to the iOS archive.
+              safe = (comparison.get("status") in {"ahead", "identical"}
+                      and isinstance(files, list) and len(files) < 300
+                      and all(isinstance(item, dict)
+                              and unrelated(item.get("filename"))
+                              and ("previous_filename" not in item
+                                   or unrelated(item["previous_filename"]))
+                              for item in files))
+          except (OSError, ValueError, KeyError, TypeError):
+              safe = False
+          sys.exit(0 if safe else 1)
+          PYCODE
+              then
+                rm -f "$COMPARE_FILE"
+                echo 'upload=false' >> "$GITHUB_OUTPUT"
+                echo 'No iOS build inputs changed since the last completed upload.' >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            rm -f "$COMPARE_FILE"
+          fi
           echo 'upload=true' >> "$GITHUB_OUTPUT"
+
+      # Batch scheduled polls: on a busy day nearly every hourly poll finds new
+      # main commits, and each upload is a cold Release archive on the macOS
+      # pool PR CI shares. Runs only when the rules above already chose to
+      # upload against a known prior upload; manual dispatch is never batched.
+      # Count only inputs accepted by the conservative public path filter.
+      - name: Check out the upload batching policy
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        if: >-
+          steps.decide.outputs.upload == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.last_upload_sha != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Commits and trees only: the batch counts first-parent commits,
+          # which never needs file contents.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            ios/scripts/fetch-testflight-notes-history.sh
+            scripts/ci/ios_upload_batch_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Batch official uploads by commit count and age
+        # See the INTERNAL lane: bound the history deepen the same way the upload
+        # job already bounds this script.
+        timeout-minutes: 5
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        id: batch
+        if: >-
+          steps.decide.outputs.upload == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.last_upload_sha != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LAST_UPLOAD_SHA: ${{ steps.decide.outputs.last_upload_sha }}
+          MIN_COMMITS: ${{ vars.IOS_APPSTORE_MIN_COMMITS }}
+          MAX_AGE_MINUTES: ${{ vars.IOS_APPSTORE_MAX_AGE_MINUTES }}
+        run: |
+          set -euo pipefail
+          ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOAD_SHA"
+          python3 scripts/ci/ios_upload_batch_decision.py \
+            --event "$EVENT_NAME" \
+            --base "$LAST_UPLOAD_SHA" \
+            --min-commits "$MIN_COMMITS" \
+            --max-age-minutes "$MAX_AGE_MINUTES" \
+            --public-path-filter \
+            --default-min-commits 10 \
+            --default-max-age-minutes 360 \
+            --output-name upload \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
 
   upload:
     name: Upload to App Store Connect (com.cmux.app)
@@ -78,8 +199,12 @@ jobs:
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
+    # Saves the iOS compilation cache. Every R2 cache writer declares this
+    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
+    # enforces it.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     outputs:
       build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
@@ -91,9 +216,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
-          fetch-depth: 0
-          fetch-tags: true
+          # Shallow and without submodules: this lane reads no git history
+          # (notes come from ios/CHANGELOG.md, the build number is a UTC
+          # timestamp) and the archive needs only the prebuilt
+          # GhosttyKit.xcframework, keyed by the ghostty gitlink in this commit.
+          # A full recursive clone took ~12 min of macOS runner time per run.
+          fetch-depth: 1
 
       - name: Select Xcode
         env:
@@ -103,11 +231,51 @@ jobs:
       - name: Install asc CLI
         run: brew list asc >/dev/null 2>&1 || brew install asc
 
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
+      # The verified prebuilt is the happy path (same pattern as
+      # reload-build.yml). Zig and the ghostty source are fetched only when it
+      # fails, immediately before the ensure-ghosttykit.sh from-source build
+      # that needs them. The iOS app links GhosttyKit via a local-path
+      # binaryTarget, so it must exist before package resolve.
+      - name: Download prebuilt GhosttyKit
+        id: ghosttykit_prebuilt
+        run: |
+          set -euo pipefail
+          # The ghostty gitlink recorded in this commit is the submodule SHA
+          # the from-source build would key on, without checking ghostty out.
+          ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          # Same bounded budget the from-source provisioner used for this
+          # download (3 retries, 300 s per attempt), so a missing release
+          # falls back fast.
+          if GHOSTTY_SHA="$ghostty_sha" \
+            GHOSTTYKIT_DOWNLOAD_RETRIES=3 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=300 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
+            available=true
+          else
+            available=false
+            echo "::warning::Prebuilt GhosttyKit for ghostty ${ghostty_sha} unavailable; building from source"
+          fi
+          echo "available=$available" >> "$GITHUB_OUTPUT"
 
-      - name: Provision GhosttyKit
+      - name: Fetch ghostty and install zig for GhosttyKit fallback
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        run: |
+          set -euo pipefail
+          # ghostty has no nested submodules; its pinned commit is fetchable
+          # at depth 1.
+          git submodule update --init --depth 1 ghostty
+          ./scripts/install-zig-ci.sh
+
+      - name: Build fallback GhosttyKit
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        env:
+          # The download step already proved the prebuilt path failed.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
         run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Verify provisioned GhosttyKit
+        run: test -d GhosttyKit.xcframework
 
       - name: Materialize App Store Connect API key
         env:
@@ -171,16 +339,57 @@ jobs:
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
+      # Upload archives used to start cold: fresh DerivedData, every Swift
+      # package re-cloned, every module rebuilt in Release. Restore the Swift
+      # packages test-ios.yml seeds on main and this lane's own compilation
+      # cache (newest by prefix; r2_cache_prune.py keeps a day of them).
+      # IOS_UPLOAD_COMPILATION_CACHE=0 turns the compilation cache off.
+      - name: Compute iOS compilation cache key
+        id: ios-compilation-cache-key
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        run: echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore iOS compilation cache
+        id: ios-compilation-cache-restore
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+          restore-keys: |
+            xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-
+
+      - name: Restore iOS SwiftPM cache
+        id: ios-spm-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ios-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Sanitize iOS SwiftPM cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-ios-spm"
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-ios-spm"
+
       - name: Archive, export, and upload to App Store Connect
         id: upload
         env:
           INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
           CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/cmux-ios-upload
+          CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
+          CMUX_IOS_COMPILATION_CACHE: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && '1' || '0' }}
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
         run: |
           set -euo pipefail
           # Version comes from CMUX_IOS_APPSTORE_MARKETING_VERSION in main.
-          ARGS=(--lane appstore --signing manual --skip-notes)
+          ARGS=(--lane appstore --signing manual)
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi
@@ -193,19 +402,118 @@ jobs:
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Shipped CFBundleVersion: $FINAL_BN"
 
-      - name: Record completed upload before group assignment
+
+      - name: Bound iOS compilation cache size
+        id: ios-compilation-cache-bound
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cache_path="$RUNNER_TEMP/cmux-ios-upload/DerivedData/CompilationCache.noindex"
+          max_cache_kib=$((5 * 1024 * 1024))
+          save=false
+          if [ -d "$cache_path" ]; then
+            # Drop the CAS generations Xcode itself would collect (see nightly.yml).
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "iOS compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+            if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+              echo "::warning::iOS compilation cache exceeds 5 GiB; skipping cache save"
+            elif [ "$cache_kib" -gt 0 ]; then
+              save=true
+            fi
+          fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save iOS compilation cache
+        if: ${{ !cancelled() && steps.ios-compilation-cache-bound.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
         env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
+          key: xcode-compilation-ios-appstore-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+
+      # test-ios.yml saves this key only on a seed_cache dispatch, so nothing
+      # wrote it; the upload lanes resolve the same packages on main anyway.
+      - name: Save iOS SwiftPM cache
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.ios-spm-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Record completed upload before group assignment
+        id: record_upload
+        # The next scheduled poll skips this revision only if this marker
+        # exists. The upload step can fail after Apple accepted the IPA (the
+        # notes step did, hourly, in #13690), so a failed step still records
+        # the upload when asc's receipt says "uploaded": true. The build number
+        # file alone is not evidence: the script writes it before archiving.
+        if: ${{ always() && steps.upload.outcome != 'skipped' }}
+        env:
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
+          BUILD_NUMBER_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          UPLOAD_RECEIPT: ${{ runner.temp }}/cmux-ios-upload/upload.log
         run: |
           mkdir -p "$RUNNER_TEMP/cmux-app-upload-marker"
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           from pathlib import Path
-          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': os.environ['BUILD_NUMBER']}
+
+          def accepted(path):
+              try:
+                  text = Path(path).read_text(encoding='utf-8', errors='replace')
+              except OSError:
+                  return False
+              # asc prints one JSON object; tolerate it pretty-printed or
+              # surrounded by other lines.
+              decoder = json.JSONDecoder()
+              for start in (m.start() for m in re.finditer(r'\{', text)):
+                  try:
+                      value, _ = decoder.raw_decode(text, start)
+                  except ValueError:
+                      continue
+                  if isinstance(value, dict) and value.get('uploaded') is True:
+                      return True
+              return False
+
+          build_number = os.environ.get('BUILD_NUMBER', '').strip()
+          if os.environ['UPLOAD_OUTCOME'] != 'success':
+              if not accepted(os.environ['UPLOAD_RECEIPT']):
+                  print('No App Store Connect upload receipt; not recording an upload.')
+                  raise SystemExit(0)
+              try:
+                  build_number = Path(os.environ['BUILD_NUMBER_FILE']).read_text().strip()
+              except OSError:
+                  build_number = ''
+          if not re.fullmatch(r'[0-9]+', build_number):
+              print(f'No numeric build number ({build_number!r}); not recording an upload.')
+              raise SystemExit(0)
+          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': build_number}
           Path(os.environ['RUNNER_TEMP'], 'cmux-app-upload-marker', 'upload.json').write_text(json.dumps(marker))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('recorded=true\n')
+          print(f'Recorded upload of build {build_number} for {os.environ["GITHUB_SHA"]}.')
           PY
 
       - name: Retain completed upload for assignment retries
+        if: ${{ always() && steps.record_upload.outputs.recorded == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-upload
@@ -255,7 +563,7 @@ jobs:
       always() && needs.decide.result == 'success' &&
       (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
       (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

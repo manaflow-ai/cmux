@@ -21,7 +21,7 @@ let signedIn = true;
 let stackConfigured = true;
 let redirectedTo: string | null = null;
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   AccountSettings: () => (
     <section data-testid="stack-account-settings">
       profile, security, sessions, teams, and invitations

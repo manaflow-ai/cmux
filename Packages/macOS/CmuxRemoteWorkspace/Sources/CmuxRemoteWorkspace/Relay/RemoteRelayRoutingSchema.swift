@@ -9,16 +9,13 @@ struct RemoteRelayRoutingSchema {
         let terminal = surface.union(["terminal_id"])
         switch method {
         case "system.ping", "system.capabilities": return []
-        case "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
+        case "workspace.list", "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
-        case "workspace.remote.reconnect": return surface
         case "workspace.equalize_splits": return workspace.union(["orientation"])
         case "surface.read_text": return terminal.union(["scrollback", "lines"])
         case "surface.read_selection": return terminal
         case "surface.close", "surface.clear_git_branch": return surface
         case "surface.send_text": return surface.union(["text"])
-        case "surface.split":
-            return surface.union(["direction", "type", "focus", "initial_divider_position", "remote_tmux_unsupported_options"])
         case "surface.report_tty":
             return surface.union(["tty_name", "terminal_lifecycle_id", "attempt_id"])
         case "surface.report_pwd": return surface.union(["path", "directory"])
@@ -39,16 +36,16 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["claim_checkpoint_id", "claim_source", "claim_updated_at"])
         case "surface.resume.clear":
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
-        case "agent.restore.admit": return surface.union(["kind", "session_id", "record_session_id"])
-        case "agent.restore.release": return surface.union(["kind", "session_id", "claim_id"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
-        case "notification.create", "notification.create_for_target":
+        case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
         }
     }
 
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        // `_cmux_remote_relay_authentication_code` is a retired resume MAC that
+        // old remote clients may still send; ingress strips it, so allow it here.
         let provenance: Set<String> = [
             RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey,
             "_cmux_remote_connection_id", "_cmux_remote_relay_authentication_code",

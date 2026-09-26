@@ -212,6 +212,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary render-grid delivery"
     )
@@ -235,6 +236,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate render-grid delivery"
     )
@@ -277,6 +279,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing stale alternate suppression"
     )
@@ -313,6 +316,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate-to-primary restore"
     )
@@ -348,6 +352,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary-delta recovery"
     )
@@ -411,6 +416,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing empty primary-delta recovery"
     )
@@ -498,6 +504,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing healthy idle liveness"
     )
@@ -709,6 +716,55 @@ import Testing
     #expect(store.connectionState == .connected)
 }
 
+/// If the in-place event-lane restart itself cannot establish a subscription,
+/// the connected control transport must be replaced. Keeping that listener
+/// alive would leave a mounted terminal permanently frozen after a relay stall.
+@MainActor
+@Test func failedEventLaneRestartRecoversTheConnection() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let hostStatusCountBeforeRecovery = await router.count(of: "mobile.host.status")
+
+    // Each failed probe gets two bounded subscription repair attempts before
+    // the watchdog advances its failure count. Fail both rounds, then fail
+    // the replacement listener handshake itself.
+    for requestNumber in 2 ... 6 {
+        await router.failSubscribeRequest(
+            number: requestNumber,
+            code: "temporarily_unavailable"
+        )
+    }
+    await router.holdProbeRequest(number: 1)
+    await router.holdProbeRequest(number: 2)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    let reachedEventLaneRepair = try await pollUntil(attempts: 600) {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        return await router.count(of: "mobile.events.probe") >= 2
+    }
+    #expect(reachedEventLaneRepair, "two failed probes must trigger the event-lane restart")
+
+    let replaced = try await pollUntil(attempts: 600) {
+        await router.count(of: "mobile.host.status") > hostStatusCountBeforeRecovery
+    }
+    #expect(
+        replaced,
+        "a failed event-lane restart must recover the connection instead of leaving a silent listener"
+    )
+    await router.releaseAllHeld()
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so
@@ -731,6 +787,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing repaired subscription replay"
     )
@@ -795,6 +852,28 @@ import Testing
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
+
+    // The event lane dies while the transport itself keeps carrying bytes.
+    // Since #14030 (be3855bb2d0) the RPC session condemns a transport after
+    // two request timeouts with no inbound delivery at all, which would end
+    // the listener before the watchdog's second probe ever ran. That case is
+    // owned by the session; the watchdog owns this one, so keep unrelated
+    // traffic (a topic no listener subscribes to) flowing throughout.
+    let transport = try #require(box.get())
+    let keepaliveFrame = try MobileSyncFrameCodec.encodeFrame(
+        JSONSerialization.data(withJSONObject: [
+            "kind": "event",
+            "topic": "test.unsubscribed_keepalive",
+            "payload": [String: Any](),
+        ])
+    )
+    let keepalive = Task {
+        while !Task.isCancelled {
+            await transport.deliver(keepaliveFrame)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+    defer { keepalive.cancel() }
 
     // The host stops answering two independent read-only subscription probes,
     // and also stops answering repair attempts, confirming a dead push path

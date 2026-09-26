@@ -1,0 +1,70 @@
+name: Contributor welcome
+
+# First-time contributors used to hear only from bots. This posts one short,
+# human-written note (.github/contributor/welcome.md) when their first pull
+# request opens. It never checks out or runs PR code.
+on:
+  pull_request_target:
+    types: [opened]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  welcome:
+    if: >-
+      github.event.pull_request.user.type == 'User' &&
+      contains(fromJSON('["FIRST_TIME_CONTRIBUTOR","FIRST_TIMER","NONE"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Post welcome note
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+
+          # `author_association` answers "has no merged commit here", not "this
+          # is their first PR". cmux merges few outside PRs, so a persistent
+          # contributor stays FIRST_TIME_CONTRIBUTOR indefinitely and would be
+          # greeted again on every PR. Count their PRs instead; this one is
+          # always included, so more than one means it is not their first.
+          #
+          # Treat an unusable answer as "skip", not as an error: the search API
+          # can rate-limit or 422, and a non-numeric reply would otherwise abort
+          # the step under `set -e` and leave a red X on a newcomer's first PR.
+          # A missed greeting is recoverable; a wrong one or a red check is not.
+          if ! count=$(gh api -X GET search/issues \
+                -f q="repo:$GH_REPO is:pr author:$AUTHOR" --jq '.total_count' 2>/dev/null) \
+             || ! [ "$count" -eq "$count" ] 2>/dev/null; then
+            echo "Could not count pull requests for $AUTHOR; skipping."
+            exit 0
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "$AUTHOR has $count pull requests here; not a first PR, skipping."
+            exit 0
+          fi
+
+          # Search is eventually consistent, so it can undercount a burst of
+          # PRs opened together. The marker makes a second greeting impossible
+          # even when the count above is stale.
+          marker='<!-- cmux:contributor-welcome -->'
+          if gh api "repos/$GH_REPO/issues/$PR/comments" --paginate --jq '.[].body' \
+            | grep -qF "$marker"; then
+            echo "Already welcomed on #$PR, skipping."
+            exit 0
+          fi
+
+          # Read the note from the commit this workflow was loaded from, so a
+          # pull request cannot rewrite the text it gets welcomed with.
+          gh api "repos/$GH_REPO/contents/.github/contributor/welcome.md?ref=$WORKFLOW_SHA" \
+            -H "Accept: application/vnd.github.raw" > welcome.md
+          printf '\n%s\n' "$marker" >> welcome.md
+          gh pr comment "$PR" --body-file welcome.md

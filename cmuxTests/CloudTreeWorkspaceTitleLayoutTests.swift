@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -27,7 +29,7 @@ struct CloudTreeWorkspaceTitleLayoutTests {
             let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
             let content = outline.convert(host.bounds, from: host)
             let disclosure = outline.frameOfOutlineCell(atRow: row)
-            #expect(content.minX - disclosure.maxX >= 4,
+            #expect(content.minX - disclosure.maxX >= CloudTreeStyle.compact.rowGrid.disclosureGap,
                     "Chevron crowds the content for \(node.structureTag) in \(style.id)")
             if style.machineRowLayout == .singleLine {
                 #expect(abs(disclosure.midY - outline.rect(ofRow: row).midY) <= 1)
@@ -59,6 +61,7 @@ struct CloudTreeWorkspaceTitleLayoutTests {
     func containerDocumentFillsScrollViewportAtWideAndNarrowSizes() {
         let machineActions = MachineRowActions.bound(onDidMutate: {})
         let nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared }, selectedWorkspaceID: { nil },
             selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
             onDidMutate: {}, onFailure: { _ in }, refresh: {}

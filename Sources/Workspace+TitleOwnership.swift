@@ -1,4 +1,6 @@
+import CmuxCloud
 import Foundation
+import CmuxTerminalCore
 
 /// Title and description ownership: which of the process title, the custom
 /// title, and the custom description a workspace presents, who set them, and
@@ -52,11 +54,15 @@ extension Workspace {
     }
 
     func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
+        guard let stableTitle = AutomaticTerminalTitle(title)?.value else {
+            return
         }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
+        applyResolvedProcessTitle(stableTitle)
+    }
+
+    private func applyResolvedProcessTitle(_ title: String) {
+        if processTitle != title { processTitle = title }
+        guard customTitle == nil, self.title != title else { return }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
@@ -100,7 +106,13 @@ extension Workspace {
         }
         let previousProcessTitle = processTitle
         let previousTitle = title
-        applyProcessTitle(resolvedTitle)
+        // A custom panel name is authored metadata even when it supplies the
+        // workspace's automatic display tier. Preserve it and non-terminal titles.
+        if panelCustomTitles[panelId] != nil || panels[panelId]?.panelType != .terminal {
+            applyResolvedProcessTitle(resolvedTitle)
+        } else {
+            applyProcessTitle(resolvedTitle)
+        }
         return processTitle != previousProcessTitle || title != previousTitle
     }
 
@@ -116,59 +128,94 @@ extension Workspace {
         sidebarProcessTitleObservation.processTitleDidChange()
     }
 
+    /// Applies a terminal title.
+    ///
+    /// `title` is the frame the terminal just emitted; `stableTitle` is that
+    /// frame with any spinner glyph removed, so consecutive animation ticks
+    /// share one. The tab label always takes `title`, which keeps the spinner
+    /// animating. Everything else keys off `stableTitle`, so an advancing
+    /// spinner never writes `@Published` state, never reaches the sidebar's
+    /// observation stream, and never refreshes the titlebar.
+    ///
+    /// Returns whether anything beyond the tab label changed. Callers that pass
+    /// no `stableTitle` (socket and restore paths) also get `true` when only the
+    /// tab label was reconciled, matching the pre-spinner-split contract.
     @discardableResult
-    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+    func updatePanelTitle(panelId: UUID, title: String, stableTitle: String? = nil) -> Bool {
         let remote = cloudProjectedResource(forPanel: panelId).flatMap { $0.kind == .terminal ? $0 : nil }
-        let trimmed = (remote?.cloudProcessDisplayTitle ?? title).trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = remote?.cloudProcessDisplayTitle ?? title
+        let admitted = panels[panelId]?.panelType == .terminal
+            ? AutomaticTerminalTitle(candidate)?.value : candidate
+        guard let admitted else { return false }
+        let trimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
         guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
             return false
         }
-        var didMutate = false
-        var didMutatePanelTitle = false
-        var didMutateWorkspaceTitle = false
+        // A cloud-projected terminal displays the cloud process title, so the
+        // local PTY's stable title must not leak into panelTitles or the
+        // workspace title there.
+        let trimmedStable = remote == nil
+            ? stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let stable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? trimmed
 
-        if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
-            panelTitles[panelId] = trimmed
-            didMutate = true
-            didMutatePanelTitle = true
+        // Runs on every frame, which is what keeps the animation. It still
+        // invalidates the tab bar's own SwiftUI subtree; what it avoids is the
+        // app-wide cascade below.
+        let didRefreshTabLabel = refreshTabLabel(panelId: panelId, displayTitle: trimmed)
+
+        // Only the spinner advanced. Everything below either writes @Published
+        // state or signals the sidebar chokepoint, and all of it would land on
+        // the same values it already holds.
+        guard !isRemoteTmuxMirror, panelTitles[panelId] != stable else {
+            return stableTitle == nil && didRefreshTabLabel
         }
 
-        if !isRemoteTmuxMirror,
-           let tabId = surfaceIdFromPanelId(panelId),
-           let panel = panels[panelId],
-           let existing = bonsplitController.tab(tabId) {
-            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let hasCustomTitle = panelCustomTitles[panelId] != nil
-            if titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle {
-                bonsplitController.updateTab(
-                    tabId,
-                    title: titleUpdate,
-                    hasCustomTitle: hasCustomTitle
-                )
-                didMutate = true
-            }
+        var didMutateWorkspaceTitle = false
+        panelTitles[panelId] = stable
+
+        if !isRemoteTmuxMirror {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
         }
 
         let previousWorkspaceTitle = self.title
         if applyFocusedPanelTitle(panelId: panelId) {
-            didMutate = true
             didMutateWorkspaceTitle = self.title != previousWorkspaceTitle
         }
 
 #if DEBUG
-        if didMutate {
-            cmuxDebugLog(
-                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
-                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
-                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
-            )
-        }
+        cmuxDebugLog(
+            "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+            "panelChanged=1 workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+            "title=\"\(debugWorkspaceDescriptionPreview(stable, limit: 80))\""
+        )
 #endif
-        return didMutate
+        return true
+    }
+
+    /// Pushes a title straight to the Bonsplit tab model without touching
+    /// `panelTitles` or the workspace title, so an animation frame reaches the
+    /// tab label without waking the sidebar, the titlebar, or the App body.
+    ///
+    /// This is not free: `PaneState` is `@Observable` with `var tabs:
+    /// [TabItem]`, so writing one tab's title writes the whole `tabs` property
+    /// and re-renders the entire tab bar. Narrowing that is separate work.
+    @discardableResult
+    private func refreshTabLabel(panelId: UUID, displayTitle: String) -> Bool {
+        guard !isRemoteTmuxMirror,
+              let tabId = surfaceIdFromPanelId(panelId),
+              let existing = bonsplitController.tab(tabId) else { return false }
+        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: displayTitle)
+        let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+        let hasCustomTitle = panelCustomTitles[panelId] != nil
+        guard titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle else { return false }
+        bonsplitController.updateTab(
+            tabId,
+            title: titleUpdate,
+            hasCustomTitle: hasCustomTitle
+        )
+        return true
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {

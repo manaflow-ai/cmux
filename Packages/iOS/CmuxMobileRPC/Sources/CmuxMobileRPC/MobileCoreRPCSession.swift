@@ -48,10 +48,18 @@ actor MobileCoreRPCSession {
         let frame: Data
     }
 
+    private struct WrittenControlFrame: Sendable {
+        let frame: Data
+        let generation: UInt64
+        let sequence: UInt64
+    }
+
     private struct ActiveWrite: Sendable {
         let connectionID: UUID
         let requestID: String
-        let task: Task<Void, any Error>
+        /// Resolves to the control-stream generation the frame was written
+        /// to, or `nil` for transports that cannot replace their stream.
+        let task: Task<UInt64?, any Error>
         var cancelledRequestResolutionTask: Task<Void, Never>?
     }
 
@@ -92,6 +100,55 @@ actor MobileCoreRPCSession {
     private var connectionTask: ConnectingTask?
     private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
+    /// Counts inbound deliveries on the installed transport.
+    ///
+    /// A QUIC path can stop carrying traffic without closing: `receive()`
+    /// never returns and never throws, so `readLoop` cannot tear the
+    /// connection down and every request rides it until its own deadline.
+    /// Comparing this counter across a request's lifetime answers the one
+    /// question that separates "this request is slow" from "this transport is
+    /// dead": did anything at all arrive while it was outstanding.
+    private var inboundDeliveryCount: UInt64 = 0
+    /// Consecutive response timeouts that saw no inbound delivery at all.
+    ///
+    /// One unanswered request is genuinely ambiguous: a host can be slow or
+    /// silent on a single method while its connection is perfectly healthy,
+    /// and `responseTimeoutDoesNotCloseMultiplexedSession` pins that. Two in a
+    /// row without a single byte arriving in between is not ambiguous. Any
+    /// inbound delivery resets this, so the streak only survives a lane that
+    /// has gone completely quiet.
+    private var silentTimeoutStreak = 0
+    /// Increments once per counted silent timeout.
+    ///
+    /// Requests armed before the previous silent timeout belong to the same
+    /// silence window. Six replays fired together and answered by one quiet
+    /// period is one piece of evidence, not six, so only a request armed
+    /// after the last counted timeout may advance the streak.
+    private var silentTimeoutEpoch: UInt64 = 0
+    /// Silent timeouts required before the installed transport is condemned.
+    static let minimumSilentTimeoutsBeforeCondemning = 2
+    /// Control-stream replacements allowed on one connection before one of
+    /// them is verified by a host answer. A replacement that is not verified
+    /// escalates to close-and-redial, so this caps replacement at one
+    /// attempt per silence episode and can never loop.
+    static let maximumUnverifiedControlStreamRepairs = 1
+    /// Upper bound on how long a replacement stream may take to answer its
+    /// verification probe. The effective deadline is also capped by the
+    /// timed-out request's own budget, so a short-deadline caller never waits
+    /// longer for verification than it waited for its request.
+    static let maximumControlStreamRepairVerificationNanoseconds: UInt64 = 5_000_000_000
+    /// Frames written to the control stream that still await a response,
+    /// keyed by request ID. Only kept for transports that can replace their
+    /// stream: they are the requests a replacement may strand.
+    private var writtenControlFrames: [String: WrittenControlFrame] = [:]
+    private var writtenControlFrameSequence: UInt64 = 0
+    /// Generation of the most recent replacement stream on the installed
+    /// connection. A write that completes on an older stream after the
+    /// replacement is stranded the moment it is noted.
+    private var repairedControlStreamGeneration: UInt64 = 0
+    private var controlStreamRepairInFlight = false
+    /// Replacements on the installed connection not yet verified by an answer.
+    private var unverifiedControlStreamRepairs = 0
     private var readerTask: Task<Void, Never>?
     /// Watches the complete native connection, separately from the control
     /// lane reader. IROH can close the shared QUIC session without making a
@@ -380,6 +437,15 @@ actor MobileCoreRPCSession {
             return
         }
         isTearingDown = true
+        // Evidence is per connection. A replacement transport must not
+        // inherit a streak accumulated against the one it replaces, or its
+        // first silent timeout condemns it on a single piece of evidence.
+        silentTimeoutStreak = 0
+        // The replacement budget and stranded-frame ledger are per connection
+        // too; the redial gets a fresh control stream and fresh budget.
+        unverifiedControlStreamRepairs = 0
+        writtenControlFrames.removeAll()
+        repairedControlStreamGeneration = 0
         defer {
             isTearingDown = false
             let waiters = tearDownWaiters
@@ -973,13 +1039,18 @@ actor MobileCoreRPCSession {
         connectionID: UUID,
         frames: AsyncStream<PendingWrite>
     ) async {
+        let repairing = transport as? any CmxByteTransportControlStreamRepairing
         for await write in frames {
             if Task.isCancelled { return }
             guard shouldSendQueuedWrite(write) else {
                 continue
             }
-            let sendTask = Task {
+            let sendTask = Task<UInt64?, any Error> {
+                if let repairing {
+                    return try await repairing.sendReportingControlStreamGeneration(write.frame)
+                }
                 try await transport.send(write.frame)
+                return nil
             }
             activeWrite = ActiveWrite(
                 connectionID: connectionID,
@@ -987,11 +1058,14 @@ actor MobileCoreRPCSession {
                 task: sendTask
             )
             do {
-                try await sendTask.value
+                let generation = try await sendTask.value
                 clearActiveWrite(
                     connectionID: connectionID,
                     requestID: write.requestID
                 )
+                if let generation, installedConnectionID == connectionID {
+                    noteControlFrameWritten(write, generation: generation)
+                }
             } catch {
                 clearActiveWrite(
                     connectionID: connectionID,
@@ -1038,6 +1112,9 @@ actor MobileCoreRPCSession {
             }
             // Enforce size per decoded frame. A chunk can finish one valid
             // maximum-size frame and also contain bytes from the next frame.
+            inboundDeliveryCount &+= 1
+            // The lane just proved it still carries bytes.
+            silentTimeoutStreak = 0
             buffer.append(chunk)
             do {
                 while !Task.isCancelled, installedConnectionID == connectionID {
@@ -1077,6 +1154,7 @@ actor MobileCoreRPCSession {
             return
         }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+        writtenControlFrames.removeValue(forKey: requestID)
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
@@ -1085,7 +1163,14 @@ actor MobileCoreRPCSession {
         pipelinedContinuation?.resume(returning: .cancelled)
     }
 
-    private func timeoutPendingRequest(requestID: String) async {
+    private func timeoutPendingRequest(
+        requestID: String,
+        armedConnectionID: UUID? = nil,
+        armedInboundCount: UInt64 = 0,
+        armedSilentEpoch: UInt64 = 0,
+        armedAt: ContinuousClock.Instant = .now,
+        armedTimeoutNanoseconds: UInt64 = 0
+    ) async {
         let legacyContinuation = pending.removeValue(forKey: requestID)
         let pipelinedSettlement = pipelinedPending.removeValue(
             forKey: requestID
@@ -1094,6 +1179,12 @@ actor MobileCoreRPCSession {
             return
         }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+        writtenControlFrames.removeValue(forKey: requestID)
+        // A request still sitting in the write queue never reached the wire,
+        // so its expiry says nothing about whether the transport can deliver.
+        // It means the queue is backed up, which the head-of-line handling
+        // below already owns.
+        let reachedTheWire = queuedWriteIDs[requestID] == nil
         var condemnedWriteRequestID = requestID
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
@@ -1107,12 +1198,48 @@ actor MobileCoreRPCSession {
                 condemnedWriteRequestID = write.requestID
             }
         }
-        let error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
+        var error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
             requestID: condemnedWriteRequestID
         ) {
             .transportWriteTimedOut
         } else {
             .requestTimedOut
+        }
+        // `recycleTransportIfActiveWrite` only condemns a transport whose
+        // *write* is stuck and that already reports itself closed. A path that
+        // black-holes after the write succeeded satisfies neither, so without
+        // this the dead transport stays installed and `ensureConnected` hands
+        // it to the retry, which burns another full deadline. Two of those is
+        // a minute of blank terminal.
+        var repairsSilentControlStream = false
+        if case .requestTimedOut = error, reachedTheWire {
+            if transportDeliveredNothing(
+                armedConnectionID: armedConnectionID,
+                armedInboundCount: armedInboundCount
+            ) {
+                // Requests armed before the last counted timeout share its
+                // silence window; they are already represented by it. A
+                // replacement in flight owns the current silence window, and
+                // its own verification decides whether to escalate.
+                if armedSilentEpoch == silentTimeoutEpoch,
+                   !controlStreamRepairInFlight {
+                    silentTimeoutEpoch &+= 1
+                    silentTimeoutStreak += 1
+                    if silentTimeoutStreak >= Self.minimumSilentTimeoutsBeforeCondemning {
+                        error = .connectionClosed
+                        await tearDown(error: .connectionClosed)
+                    } else if transport is any CmxByteTransportControlStreamRepairing,
+                              unverifiedControlStreamRepairs
+                                < Self.maximumUnverifiedControlStreamRepairs {
+                        // One silent stream is ambiguous about the connection
+                        // but not about the stream. Ask the connection for
+                        // evidence now instead of burning a second deadline.
+                        repairsSilentControlStream = true
+                    }
+                }
+            } else {
+                silentTimeoutStreak = 0
+            }
         }
         let settlement = PendingRequestSettlement.response(.failure(error))
         legacyContinuation?.resume(returning: settlement)
@@ -1123,6 +1250,24 @@ actor MobileCoreRPCSession {
             continuation.resume(returning: settlement)
         case .settled, nil:
             break
+        }
+        // Fail this caller first: replacement and its verification can take
+        // a round trip or two, and this request's deadline already passed.
+        // The repair runs in its own task because this one is the request's
+        // timeout task, which the settlement above has already cancelled.
+        if repairsSilentControlStream, let armedConnectionID {
+            controlStreamRepairInFlight = true
+            let verificationTimeoutNanoseconds = min(
+                armedTimeoutNanoseconds,
+                Self.maximumControlStreamRepairVerificationNanoseconds
+            )
+            Task { [weak self] in
+                await self?.repairSilentControlStream(
+                    connectionID: armedConnectionID,
+                    silentSince: armedAt,
+                    verificationTimeoutNanoseconds: verificationTimeoutNanoseconds
+                )
+            }
         }
     }
 
@@ -1150,6 +1295,10 @@ actor MobileCoreRPCSession {
         timeoutNanoseconds: UInt64
     ) {
         requestTimeoutTasks[requestID]?.cancel()
+        let armedConnectionID = installedConnectionID
+        let armedInboundCount = inboundDeliveryCount
+        let armedSilentEpoch = silentTimeoutEpoch
+        let armedAt = ContinuousClock.now
         requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
             do {
                 try await taskTimeout.sleep(nanoseconds: timeoutNanoseconds)
@@ -1157,14 +1306,39 @@ actor MobileCoreRPCSession {
                 return
             }
             guard let self else { return }
-            await self.timeoutPendingRequest(requestID: requestID)
+            await self.timeoutPendingRequest(
+                requestID: requestID,
+                armedConnectionID: armedConnectionID,
+                armedInboundCount: armedInboundCount,
+                armedSilentEpoch: armedSilentEpoch,
+                armedAt: armedAt,
+                armedTimeoutNanoseconds: timeoutNanoseconds
+            )
         }
+    }
+
+    /// Whether a timed-out request proves its transport can no longer deliver.
+    ///
+    /// Only a transport that delivered *nothing* for the whole life of the
+    /// request is condemned. If anything arrived (another response, an event
+    /// frame, a terminal delta) the lane is demonstrably alive and this one
+    /// request was merely slow, so the request fails alone. Requires the same
+    /// installed connection throughout: a timeout belonging to a connection
+    /// that has already been replaced says nothing about the current one.
+    private func transportDeliveredNothing(
+        armedConnectionID: UUID?,
+        armedInboundCount: UInt64
+    ) -> Bool {
+        guard let armedConnectionID,
+              installedConnectionID == armedConnectionID else { return false }
+        return inboundDeliveryCount == armedInboundCount
     }
 
     func settlePendingRequest(
         requestID: String,
         settlement: PendingRequestSettlement
     ) {
+        writtenControlFrames.removeValue(forKey: requestID)
         if let continuation = pending.removeValue(forKey: requestID) {
             requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
             continuation.resume(returning: settlement)
@@ -1202,7 +1376,7 @@ actor MobileCoreRPCSession {
         let sendTask = write.task
         let resolutionTask = Task { [weak self] in
             do {
-                try await sendTask.value
+                _ = try await sendTask.value
                 await self?.cancelledActiveWriteDidComplete(
                     connectionID: connectionID,
                     requestID: requestID
@@ -1376,6 +1550,158 @@ actor MobileCoreRPCSession {
         resumeWriteResolutionWaiters()
         await tearDown(error: .connectionClosed)
         return true
+    }
+
+    // MARK: - control-stream repair
+
+    private func isAwaitingResponse(_ requestID: String) -> Bool {
+        if pending[requestID] != nil { return true }
+        switch pipelinedPending[requestID] {
+        case .pending, .awaiting:
+            return true
+        case .settled, nil:
+            return false
+        }
+    }
+
+    private func noteControlFrameWritten(_ write: PendingWrite, generation: UInt64) {
+        guard isAwaitingResponse(write.requestID) else { return }
+        writtenControlFrameSequence &+= 1
+        writtenControlFrames[write.requestID] = WrittenControlFrame(
+            frame: write.frame,
+            generation: generation,
+            sequence: writtenControlFrameSequence
+        )
+        if generation < repairedControlStreamGeneration {
+            resolveControlFramesStranded(before: repairedControlStreamGeneration)
+        }
+    }
+
+    /// Replaces a silent control stream on the same connection, or redials
+    /// when the connection itself has positive evidence of silence.
+    ///
+    /// Outcomes, in order of evidence strength:
+    /// - The host's application layer acknowledged a fresh stream: stranded
+    ///   requests are resent or failed, then a probe verifies the replacement
+    ///   actually serves requests. An unanswered probe escalates to redial, so
+    ///   replacement never loops.
+    /// - The whole connection is positively silent: redial now, one deadline
+    ///   sooner than the conservative threshold.
+    /// - Anything else: keep the conservative two-silent-timeout threshold.
+    private func repairSilentControlStream(
+        connectionID: UUID,
+        silentSince: ContinuousClock.Instant,
+        verificationTimeoutNanoseconds: UInt64
+    ) async {
+        // The caller claimed `controlStreamRepairInFlight` synchronously so a
+        // concurrent silent timeout cannot start a second replacement.
+        defer { controlStreamRepairInFlight = false }
+        guard installedConnectionID == connectionID,
+              !isTearingDown,
+              let repairing = transport as? any CmxByteTransportControlStreamRepairing else {
+            return
+        }
+        unverifiedControlStreamRepairs += 1
+        let outcome = await repairing.repairControlStream(silentSince: silentSince)
+        guard installedConnectionID == connectionID, !isTearingDown else { return }
+        switch outcome {
+        case .unavailable:
+            return
+        case .connectionSilent:
+            await tearDown(error: .connectionClosed)
+        case let .repaired(generation):
+            repairedControlStreamGeneration = max(repairedControlStreamGeneration, generation)
+            resolveControlFramesStranded(before: generation)
+            let answered = await verifyReplacedControlStream(
+                timeoutNanoseconds: verificationTimeoutNanoseconds
+            )
+            guard installedConnectionID == connectionID, !isTearingDown else { return }
+            if answered {
+                unverifiedControlStreamRepairs = 0
+                silentTimeoutStreak = 0
+            } else {
+                await tearDown(error: .connectionClosed)
+            }
+        }
+    }
+
+    /// Requests written to a replaced stream may never have reached the host,
+    /// or may have reached it with the answer lost. Read-only requests are
+    /// resent in their original order. Anything else may already have been
+    /// applied, so it fails back as a timeout (outcome unknown) instead of
+    /// risking a second application.
+    private func resolveControlFramesStranded(before generation: UInt64) {
+        let stranded = writtenControlFrames
+            .filter { $0.value.generation < generation }
+            .sorted { $0.value.sequence < $1.value.sequence }
+        for (requestID, written) in stranded {
+            writtenControlFrames.removeValue(forKey: requestID)
+            guard isAwaitingResponse(requestID) else { continue }
+            guard MobileRPCControlFrameResendPolicy.allowsResend(ofFrame: written.frame),
+                  let queue = writeQueue else {
+                failPending(requestID: requestID, error: .requestTimedOut)
+                continue
+            }
+            let queuedWriteID = UUID()
+            queuedWriteIDs[requestID] = queuedWriteID
+            _ = queue.yield(PendingWrite(
+                id: queuedWriteID,
+                requestID: requestID,
+                frame: written.frame
+            ))
+        }
+    }
+
+    /// Sends a read-only probe on the replacement stream and waits for any
+    /// host answer. A host RPC error is still an answer from the host's RPC
+    /// layer, which is what this verifies.
+    private func verifyReplacedControlStream(timeoutNanoseconds: UInt64) async -> Bool {
+        let probeID = "cmux.control-stream-probe.\(UUID().uuidString)"
+        let request: [String: Any] = [
+            "id": probeID,
+            "method": MobileRPCControlFrameResendPolicy.verificationProbeMethod,
+            "params": ["stream_id": probeID],
+        ]
+        guard timeoutNanoseconds > 0,
+              let payload = try? JSONSerialization.data(withJSONObject: request),
+              let frame = try? MobileSyncFrameCodec.encodeFrame(payload),
+              let queue = writeQueue else {
+            return false
+        }
+        let queuedWriteID = UUID()
+        pipelinedPending[probeID] = .pending
+        queuedWriteIDs[probeID] = queuedWriteID
+        _ = queue.yield(PendingWrite(id: queuedWriteID, requestID: probeID, frame: frame))
+        let deadline = Task { [weak self, taskTimeout] in
+            do {
+                try await taskTimeout.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+                return
+            }
+            await self?.expireControlStreamProbe(requestID: probeID)
+        }
+        defer { deadline.cancel() }
+        do {
+            _ = try await awaitResponse(requestID: probeID)
+            return true
+        } catch let error as MobileShellConnectionError {
+            switch error {
+            case .rpcError, .authorizationFailed, .accountMismatch:
+                return true
+            default:
+                return false
+            }
+        } catch {
+            return false
+        }
+    }
+
+    private func expireControlStreamProbe(requestID: String) {
+        guard isAwaitingResponse(requestID) else { return }
+        if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
+            cancelledQueuedWriteIDs.insert(queuedWriteID)
+        }
+        failPending(requestID: requestID, error: .requestTimedOut)
     }
 
     private func tearDownIfInstalled(
