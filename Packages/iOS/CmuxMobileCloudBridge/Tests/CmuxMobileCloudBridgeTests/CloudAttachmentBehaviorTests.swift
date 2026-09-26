@@ -90,8 +90,19 @@ struct CloudAttachmentBehaviorTests {
     }
 
     /// Lets queued main-actor work and the bridge's attach task run.
-    private func settle() async {
-        for _ in 0..<12 { await Task.yield() }
+    ///
+    /// A fixed yield count is a race under load, so a wait for something to
+    /// happen polls its own condition and only gives up after a bound that is
+    /// far past any real scheduling delay. Waits that assert nothing happens
+    /// still need a plain settle, which is why both exist.
+    private func settle(
+        until condition: () -> Bool = { false },
+        iterations: Int = 2_000
+    ) async {
+        for _ in 0..<iterations {
+            if condition() { return }
+            await Task.yield()
+        }
     }
 
     private func makeBridge(
@@ -122,7 +133,7 @@ struct CloudAttachmentBehaviorTests {
 
         // Let the attach complete.
         link.attachGate?.continuation.finish()
-        await settle()
+        await settle(until: { !link.terminalLink.sent.isEmpty })
 
         #expect(link.terminalLink.sentText == "echo hi\r")
     }
@@ -138,7 +149,7 @@ struct CloudAttachmentBehaviorTests {
         #expect(link.terminalLink.resizes.isEmpty)
 
         link.attachGate?.continuation.finish()
-        await settle()
+        await settle(until: { !link.terminalLink.resizes.isEmpty })
 
         #expect(link.terminalLink.resizes.map(\.cols) == [96])
         #expect(link.terminalLink.resizes.map(\.rows) == [30])
@@ -163,14 +174,18 @@ struct CloudAttachmentBehaviorTests {
         let (bridge, _, link) = await makeBridge()
         let surface = Self.surfaceID()
 
+        // Wait for the link to be live rather than merely requested: input
+        // arriving proves the attachment exists, which is the state a second
+        // repaint request has to act against.
         bridge.externalHostRequestReplay(surfaceID: surface)
-        await settle()
+        bridge.externalHostSendInput("x", surfaceID: surface)
+        await settle(until: { !link.terminalLink.sent.isEmpty })
         #expect(link.attachCount == 1)
 
         // A view reset needs the daemon's whole screen again, which only a
         // fresh attach produces.
         bridge.externalHostRequestReplay(surfaceID: surface)
-        await settle()
+        await settle(until: { link.attachCount == 2 })
         #expect(link.attachCount == 2)
         #expect(link.terminalLink.detachCount == 1)
     }
@@ -200,16 +215,15 @@ struct CloudAttachmentBehaviorTests {
         let surface = Self.surfaceID()
 
         bridge.externalHostRequestReplay(surfaceID: surface)
-        await settle()
         bridge.externalHostSendInput("first\r", surfaceID: surface)
-        await settle()
+        await settle(until: { link.terminalLink.sentText == "first\r" })
         #expect(link.terminalLink.sentText == "first\r")
         #expect(link.attachCount == 1)
 
         // Backgrounding stops the tunnel, and the controller closes its links.
         provider.isReady = false
         bridge.linksDidBecomeUnavailable()
-        await settle()
+        await settle(until: { link.terminalLink.detachCount == 1 })
         #expect(link.terminalLink.detachCount == 1)
 
         // Typing now must not be handed to the dead attachment.
@@ -221,7 +235,7 @@ struct CloudAttachmentBehaviorTests {
         // input reaches the terminal.
         provider.isReady = true
         bridge.externalHostSendInput("after\r", surfaceID: surface)
-        await settle()
+        await settle(until: { link.attachCount == 2 && link.terminalLink.sentText.contains("after") })
         #expect(link.attachCount == 2)
         #expect(link.terminalLink.sentText.contains("after\r"))
     }
