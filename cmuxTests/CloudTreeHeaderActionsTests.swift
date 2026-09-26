@@ -12,9 +12,9 @@ import Testing
 #endif
 
 /// The Cloud tab's section headers carry hover-only trailing actions: My
-/// Devices' ⋯ options menu. The action host is always laid out and stays in
-/// the hit-test and accessibility trees; only its alpha follows hover, so the
-/// header title and count never shift.
+/// Devices' ⋯ options menu and Cloud Machines' New Machine "+". The action
+/// host is always laid out and stays in the hit-test and accessibility trees;
+/// only its alpha follows hover, so the header title and count never shift.
 @MainActor
 @Suite("Cloud sidebar: hover-only section header actions")
 struct CloudTreeHeaderActionsTests {
@@ -70,25 +70,90 @@ struct CloudTreeHeaderActionsTests {
         #expect(menu.alphaValue == 1)
     }
 
+    @Test("Cloud Machines' + appears only while its header is hovered and stays clickable at rest", arguments: [220.0, 380.0])
+    func cloudMachinesPlusIsHoverOnly(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: width, canCreateCloudMachine: true)
+        let header = try tree.cell(for: tree.cloudSection)
+        let plus = try Self.controls(in: header)
+        let title = try Self.display(in: header)
+        let restingTitleFrame = title.frame
+
+        #expect(!plus.isHidden)
+        #expect(plus.alphaValue == 0)
+        let hit = try tree.hit(atCenterOf: plus)
+        #expect(hit.isDescendant(of: plus))
+        #expect(tree.outline.validateProposedFirstResponder(hit, for: nil))
+
+        // Hover follows the pointer from one header to the other and off the list.
+        tree.move(to: tree.cloudSection)
+        #expect(plus.alphaValue == 1)
+        #expect(title.frame == restingTitleFrame)
+        let menu = try Self.controls(in: tree.cell(for: tree.devicesSection))
+        tree.move(to: tree.devicesSection)
+        #expect(plus.alphaValue == 0)
+        #expect(menu.alphaValue == 1)
+        tree.exit()
+        #expect(plus.alphaValue == 0)
+        #expect(menu.alphaValue == 0)
+        #expect(title.frame == restingTitleFrame)
+    }
+
+    /// The header renders while Cloud Machines is off too; there it has nothing
+    /// to create, so it carries no "+".
+    @Test("Cloud Machines' + is present only when a machine can be created")
+    func cloudMachinesPlusFollowsAvailability() throws {
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .cloudMachinesSection(canCreateMachine: false)))
+        #expect(CloudTreeRowHoverButtons.hasButtons(for: .cloudMachinesSection(canCreateMachine: true)))
+
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380)
+        let header = try tree.cell(for: tree.cloudSection)
+        let controls = header.subviews.first { $0 is CloudTreeRowControlsHostingView }
+        #expect(controls?.isHidden ?? true)
+    }
+
+    @Test("Both header actions share one trailing slot: same size, trailing edge, and vertical center", arguments: [220.0, 380.0])
+    func headerActionsAlign(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: width, canCreateCloudMachine: true)
+        let cloudHeader = try tree.cell(for: tree.cloudSection)
+        let devicesHeader = try tree.cell(for: tree.devicesSection)
+        let plus = try Self.controls(in: cloudHeader)
+        let menu = try Self.controls(in: devicesHeader)
+        let plusFrame = plus.convert(plus.bounds, to: tree.outline)
+        let menuFrame = menu.convert(menu.bounds, to: tree.outline)
+
+        #expect(plusFrame.size == menuFrame.size)
+        #expect(plusFrame.maxX == menuFrame.maxX)
+        let cloudRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.cloudSection))
+        let devicesRow = tree.outline.rect(ofRow: tree.outline.row(forItem: tree.devicesSection))
+        #expect(plusFrame.midY - cloudRow.midY == menuFrame.midY - devicesRow.midY)
+    }
+
     /// The row-level controls used to reserve two lines for "Change these
     /// options in the ⋯ menu next to My Devices." beneath the toggles.
     @Test(
         "My Devices controls size to their rows, with no space kept for the removed ⋯ hint",
         arguments: [
-            CloudTreeDevicesSection(count: 0, discoveryEnabled: true, incomingAccessEnabled: false),
-            CloudTreeDevicesSection(count: 0, discoveryEnabled: false, incomingAccessEnabled: false),
-            CloudTreeDevicesSection(count: 2, discoveryEnabled: true, incomingAccessEnabled: false),
-            CloudTreeDevicesSection(count: 0, discoveryEnabled: true, incomingAccessEnabled: true)
+            (0, CloudTreeDevicesSection(discoveryEnabled: true, incomingAccessEnabled: false)),
+            (0, CloudTreeDevicesSection(discoveryEnabled: false, incomingAccessEnabled: false)),
+            (2, CloudTreeDevicesSection(discoveryEnabled: true, incomingAccessEnabled: false)),
+            (0, CloudTreeDevicesSection(discoveryEnabled: true, incomingAccessEnabled: true))
         ]
     )
-    func devicesControlsHaveNoHintSpace(section: CloudTreeDevicesSection) throws {
+    func devicesControlsHaveNoHintSpace(listedMacs: Int, section: CloudTreeDevicesSection) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
-        let tree = try Tree(fixture: fixture, width: 380, devicesSection: section)
+        let tree = try Tree(fixture: fixture, width: 380, devices: Self.onlineMacs(listedMacs), devicesSection: section)
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        let inlineRows = (section.count == 0 ? 1 : 0)
+        // "No other Macs yet", then one row per opt-in that is still off.
+        let inlineRows = (listedMacs == 0 ? 1 : 0)
             + (section.discoveryEnabled ? 0 : 1)
             + (section.incomingAccessEnabled ? 0 : 1)
         let style = tree.outline.treeStyle
@@ -137,6 +202,21 @@ struct CloudTreeHeaderActionsTests {
         try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
     }
 
+    /// `count` other Macs that are online and trusted, as the device catalog lists them.
+    static func onlineMacs(_ count: Int) -> [SurfaceMachineInfo] {
+        (0..<count).map { index in
+            let instance = SurfaceDeviceInstanceID(deviceID: "4444444\(index)-4444-4444-4444-444444444444", tag: "default")
+            return SurfaceMachineInfo(
+                id: .device(instance), name: "Mac \(index)", status: "running", image: nil, hasDesktop: false,
+                memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: [],
+                presence: SurfaceDevicePresence(
+                    state: .online, lastSeenAt: nil, tag: "default", bundleID: "com.cmuxterm.app", accountTrust: .sameAccount
+                )
+            )
+        }
+    }
+
     static func fleetRow(_ id: String) -> MachineSnapshot {
         MachineSnapshot(id: id, provider: "freestyle", image: "sh-1", isDesktop: false, activity: .ready, createdAt: nil, label: id)
     }
@@ -152,13 +232,18 @@ struct CloudTreeHeaderActionsTests {
             fixture: CloudSidebarOrderingFixture,
             width: Double,
             machines: [MachineSnapshot] = [],
-            devicesSection: CloudTreeDevicesSection = .init()
+            devices: [SurfaceMachineInfo] = [],
+            devicesSection: CloudTreeDevicesSection = .init(),
+            canCreateCloudMachine: Bool = false
         ) throws {
             self.fixture = fixture
             fixture.window.setContentSize(NSSize(width: width, height: 620))
             nodes = CloudTreeNodeBuilder.nodes(
-                machines: machines, snapshot: .empty, localWorkspaces: [], includeLocalMachine: false,
-                source: .cloudWithDevicesSection, devicesSection: devicesSection
+                machines: machines,
+                snapshot: SurfaceCatalogSnapshot(machines: devices, resources: [], projections: []),
+                localWorkspaces: [], includeLocalMachine: false,
+                source: .cloudWithDevicesSection, devicesSection: devicesSection,
+                canCreateCloudMachine: canCreateCloudMachine
             )
             fixture.coordinator.apply(nodes: nodes)
             outline = try #require(fixture.coordinator.outlineView)
