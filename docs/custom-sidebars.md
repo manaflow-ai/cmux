@@ -316,8 +316,11 @@ with:
   record, stop closes it by `agent_id` (or the oldest running child when the
   id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `status` (`idle` | `working` |
+  `needs_input`). `working` is the same per-tab state that drives cmux's
+  loading spinner, including `cmux workspace loading on`; `needs_input`
+  identifies an agent waiting for input. When available: `directory`,
+  `branch` + `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
