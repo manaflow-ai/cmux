@@ -54,6 +54,22 @@ class Decide(unittest.TestCase):
         placed, _ = late.decide(env, roots(idle=2))
         self.assertEqual(placed, {"shard-3": ROOT_STD, "shard-4": ROOT_STD})
 
+    def test_gui_jobs_take_idle_gui_runners_and_the_rest_idle_roots(self):
+        gui = "glaeda-gui-std-xcode-26.6"
+        runners = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(2)),
+                   runner("gui-busy", gui, busy=True)]
+        placed, why = late.decide(dict(FULL, GUI_RUNNER=gui), runners)
+        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui, "cli-product": ROOT_STD})
+        self.assertIn(f"2 idle `{gui}`", why)
+        # Without GUI_RUNNER (no gui count yet) the GUI jobs take the root label as before.
+        self.assertEqual(late.decide(FULL, runners)[0],
+                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
+        # Only this pool's gui label: anything else is ignored.
+        self.assertEqual(late.decide(dict(FULL, GUI_RUNNER="blacksmith-6vcpu-macos-26"), runners)[0],
+                         {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
+        # No idle gui runner: the GUI jobs stay where the picker put them.
+        self.assertEqual(late.decide(dict(FULL, GUI_RUNNER=gui), roots(idle=3))[0], {"cli-product": ROOT_STD})
+
     def test_no_idle_root_changes_nothing(self):
         self.assertEqual(late.decide(FULL, roots(idle=0, busy=16))[0], {})
 

@@ -199,7 +199,10 @@ GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 the logged-in user's Aqua session, and each mini runs one job at a time. With
 it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
 persistent pick, so the changed suites a compile admission would run itself
-move to shard 8: glaeda gives admission the compile token, not the gui token. A run's owned peak
+move to shard 8: glaeda gives admission the compile token, not the gui token. On a pool with a root
+count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
+CI_OWNED_POOL_SLOTS, the placed GUI jobs take the `gui_runner` output instead of the root label
+(gui_runner()), so each mini gets at most the one GUI job its gui token allows. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -298,9 +301,10 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
-OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-|gui-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
+GUI_PREFIX = "glaeda-gui-"
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -449,16 +453,42 @@ def persistent(label: str) -> bool:
 
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
         return ""
     return ROOT_PREFIX + label.removeprefix("glaeda-")
 
 
 def side_label(label: str) -> str:
     """The side runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
         return ""
     return SIDE_PREFIX + label.removeprefix("glaeda-")
+
+
+def gui_label(label: str) -> str:
+    """The gui runners' label for an owned pool label, or "" for any other label."""
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+        return ""
+    return GUI_PREFIX + label.removeprefix("glaeda-")
+
+
+def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
+    """The label a pick's GUI jobs (gui_job()) take: the pool's gui label, or "" to keep the root label.
+
+    Each mini has one gui token (one console session) but two root runners,
+    so on the root label GitHub handed a second GUI job to the mini's other
+    root runner, which waited for the token and refused (10 of 17 refusals
+    in the hour to 2026-09-26 03:40Z). glaeda gives each mini one gui runner
+    (guiRunners) carrying `glaeda-gui-<class>-xcode-<version>`, whose listener
+    stops while the gui token or every root is taken, so a GUI job waits in
+    GitHub's queue for a mini that can run it. Only on a pool with a root
+    count, and only while CI_OWNED_POOL_SLOTS gives the gui label a count,
+    so a GUI job never waits on a label no runner carries.
+    """
+    if not choice.root_runner or not persistent(choice.runner):
+        return ""
+    label = gui_label(choice.runner)
+    return label if owned_slots.get(label, 0) > 0 else ""
 
 
 def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
@@ -476,8 +506,8 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
 
 
 def pool_label(label: str) -> str:
-    """The owned pool a root or side label's runners belong to; any other label unchanged."""
-    for prefix in (ROOT_PREFIX, SIDE_PREFIX):
+    """The owned pool a root, side or gui label's runners belong to; any other label unchanged."""
+    for prefix in (ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX):
         if persistent(label) and label.startswith(prefix):
             return "glaeda-" + label.removeprefix(prefix)
     return label
@@ -817,6 +847,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     #   40                             the std class, for the lane's Xcode pin
     #   {"root-std": 10}               a class's root runners, one per mini
     #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
+    #   {"gui-std": 10}                a class's gui runners, one per mini (gui_runner())
     #   {"glaeda-ios-sim": 2}          a capability label (capability_slots()), no pool
     text = (raw or "").strip()
     if not text:
@@ -851,14 +882,15 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
                                 "names no Xcode version to pair it with")
         else:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} is not an owned pool label "
-                            "(glaeda-[root-]<class>-xcode-<version>) or class (std, light, xl, root-std, ...)")
+                            "(glaeda-[root-|gui-]<class>-xcode-<version>) or class (std, light, xl, root-std, gui-std, ...)")
     # A full label is more specific than its class, so it wins.
     counted = {**by_class, **counted}
     for label, count in list(counted.items()):
-        # Each root runner is one of its pool's machines, so a larger count is a typo.
+        # Each root or gui runner is one of its pool's machines, so a larger count is a typo.
         machines = counted.get(pool_label(label), 0)
-        if label.startswith(ROOT_PREFIX) and count > machines:
-            problems.append(f"{SLOTS_VARIABLE} gives {label} {count} root runners, more than the "
+        if label.startswith((ROOT_PREFIX, GUI_PREFIX)) and count > machines:
+            kind = "root" if label.startswith(ROOT_PREFIX) else "gui"
+            problems.append(f"{SLOTS_VARIABLE} gives {label} {count} {kind} runners, more than the "
                             f"{machines} machines of {pool_label(label)}")
             del counted[label]
     return counted, problems
@@ -2121,6 +2153,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
+    gui_label_out = gui_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
@@ -2142,6 +2175,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # What the side lanes in owned_jobs take instead of
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"side_runner={side}\n"
+                         # What the GUI jobs (app-host shards, tests-build-and-lag)
+                         # take instead of the root label: one runner per mini
+                         # carries it (gui_runner()), or "".
+                         f"gui_runner={gui_label_out}\n"
                          # JSON labels for admission's attempt 1: the root label
                          # and the static label of the runner warm for this
                          # run's merge base, or "".
