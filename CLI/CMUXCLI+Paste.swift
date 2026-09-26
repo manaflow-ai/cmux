@@ -10,33 +10,53 @@ extension CMUXCLI {
         var window: String?
         var submit = false
         /// Positional text, or nil when the text comes from stdin (no positional
-        /// text, or a lone `-`).
+        /// text, or a lone `-` before any `--` separator).
         var text: String?
     }
 
-    func parsePasteCommandArguments(_ commandArgs: [String]) -> PasteCommandArguments {
+    func parsePasteCommandArguments(_ commandArgs: [String]) throws -> PasteCommandArguments {
         let (workspace, rem0) = parseOption(commandArgs, name: "--workspace")
         let (surface, rem1) = parseOption(rem0, name: "--surface")
         let (window, rem2) = parseOption(rem1, name: "--window")
         var parsed = PasteCommandArguments(workspace: workspace, surface: surface, window: window)
         var positional: [String] = []
+        var readsStandardInput = false
         var pastTerminator = false
         for arg in rem2 {
-            if !pastTerminator, arg == "--" {
+            if pastTerminator {
+                positional.append(arg)
+                continue
+            }
+            switch arg {
+            case "--":
                 pastTerminator = true
-                continue
-            }
-            if !pastTerminator, arg == "--submit" {
+            case "--submit":
                 parsed.submit = true
-                continue
+            case "-":
+                readsStandardInput = true
+            default:
+                // Everything here lands in an agent prompt, so a mistyped flag
+                // or an option missing its value must fail rather than be
+                // pasted. Text that starts with "--" goes after the terminator.
+                if arg.hasPrefix("--") {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.paste.error.unknownFlag",
+                            defaultValue: "paste: unknown flag or missing value: %@ (put text that starts with -- after a -- separator)"
+                        ),
+                        arg
+                    ))
+                }
+                positional.append(arg)
             }
-            positional.append(arg)
         }
-        if positional.isEmpty || positional == ["-"] {
-            parsed.text = nil
-        } else {
-            parsed.text = positional.joined(separator: " ")
+        if readsStandardInput, !positional.isEmpty {
+            throw CLIError(message: String(
+                localized: "cli.paste.error.textAndStdin",
+                defaultValue: "paste: pass text or -, not both"
+            ))
         }
+        parsed.text = positional.isEmpty ? nil : positional.joined(separator: " ")
         return parsed
     }
 
@@ -54,7 +74,7 @@ extension CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let parsed = parsePasteCommandArguments(commandArgs)
+        let parsed = try parsePasteCommandArguments(commandArgs)
         let text: String
         if let positional = parsed.text {
             text = positional

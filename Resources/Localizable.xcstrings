@@ -558719,6 +558719,124 @@
           }
         }
       }
+    },
+    "cli.paste.error.textAndStdin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: pass text or -, not both"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: مرّر نصًا أو -، وليس كليهما"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: Text oder - angeben, nicht beides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: pasa texto o -, no ambos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : indiquez du texte ou -, pas les deux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: テキストか - のどちらか一方を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 텍스트 또는 - 중 하나만 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：请提供文本或 -，不能同时提供"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：請提供文字或 -，不能同時提供"
+          }
+        }
+      }
+    },
+    "cli.paste.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: unknown flag or missing value: %@ (put text that starts with -- after a -- separator)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: خيار غير معروف أو قيمة مفقودة: %@ (ضع النص الذي يبدأ بـ -- بعد فاصل --)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: unbekanntes Flag oder fehlender Wert: %@ (Text, der mit -- beginnt, nach einem Trennzeichen -- angeben)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: opción desconocida o valor faltante: %@ (coloca el texto que empieza por -- después de un separador --)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : option inconnue ou valeur manquante : %@ (placez le texte qui commence par -- après un séparateur --)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 不明なフラグ、または値がありません: %@（-- で始まるテキストは -- 区切りの後に置いてください）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 알 수 없는 플래그이거나 값이 없습니다: %@ (--로 시작하는 텍스트는 -- 구분자 뒤에 넣으세요)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：未知标志或缺少值：%@（以 -- 开头的文本请放在 -- 分隔符之后）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：未知的旗標或缺少值：%@（以 -- 開頭的文字請放在 -- 分隔符之後）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

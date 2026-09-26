@@ -70,6 +70,27 @@ struct CLIPasteCommandTests {
         #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
     }
 
+    @Test func pasteRejectsUnknownFlagsInsteadOfPastingThem() throws {
+        for arguments in [
+            ["paste", "--surface", Self.targetSurfaceRef, "--sumbit", "hello"],
+            ["paste", "hello", "--surface"],
+        ] {
+            let run = try runCLI(arguments: arguments)
+
+            #expect(run.result.status != 0, Comment(rawValue: arguments.joined(separator: " ")))
+            #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
+        }
+    }
+
+    @Test func pasteTreatsTextAfterTheSeparatorLiterally() throws {
+        let run = try runCLI(arguments: ["paste", "--surface", Self.targetSurfaceRef, "--", "--submit", "-"])
+
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let params = try #require(run.requests.last?["params"] as? [String: Any])
+        #expect(params["text"] as? String == "--submit -")
+        #expect(params["submit_key"] as? String == "none")
+    }
+
     @Test func pasteBufferBracketedUsesThePastePath() throws {
         let buffer = "line one\nline two\n"
         let run = try runCLI(
