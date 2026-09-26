@@ -6964,6 +6964,301 @@
         }
       }
     },
+    "socket.mainActorHop.timeout.mayHaveRun": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not respond within 10 seconds after the command started, so its result is unknown. Check the effect before retrying."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドの開始後 10 秒以内に cmux が応答しなかったため、結果は不明です。再試行する前に効果を確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令开始后 10 秒内 cmux 没有响应，因此结果未知。请先确认效果再重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat innerhalb von 10 Sekunden nach dem Start des Befehls nicht geantwortet, das Ergebnis ist daher unbekannt. Prüfe die Auswirkung, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas répondu dans les 10 secondes suivant le démarrage de la commande, son résultat est donc inconnu. Vérifiez l’effet avant de réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب cmux خلال 10 ثوانٍ بعد بدء الأمر، لذا فإن نتيجته غير معروفة. تحقق من الأثر قبل إعادة المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no respondió en los 10 segundos posteriores al inicio del comando, por lo que su resultado es desconocido. Comprueba el efecto antes de reintentar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令開始後 10 秒內 cmux 沒有回應，因此結果未知。請先確認效果再重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령이 시작된 후 10초 안에 cmux가 응답하지 않아 결과를 알 수 없습니다. 다시 시도하기 전에 효과를 확인하세요."
+          }
+        }
+      }
+    },
+    "socket.mainActorHop.timeout.notRun": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not respond within 10 seconds, so the command was not run. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が 10 秒以内に応答しなかったため、コマンドは実行されませんでした。しばらくしてから再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在 10 秒内没有响应，因此未运行该命令。请稍后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat innerhalb von 10 Sekunden nicht geantwortet, der Befehl wurde daher nicht ausgeführt. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas répondu dans les 10 secondes, la commande n’a donc pas été exécutée. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب cmux خلال 10 ثوانٍ، لذا لم يتم تنفيذ الأمر. أعد المحاولة بعد لحظات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no respondió en 10 segundos, por lo que el comando no se ejecutó. Reintenta en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在 10 秒內沒有回應，因此未執行該命令。請稍後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 10초 안에 응답하지 않아 명령이 실행되지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "socket.overloaded.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is handling too many control-socket requests right now, so this one was not run. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は現在、制御ソケットの要求を処理しきれないため、この要求は実行されませんでした。しばらくしてから再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 当前正在处理过多的控制套接字请求，因此未运行此请求。请稍后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux verarbeitet gerade zu viele Control-Socket-Anfragen, diese wurde daher nicht ausgeführt. Versuche es gleich noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux traite actuellement trop de requêtes du socket de contrôle, celle-ci n’a donc pas été exécutée. Réessayez dans un instant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعالج cmux حاليًا عددًا كبيرًا جدًا من طلبات مقبس التحكم، لذا لم يتم تنفيذ هذا الطلب. أعد المحاولة بعد لحظات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está gestionando demasiadas solicitudes del socket de control ahora mismo, por lo que esta no se ejecutó. Reintenta en un momento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 目前正在處理過多的控制 socket 請求，因此未執行此請求。請稍後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 지금 너무 많은 제어 소켓 요청을 처리하고 있어 이 요청은 실행되지 않았습니다. 잠시 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "socket.request.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request was cancelled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエストはキャンセルされました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求已取消"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage wurde abgebrochen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La requête a été annulée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء الطلب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se canceló la solicitud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求已取消"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청이 취소되었습니다"
+          }
+        }
+      }
+    },
+    "socket.request.failedBeforeResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request failed before returning a result"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果を返す前にリクエストが失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求在返回结果之前失败"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anfrage ist fehlgeschlagen, bevor ein Ergebnis zurückgegeben wurde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La requête a échoué avant de renvoyer un résultat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الطلب قبل إرجاع نتيجة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La solicitud falló antes de devolver un resultado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求在傳回結果之前失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결과를 반환하기 전에 요청이 실패했습니다"
+          }
+        }
+      }
+    },
     "socket.surfaceSelection.unsupported": {
       "extractionState": "manual",
       "localizations": {
@@ -542709,6 +543004,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "チーム操作には非同期ソケットディスパッチが必要です。"
+          }
+        }
+      }
+    },
+    "socket.authTeam.committedStatusTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The team change was applied, but cmux did not report the updated status within 10 seconds. Run `cmux auth status` to confirm."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの変更は適用されましたが、cmux は 10 秒以内に更新後のステータスを報告しませんでした。`cmux auth status` を実行して確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队更改已应用，但 cmux 未能在 10 秒内报告更新后的状态。请运行 `cmux auth status` 确认。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Teamänderung wurde übernommen, aber cmux hat den aktualisierten Status nicht innerhalb von 10 Sekunden gemeldet. Führe `cmux auth status` aus, um es zu prüfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le changement d’équipe a été appliqué, mais cmux n’a pas signalé le statut mis à jour dans les 10 secondes. Exécutez `cmux auth status` pour confirmer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق تغيير الفريق، لكن cmux لم يُبلّغ عن الحالة المحدّثة خلال 10 ثوانٍ. شغّل `cmux auth status` للتأكيد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El cambio de equipo se aplicó, pero cmux no informó el estado actualizado en 10 segundos. Ejecuta `cmux auth status` para confirmarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊變更已套用，但 cmux 未能在 10 秒內回報更新後的狀態。請執行 `cmux auth status` 確認。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 변경은 적용되었지만 cmux가 10초 안에 업데이트된 상태를 보고하지 않았습니다. `cmux auth status`를 실행해 확인하세요."
           }
         }
       }

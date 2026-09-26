@@ -3098,6 +3098,7 @@
 		5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */; };
 		A10052000000000000000002 /* SocketClient+StartupWait.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10052000000000000000001 /* SocketClient+StartupWait.swift */; };
 		D1275700D1275700D1275701 /* SocketClient+V2.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1275700D1275700D1275702 /* SocketClient+V2.swift */; };
+		BB7CFD6990CDCF2B57401F2E /* SocketCommandPolicyTaskScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C3B6B67AD3C0FC80262341 /* SocketCommandPolicyTaskScopeTests.swift */; };
 		A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */; };
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
@@ -3325,6 +3326,7 @@
 		CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
+		A6E57A0E0000000000000001 /* TerminalController+ControlCallResultBridging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E57A0E0000000000000002 /* TerminalController+ControlCallResultBridging.swift */; };
 		CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */; };
 		C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */; };
 		C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */; };
@@ -3399,10 +3401,13 @@
 		7738C0047738C0047738C004 /* TerminalController+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */; };
 		B49282191C80DC84B8AB0BCB /* TerminalController+RemoteTmuxTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCFC650BD590101D445C4A0 /* TerminalController+RemoteTmuxTestSupport.swift */; };
 		D310E509C9FA457B8AE81CF6 /* TerminalController+ShortcutConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC516CC8FB0418AA9D72AB4 /* TerminalController+ShortcutConfiguration.swift */; };
+		A6E57A0F0000000000000001 /* TerminalController+SocketBoundedLanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E57A0F0000000000000002 /* TerminalController+SocketBoundedLanes.swift */; };
 		A79840040000000000000002 /* TerminalController+SocketCleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840040000000000000001 /* TerminalController+SocketCleanup.swift */; };
 		C79470010000000000000003 /* TerminalController+SocketClientCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470010000000000000004 /* TerminalController+SocketClientCapability.swift */; };
 		A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */; };
 		C79470020000000000000001 /* TerminalController+SocketListenerRearm.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470020000000000000002 /* TerminalController+SocketListenerRearm.swift */; };
+		A6E57A100000000000000001 /* TerminalController+SocketOverload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E57A100000000000000002 /* TerminalController+SocketOverload.swift */; };
+		A6E57A110000000000000001 /* TerminalController+SocketServerEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E57A110000000000000002 /* TerminalController+SocketServerEvents.swift */; };
 		C0DE00000000000000000F01 /* TerminalController+SSHSessionAttachContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000F02 /* TerminalController+SSHSessionAttachContext.swift */; };
 		766E1CF043A4DC547CB08FB3 /* TerminalController+SSHTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA3197FBB0911D71D4EC1719 /* TerminalController+SSHTui.swift */; };
 		413F407A3FDE62533B6C33E0 /* TerminalController+SSHTuiSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53300833C8E02424D6168BD6 /* TerminalController+SSHTuiSessions.swift */; };
@@ -7052,6 +7057,7 @@
 		5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiterMainThreadTests.swift; sourceTree = "<group>"; };
 		A10052000000000000000001 /* SocketClient+StartupWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+StartupWait.swift"; sourceTree = "<group>"; };
 		D1275700D1275700D1275702 /* SocketClient+V2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketClient+V2.swift"; sourceTree = "<group>"; };
+		34C3B6B67AD3C0FC80262341 /* SocketCommandPolicyTaskScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketCommandPolicyTaskScopeTests.swift"; sourceTree = "<group>"; };
 		A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketConfigurationLifecycleTests.swift; sourceTree = "<group>"; };
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 			C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
@@ -9675,6 +9681,10 @@
 				D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */,
 				C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 				C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */,
+				A6E57A0E0000000000000002 /* TerminalController+ControlCallResultBridging.swift */,
+				A6E57A0F0000000000000002 /* TerminalController+SocketBoundedLanes.swift */,
+				A6E57A100000000000000002 /* TerminalController+SocketOverload.swift */,
+				A6E57A110000000000000002 /* TerminalController+SocketServerEvents.swift */,
 				D10548000000000000000012 /* TerminalController+ControlSocketAsync.swift */,
 				110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */,
 				8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */,
@@ -12091,6 +12101,7 @@
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
+				34C3B6B67AD3C0FC80262341 /* SocketCommandPolicyTaskScopeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14724,6 +14735,7 @@
 				CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
+				A6E57A0E0000000000000001 /* TerminalController+ControlCallResultBridging.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
 				C0DE00000000000000000C6E /* TerminalController+ControlDebugContext.swift in Sources */,
 				C0DE00000000000000000C44 /* TerminalController+ControlFeedContext.swift in Sources */,
@@ -14798,10 +14810,13 @@
 				7738C0047738C0047738C004 /* TerminalController+RemoteTmuxControlTopology.swift in Sources */,
 				B49282191C80DC84B8AB0BCB /* TerminalController+RemoteTmuxTestSupport.swift in Sources */,
 				D310E509C9FA457B8AE81CF6 /* TerminalController+ShortcutConfiguration.swift in Sources */,
+				A6E57A0F0000000000000001 /* TerminalController+SocketBoundedLanes.swift in Sources */,
 				A79840040000000000000002 /* TerminalController+SocketCleanup.swift in Sources */,
 				C79470010000000000000003 /* TerminalController+SocketClientCapability.swift in Sources */,
 				A79840030000000000000002 /* TerminalController+SocketConfiguration.swift in Sources */,
 				C79470020000000000000001 /* TerminalController+SocketListenerRearm.swift in Sources */,
+				A6E57A100000000000000001 /* TerminalController+SocketOverload.swift in Sources */,
+				A6E57A110000000000000001 /* TerminalController+SocketServerEvents.swift in Sources */,
 				C0DE00000000000000000F01 /* TerminalController+SSHSessionAttachContext.swift in Sources */,
 				766E1CF043A4DC547CB08FB3 /* TerminalController+SSHTui.swift in Sources */,
 				413F407A3FDE62533B6C33E0 /* TerminalController+SSHTuiSessions.swift in Sources */,
@@ -16476,6 +16491,7 @@
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,
 				A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
+				BB7CFD6990CDCF2B57401F2E /* SocketCommandPolicyTaskScopeTests.swift in Sources */,
 				A7984AD10000000000000001 /* SocketConfigurationLifecycleTests.swift in Sources */,
 					93300001A1B2C3D4E5F60718 /* SocketTerminalBindingRegressionTests.swift in Sources */,
 				7A0CE100000000000000072A /* SocksV5ClientTests.swift in Sources */,

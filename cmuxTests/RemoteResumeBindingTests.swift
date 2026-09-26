@@ -268,7 +268,7 @@ struct RemoteResumeBindingTests {
             return
         }
 
-        let authorization = await TerminalController.shared.authorizeRemoteRelayRequestAsync(parsed)
+        let authorization = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(parsed)
         #expect(authorization.errorResponse == nil)
         #expect(authorization.request.method == "agent.resolve_delivery_target")
         #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)

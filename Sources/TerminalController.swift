@@ -192,10 +192,16 @@ class TerminalController {
     private nonisolated let socketConnectionsTask: Task<Void, Never>
     /// Bounded async connection admission. The pool owns task lifetimes; an
     /// admitted connection owns its descriptor until its async handler exits.
-    private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
-        maximumConcurrentJobs: 32,
-        maximumPendingJobs: 64
+    nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
+        maximumConcurrentJobs: TerminalController.socketClientMaximumConcurrentJobs,
+        maximumPendingJobs: TerminalController.socketClientMaximumPendingJobs,
+        maximumPendingAgeNanoseconds: TerminalController.socketPendingConnectionMaximumAgeNanoseconds
     )
+    /// Answers connections the pool cannot serve with a real `overloaded`
+    /// error instead of a closed descriptor (#13369).
+    nonisolated let socketOverloadResponder = TerminalController.makeSocketOverloadResponder()
+    /// Deduplicates the once-per-episode Sentry captures for socket-lane stalls.
+    nonisolated let socketLaneHealth = SocketLaneHealth()
     /// Latest main-actor-published read results. Socket workers consult this
     /// mirror synchronously before falling back to a live command path.
     nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()
@@ -452,7 +458,7 @@ class TerminalController {
     /// Bridges the package server's event closures back to the controller.
     /// Assigned exactly once during `init`, before the listener can start, and
     /// read-only afterward; the controller is an app-lifetime singleton.
-    private final class ServerEventTarget: @unchecked Sendable {
+    final class ServerEventTarget: @unchecked Sendable {
         weak var controller: TerminalController?
     }
 
@@ -461,7 +467,7 @@ class TerminalController {
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
-            maximumConcurrentClaims: 32
+            maximumConcurrentClaims: TerminalController.socketClientPreauthorizationMaximumClaims
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
@@ -993,56 +999,6 @@ class TerminalController {
         transport.isProcessDescendant(pid, of: myPid)
     }
 
-    /// Builds the package server's host-callback seam. `target` is filled in
-    /// at the end of `init`; no listener event can fire before `start`.
-    private nonisolated static func makeSocketServerEvents(
-        target: ServerEventTarget,
-        markerStore: SocketPathMarkerStore,
-        failureCaptureGate: SocketListenerFailureCaptureGate
-    ) -> SocketControlServerEvents {
-        SocketControlServerEvents(
-            breadcrumb: { message, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
-            },
-            failure: { message, stage, errnoCode, data in
-                sentryBreadcrumb(message, category: "socket", data: data)
-                guard failureCaptureGate.shouldCapture(
-                    message: message,
-                    stage: stage,
-                    path: data["path"] as? String ?? "",
-                    errnoCode: errnoCode
-                ) else {
-                    return
-                }
-                sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
-            },
-            listenerDidStart: { path, _ in
-                // @MainActor closure, invoked synchronously inside start().
-                failureCaptureGate.listenerDidStart()
-                target.controller?.socketListenerDidStart(path: path)
-            },
-            recordLastSocketPath: { path in
-                markerStore.record(path)
-            },
-            cleanupDiscoveryState: { path in
-                target.controller?.cleanupStoppedSocketState(path)
-            },
-            pathMissingDetected: { path, generation in
-                Task { @MainActor in
-                    target.controller?.restartSocketListenerIfPathMissing(path: path, generation: generation)
-                }
-            },
-            rearmRequested: { generation, errnoCode, consecutiveFailures, delayMs in
-                target.controller?.scheduleListenerRearm(
-                    generation: generation,
-                    errnoCode: errnoCode,
-                    consecutiveFailures: consecutiveFailures,
-                    delayMs: delayMs
-                )
-            }
-        )
-    }
-
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
@@ -1104,7 +1060,7 @@ class TerminalController {
     /// Invoked synchronously inside the server's `start()` on the main
     /// actor, at the exact lifecycle point the legacy implementation posted
     /// `.socketListenerDidStart`.
-    private func socketListenerDidStart(path: String) {
+    func socketListenerDidStart(path: String) {
         NotificationCenter.default.post(
             name: .socketListenerDidStart,
             object: self,
@@ -1144,7 +1100,7 @@ class TerminalController {
         AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
-    private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
+    func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
@@ -1755,20 +1711,24 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode(params: request.params))
         case "system.top":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                let response = await self.v2SystemTopAsync(ControlRequest(
-                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
-                ))
-                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
-                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-                }
-                switch typed {
-                case .ok(let value): return .ok(value.foundationObject)
-                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                await self.socketLegacyMainHopBridge {
+                    let response = try await self.v2SystemTopAsync(ControlRequest(
+                        id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                    ))
+                    guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                        return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                    }
+                    switch typed {
+                    case .ok(let value): return .ok(value.foundationObject)
+                    case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                    }
                 }
             }
         case "system.memory":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2SystemMemory(params: request.params)
+                await self.socketLegacyMainHopBridge {
+                    try await self.v2SystemMemory(params: request.params)
+                }
             }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
@@ -2049,9 +2009,10 @@ class TerminalController {
             false
         }
         guard initialReadLimits == nil || claimedPreauthorizationSlot else {
-            close(clientSocket)
+            rejectSocketClient(clientSocket, reason: .preauthorizationSaturated)
             return
         }
+        let overloadResponder = socketOverloadResponder
         let submission = await socketClientWorkerPool.submit { [weak self] in
             guard let self else {
                 close(clientSocket)
@@ -2068,13 +2029,14 @@ class TerminalController {
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
-        } onDrop: {
+        } onDrop: { dropReason in
             if claimedPreauthorizationSlot {
                 Task { await preauthorizationLimiter.release() }
             }
-            close(clientSocket)
+            overloadResponder.reject(socket: clientSocket, reason: Self.socketOverloadReason(for: dropReason))
         }
-        guard submission != .rejected else { return }
+        guard submission == .rejected else { return socketLaneHealth.recordPoolAdmission() }
+        await reportSocketPoolSaturation()
     }
 
     /// Owns the accepted socket until the command loop and source teardown finish.
