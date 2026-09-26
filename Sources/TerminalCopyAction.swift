@@ -84,7 +84,7 @@ enum TerminalCopyActionRunner {
                 includeScrollback: false,
                 allowVTExport: false
             )
-            return copy(TerminalCopyText.visibleScreenPayload(text))
+            return copy(text?.visibleScreenClipboardText)
         }
     }
 

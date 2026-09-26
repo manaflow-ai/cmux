@@ -1448,17 +1448,15 @@ final class CmuxConfigDecodingTests: XCTestCase {
                 .builtIn(.copyScreen)
             ]
         )
-        XCTAssertEqual(
-            store.surfaceTabBarButtons.compactMap {
-                guard case .builtIn(let builtIn) = $0.action else { return nil }
-                return builtIn.terminalCopyAction
-            },
-            [.workingDirectory, .projectRoot, .visibleScreen]
-        )
+        let copyActions: [TerminalCopyAction] = store.surfaceTabBarButtons.compactMap { button in
+            guard case .builtIn(let builtIn) = button.action else { return nil }
+            return builtIn.terminalCopyAction
+        }
+        XCTAssertEqual(copyActions, [.workingDirectory, .projectRoot, .visibleScreen])
         // Copy built-ins never create a Bonsplit split/tab, so the tab bar
         // routes them to the workspace's executable-button path.
-        XCTAssertTrue(store.surfaceTabBarButtons.allSatisfy {
-            guard case .builtIn(let builtIn) = $0.action else { return false }
+        XCTAssertTrue(store.surfaceTabBarButtons.allSatisfy { button in
+            guard case .builtIn(let builtIn) = button.action else { return false }
             return builtIn.bonsplitAction == nil
         })
 

@@ -4,32 +4,31 @@ import Testing
 @testable import CmuxTerminal
 
 @Suite("Terminal copy-action text")
-struct TerminalCopyTextTests {
+struct ClipboardCopyTextTests {
     @Test("a path is copied verbatim")
     func pathIsCopiedVerbatim() {
-        #expect(TerminalCopyText.payload("/Users/me/My Project") == "/Users/me/My Project")
+        #expect("/Users/me/My Project".nonBlankClipboardText == "/Users/me/My Project")
     }
 
-    @Test("missing, empty, and whitespace-only text has nothing to copy")
+    @Test("empty and whitespace-only text has nothing to copy")
     func blankTextHasNothingToCopy() {
-        #expect(TerminalCopyText.payload(nil) == nil)
-        #expect(TerminalCopyText.payload("") == nil)
-        #expect(TerminalCopyText.payload(" \n\t\n") == nil)
+        #expect("".nonBlankClipboardText == nil)
+        #expect(" \n\t\n".nonBlankClipboardText == nil)
     }
 
     @Test("visible screen drops the blank rows under the output")
     func visibleScreenDropsTrailingBlankRows() {
         let screen = "  indented first line\n$ ls\nREADME.md\n\n\n   \n\n"
         #expect(
-            TerminalCopyText.visibleScreenPayload(screen)
+            screen.visibleScreenClipboardText
                 == "  indented first line\n$ ls\nREADME.md"
         )
     }
 
     @Test("a blank visible screen has nothing to copy")
     func blankVisibleScreenHasNothingToCopy() {
-        #expect(TerminalCopyText.visibleScreenPayload(nil) == nil)
-        #expect(TerminalCopyText.visibleScreenPayload("\n\n    \n\n") == nil)
+        #expect("".visibleScreenClipboardText == nil)
+        #expect("\n\n    \n\n".visibleScreenClipboardText == nil)
     }
 }
 

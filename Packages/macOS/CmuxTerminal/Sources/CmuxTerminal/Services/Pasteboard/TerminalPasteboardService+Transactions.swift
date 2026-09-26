@@ -147,16 +147,16 @@ extension TerminalPasteboardService {
 extension TerminalPasteboardService {
     /// Copies text to the standard clipboard for a cmux copy action.
     ///
-    /// Leaves the clipboard untouched when ``TerminalCopyText/payload(_:)``
-    /// finds nothing to copy, so a missing directory or blank screen never
-    /// replaces what the user already copied.
+    /// Leaves the clipboard untouched when the text is missing or blank (see
+    /// `String.nonBlankClipboardText`), so a missing directory or blank screen
+    /// never replaces what the user already copied.
     ///
     /// - Parameter text: The already-normalized text to copy.
     /// - Returns: `true` when a write was admitted, `false` when there was
     ///   nothing to copy or the write was rejected.
     @discardableResult
     public func copyToStandardClipboard(_ text: String?) -> Bool {
-        guard let payload = TerminalCopyText.payload(text) else { return false }
+        guard let payload = text?.nonBlankClipboardText else { return false }
         return writeString(payload, to: standardPasteboard)
     }
 }
