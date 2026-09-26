@@ -15,6 +15,10 @@ internal import CMUXDebugLog
 /// schema version the legacy code read from `SessionSnapshotSchema` is
 /// injected as `schemaVersion`.
 ///
+/// It can also read other installs' snapshots (import, never writing them),
+/// export the saved snapshot to a file, and keep a newer-schema snapshot as a
+/// side file before this build would overwrite it.
+///
 /// Isolation: a stateless `Sendable` struct, not an actor. Every method is
 /// synchronous because its callers are: `applicationWillTerminate` must
 /// complete the save before returning, and the autosave path already hops to
@@ -59,16 +63,169 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     public func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<SnapshotValue> {
         guard fileManager.fileExists(atPath: fileURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
+        guard let snapshot = decodedSnapshot(from: data) else { return .unusable }
+        guard snapshot.version == schemaVersion else { return .unusable }
+        guard snapshot.hasWindows else { return .unusable }
+        return .loaded(snapshot)
+    }
+
+    private func decodedSnapshot(from data: Data) -> SnapshotValue? {
         let decoder = JSONDecoder()
         for (key, value) in decoderUserInfo {
             decoder.userInfo[key] = value
         }
-        guard let snapshot = try? SessionSnapshotCodingStack().run({
+        return try? SessionSnapshotCodingStack().run {
             try decoder.decode(SnapshotValue.self, from: data)
-        }) else { return .unusable }
-        guard snapshot.version == schemaVersion else { return .unusable }
-        guard snapshot.hasWindows else { return .unusable }
-        return .loaded(snapshot)
+        }
+    }
+
+    /// Only the top-level `version` of a snapshot, so a file written by a
+    /// different schema can be classified without decoding its payload.
+    private struct SchemaVersionProbe: Decodable {
+        let version: Int
+    }
+
+    private func probedSchemaVersion(of data: Data) -> Int? {
+        try? SessionSnapshotCodingStack().run {
+            try JSONDecoder().decode(SchemaVersionProbe.self, from: data).version
+        }
+    }
+
+    // MARK: - Moving snapshots between installs
+
+    public func snapshotFileURL(bundleIdentifier: String) -> URL? {
+        guard let appSupport = resolvedAppSupportDirectory() else { return nil }
+        return SessionSnapshotFileLocation.primaryFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+    }
+
+    public func importableSnapshot(
+        fileURL: URL
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return .failure(.fileNotFound(fileURL))
+        }
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return .failure(.unreadable(fileURL))
+        }
+        return importableSnapshot(data: data, fileURL: fileURL)
+    }
+
+    private func importableSnapshot(
+        data: Data,
+        fileURL: URL
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        guard let version = probedSchemaVersion(of: data) else {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
+        if version > schemaVersion {
+            return .failure(.newerSchemaVersion(fileURL, found: version, supported: schemaVersion))
+        }
+        if version < schemaVersion {
+            return .failure(.olderSchemaVersion(fileURL, found: version, supported: schemaVersion))
+        }
+        guard let snapshot = decodedSnapshot(from: data), snapshot.version == schemaVersion else {
+            return .failure(.notASessionSnapshot(fileURL))
+        }
+        guard snapshot.hasWindows else {
+            return .failure(.noWindows(fileURL))
+        }
+        return .success(SessionSnapshotImport(snapshot: snapshot, fileURL: fileURL))
+    }
+
+    public func importableSnapshot(
+        bundleIdentifier: String
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        let appSupport = resolvedAppSupportDirectory()
+            ?? fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        let primaryURL = SessionSnapshotFileLocation.primaryFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        let primaryError: SessionSnapshotImportError
+        switch importableSnapshot(fileURL: primaryURL) {
+        case .success(let imported):
+            return .success(imported)
+        case .failure(let error):
+            primaryError = error
+        }
+        // Same fallback as startup restore: the `-previous` backup is the
+        // recovery copy when the primary is missing or cannot be restored.
+        let backupURL = SessionSnapshotFileLocation.backupFileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        switch importableSnapshot(fileURL: backupURL) {
+        case .success(let imported):
+            return .success(imported)
+        case .failure(let backupError):
+            if case .fileNotFound = primaryError {
+                if case .fileNotFound = backupError {
+                    return .failure(primaryError)
+                }
+                return .failure(backupError)
+            }
+            return .failure(primaryError)
+        }
+    }
+
+    public func exportSnapshot(to destination: URL, overwrite: Bool) -> Result<URL, SessionSnapshotExportError> {
+        let destination = destination.standardizedFileURL
+        let ownFiles = [defaultSnapshotFileURL(), manualRestoreSnapshotFileURL()]
+            .compactMap { $0?.standardizedFileURL.resolvingSymlinksInPath().path }
+        if ownFiles.contains(destination.resolvingSymlinksInPath().path) {
+            return .failure(.destinationIsLiveSnapshot(destination))
+        }
+        if !overwrite && fileManager.fileExists(atPath: destination.path) {
+            return .failure(.destinationExists(destination))
+        }
+        for sourceURL in [defaultSnapshotFileURL(), manualRestoreSnapshotFileURL()].compactMap({ $0 }) {
+            // Copy the validated bytes rather than re-encoding them, so the
+            // export is exactly what this install would restore from.
+            guard let data = try? Data(contentsOf: sourceURL),
+                  case .success = importableSnapshot(data: data, fileURL: sourceURL) else {
+                continue
+            }
+            do {
+                try fileManager.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+                try data.write(to: destination, options: .atomic)
+                return .success(sourceURL)
+            } catch {
+                return .failure(.writeFailed(destination))
+            }
+        }
+        return .failure(.noSnapshot)
+    }
+
+    @discardableResult
+    public func preserveNewerSchemaSnapshot(fileURL: URL) -> URL? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let version = probedSchemaVersion(of: data),
+              version > schemaVersion else {
+            return nil
+        }
+        let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(for: fileURL, schemaVersion: version)
+        if let existing = try? Data(contentsOf: sideURL), existing == data {
+            return sideURL
+        }
+        do {
+            try data.write(to: sideURL, options: .atomic)
+        } catch {
+            return nil
+        }
+#if DEBUG
+        CMUXDebugLog.logDebugEvent(
+            "session.snapshot.newerSchemaPreserved version=\(version) path=\(sideURL.path)"
+        )
+#endif
+        return sideURL
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
@@ -123,8 +280,11 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         case .unusable:
             // The primary snapshot exists but cannot be restored. Keep the
             // backup: it is the only remaining recovery path for the user's
-            // sessions (startup fallback and `cmux restore-session`).
-            break
+            // sessions (startup fallback and `cmux restore-session`). A
+            // primary written by a newer schema is copied aside first, since
+            // the next autosave replaces it.
+            preserveNewerSchemaSnapshot(fileURL: primaryURL)
+            preserveNewerSchemaSnapshot(fileURL: backupURL)
         }
     }
 
@@ -156,24 +316,16 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     }
 
     private func snapshotFileURL(suffix: String) -> URL? {
-        let resolvedAppSupport: URL
-        if let appSupportDirectory {
-            resolvedAppSupport = appSupportDirectory
-        } else if let discovered = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            resolvedAppSupport = discovered
-        } else {
-            return nil
-        }
-        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-            ? bundleIdentifier!
-            : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
+        guard let appSupport = resolvedAppSupportDirectory() else { return nil }
+        return SessionSnapshotFileLocation.fileURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupport,
+            suffix: suffix
         )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
+    }
+
+    private func resolvedAppSupportDirectory() -> URL? {
+        appSupportDirectory
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     }
 }
