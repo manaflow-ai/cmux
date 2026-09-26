@@ -757,6 +757,13 @@ final class FileExplorerStore: ObservableObject {
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
     private(set) var selectedPaths: Set<String> = []
 
+    /// The directory history belongs to the file explorer, so changing the
+    /// workspace working directory can reset it without affecting the tree's
+    /// selection and expansion state.
+    private var navigationBackPaths: [String] = []
+    private var navigationForwardPaths: [String] = []
+    private var navigationHomeTask: Task<Void, Never>?
+
     /// Folder path whose first child should be selected once its async load completes.
     private var pendingDescendIntoFirstChildPath: String?
 
@@ -796,6 +803,13 @@ final class FileExplorerStore: ObservableObject {
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
         return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
+    }
+
+    var canNavigateBack: Bool { provider?.isAvailable == true && !navigationBackPaths.isEmpty }
+    var canNavigateForward: Bool { provider?.isAvailable == true && !navigationForwardPaths.isEmpty }
+    var canNavigateToParent: Bool {
+        guard provider?.isAvailable == true, let parent = Self.parentPath(of: rootPath) else { return false }
+        return parent != rootPath
     }
 
     // MARK: - Public API
@@ -841,6 +855,8 @@ final class FileExplorerStore: ObservableObject {
     func setWorkspaceRootIdentity(_ identity: UUID?) {
         guard workspaceRootIdentity != identity else { return }
         workspaceRootIdentity = identity
+        navigationBackPaths.removeAll()
+        navigationForwardPaths.removeAll()
         resetResourceContext()
         rootPath = ""
         updateDirectoryWatcher()
@@ -853,6 +869,8 @@ final class FileExplorerStore: ObservableObject {
 
     private func resetResourceContext(preservingNavigation: Bool = false) {
         resourceContextID = UUID()
+        navigationHomeTask?.cancel()
+        navigationHomeTask = nil
         cancelRemoteHomeResolution()
         cancelAllLoads()
         if !preservingNavigation {
@@ -863,6 +881,90 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func setRootPath(_ path: String) {
+        setRootPath(path, navigation: .reset)
+    }
+
+    /// Navigates the explorer root without changing the workspace's working
+    /// directory. Relative paths are resolved from the current root, while
+    /// `~` resolves through the active provider's home directory.
+    func navigate(to rawPath: String) {
+        navigationHomeTask?.cancel()
+        navigationHomeTask = nil
+        let input = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (input == "~" || input.hasPrefix("~/")),
+           let remoteProvider = provider as? any RemoteFileExplorerProvider,
+           remoteProvider.isAvailable, remoteProvider.homePath.isEmpty {
+            cancelRemoteHomeResolution()
+            navigateFromRemoteHome(input, provider: remoteProvider)
+            return
+        }
+        guard let path = normalizedNavigationPath(input) else { return }
+        guard let provider, provider.isAvailable else {
+            setRootStatusMessage(FileExplorerError.providerUnavailable.localizedDescription)
+            return
+        }
+
+        cancelRemoteHomeResolution()
+        if path == rootPath {
+            if rootStatusMessage != nil { reload() }
+            return
+        }
+        if !rootPath.isEmpty {
+            navigationBackPaths.append(rootPath)
+        }
+        navigationForwardPaths.removeAll()
+        setRootPath(path, navigation: .preserve)
+    }
+
+    private func navigateFromRemoteHome(_ input: String, provider: any RemoteFileExplorerProvider) {
+        let contextID = resourceContextID
+        navigationHomeTask = Task { [weak self] in
+            do {
+                let home = try await provider.resolveHomePath()
+                try Task.checkCancellation()
+                guard let self, self.resourceContextID == contextID, self.provider === provider else { return }
+                self.navigationHomeTask = nil
+                let path = input == "~" ? home : (home as NSString).appendingPathComponent(String(input.dropFirst(2)))
+                self.navigate(to: path)
+            } catch {
+                guard !Task.isCancelled, let self, self.resourceContextID == contextID,
+                      self.provider === provider else { return }
+                self.navigationHomeTask = nil
+                self.setRootStatusMessage(String(
+                    format: String(localized: "fileExplorer.status.remoteHomeFailed", defaultValue: "Unable to resolve remote home: %@"),
+                    error.localizedDescription
+                ))
+            }
+        }
+    }
+
+    func navigateBack() {
+        guard canNavigateBack, let path = navigationBackPaths.popLast() else { return }
+        if !rootPath.isEmpty {
+            navigationForwardPaths.append(rootPath)
+        }
+        setRootPath(path, navigation: .preserve)
+    }
+
+    func navigateForward() {
+        guard canNavigateForward, let path = navigationForwardPaths.popLast() else { return }
+        if !rootPath.isEmpty {
+            navigationBackPaths.append(rootPath)
+        }
+        setRootPath(path, navigation: .preserve)
+    }
+
+    func navigateToParent() {
+        guard let parent = Self.parentPath(of: rootPath), parent != rootPath else { return }
+        navigate(to: parent)
+    }
+
+    private enum NavigationMutation {
+        case reset
+        case preserve
+    }
+
+    private func setRootPath(_ path: String, navigation: NavigationMutation) {
         guard path != rootPath else {
             #if DEBUG
             NSLog("[FileExplorer] setRootPath skipped (same path): \(path)")
@@ -872,6 +974,13 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] setRootPath: \(rootPath) -> \(path)")
         #endif
+        navigationHomeTask?.cancel()
+        navigationHomeTask = nil
+        if case .reset = navigation {
+            navigationBackPaths.removeAll()
+            navigationForwardPaths.removeAll()
+        }
+        setRootStatusMessage(nil)
         if let selectedPath, !Self.path(selectedPath, isContainedIn: path) {
             self.selectedPath = nil
             selectedPaths = []
@@ -882,6 +991,38 @@ final class FileExplorerStore: ObservableObject {
         reload()
         refreshGitStatus()
         updateDirectoryWatcher()
+    }
+
+    private func normalizedNavigationPath(_ rawPath: String) -> String? {
+        var path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+
+        if path == "~" || path.hasPrefix("~/") {
+            guard let homePath = provider?.homePath, !homePath.isEmpty else { return nil }
+            path = path == "~" ? homePath : (homePath as NSString).appendingPathComponent(String(path.dropFirst(2)))
+        } else if !path.hasPrefix("/") {
+            let base = rootPath.isEmpty ? (provider?.homePath ?? "") : rootPath
+            guard !base.isEmpty else { return nil }
+            path = (base as NSString).appendingPathComponent(path)
+        }
+
+        // Resolve components lexically: remote paths must never touch this Mac's
+        // filesystem, and Foundation's parent-of-root behavior varies by macOS.
+        var components: [Substring] = []
+        for component in path.split(separator: "/") {
+            switch component {
+            case ".": continue
+            case "..": if !components.isEmpty { components.removeLast() }
+            default: components.append(component)
+            }
+        }
+        return "/" + components.joined(separator: "/")
+    }
+
+    private static func parentPath(of path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        let components = path.split(separator: "/")
+        return "/" + components.dropLast().joined(separator: "/")
     }
 
     func refreshGitStatus() {
@@ -973,7 +1114,11 @@ final class FileExplorerStore: ObservableObject {
         case (nil, nil): providerChanged = false
         default: providerChanged = true
         }
-        if providerChanged { resetResourceContext(preservingNavigation: true) }
+        if providerChanged {
+            navigationBackPaths.removeAll()
+            navigationForwardPaths.removeAll()
+            resetResourceContext(preservingNavigation: true)
+        }
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
@@ -1207,6 +1352,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     deinit {
+        navigationHomeTask?.cancel()
         remoteHomeResolutionTask?.cancel()
         directoryWatchTask?.cancel()
     }
