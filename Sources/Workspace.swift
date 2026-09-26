@@ -2683,6 +2683,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// (and so reading it during teardown does not lazily create one).
     private(set) var _dockSplit: DockSplitStore?
 
+    /// Updates every Bonsplit controller owned by this workspace with the host-resolved surface shortcut.
+    func updateSurfaceNumberShortcutModifier(_ modifier: TabControlShortcutModifier?) {
+        bonsplitController.surfaceNumberShortcutModifier = modifier
+        _dockSplit?.bonsplitController.surfaceNumberShortcutModifier = modifier
+    }
+
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
     /// Created on first access so workspaces that never open the Dock pay nothing.
@@ -4022,6 +4028,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.surfaceNumberShortcutModifier =
+            KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()

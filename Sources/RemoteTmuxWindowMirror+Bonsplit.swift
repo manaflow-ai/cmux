@@ -15,6 +15,8 @@ extension RemoteTmuxWindowMirror {
 
     func configureBonsplitController() {
         bonsplitController.delegate = self
+        bonsplitController.surfaceNumberShortcutModifier =
+            KeyboardShortcutSettings.resolvedSurfaceNumberShortcutModifier()
         bonsplitController.tabShortcutHintsEnabled = false
         bonsplitController.onExternalTabDrop = { _ in false }
     }

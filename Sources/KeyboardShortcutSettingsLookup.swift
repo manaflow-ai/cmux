@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxSettings
 import CmuxSettingsUI
 import Foundation
@@ -151,5 +152,21 @@ extension KeyboardShortcutSettings.Action {
         default:
             return false
         }
+    }
+}
+
+extension KeyboardShortcutSettings {
+    /// Resolves the surface-number shortcut into the Bonsplit tab-hint value.
+    ///
+    /// Bonsplit is intentionally independent of cmux's settings stores, so the
+    /// executable supplies this resolved value instead of sharing persistence.
+    @MainActor
+    static func resolvedSurfaceNumberShortcutModifier() -> TabControlShortcutModifier? {
+        guard let shortcut = shortcutIfBound(for: .selectSurfaceByNumber) else { return nil }
+        let stroke = shortcut.secondStroke ?? shortcut.firstStroke
+        return TabControlShortcutModifier(
+            modifierFlags: stroke.modifierFlags,
+            symbol: shortcut.numberedDigitHintPrefix
+        )
     }
 }
