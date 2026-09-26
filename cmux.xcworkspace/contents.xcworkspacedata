@@ -47,6 +47,9 @@
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
       <FileRef
+         location = "group:CmuxTerminalClient">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTerminalPrediction">
       </FileRef>
       <FileRef
@@ -76,6 +79,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileChanges">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCloud">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCrashReporting">
