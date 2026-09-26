@@ -561,9 +561,18 @@ _cmux_tmux_shell_env_signature() {
     print -r -- "${(j:\x1f:)parts}"
 }
 
+# A published environment only matters to a running default tmux server; a
+# server started later inherits it from the shell that starts it. Checking the
+# socket keeps every prompt and command from spawning a tmux client that can
+# only fail when no server is running.
+_cmux_tmux_default_server_running() {
+    [[ -S "${TMUX_TMPDIR:-/tmp}/tmux-${UID}/default" ]]
+}
+
 _cmux_tmux_publish_cmux_environment() {
     [[ -z "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
+    _cmux_tmux_default_server_running || return 0
 
     local signature
     signature="$(_cmux_tmux_shell_env_signature)"
@@ -890,7 +899,7 @@ _cmux_ports_kick() {
     if _cmux_socket_is_unix; then
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
-    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+    _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
     if _cmux_socket_is_unix; then
         _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
     else
@@ -1678,7 +1687,8 @@ _cmux_halt_pr_poll_loop() {
     [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
     local signal_path=""
     [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
-    [[ -z "$signal_path" ]] || /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    # preexec runs this before every command; only spawn rm when there is a file.
+    [[ -n "$signal_path" && -e "$signal_path" ]] && { /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true; }
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
 }
@@ -1863,7 +1873,7 @@ _cmux_preexec() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _CMUX_CMD_START="$(_cmux_now)"
+    _CMUX_CMD_START="${EPOCHSECONDS:-$SECONDS}"
     _cmux_report_shell_activity_state running
     _cmux_record_pr_command_hint "$cmd"
 
@@ -1956,7 +1966,7 @@ _cmux_precmd() {
 
     _cmux_report_tty_once
 
-    local now="$(_cmux_now)"
+    local now="${EPOCHSECONDS:-$SECONDS}"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
     local pwd="$PWD"

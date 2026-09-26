@@ -62,11 +62,23 @@ if test "$_cmux_integration_enabled" != 0
         string join \x1f -- $parts
     end
 
+    # A published environment only matters to a running default tmux server;
+    # skip the tmux client spawn on every prompt when none is running.
+    function _cmux_tmux_default_server_running
+        set -q _CMUX_TMUX_UID; or set -g _CMUX_TMUX_UID (id -u)
+        set -l tmpdir /tmp
+        if set -q TMUX_TMPDIR; and test -n "$TMUX_TMPDIR"
+            set tmpdir $TMUX_TMPDIR
+        end
+        test -S "$tmpdir/tmux-$_CMUX_TMUX_UID/default"
+    end
+
     function _cmux_tmux_publish_cmux_environment
         if set -q TMUX; and test -n "$TMUX"
             return 0
         end
         command -sq tmux; or functions -q tmux; or return 0
+        _cmux_tmux_default_server_running; or return 0
 
         set -l signature (_cmux_tmux_shell_env_signature)
         test -n "$signature"; or return 0

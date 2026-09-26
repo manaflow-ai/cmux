@@ -191,16 +191,57 @@ def assert_background_send_is_capability_authenticated(
         )
 
 
+def tmux_environment(
+    shell_name: str,
+    integration: Path,
+    directory: Path,
+    server_running: bool,
+) -> tuple[dict[str, str], Path, Optional[socket.socket]]:
+    log_path = directory / f"{shell_name}-{server_running}-tmux.log"
+    tmux_tmpdir = directory / f"{shell_name}-{server_running}-tmux-tmp"
+    socket_directory = tmux_tmpdir / f"tmux-{os.getuid()}"
+    socket_directory.mkdir(parents=True)
+    server: Optional[socket.socket] = None
+    if server_running:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(socket_directory / "default"))
+    environment = base_environment(integration, directory)
+    environment["CMUX_TEST_TMUX_LOG"] = str(log_path)
+    environment["TMUX_TMPDIR"] = str(tmux_tmpdir)
+    return environment, log_path, server
+
+
+def assert_tmux_not_spawned_without_server(
+    shell_name: str,
+    integration: Path,
+    argv_prefix: list[str],
+    directory: Path,
+) -> None:
+    environment, log_path, _ = tmux_environment(
+        shell_name, integration, directory, server_running=False
+    )
+    run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    if log_path.exists() and log_path.read_text(encoding="utf-8"):
+        raise AssertionError(
+            f"{shell_name} ran tmux with no default tmux server:\n"
+            f"{log_path.read_text(encoding='utf-8')}"
+        )
+
+
 def assert_tmux_does_not_publish_capability(
     shell_name: str,
     integration: Path,
     argv_prefix: list[str],
     directory: Path,
 ) -> None:
-    log_path = directory / f"{shell_name}-tmux.log"
-    environment = base_environment(integration, directory)
-    environment["CMUX_TEST_TMUX_LOG"] = str(log_path)
-    run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    environment, log_path, server = tmux_environment(
+        shell_name, integration, directory, server_running=True
+    )
+    try:
+        run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    finally:
+        if server is not None:
+            server.close()
     output = log_path.read_text(encoding="utf-8")
     forbidden = "set-environment -g CMUX_SOCKET_CAPABILITY "
     if forbidden in output:
@@ -230,6 +271,12 @@ def main() -> int:
                 directory,
             )
             assert_tmux_does_not_publish_capability(
+                shell_name,
+                integration,
+                argv_prefix,
+                directory,
+            )
+            assert_tmux_not_spawned_without_server(
                 shell_name,
                 integration,
                 argv_prefix,
