@@ -1,6 +1,7 @@
 internal import Foundation
 
 /// The small system-domain bodies: `auth.login`, `session.restore_previous`,
+/// `session.import`, `session.export`,
 /// `settings.open`, `feedback.open`, `extension.sidebar.snapshot`, the
 /// `surface.split_off` / `surface.drag_to_split` bridge, and the DEBUG-only
 /// `mobile.dev_stack_auth.configure`.
@@ -23,6 +24,78 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: message, data: nil)
         case nil:
             return .err(code: "not_found", message: "No previous session snapshot available", data: nil)
+        }
+    }
+
+    /// `session.import` — reopen another install's saved session (`source`:
+    /// a channel name or bundle identifier) or a snapshot file (`path`, an
+    /// absolute path) as additional windows.
+    func sessionImport(_ params: [String: JSONValue]) -> ControlCallResult {
+        let path = string(params, "path")
+        let channel = string(params, "source")
+        let source: ControlSessionImportSource
+        switch (path, channel) {
+        case (let path?, nil):
+            guard path.hasPrefix("/") else {
+                return .err(
+                    code: "invalid_params",
+                    message: "session.import params.path must be an absolute path",
+                    data: .object(["path": .string(path)])
+                )
+            }
+            source = .file(path: path)
+        case (nil, let channel?):
+            source = .channel(channel)
+        default:
+            return .err(
+                code: "invalid_params",
+                message: "session.import requires exactly one of params.source or params.path",
+                data: nil
+            )
+        }
+        guard let systemContext else {
+            return .err(code: "unavailable", message: "Session context not attached", data: nil)
+        }
+        switch systemContext.controlSessionImport(source: source) {
+        case let .restored(sourcePath, windowCount, heldBackResumeCount, droppedRemoteWorkspaceCount):
+            return .ok(.object([
+                "restored": .bool(true),
+                "source_path": .string(sourcePath),
+                "window_count": .int(Int64(windowCount)),
+                "trusted": .bool(source.isTrusted),
+                "held_back_resume_count": .int(Int64(heldBackResumeCount)),
+                "dropped_remote_workspace_count": .int(Int64(droppedRemoteWorkspaceCount)),
+            ]))
+        case let .failed(code, message, path):
+            return .err(code: code, message: message, data: .object(["path": orNull(path)]))
+        }
+    }
+
+    /// `session.export` — write this install's saved session snapshot to an
+    /// absolute `path`; `force` allows replacing an existing file.
+    func sessionExport(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let path = string(params, "path") else {
+            return .err(code: "invalid_params", message: "session.export requires params.path", data: nil)
+        }
+        guard path.hasPrefix("/") else {
+            return .err(
+                code: "invalid_params",
+                message: "session.export params.path must be an absolute path",
+                data: .object(["path": .string(path)])
+            )
+        }
+        guard let systemContext else {
+            return .err(code: "unavailable", message: "Session context not attached", data: nil)
+        }
+        switch systemContext.controlSessionExport(path: path, overwrite: bool(params, "force") ?? false) {
+        case let .exported(exportedPath, sourcePath):
+            return .ok(.object([
+                "exported": .bool(true),
+                "path": .string(exportedPath),
+                "source_path": .string(sourcePath),
+            ]))
+        case let .failed(code, message, path):
+            return .err(code: code, message: message, data: .object(["path": orNull(path)]))
         }
     }
 

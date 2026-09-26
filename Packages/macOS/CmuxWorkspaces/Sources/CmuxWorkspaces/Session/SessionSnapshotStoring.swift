@@ -49,4 +49,39 @@ public protocol SessionSnapshotStoring<SnapshotValue>: Sendable {
     /// Location of the manual-restore backup snapshot file, or nil when
     /// Application Support cannot be resolved.
     func manualRestoreSnapshotFileURL() -> URL?
+
+    /// Location of another install's primary snapshot file (same user
+    /// Application Support, `session-<bundleIdentifier>.json`), or nil when
+    /// Application Support cannot be resolved.
+    func snapshotFileURL(bundleIdentifier: String) -> URL?
+
+    /// Reads and validates the snapshot at `fileURL` for import, reporting
+    /// why it cannot be restored (missing, unreadable, not a snapshot,
+    /// newer or older schema version, no windows, or this install's own live
+    /// snapshot). Never writes.
+    func importableSnapshot(
+        fileURL: URL
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>
+
+    /// Reads and validates another install's snapshot for import: its
+    /// primary file, falling back to its `-previous` backup like startup
+    /// restore does. Refuses this install's own bundle identifier. Never
+    /// writes either file.
+    func importableSnapshot(
+        bundleIdentifier: String
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError>
+
+    /// Copies this install's saved snapshot (the primary when usable,
+    /// otherwise the backup) to `destination` after validating it.
+    ///
+    /// - Returns: The snapshot file that was copied.
+    func exportSnapshot(to destination: URL, overwrite: Bool) -> Result<URL, SessionSnapshotExportError>
+
+    /// When the file at `fileURL` holds a snapshot from a newer schema
+    /// version, copies it to a `.schema-v<N>.json` side file so a later save
+    /// at the current schema does not destroy it.
+    ///
+    /// - Returns: The side file, or nil when nothing needed preserving.
+    @discardableResult
+    func preserveNewerSchemaSnapshot(fileURL: URL) -> URL?
 }

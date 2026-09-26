@@ -39,10 +39,15 @@ extension AppDelegate {
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
             if !preserveExistingBackup && !Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+                sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
                 sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
         case .unusable:
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+            // A snapshot from a newer schema (after a downgrade) is unusable
+            // here, and the next autosave would replace it. Copy it aside.
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: primaryURL)
+            sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
         }
     }
 

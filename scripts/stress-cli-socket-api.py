@@ -210,6 +210,8 @@ SKIPPED_SOCKET_METHODS = {
     "feed.exit_plan.reply": "mutates feed state",
     "events.stream": "streaming protocol, covered by cmux events --limit",
     "session.restore_previous": "mutates app session state",
+    "session.import": "opens windows from another install's saved session",
+    "session.export": "writes a session snapshot file",
     "workspace.remote.configure": "requires remote workspace credentials",
     "workspace.remote.foreground_auth_ready": "requires remote workspace state",
     "workspace.remote.reconnect": "requires remote workspace state",
