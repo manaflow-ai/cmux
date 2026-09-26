@@ -275,19 +275,35 @@ every canonical root, then kept seeds on a mini with one root, at most 8) as the
 artifact. The queue janitor folds new ones into its snapshot's `warm`
 (`owned_warm_state.py`): for each root runner, the keys of its newest
 admission, with the runner taken from the jobs API rather than the artifact.
-With live runners, the picker sends a run's admission to
-`["<root label>", "glaeda-runner-<runner name>"]` when an idle root runner is
-warm for the merge base, or failing that for the same pull request (a
-re-push), and carries that static label, which glaeda-cmux-runner gives every
-root runner at install (the `admission_runner` output, attempt 1 only);
-otherwise admission takes the root label as before. A job's root follows the
-free token, not the runner, so glaeda's job-started hook gives such an
-admission the root whose stamp is warm for it. No job writes a runner label,
-so the routing App needs only the organization permission "Self-hosted
-runners: Read-only"; without it the picker cannot list live runners and
-never routes by warmth. Keys match exactly; runners are not ranked by commit
-distance. A warm runner taken between the pick and the queue leaves
-admission waiting, and the rescue moves it to Blacksmith like any other stuck owned job.
+With live runners, the picker routes by cost (`warm_distance.py
+route_admission()`): each online root runner that carries its static label,
+which glaeda-cmux-runner gives every root runner at install, costs its
+expected wait (0 when idle, else what its current job has left, from the
+janitor's `running` and the fitted job lengths) plus the compile predicted for
+its start: a kept build of the merge base, of the same pull request (a
+re-push), or neither, by the pull request's own distance tier. The root label
+costs the cold compile, plus the first busy runner's wait when the live count
+leaves no root runner free. When the cheapest warm runner beats it by 30 s,
+admission's attempt 1 takes `["<root label>", "glaeda-runner-<runner name>"]`
+(the `admission_runner` output); otherwise the root label as before. A busy
+runner is waited for only within `CI_PR_POOL_QUEUE_ROUNDS` x 900 s, at most
+600 s, which the rescue already allows every CI run's attempt-1 owned job
+(`owned_pool_rescue.queue_seconds()`), so with the rounds at 0 only idle
+runners are pinned. A job's root follows the free token, not the runner, so
+glaeda's job-started hook gives such an admission the root with the lowest
+predicted compile. No job writes a runner label, so the routing App needs
+only the organization permission "Self-hosted runners: Read-only"; without it
+the picker cannot list live runners and never routes by warmth. A warm runner
+taken between the pick and the queue leaves admission waiting, and the rescue
+moves it to Blacksmith like any other stuck owned job.
+
+The cost model is `scripts/ci/warm-distance-model.json`, fitted by
+`scripts/ci/warm_distance.py fit` from the line every owned admission appends
+to `/Users/Shared/cmux-build-fleet/ci/admissions.jsonl` on its mini (start,
+distance in app Swift files, package interface and hot files, Swift units,
+app rebuild, compile/admission/queue seconds, route). Refit with
+`warm_distance.py collect <minis> > data.jsonl` and `warm_distance.py fit
+data.jsonl --git <cmux checkout> --out scripts/ci/warm-distance-model.json`.
 
 Spread-first admission (`CI_OWNED_SPREAD=1`, off by default): two compiles
 (8 to 10 of a mini's 14 cores each) could take both roots of one mini while

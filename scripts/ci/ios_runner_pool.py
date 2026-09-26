@@ -276,7 +276,7 @@ def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | 
 def pool_slots(owned_slots: str | None, pr_xcode_app: str | None) -> dict[str, int]:
     """The owned pools' machines, without root counts: iOS jobs never take a root label."""
     return {label: count for label, count in pr_runner_pool.slots(owned_slots, pr_xcode_app).items()
-            if not label.startswith(pr_runner_pool.ROOT_PREFIX)}
+            if not label.startswith((pr_runner_pool.ROOT_PREFIX, pr_runner_pool.GUI_PREFIX))}
 
 
 def sim_free(load: IOSLoad, capacity: int) -> int:

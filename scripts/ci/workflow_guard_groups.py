@@ -104,6 +104,9 @@ PATH_OWNERS = {
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_ci_auto_catch_up_select.py imports the selector and replays its fixture.
+    "scripts/ci/auto_catch_up_select.py": frozenset(("ci",)),
+    "tests/fixtures/auto_catch_up/replay.json": frozenset(("ci",)),
     # test_ci_merge_main.py runs merge-main end to end: the green-base
     # selection, the catch-up merge above, and the guard runner it reruns
     # failed steps with (test_ci_run_guards.py also imports the runner).

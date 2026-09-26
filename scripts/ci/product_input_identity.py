@@ -175,6 +175,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     # What the kept DerivedData starts from, for the warm runner labels.
     "List the commits this owned Mac starts from warm",
     "Upload the owned Mac's warm keys",
+    "Record warm-state distance",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",

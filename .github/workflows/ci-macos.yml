@@ -119,6 +119,17 @@ on:
         required: false
         default: ""
         type: string
+      # Set only beside pr_root_runner, when CI_OWNED_POOL_SLOTS gives the
+      # gui label a count: glaeda-gui-<class>-xcode-<version>. Each mini has
+      # one gui token and one runner carrying this label, whose listener
+      # stops while the token or every root is taken. The GUI jobs (the
+      # shards, tests-build-and-lag) take it wherever they would take the
+      # root label, so a second GUI job waits in GitHub's queue for another
+      # mini instead of on a root runner here, where glaeda refuses it.
+      pr_gui_runner:
+        required: false
+        default: ""
+        type: string
       # Set only beside pr_root_runner, when an idle root runner kept a build
       # of this run's merge base: the JSON array ["<root label>",
       # "glaeda-runner-<name>"] (pr_runner_pool.py, warm affinity). Compile
@@ -200,6 +211,7 @@ jobs:
       contents: read
     outputs:
       runner: ${{ steps.place.outputs.runner }}
+      placement: ${{ steps.place.outputs.placement }}
     steps:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
@@ -802,10 +814,17 @@ jobs:
       # What the next owned job's adopt replays, after either adopt above has
       # set the times this compile sees. About 4 s (seed-derived-data.yml's
       # record of the same tree).
+      # It also writes the exact distance from the adopted start (the paths
+      # whose content differs from the start's record) for the warm-distance
+      # record below, and keeps the start's stamp before `keep` replaces it.
       - name: Record this owned Mac's build inputs
         if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.fingerprint != ''
         continue-on-error: true
-        run: python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+        env:
+          CMUX_WARM_DISTANCE_START: ${{ runner.temp }}/warm-distance-start.json
+        run: |
+          cp "$CMUX_OWNED_STATE_ROOT/stamp.json" "$RUNNER_TEMP/warm-start-stamp.json" 2>/dev/null || true
+          python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Compile app-host test product
         id: hosted-compile
@@ -841,6 +860,7 @@ jobs:
         run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
 
       - name: Keep this owned Mac's DerivedData
+        id: owned-keep
         # Before the steps below stage frameworks into Build/Products and
         # rewrite the xctestruns: the kept DerivedData is the one Xcode left.
         if: steps.hosted-compile.outcome == 'success' && steps.owned-state.outputs.fingerprint != ''
@@ -1275,6 +1295,36 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      # One line per owned admission in the mini's admissions.jsonl: its start
+      # (kept build, seed or cold), the distance from it in app Swift files,
+      # package interface and hot files, the Swift units compiled, whether the
+      # `cmux` module was rebuilt, the compile, admission and queue seconds and
+      # the routing decisions, plus a line in the step summary. It also stamps
+      # the kept build with this pull request's own files for glaeda's root
+      # choice. scripts/ci/warm_distance.py; never fails the job.
+      - name: Record warm-state distance
+        if: ${{ !cancelled() && steps.owned-state.outputs.fingerprint != '' && steps.hosted-compile.outcome != 'skipped' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CMUX_WARM_DISTANCE_START: ${{ runner.temp }}/warm-distance-start.json
+          CMUX_WARM_START_STAMP: ${{ runner.temp }}/warm-start-stamp.json
+          SEED_HIT: ${{ steps.seed-derived-data.outputs.hit }}
+          SEED_KEY: ${{ steps.seed-derived-data.outputs.key }}
+          SEED_LOCAL: ${{ steps.seed-derived-data.outputs.local }}
+          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}
+          OWNED_ADOPT_HIT: ${{ steps.owned-adopt.outputs.hit }}
+          KEPT: ${{ steps.owned-keep.outputs.kept }}
+          COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
+          METRICS: ${{ steps.admission-metrics.outputs.path }}
+          BUILD_LOGS: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
+          ADMISSION_RUNNER: ${{ github.run_attempt == 1 && (needs.admission-placement.outputs.runner || inputs.pr_admission_runner) || '' }}
+          PLACEMENT: ${{ needs.admission-placement.outputs.placement }}
+        run: python3 scripts/ci/warm_distance.py admission "$CMUX_OWNED_STATE_ROOT"
+
       - name: Seed node-local compiled product cache
         if: steps.publish-products.outputs.publish == 'true'
         continue-on-error: true
@@ -1538,6 +1588,7 @@ jobs:
           UNIT_SELECTORS: ${{ inputs.unit_selectors }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
         run: python3 scripts/ci/late_placement.py
@@ -1604,7 +1655,7 @@ jobs:
     # Xcode with more room, and admission's own pool when it is empty. A
     # placed shard takes the admission's runner, which is pr_root_runner
     # when the pool has one.
-    runs-on: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
+    runs-on: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1688,7 +1739,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1880,6 +1931,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
           CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
@@ -1903,7 +1955,7 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
@@ -2776,6 +2828,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
           CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
@@ -2799,7 +2852,7 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
@@ -3436,7 +3489,7 @@ jobs:
     # full-suite dispatch follows admission onto the pull-request pool and
     # Xcode. The product consumer guard in the CI change-area tests fails when
     # the two drift.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -3449,7 +3502,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -3605,6 +3658,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
           CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
@@ -3628,7 +3682,7 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 

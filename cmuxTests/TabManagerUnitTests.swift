@@ -918,7 +918,9 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertFalse(appDelegate.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
     }
 
-    func testSessionSnapshotKeepsWindowWithNoRestorableWorkspaces() throws {
+    /// A window whose only workspace is not restorable has nothing to replay,
+    /// so the session policy drops it as a phantom window (#14788).
+    func testSessionSnapshotDropsWindowWithNoRestorableWorkspaces() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -944,9 +946,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         XCTAssertFalse(workspace.isRestorableInSessionSnapshot)
-        let snapshot = try XCTUnwrap(appDelegate.sessionSnapshotForTesting())
-        XCTAssertEqual(snapshot.windows.count, 1)
-        XCTAssertTrue(snapshot.windows[0].tabManager.workspaces.isEmpty)
+        XCTAssertNil(appDelegate.sessionSnapshotForTesting())
     }
 
     func testClosedWindowHistorySkipsWindowWithNoRestorableWorkspaces() throws {

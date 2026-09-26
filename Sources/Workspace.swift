@@ -677,7 +677,9 @@ extension Workspace {
                 : nil
             let closeConfirmationRequired = Self.resolveCloseConfirmation(
                 shellActivityState: panelShellActivityStates[panelId],
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+                // Lock-free: the autosave tick must not block the main thread on the
+                // surface renderer mutex (#6381).
+                fallbackNeedsConfirmClose: terminalPanel.surface.snapshotNeedsConfirmClose()
             )
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: closeConfirmationRequired

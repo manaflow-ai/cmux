@@ -1,4 +1,4 @@
-import CmuxFoundation
+@testable import CmuxFoundation
 import AppKit
 import CMUXAgentLaunch
 import Foundation
@@ -934,7 +934,8 @@ struct HermesFirstClassSupportTests {
         let resumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
-            cachedRestorableAgentIndex: cached
+            cachedRestorableAgentIndex: cached,
+            processSnapshotService: fixtureProcessSnapshotService()
         )
         let revalidated = try #require(
             resumeIndexes.restorableAgentIndex.entry(
@@ -1003,10 +1004,12 @@ struct HermesFirstClassSupportTests {
             arguments: [fixture.hermesExecutable, "--resume", "new-hook-session"]
         )
 
+        let processSnapshotService = fixtureProcessSnapshotService()
         let staleResumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
-            cachedRestorableAgentIndex: .empty
+            cachedRestorableAgentIndex: .empty,
+            processSnapshotService: processSnapshotService
         )
         #expect(
             staleResumeIndexes.restorableAgentIndex.entry(
@@ -1017,7 +1020,8 @@ struct HermesFirstClassSupportTests {
 
         let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFreshOnWorker(
             homeDirectory: fixture.root.path,
-            fileManager: .default
+            fileManager: .default,
+            processSnapshotService: processSnapshotService
         )
         let discovered = try #require(
             freshResumeIndexes.restorableAgentIndex.entry(
@@ -1750,6 +1754,19 @@ struct HermesFirstClassSupportTests {
         )
     }
 
+    /// A complete census in which none of the fixture's recorded agent PIDs
+    /// are live. The real host census reports itself incomplete whenever any
+    /// process on the machine exits mid-scan, which fails these lifecycle loads
+    /// closed on a busy CI runner and has nothing to do with Hermes.
+    private func fixtureProcessSnapshotService()
+        -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
+        let sampler = CmuxTopProcessSampler(reader: HermesFixtureProcessReader())
+        return ProcessSnapshotService(
+            capture: { try sampler.capture() },
+            enrich: { try sampler.enrich($0, fields: $1) }
+        )
+    }
+
     private func loadHookBackedHermesIndex(
         fixture: Fixture,
         processID: Int,
@@ -1870,6 +1887,19 @@ struct HermesFirstClassSupportTests {
 }
 
 private final class HermesFirstClassBundleToken {}
+
+/// Enumerates no processes, completely. No live PID, argv or environment is read.
+private struct HermesFixtureProcessReader: CmuxTopProcessReading {
+    func enumerate() -> DarwinProcessListing {
+        DarwinProcessListing(processes: [], isComplete: true, missingProcessCount: 0)
+    }
+    func taskInfo(for pid: Int) -> proc_taskinfo? { nil }
+    func resourceUsage(for pid: Int) -> rusage_info_v4? { nil }
+    func processName(pid: Int, fallback: String) -> String { fallback }
+    func processPath(pid: Int) -> String? { nil }
+    func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope? { nil }
+    func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool { false }
+}
 
 private enum HermesFirstClassTestError: Error {
     case sqlite(String)

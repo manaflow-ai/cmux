@@ -70,6 +70,26 @@ struct SSHTuiMigrationTests {
         #expect(values.contains(Substring("identityfile " + key.path)))
     }
 
+    @Test("The carrier authenticates in batch mode and keeps reconnecting after startup")
+    func carrierKeepsUnlimitedBatchReconnects() {
+        let arguments = SSHTuiConnection(configuration: configuration()).arguments(
+            stateDirectory: "/tmp/cmux-tui-client",
+            deviceName: "test"
+        )
+        let sshArguments = arguments.indices.compactMap { index -> String? in
+            guard index > 0, arguments[index - 1] == "--ssh-arg" else { return nil }
+            return arguments[index]
+        }
+        for option in ["BatchMode=yes", "RequestTTY=no", "RemoteCommand=none"] {
+            #expect(zip(sshArguments, sshArguments.dropFirst()).contains { $0 == ("-o", option) })
+        }
+        // Reconnect limits apply to the whole carrier lifetime, so capping them
+        // would end SSH persistence after the first network drop.
+        for limit in ["--reconnect-attempts", "--reconnect-attempt-timeout-ms", "--connect-timeout-seconds"] {
+            #expect(!arguments.contains(limit))
+        }
+    }
+
     @Test("Changing a ControlMaster path does not change persistent SSH terminal identity")
     func sessionIdentitySurvivesCarrierReplacement() {
         let first = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/first", "ProxyJump=bastion"]))
