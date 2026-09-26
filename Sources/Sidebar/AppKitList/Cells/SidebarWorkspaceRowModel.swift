@@ -14,7 +14,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     // `var` only so `hasHeightEquivalentContent` can compare
     // position-neutralized copies; the stored value stays authoritative.
     var index: Int
-    let snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    /// Replaced by the native row's per-workspace churn pump while retaining
+    /// the immutable row identity and interaction values.
+    var snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
     let settings: SidebarTabItemSettingsSnapshot
     // `var` (not `let`) so the optimistic press/deselect paint can apply a
     // selection-flipped copy of the model; the stored model stays
