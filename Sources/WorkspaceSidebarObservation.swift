@@ -226,6 +226,7 @@ private struct SidebarObservationState: Equatable {
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
+    let manualPullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -369,6 +370,7 @@ extension Workspace {
                     gitBranch: gitFields.0,
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
+                    manualPullRequest: sidebarMetadata.manualPullRequest,
                     panelPullRequests: gitFields.3,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,

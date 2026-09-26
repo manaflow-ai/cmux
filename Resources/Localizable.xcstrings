@@ -619,6 +619,596 @@
         }
       }
     },
+    "cli.pr.error.ambiguousWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: could not identify the caller workspace; run it inside a cmux terminal or pass --workspace <id|ref|index>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: Der aufrufende Workspace konnte nicht ermittelt werden. Führen Sie den Befehl in einem cmux-Terminal aus oder übergeben Sie --workspace <id|ref|index>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr : impossible d’identifier le workspace appelant ; exécutez la commande dans un terminal cmux ou indiquez --workspace <id|ref|index>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: تعذر تحديد مساحة العمل المستدعية؛ شغّله داخل طرفية cmux أو مرّر --workspace <id|ref|index>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: no se pudo identificar el espacio de trabajo que llama; ejecútalo en un terminal de cmux o pasa --workspace <id|ref|index>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr：無法識別呼叫端工作區；請在 cmux 終端機中執行，或傳入 --workspace <id|ref|index>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr：无法识别调用方工作区；请在 cmux 终端中运行，或传入 --workspace <id|ref|index>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: 호출한 워크스페이스를 식별할 수 없습니다. cmux 터미널 안에서 실행하거나 --workspace <id|ref|index>를 전달하세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: 呼び出し元ワークスペースを特定できません。cmux ターミナル内で実行するか --workspace <id|ref|index> を渡してください"
+          }
+        }
+      }
+    },
+    "cli.pr.error.notRepository": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr requires a git repository in the current directory"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr benötigt ein Git-Repository im aktuellen Verzeichnis"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr nécessite un dépôt Git dans le répertoire courant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب cmux pr مستودع Git في الدليل الحالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr requiere un repositorio Git en el directorio actual"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 需要目前目錄中的 Git 儲存庫"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 需要当前目录中的 Git 仓库"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr은 현재 디렉터리에 Git 저장소가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr には現在のディレクトリに Git リポジトリが必要です"
+          }
+        }
+      }
+    },
+    "cli.pr.error.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr expects a pull-request URL or a positive pull-request number"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr erwartet eine Pull-Request-URL oder eine positive Pull-Request-Nummer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr attend une URL de pull request ou un numéro positif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتوقع cmux pr رابط طلب سحب أو رقمًا موجبًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr espera una URL de pull request o un número positivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 需要拉取請求網址或正整數編號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 需要拉取请求网址或正整数编号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr은 풀 리퀘스트 URL 또는 양의 풀 리퀘스트 번호를 요구합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr にはプルリクエスト URL または正の番号が必要です"
+          }
+        }
+      }
+    },
+    "cli.pr.error.lookupFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr could not resolve the pull request; check authentication and try again"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr konnte den Pull Request nicht auflösen; prüfen Sie die Anmeldung und versuchen Sie es erneut"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr n’a pas pu résoudre la pull request ; vérifiez l’authentification puis réessayez"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux pr العثور على طلب السحب؛ تحقق من تسجيل الدخول ثم حاول مرة أخرى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr no pudo resolver la pull request; comprueba la autenticación y vuelve a intentarlo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 無法解析拉取請求；請檢查登入狀態後再試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 无法解析拉取请求；请检查登录状态后重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr에서 풀 리퀘스트를 확인할 수 없습니다. 인증 상태를 확인한 후 다시 시도하세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr はプルリクエストを解決できませんでした。認証を確認して再試行してください"
+          }
+        }
+      }
+    },
+    "cli.pr.error.lookupMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr received invalid pull-request information"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr erhielt ungültige Pull-Request-Informationen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr a reçu des informations de pull request invalides"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقى cmux pr معلومات غير صالحة عن طلب السحب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr recibió información no válida de la pull request"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 收到無效的拉取請求資訊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr 收到无效的拉取请求信息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr에서 잘못된 풀 리퀘스트 정보를 받았습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr は無効なプルリクエスト情報を受け取りました"
+          }
+        }
+      }
+    },
+    "cli.pr.error.repositoryMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: the pull request does not belong to the detected repository"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: Der Pull Request gehört nicht zum erkannten Repository"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr : la pull request n’appartient pas au dépôt détecté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: لا ينتمي طلب السحب إلى المستودع المكتشف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: la pull request no pertenece al repositorio detectado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr：拉取請求不屬於偵測到的儲存庫"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr：拉取请求不属于检测到的仓库"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: 풀 리퀘스트가 감지된 저장소에 속하지 않습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux pr: プルリクエストは検出されたリポジトリに属していません"
+          }
+        }
+      }
+    },
+    "cli.pr.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAttach or replace a pull-request link immediately. Requires a Git repository and account authentication.\nUses the repository associated with the current directory, including its configured upstream.\nTarget: explicit workspace, caller TTY, configured workspace, then a unique worktree match.\n--window restricts resolution; ambiguous targets fail without changing focus.\nThe manual link survives branch refreshes until replaced, cleared, or the session ends.\nThe existing watcher refreshes matching pull-request status. Clear removes only the manual link.\nSidebar visibility and click settings still apply.\n\nExample:\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nVerknüpft oder ersetzt sofort einen Pull-Request-Link. Erfordert ein Git-Repository und eine authentifizierte Anmeldung.\nVerwendet das Repository des aktuellen Verzeichnisses einschließlich des konfigurierten Upstreams.\nZiel: expliziter Workspace, aufrufendes TTY, konfigurierter Workspace, dann ein eindeutiger Worktree-Treffer.\n--window begrenzt die Suche; mehrdeutige Ziele schlagen ohne Fokuswechsel fehl.\nDer manuelle Link bleibt bei Branch-Aktualisierungen bis zum Ersetzen, Löschen oder Sitzungsende erhalten.\nDer vorhandene Watcher aktualisiert den passenden Pull-Request-Status. Clear entfernt nur den manuellen Link.\nSidebar-Sichtbarkeits- und Klickeinstellungen gelten weiterhin.\n\nBeispiel:\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAssocie ou remplace immédiatement un lien de pull request. Nécessite un dépôt Git et une authentification.\nUtilise le dépôt associé au répertoire courant, y compris son amont configuré.\nCible : workspace explicite, TTY appelant, workspace configuré, puis worktree unique correspondant.\n--window restreint la recherche ; une cible ambiguë échoue sans changer le focus.\nLe lien manuel survit aux actualisations de branche jusqu’à son remplacement, sa suppression ou la fin de session.\nLe suivi existant actualise le statut de la pull request correspondante. Clear supprime uniquement le lien manuel.\nLes réglages de visibilité et de clic de la barre latérale restent applicables.\n\nExemple :\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nيربط رابط طلب سحب أو يستبدله فورًا. يتطلب مستودع Git وتسجيل دخول موثق.\nيستخدم المستودع المرتبط بالدليل الحالي، بما في ذلك المنبع المضبوط.\nالهدف: مساحة عمل صريحة، ثم TTY المستدعي، ثم مساحة العمل المضبوطة، ثم تطابق worktree فريد.\nيقيّد --window البحث؛ تفشل الأهداف الملتبسة دون تغيير التركيز.\nيبقى الرابط اليدوي بعد تحديثات الفرع حتى استبداله أو مسحه أو انتهاء الجلسة.\nيحدّث المراقب الحالي حالة طلب السحب المطابق. يزيل clear الرابط اليدوي فقط.\nتظل إعدادات ظهور الشريط الجانبي والنقر سارية.\n\nمثال:\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAsocia o reemplaza inmediatamente un enlace de pull request. Requiere un repositorio Git y autenticación.\nUsa el repositorio asociado al directorio actual, incluido su upstream configurado.\nDestino: espacio explícito, TTY del llamante, espacio configurado y después un worktree coincidente único.\n--window limita la búsqueda; los destinos ambiguos fallan sin cambiar el foco.\nEl enlace manual sobrevive a las actualizaciones de rama hasta reemplazarlo, borrarlo o finalizar la sesión.\nEl observador existente actualiza el estado de la pull request coincidente. Clear solo elimina el enlace manual.\nSe siguen aplicando los ajustes de visibilidad y clic de la barra lateral.\n\nEjemplo:\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或取代拉取請求連結。需要 Git 儲存庫與已驗證的登入狀態。\n使用目前目錄所關聯的儲存庫，包括已設定的上游。\n目標順序：明確工作區、呼叫端 TTY、已設定工作區，然後是唯一符合的 worktree。\n--window 會限制搜尋；目標不明確時會失敗且不變更焦點。\n手動連結會保留於分支重新整理後，直到被取代、清除或工作階段結束。\n現有監看器會更新相符拉取請求的狀態。clear 只移除手動連結。\n側邊欄顯示與點擊設定仍然適用。\n\n範例：\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或替换拉取请求链接。需要 Git 仓库和已验证的登录状态。\n使用当前目录关联的仓库，包括已配置的上游。\n目标顺序：明确工作区、调用方 TTY、已配置工作区，然后是唯一匹配的 worktree。\n--window 限制搜索；目标不明确时会失败且不改变焦点。\n手动链接在分支刷新后仍然保留，直到被替换、清除或会话结束。\n现有监视器会更新匹配拉取请求的状态。clear 只移除手动链接。\n侧边栏显示和点击设置仍然适用。\n\n示例：\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n풀 리퀘스트 링크를 즉시 연결하거나 교체합니다. Git 저장소와 인증된 로그인이 필요합니다.\n현재 디렉터리에 연결된 저장소와 설정된 업스트림을 사용합니다.\n대상 순서: 명시적 워크스페이스, 호출 TTY, 설정된 워크스페이스, 고유한 worktree 일치 항목.\n--window는 검색 범위를 제한하며, 모호한 대상은 포커스를 바꾸지 않고 실패합니다.\n수동 링크는 교체, 삭제 또는 세션 종료까지 브랜치 새로고침 후에도 유지됩니다.\n기존 감시기가 일치하는 풀 리퀘스트 상태를 갱신합니다. clear는 수동 링크만 제거합니다.\n사이드바 표시 및 클릭 설정은 계속 적용됩니다.\n\n예:\n  cmux pr 123\n  cmux pr clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nプルリクエストのリンクをすぐに追加または置換します。Git リポジトリと認証済みのログインが必要です。\n現在のディレクトリに関連付けられたリポジトリと、設定済みの上流を使用します。\n対象の優先順：明示ワークスペース、呼び出し元 TTY、設定済みワークスペース、一意の worktree 一致。\n--window は検索を制限します。対象が曖昧な場合、フォーカスを変えずに失敗します。\n手動リンクはブランチ更新後も、置換・削除またはセッション終了まで保持されます。\n既存の監視処理が一致するプルリクエストの状態を更新します。clear は手動リンクだけを削除します。\nサイドバーの表示設定とクリック設定は引き続き適用されます。\n\n例:\n  cmux pr 123\n  cmux pr clear"
+          }
+        }
+      }
+    },
+    "cli.pr.error.workspaceMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found; run cmux list-workspaces and retry with --workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace nicht gefunden; führen Sie cmux list-workspaces aus und wiederholen Sie den Befehl mit --workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace introuvable ; lancez cmux list-workspaces puis réessayez avec --workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على مساحة العمل؛ شغّل cmux list-workspaces ثم أعد المحاولة باستخدام --workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el espacio de trabajo; ejecuta cmux list-workspaces y reintenta con --workspace."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到工作區；請執行 cmux list-workspaces，然後使用 --workspace 重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到工作区；请运行 cmux list-workspaces，然后使用 --workspace 重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 찾을 수 없습니다. cmux list-workspaces를 실행하고 --workspace로 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースが見つかりません。cmux list-workspaces を実行し、--workspace で再試行してください。"
+          }
+        }
+      }
+    },
+    "cli.pr.error.invalidHandoff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid PR handoff; use cmux pr --help."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige PR-Zuordnung; verwenden Sie cmux pr --help."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Association de PR invalide ; consultez cmux pr --help."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ربط PR غير صالح؛ استخدم cmux pr --help."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asociación de PR no válida; usa cmux pr --help."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 關聯無效；請使用 cmux pr --help。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 关联无效；请使用 cmux pr --help。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 PR 연결입니다. cmux pr --help를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な PR 関連付けです。cmux pr --help を参照してください。"
+          }
+        }
+      }
+    },
+    "cli.help.command.pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [flags] | pr clear [flags]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [Optionen] | pr clear [Optionen]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [options] | pr clear [options]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [الخيارات] | pr clear [الخيارات]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [opciones] | pr clear [opciones]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [旗標] | pr clear [旗標]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [标志] | pr clear [标志]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [옵션] | pr clear [옵션]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [オプション] | pr clear [オプション]"
+          }
+        }
+      }
+    },
     "cli.guide.usage": {
       "extractionState": "manual",
       "localizations": {

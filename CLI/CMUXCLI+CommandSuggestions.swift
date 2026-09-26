@@ -161,6 +161,7 @@ extension CMUXCLI {
         "ping",
         "pipe-pane",
         "popup",
+        "pr",
         "previous-window",
         "read-screen",
         "read-selection",

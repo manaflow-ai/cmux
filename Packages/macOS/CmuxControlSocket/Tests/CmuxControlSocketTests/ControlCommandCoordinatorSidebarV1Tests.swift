@@ -135,4 +135,67 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(response == "ERROR: Terminal session is out of date; restart the shell and try again")
         #expect(context.shellStateCall == nil)
     }
+
+    @Test func workspacePullRequestHandoffUsesWorkspaceScope() throws {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/12746"))
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_workspace_pr",
+            args: "12746 \"\(url.absoluteString)\" --label=PR --state=merged "
+                + "--branch=feature/pr --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.manualPullRequestCall?.tabArg == workspaceID.uuidString)
+        #expect(context.manualPullRequestCall?.number == 12746)
+        #expect(context.manualPullRequestCall?.label == "PR")
+        #expect(context.manualPullRequestCall?.url == url)
+        #expect(context.manualPullRequestCall?.state == "merged")
+        #expect(context.manualPullRequestCall?.branch == "feature/pr")
+    }
+
+    @Test(arguments: ["report_workspace_pr", "clear_workspace_pr"])
+    func workspacePullRequestRejectsMissingWorkspace(command: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.manualPullRequestAvailable = false
+        let coordinator = ControlCommandCoordinator(context: context)
+        let target = "--tab=\(UUID().uuidString)"
+        let args = command == "report_workspace_pr"
+            ? "123 https://github.com/owner/repo/pull/123 \(target)"
+            : target
+        #expect(coordinator.handleSidebarV1(command: command, args: args)?.hasPrefix("ERROR") == true)
+        #expect(context.manualPullRequestCall == nil)
+        #expect(context.manualPullRequestClearTab == nil)
+    }
+
+    @Test func workspacePullRequestClearUsesWorkspaceScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "clear_workspace_pr",
+            args: "--tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(context.manualPullRequestClearTab == workspaceID.uuidString)
+    }
+    @Test(arguments: [
+        "123 https://github.com/owner/repo/pull/123",
+        "123 https://github.com/owner/repo/pull/123 --tab=",
+        "123 javascript:alert(1) --tab=11111111-1111-1111-1111-111111111111",
+        "123 https://github.com/owner/repo/pull/124 --tab=11111111-1111-1111-1111-111111111111",
+        "123 https://github.com/owner/repo/pull/123 --tab=11111111-1111-1111-1111-111111111111 --state=invalid"
+    ])
+    func workspacePullRequestRejectsInvalidHandoffBeforeMutation(args: String) {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        #expect(coordinator.handleSidebarV1(command: "report_workspace_pr", args: args)?.hasPrefix("ERROR") == true)
+        #expect(context.manualPullRequestCall == nil)
+    }
+
 }

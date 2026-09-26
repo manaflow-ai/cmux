@@ -10,7 +10,7 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
-        if normalizedCommand == "surface-resume" {
+        if normalizedCommand == "surface-resume" || normalizedCommand == "pr" {
             return false
         }
         if normalizedCommand == "restore" || normalizedCommand == "fork" {
