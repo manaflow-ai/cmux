@@ -695,7 +695,7 @@ def ui_product_source(commit: str) -> dict | None:
         source = {"revision": built, "id": run["id"], "url": run.get("html_url", ""), "ready": False}
         try:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
-                if macos_26_product(source):
+                if usable_product(source):
                     return {**source, "ready": True}
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
@@ -705,21 +705,43 @@ def ui_product_source(commit: str) -> dict | None:
     return pending
 
 
-def macos_26_product(source: dict, pending: bool = False) -> bool:
-    """Whether a CI run compiles its products where an unpinned E2E run can load them.
+# A product's contract hashes the exact toolchain (Xcode build, SDK, rustc,
+# node, go...), which the owned Macs and the Blacksmith macOS 26 image do not
+# share, so a product only ever moves within one of these families: on
+# 2026-09-25 every adoption of a ci.yml product went Blacksmith to Blacksmith
+# (either size) or owned Mac to owned Mac, and a 12vcpu dispatch of an owned
+# Mac's product missed (run 36209020703). The UI run is pinned to the family.
+FAMILY_RUNNERS = {"owned": "glaeda-std-xcode-26.6", "blacksmith": "blacksmith-6vcpu-macos-26"}
 
-    With `pending`, a run whose compile admission has no runner yet may
-    still qualify.
-    """
+
+def product_family(source: dict) -> str | None:
+    """"owned" or "blacksmith" for where a CI run's compile admission ran on
+    macOS 26; "" before it has a runner; None for anything else (macOS 15)."""
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
+    for job in listing.get("jobs", []):
+        if not job.get("name", "").endswith(rerun.ADMISSION_JOB):
+            continue
+        labels = job.get("labels") or []
+        if any(re.fullmatch(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9.]+", label) for label in labels):
+            return "owned"
+        if any(re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", label) for label in labels):
+            return "blacksmith"
+        return None if labels else ""
+    return ""
+
+
+def usable_product(source: dict, pending: bool = False) -> bool:
+    """Whether a CI run compiles its products where a UI run can be sent to
+    load them, recording the family in `source`. With `pending`, a run whose
+    compile admission has no runner yet may still qualify."""
     try:
-        if pending:
-            listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
-            if not any(job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("labels")
-                       for job in listing.get("jobs", [])):
-                return True
-        return rerun.product_runner(REPO, str(source["id"]), rerun.gh_api) == rerun.PRODUCT_RUNNERS["26"]
+        family = product_family(source)
     except (subprocess.CalledProcessError, json.JSONDecodeError):
         return pending
+    if family:
+        source["family"] = family
+        return True
+    return pending and family == ""
 
 
 def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None, wait: bool) -> int | None:
@@ -1007,8 +1029,8 @@ def main() -> int:
 
     if ui_source is not None and not ui_source["ready"]:
         try:
-            adopted = wait_for_products(ui_source, lambda: macos_26_product(ui_source, pending=True))
-            adopted = adopted and macos_26_product(ui_source)
+            adopted = wait_for_products(ui_source, lambda: usable_product(ui_source, pending=True))
+            adopted = adopted and usable_product(ui_source)
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             adopted = False
         if not adopted and commit != head:
@@ -1020,6 +1042,14 @@ def main() -> int:
                 return status
 
     runner = args.runner if pinned else routed_runner(default, test_target)
+    if ui_source is not None and ui_source.get("family") and commit == ui_source["revision"]:
+        # Send the run where the product can be adopted; see FAMILY_RUNNERS.
+        owned = bool(runner) and pool.pr_runner_pool.persistent(runner)
+        if ui_source["family"] == "owned" and not owned:
+            runner = FAMILY_RUNNERS["owned"]
+        elif ui_source["family"] == "blacksmith" and (owned or not runner or "macos-26" not in runner):
+            runner = FAMILY_RUNNERS["blacksmith"]
+        print(f"Runner: {runner}, the pool family that compiled {commit}'s products", flush=True)
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {

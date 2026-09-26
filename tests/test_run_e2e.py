@@ -243,6 +243,17 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], MERGE)
         self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
         self.assertEqual(self.dispatch()["record_video"], "true")
+        # An owned Mac compiled it, and only an owned Mac shares its toolchain.
+        self.assertEqual(self.dispatch()["runner"], MINI)
+
+    def test_a_blacksmith_product_keeps_the_ui_run_on_blacksmith_macos_26(self):
+        for label in (SMALL, LARGE):
+            with self.subTest(label):
+                jobs = [{"name": "macos / macOS compile admission", "labels": [label]}]
+                result = self.launch("ExampleUITests", **self.ci_env(jobs=jobs))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["ref"], MERGE)
+                self.assertIn(self.dispatch()["runner"], (SMALL, LARGE))
 
     def test_a_ui_run_ignores_main_ci_dispatches_test_e2e_cannot_adopt(self):
         main_ci = {**self.PR_CI, "event": "workflow_dispatch", "status": "in_progress", "referenced_workflows": []}
