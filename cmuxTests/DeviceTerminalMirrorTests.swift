@@ -188,8 +188,8 @@ struct DeviceTerminalMirrorTests {
         #expect(sent == ["ls\r"])
     }
 
-    @Test("A reserved pane never replays input typed while its Mac was unreachable", .timeLimit(.minutes(1)))
-    func adoptedPaneDropsInputTypedWhileDetached() async throws {
+    @Test("A reserved pane keeps what was typed while its first attach failed and delivers it first", .timeLimit(.minutes(1)))
+    func adoptedPaneKeepsInputTypedBeforeFirstAttachSticks() async throws {
         let events = DeviceLinkTerminalEvents()
         var connected = false
         var sent: [String] = []
@@ -198,9 +198,40 @@ struct DeviceTerminalMirrorTests {
         }
         defer { session.stop(); events.finishAll() }
         let relay = CloudOptimisticInputRelay()
-        relay.send(.bytes(Data("rm -rf build\r".utf8)))
+        relay.send(.bytes(Data("cd build\r".utf8)))
         session.adopt(relay)
         session.start()
+        try await Self.waitUntil { session.phase == .detached }
+        // The terminal has never attached, so this is still the pane's early
+        // input for the same remote surface.
+        relay.send(.bytes(Data("make\r".utf8)))
+        #expect(relay.pendingCount == 2)
+
+        connected = true
+        session.retry()
+        try await Self.waitUntil { session.phase == .attached }
+        relay.send(.bytes(Data("pwd\r".utf8)))
+        try await Self.waitUntil { sent.joined().hasSuffix("pwd\r") }
+        #expect(sent.joined() == "cd build\rmake\rpwd\r")
+    }
+
+    @Test("A reserved pane never replays input typed after its attached Mac became unreachable", .timeLimit(.minutes(1)))
+    func adoptedPaneDropsInputTypedAfterAttachedMacDisconnects() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var connected = true
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { connected }) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("ls\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { sent.joined() == "ls\r" }
+
+        connected = false
+        events.send(.linkLost, surfaceID: surfaceID)
         try await Self.waitUntil { session.phase == .detached }
         relay.send(.bytes(Data("typed while offline\r".utf8)))
         #expect(relay.pendingCount == 0)
@@ -209,8 +240,39 @@ struct DeviceTerminalMirrorTests {
         session.retry()
         try await Self.waitUntil { session.phase == .attached }
         relay.send(.bytes(Data("pwd\r".utf8)))
-        try await Self.waitUntil { !sent.isEmpty }
-        #expect(sent == ["pwd\r"])
+        try await Self.waitUntil { sent.joined().hasSuffix("pwd\r") }
+        #expect(sent.joined() == "ls\rpwd\r")
+    }
+
+    @Test("A reserved pane's queued input is discarded when its mirror session is replaced", .timeLimit(.minutes(1)))
+    func adoptedPaneDiscardsQueuedInputWhenItsSessionStops() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { false }) {
+            sent.append($0)
+        }
+        defer { events.finishAll() }
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("rm -rf build\r".utf8)))
+        session.adopt(relay)
+        session.start()
+        try await Self.waitUntil { session.phase == .detached }
+        #expect(relay.pendingCount == 1)
+
+        session.stop()
+        #expect(relay.pendingCount == 0)
+        relay.send(.bytes(Data("typed after replacement\r".utf8)))
+        #expect(relay.pendingCount == 0)
+
+        // A replacement session for the same surface must not inherit the
+        // stopped owner's bytes.
+        let replacement = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { true }) {
+            sent.append($0)
+        }
+        defer { replacement.stop() }
+        replacement.start()
+        try await Self.waitUntil { replacement.phase == .attached }
+        #expect(sent.isEmpty)
     }
 
     private static func inputRecordingSession(
