@@ -8,11 +8,16 @@ import Foundation
 /// split tree roughly 150 levels deep overflows (SIGBUS, manaflow-ai/cmux#4656),
 /// while the same tree is fine on the 8 MB main thread. Coding on a dedicated
 /// thread with a main-sized stack makes persistence no weaker than the rest of
-/// the app. Trees past Foundation's JSON nesting limit make the coder throw,
-/// which `save`/`loadOutcome` already treat as a failed save or unusable file.
-enum SessionSnapshotCodingStack {
+/// the app. Foundation's JSON coders also cap nesting (about 250 splits), and
+/// past that they throw, which `save`/`loadOutcome` already treat as a failed
+/// save or unusable file. Far deeper trees can still exhaust this stack, as
+/// they would on the main thread.
+///
+/// Public so app-side stores that encode layout snapshots off the main thread
+/// (closed-item history) share the same guard.
+public enum SessionSnapshotCodingStack {
     /// Matches the default macOS main-thread stack size.
-    static let stackSize = 8 << 20
+    public static let stackSize = 8 << 20
 
     /// Runs `body` synchronously on a thread with ``stackSize`` bytes of stack.
     ///
@@ -21,7 +26,7 @@ enum SessionSnapshotCodingStack {
     /// - Parameter body: The coding work to run.
     /// - Returns: The value `body` returns.
     /// - Throws: The error `body` throws.
-    static func run<T>(_ body: () throws -> T) throws -> T {
+    public static func run<T>(_ body: () throws -> T) throws -> T {
         if Thread.isMainThread {
             return try body()
         }
