@@ -1900,7 +1900,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 }
 
-final class SocketListenerAcceptPolicyTests: XCTestCase {
+final class AgentResumeCommandPolicyTests: XCTestCase {
     func testClaudeResumeCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() {
         // The captured launch executable is the real claude binary
         // (CMUX_AGENT_LAUNCH_EXECUTABLE). Resuming with it directly bypasses
