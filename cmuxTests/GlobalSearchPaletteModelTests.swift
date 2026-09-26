@@ -69,6 +69,20 @@ private func makeKeyEvent(
     return GlobalSearchKeyEvent(event)
 }
 
+/// Polls until `condition` holds or the deadline passes, so a loaded CI host
+/// does not flake on a fixed sleep.
+@MainActor
+private func waitUntil(
+    timeout: Duration = .seconds(5),
+    _ condition: () -> Bool
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition(), clock.now < deadline {
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
+
 @MainActor
 @Suite(.serialized) struct GlobalSearchPaletteModelTests {
     @Test func prepareForOpenRefreshesLiveIndexOnEveryOpen() async throws {
@@ -78,7 +92,7 @@ private func makeKeyEvent(
         model.prepareForOpen()
         model.prepareForOpen()
         // The refresh task is scheduled on the main actor; let it run.
-        try await Task.sleep(for: .milliseconds(50))
+        try await waitUntil { recorder.refreshCount == 2 }
 
         #expect(recorder.refreshCount == 2)
         #expect(model.openGeneration == 2)
@@ -107,7 +121,7 @@ private func makeKeyEvent(
         )
 
         model.queryDidChange("needle")
-        try await Task.sleep(for: .milliseconds(80))
+        try await waitUntil { !model.isSearching }
 
         #expect(recorder.searchQueries == ["needle"])
         #expect(model.results.map(\.id) == ["match"])
@@ -122,7 +136,7 @@ private func makeKeyEvent(
             searchDebounceDelay: .milliseconds(1)
         )
         model.queryDidChange("needle")
-        try await Task.sleep(for: .milliseconds(80))
+        try await waitUntil { !model.isSearching }
 
         model.selectedIndex = 1
         let consumed = model.handleKeyEvent(makeKeyEvent(keyCode: 36))

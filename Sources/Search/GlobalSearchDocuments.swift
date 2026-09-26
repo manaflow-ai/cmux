@@ -2,9 +2,8 @@ import Foundation
 
 enum GlobalSearchIndexingLimits {
     static let maxIndexedTextCharacters = 400_000
-    /// Mirrors `SessionPersistencePolicy.maxScrollbackLinesPerTerminal`: the
-    /// same bound session snapshots use when they persist terminal scrollback.
-    static let maxTerminalCaptureRows = 4000
+    /// The same bound session snapshots use when they persist terminal scrollback.
+    static let maxTerminalCaptureRows = SessionPersistencePolicy.maxScrollbackLinesPerTerminal
     /// Byte ceiling for the VT reconstruction Ghostty formats for those rows.
     /// Generous against escape sequences while keeping one capture bounded;
     /// the scrollback itself defaults to 50 MB (`GhosttyConfig.scrollbackLimit`).
