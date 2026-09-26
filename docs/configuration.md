@@ -11,6 +11,28 @@ terminal's original process group. Use `password` or `cmuxOnly` when untrusted
 code may run inside a cmux terminal. `allowAll` also grants
 access to other local macOS users and is unsafe on a shared Mac.
 
+## Ghostty config live reload
+
+cmux reads terminal settings from the Ghostty config: `~/.config/ghostty/config`,
+`~/.config/ghostty/config.ghostty`, `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty`
+(or its legacy `config`), and the cmux config under
+`~/Library/Application Support/com.cmuxterm.app/`. cmux watches these files, every file
+pulled in with `config-file`, and user theme files named by `theme` (an absolute path, or
+`$XDG_CONFIG_HOME/ghostty/themes/<name>`, which defaults to `~/.config/ghostty/themes/<name>`,
+for each side of a `light:…,dark:…` pair). Saving one of them reloads the
+configuration the same way as Reload Configuration (Cmd+Shift+,), about 300 ms after
+the last write. Atomic saves, Vim-style saves that move the old file aside, files
+created after launch, and newly added includes are all picked up. A save that leaves
+the contents unchanged, or a file cmux already reloaded itself (for example after
+`cmux themes set`), does not trigger another reload. Themes bundled with cmux or Ghostty.app
+are not watched.
+
+When Ghostty reports errors for the config (an unknown key, an invalid value, a missing
+theme), cmux shows a notice in the corner of the window listing the first three, with a
+button that opens the file at the offending line. The notice appears once per distinct set
+of errors: reloads that keep the same errors stay quiet, fixing them hides the notice, and
+reintroducing an error shows it again. `cmux config doctor` validates `cmux.json` only.
+
 ## `mobile.artifactFolderAccess`
 
 Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
