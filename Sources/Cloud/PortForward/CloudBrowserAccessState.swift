@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import CmuxObservation
 import Foundation
@@ -364,7 +365,7 @@ final class CloudBrowserAccessState {
         guard model?.usesBrowserProxy == true, let remoteURL,
               RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
               let address = remoteURL.host else { return nil }
-        return CloudPortRoutePlan.privateURL(url.absoluteString, address: address)
+        return CloudPortRoutePolicy().privateURL(url.absoluteString, address: address)
     }
 
     func leave() {
