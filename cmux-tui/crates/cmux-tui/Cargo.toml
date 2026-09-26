@@ -51,12 +51,12 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
+tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
-tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
 reqwest.workspace = true
