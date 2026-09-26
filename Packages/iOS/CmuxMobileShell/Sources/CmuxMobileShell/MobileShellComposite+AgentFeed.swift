@@ -952,7 +952,7 @@ extension CMUXMobileShellStore {
             selectedWorkspaceID = destination
             selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
         }
-        navigateToWorkspaceForDeeplink(destination)
+        navigateToWorkspaceForDeeplink(destination, origin: .agentFeed)
         return true
     }
 }

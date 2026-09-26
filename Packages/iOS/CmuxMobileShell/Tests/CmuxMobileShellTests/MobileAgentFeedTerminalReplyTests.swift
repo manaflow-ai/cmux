@@ -18,6 +18,8 @@ struct MobileAgentFeedTerminalReplyTests {
         let row = try item(in: store)
         #expect(await store.openAgentFeedDestination(row, openTab: true))
         #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == store.workspaces.first?.id)
+        // Feed rows push inside the Feed tab, so Back returns to the Feed.
+        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .agentFeed)
         _ = store.consumeDeeplinkWorkspaceNavigationRequest()
         store.replaceForegroundWorkspaceState([MobileWorkspacePreview(
             id: .init(rawValue: "agent-workspace"), macDeviceID: "test-mac",

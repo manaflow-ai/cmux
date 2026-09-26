@@ -165,9 +165,21 @@ struct AgentFeedRow: View, Equatable {
             }
         }
         .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        // Like a Notifications row, tapping the row opens where the event
+        // happened. Buttons, links, and See more inside it keep their taps.
+        .onTapGesture {
+            if canOpenDestination { actions.openDestination(model.item) }
+        }
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentFeedRow-\(model.item.itemID)")
+        .accessibilityAction(named: Text(String(
+            localized: "mobile.agentFeed.open", defaultValue: "Open", bundle: .module
+        ))) {
+            if canOpenDestination { actions.openDestination(model.item) }
+        }
         .contextMenu {
-            if model.item.connectionStatus == .connected, model.item.remoteWorkspaceID != nil {
+            if canOpenDestination {
                 Button {
                     actions.openDestination(model.item)
                 } label: {
@@ -176,6 +188,10 @@ struct AgentFeedRow: View, Equatable {
                 }
             }
         }
+    }
+
+    private var canOpenDestination: Bool {
+        model.item.connectionStatus == .connected && model.item.remoteWorkspaceID != nil
     }
 
     private var avatar: some View {

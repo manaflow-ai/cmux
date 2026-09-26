@@ -246,6 +246,8 @@ struct WorkspaceShellView: View {
     @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    /// Compact Feed-tab stack: workspaces opened from Feed rows push here.
+    @State private var feedNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
@@ -332,7 +334,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath: compactNavigationPath,
             notificationNavigationPath: notificationNavigationPath,
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
-            notificationSearchNavigationPath: notificationSearchNavigationPath
+            notificationSearchNavigationPath: notificationSearchNavigationPath,
+            feedNavigationPath: feedNavigationPath
         )
         #if os(iOS)
         GeometryReader { geometry in
@@ -440,9 +443,21 @@ struct WorkspaceShellView: View {
                 presentation: presentation
             )
         } feed: {
-            NavigationStack {
+            NavigationStack(path: $feedNavigationPath) {
                 agentFeedStoreView(for: presentation)
-                    .toolbar { rootToolbarContent }
+                    .toolbar {
+                        if feedNavigationPath.isEmpty {
+                            rootToolbarContent
+                        }
+                    }
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                        workspaceDestination(
+                            for: workspaceID,
+                            createWorkspace: createWorkspaceInCompactStack,
+                            canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                        )
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
+                    }
             }
         } notifications: {
             NavigationStack(path: $notificationNavigationPath) {
@@ -1556,6 +1571,14 @@ struct WorkspaceShellView: View {
                 if notificationNavigationPath.last != workspaceID {
                     notificationNavigationPath = [workspaceID]
                 }
+            }
+            return
+        }
+        if request.origin == .agentFeed,
+           selectedPrimaryTab == .feed,
+           !primarySearchCoordinator.isPresented {
+            if feedNavigationPath.last != workspaceID {
+                feedNavigationPath = [workspaceID]
             }
             return
         }

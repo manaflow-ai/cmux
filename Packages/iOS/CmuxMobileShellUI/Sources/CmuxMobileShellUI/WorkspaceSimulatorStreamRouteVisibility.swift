@@ -14,7 +14,8 @@ extension WorkspaceShellView {
         compactNavigationPath: [MobileWorkspacePreview.ID],
         notificationNavigationPath: [MobileWorkspacePreview.ID],
         workspaceSearchNavigationPath: [MobileWorkspacePreview.ID],
-        notificationSearchNavigationPath: [MobileWorkspacePreview.ID]
+        notificationSearchNavigationPath: [MobileWorkspacePreview.ID],
+        feedNavigationPath: [MobileWorkspacePreview.ID] = []
     ) -> MobileWorkspacePreview.ID? {
         // Split navigation always presents the selected workspace in the
         // detail column, regardless of which destination the sidebar shows.
@@ -25,8 +26,7 @@ extension WorkspaceShellView {
         case .workspaces:
             return compactNavigationPath.last
         case .feed:
-            // The Feed tab hosts no workspace detail.
-            return nil
+            return feedNavigationPath.last
         case .notifications:
             return notificationNavigationPath.last
         case .search:
