@@ -23,7 +23,11 @@ enum WorkspaceTodoFeature {
     }
 
     static func isEnabled(defaults: UserDefaults, remoteEnabled: Bool) -> Bool {
-        remoteEnabled || localControlsOptIn(defaults: defaults)
+        isEnabled(localControlsOptIn: localControlsOptIn(defaults: defaults), remoteEnabled: remoteEnabled)
+    }
+
+    static func isEnabled(localControlsOptIn: Bool, remoteEnabled: Bool) -> Bool {
+        remoteEnabled || localControlsOptIn
     }
 
     static func localControlsOptIn(defaults: UserDefaults) -> Bool {

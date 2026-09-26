@@ -11341,6 +11341,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
+    @LiveSetting(\.betaFeatures.workspaceTodoControls) private var workspaceTodoControlsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 #if DEBUG
@@ -11619,6 +11620,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let showsAgentActivity: Bool
+        let todoControlsEnabled: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let numberedWorkspaceIndexById: [UUID: Int]
@@ -11805,6 +11807,10 @@ struct VerticalTabsSidebar: View, Equatable {
             tabItemSettings: tabItemSettings,
             showsAgentActivity: tabItemSettings.details.showAgentActivity
                 && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            todoControlsEnabled: WorkspaceTodoFeature.isEnabled(
+                localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+                remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+            ),
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             numberedWorkspaceIndexById: numberedWorkspaceIndexById,
@@ -11977,6 +11983,11 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            if isPresented {
+                refreshWorkspaceSnapshots()
+            }
+        }
+        .onChange(of: renderContext.todoControlsEnabled) { _, _ in
             if isPresented {
                 refreshWorkspaceSnapshots()
             }
@@ -12598,7 +12609,7 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationToken: input.checklistAddFieldActivationToken,
             isChecklistPopoverPresented: input.isChecklistPopoverPresented,
             editingChecklistItemId: editingChecklistItemIds[tab.id],
-            todoControlsEnabled: WorkspaceTodoFeature.isEnabled,
+            todoControlsEnabled: input.workspace.presentationKey.todoControlsEnabled,
             isMetadataExpanded: expandedMetadataWorkspaceIds.contains(tab.id),
             isMarkdownExpanded: expandedMarkdownWorkspaceIds.contains(tab.id)
         )
@@ -12975,10 +12986,17 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled(
+            localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+            remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+        )
         workspaceSnapshotCache.refresh(workspaceIds: workspaceIds) { workspaceId in
             guard let workspace = workspaceById[workspaceId] else { return nil }
             return makeWorkspaceSnapshot(
-                workspace: workspace, settings: settings, showsAgentActivity: showsAgentActivity
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: showsAgentActivity,
+                todoControlsEnabled: todoControlsEnabled
             )
         }
     }
@@ -12989,17 +13007,24 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled(
+            localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+            remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+        )
         workspaceSnapshotCache.reconcile(
             workspaceIds: Set(workspaceById.keys),
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
-                settings: settings, showsAgentActivity: showsAgentActivity
+                settings: settings,
+                showsAgentActivity: showsAgentActivity,
+                todoControlsEnabled: todoControlsEnabled
             )
         ) { workspaceId in
             guard let workspace = workspaceById[workspaceId] else { return nil }
             return makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                todoControlsEnabled: todoControlsEnabled
             )
         }
     }
@@ -13007,7 +13032,8 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        todoControlsEnabled: Bool? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -13016,7 +13042,10 @@ struct VerticalTabsSidebar: View, Equatable {
             workspace: workspace,
             settings: settings,
             showsAgentActivity: showsAgentActivity
-        ).makeSnapshot()
+        ).makeSnapshot(todoControlsEnabled: todoControlsEnabled ?? WorkspaceTodoFeature.isEnabled(
+            localControlsOptIn: workspaceTodoControlsExperimentalEnabled,
+            remoteEnabled: featureFlags.isWorkspaceTodoControlsEnabled
+        ))
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -16051,7 +16080,7 @@ struct TabItemView: View, Equatable {
             scaledFontSize(12.5),
             percent: globalFontMagnificationPercent
         ) * 0.6
-        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let todoControlsEnabled = workspaceSnapshot.presentationKey.todoControlsEnabled
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,

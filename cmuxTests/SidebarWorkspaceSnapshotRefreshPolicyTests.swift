@@ -249,6 +249,7 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: false,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
