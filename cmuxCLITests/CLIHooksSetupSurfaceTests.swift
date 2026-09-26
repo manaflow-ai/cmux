@@ -51,6 +51,33 @@ struct CLIHooksSetupSurfaceTests {
         #expect(!result.output.contains("PATH"), Comment(rawValue: result.output))
     }
 
+    @Test("Setup configures a detected CLI before its config directory exists")
+    func setupCreatesFreshCodexConfigDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hooks-fresh-codex-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codex = bin.appendingPathComponent("codex", isDirectory: false)
+        try "#!/bin/sh\nexit 0\n".write(to: codex, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codex.path)
+
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "--yes"],
+            homeRoot: root,
+            path: bin.path
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("Detected agent CLIs: Codex"), Comment(rawValue: result.output))
+        #expect(result.output.contains("Done: 1 installed, 0 skipped"), Comment(rawValue: result.output))
+        let hooks = root.appendingPathComponent(".codex/hooks.json", isDirectory: false)
+        #expect(FileManager.default.fileExists(atPath: hooks.path))
+        #expect(try String(contentsOf: hooks, encoding: .utf8).contains("cmux hooks codex"))
+    }
+
     @Test("Hook status accepts flag and positional agent filters")
     func hookStatusAgentFilters() throws {
         let flag = try runCLI(arguments: ["hooks", "status", "--agent", "codex", "--json"])
@@ -75,13 +102,20 @@ struct CLIHooksSetupSurfaceTests {
         #expect(conflicting.output.contains("Conflicting hooks target"), Comment(rawValue: conflicting.output))
     }
 
-    private func runCLI(arguments: [String]) throws -> ProcessResult {
+    private func runCLI(
+        arguments: [String],
+        homeRoot: URL? = nil,
+        path: String? = nil
+    ) throws -> ProcessResult {
         let process = Process()
         let output = Pipe()
-        let root = FileManager.default.temporaryDirectory
+        let ownsRoot = homeRoot == nil
+        let root = homeRoot ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hooks-surface-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        if ownsRoot {
+            defer { try? FileManager.default.removeItem(at: root) }
+        }
 
         process.executableURL = URL(
             fileURLWithPath: try BundledCLITestSupport.bundledCLIPath(
@@ -94,7 +128,7 @@ struct CLIHooksSetupSurfaceTests {
             environment.removeValue(forKey: key)
         }
         environment["HOME"] = root.path
-        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = path ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
