@@ -951,6 +951,12 @@ normalize_node_options_for_restore() {
 }
 
 cmux_claude_wrapper_target_is_native_executable() {
+    # Version-manager shims are native launchers that may run a Node claude.
+    case "$1" in
+        */.asdf/shims/claude|*/.mise/shims/claude|*/.local/share/mise/shims/claude|*/.volta/bin/claude)
+            return 1
+            ;;
+    esac
     local magic
     magic="$(LC_ALL=C od -An -tx1 -N4 "$1" 2>/dev/null | tr -d ' \n')" || return 1
     case "$magic" in
@@ -964,7 +970,17 @@ install_cmux_node_options() {
     # A native claude never runs the --require restore module, so the injected
     # NODE_OPTIONS would leak to every child it spawns, including sandboxed
     # apps that cannot read the module. https://github.com/manaflow-ai/cmux/issues/14681
+    # An earlier cmux layer (claude-teams, a re-entering shim) may already have
+    # injected it, so do the module's restore here instead.
     if cmux_claude_wrapper_target_is_native_executable "$1"; then
+        if [[ "${NODE_OPTIONS:-}" == *"/cmux-claude-node-options/restore-node-options.cjs"* ]]; then
+            if [[ "${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT:-}" == "1" ]]; then
+                export NODE_OPTIONS="${CMUX_ORIGINAL_NODE_OPTIONS:-}"
+            else
+                unset NODE_OPTIONS
+            fi
+        fi
+        unset CMUX_ORIGINAL_NODE_OPTIONS CMUX_ORIGINAL_NODE_OPTIONS_PRESENT
         return 0
     fi
     local guard_path
