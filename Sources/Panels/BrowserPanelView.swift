@@ -561,12 +561,23 @@ struct BrowserPanelView: View {
     }
 
     private var isCurrentPaneOwner: Bool {
+        Self.isCurrentPaneOwner(panel: panel, paneId: paneId, paneOwnershipOverride: paneOwnershipOverride)
+    }
+
+    private static func isCurrentPaneOwner(
+        panel: BrowserPanel,
+        paneId: PaneID,
+        paneOwnershipOverride: Bool?
+    ) -> Bool {
         // Dock (and other non-Workspace hosts) inject ownership explicitly, since
         // their panels are not registered in the main Workspace tree.
         if let paneOwnershipOverride {
             return paneOwnershipOverride
         }
-        guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
             return false
         }
         return currentPaneId.id == paneId.id
@@ -7420,15 +7431,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         // page still belongs to an automation preload or previous pane host.
         // Complete that deferred handoff on window arrival, even if SwiftUI
         // has no further state change to trigger updateNSView.
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak panel] in
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak panel, paneId, paneOwnershipOverride] in
             guard let host, host.window != nil,
                   let webView, let coordinator,
                   let panel,
                   coordinator.attachGeneration == generation,
                   coordinator.webView === webView,
                   panel.webView === webView,
-                  isCurrentPaneOwner,
-                  currentPaneDropContext()?.paneId.id == paneId.id else { return }
+                  Self.isCurrentPaneOwner(
+                      panel: panel,
+                      paneId: paneId,
+                      paneOwnershipOverride: paneOwnershipOverride
+                  ) else { return }
             let ownsWebView = updateUsingLocalInlineHosting(
                 host,
                 coordinator: coordinator,
