@@ -776,4 +776,22 @@ struct ExternalHoverOwnerCoordinatorTests {
         #expect(recorder.applied == [Self.entry(2, path: "/tmp/new")])
     }
 
+    @Test("Retirement owns cache invalidation and invokes it once per generation")
+    func retirementInvokesInvalidationCallbackOnce() {
+        let invalidated = OSAllocatedUnfairLock(initialState: [ExternalHoverSurfaceLifetimeToken]())
+        let coordinator = ExternalHoverOwnerCoordinator(
+            scheduler: { $0() },
+            project: { _ in },
+            invalidateLifetime: { token in invalidated.withLock { $0.append(token) } }
+        )
+        let first = coordinator.currentLifetimeToken
+        coordinator.retireLifetime()
+        coordinator.retireLifetime()
+        let second = coordinator.beginLifetime(runtimeSurfaceGeneration: 2)
+        #expect(invalidated.withLock { $0 }.count == 1)
+        #expect(invalidated.withLock { $0.first } === first)
+        coordinator.retireLifetime()
+        #expect(invalidated.withLock { $0 } == [first, second])
+    }
+
 }
