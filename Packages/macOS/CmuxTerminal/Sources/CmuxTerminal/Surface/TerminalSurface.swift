@@ -724,10 +724,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
         // before this object is fully deallocated will see nil and bail out,
         // rather than passing a freed pointer to ghostty_surface_refresh (#432).
+        // Captured before `surface = nil` advances runtimeSurfaceGeneration —
+        // this is the lifetime that's actually ending (see RuntimeSurfaceLifetimeID).
+        let installedGeneration = runtimeSurfaceGeneration
         let surfaceToFree = surface
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        attachedView?.retireExternalHoverLifetime()
         surface = nil
 
         guard let surfaceToFree else {
@@ -775,6 +779,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 workspaceId: tabId,
                 reason: "deinit",
                 surface: surfaceToFree,
+                runtimeSurfaceGeneration: installedGeneration,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -791,6 +796,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
+            runtimeSurfaceGeneration: installedGeneration,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,

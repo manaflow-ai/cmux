@@ -11,6 +11,9 @@ actor RenderedFrameDeliveryCoordinator {
     nonisolated private let renderDemand: (any RenderDemandGating)?
     nonisolated private let localRenderDemand: (any RenderDemandGating)?
     nonisolated private let keyboardCopyModeCursorDemand: (any RenderDemandGating)?
+    // cmux fork: (C) ExternalHover diagnostics — see
+    // `TerminalRenderedFrameDeliveryReasons.externalHoverDiagnostics`'s doc.
+    nonisolated private let externalHoverDiagnosticsDemand: (any RenderDemandGating)?
     nonisolated private let predictedEchoDemand: (any RenderDemandGating)?
     private let frames: AsyncStream<Void>
     private weak var receiver: (any TerminalRenderedFrameReceiving)?
@@ -19,6 +22,7 @@ actor RenderedFrameDeliveryCoordinator {
         renderDemand: (any RenderDemandGating)? = nil,
         localRenderDemand: (any RenderDemandGating)? = nil,
         keyboardCopyModeCursorDemand: (any RenderDemandGating)? = nil,
+        externalHoverDiagnosticsDemand: (any RenderDemandGating)? = nil,
         predictedEchoDemand: (any RenderDemandGating)? = nil,
         receiver: (any TerminalRenderedFrameReceiving)? = nil,
         startConsumer: Bool = true
@@ -32,6 +36,7 @@ actor RenderedFrameDeliveryCoordinator {
         self.renderDemand = renderDemand
         self.localRenderDemand = localRenderDemand
         self.keyboardCopyModeCursorDemand = keyboardCopyModeCursorDemand
+        self.externalHoverDiagnosticsDemand = externalHoverDiagnosticsDemand
         self.predictedEchoDemand = predictedEchoDemand
         self.receiver = receiver
         if startConsumer {
@@ -70,6 +75,9 @@ actor RenderedFrameDeliveryCoordinator {
         }
         if keyboardCopyModeCursorDemand?.isActive == true {
             reasons.insert(.keyboardCopyModeCursor)
+        }
+        if externalHoverDiagnosticsDemand?.isActive == true {
+            reasons.insert(.externalHoverDiagnostics)
         }
         if predictedEchoDemand?.isActive == true {
             reasons.insert(.predictedEcho)

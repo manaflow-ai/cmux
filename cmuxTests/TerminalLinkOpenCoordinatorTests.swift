@@ -391,6 +391,48 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(fileOpener.opened.isEmpty)
     }
 
+    // Ghostty reports configured path-regex matches through the same
+    // `open_url` callback as URLs. Consume an unresolved local-path-like
+    // fragment instead of routing it as a bare host.
+    @Test("Unresolved local-path-like fragment is consumed, not opened as a bare host")
+    @MainActor
+    func unresolvedLocalPathFragmentIsConsumedNotBrowserRouted() throws {
+        let defaults = makeDefaults()
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        let handled = coordinator.open(TerminalLinkOpenRequest(
+            rawValue: "research/docs/notes/report-that-does-not-exist.md",
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        ))
+
+        #expect(handled)
+        #expect(externallyOpened.isEmpty)
+        #expect(store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) as? BrowserPanel }.isEmpty)
+    }
+
     @Test("Configured external URL rules bypass the embedded terminal browser")
     @MainActor
     func configuredExternalURLRuleUsesSystemBrowser() throws {
