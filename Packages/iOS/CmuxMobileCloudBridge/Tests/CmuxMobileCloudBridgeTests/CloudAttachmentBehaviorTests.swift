@@ -194,6 +194,38 @@ struct CloudAttachmentBehaviorTests {
         #expect(!link.terminalLink.sentText.contains("more"))
     }
 
+    @Test("Losing the tunnel drops attachments so input is not sent into a dead link")
+    func tunnelLossDropsAttachments() async {
+        let (bridge, provider, link) = await makeBridge()
+        let surface = Self.surfaceID()
+
+        bridge.externalHostRequestReplay(surfaceID: surface)
+        await settle()
+        bridge.externalHostSendInput("first\r", surfaceID: surface)
+        await settle()
+        #expect(link.terminalLink.sentText == "first\r")
+        #expect(link.attachCount == 1)
+
+        // Backgrounding stops the tunnel, and the controller closes its links.
+        provider.isReady = false
+        bridge.linksDidBecomeUnavailable()
+        await settle()
+        #expect(link.terminalLink.detachCount == 1)
+
+        // Typing now must not be handed to the dead attachment.
+        bridge.externalHostSendInput("lost\r", surfaceID: surface)
+        await settle()
+        #expect(!link.terminalLink.sentText.contains("lost"))
+
+        // Once the tunnel is back, the next interaction attaches again and the
+        // input reaches the terminal.
+        provider.isReady = true
+        bridge.externalHostSendInput("after\r", surfaceID: surface)
+        await settle()
+        #expect(link.attachCount == 2)
+        #expect(link.terminalLink.sentText.contains("after\r"))
+    }
+
     @Test("A surface on a machine that is not admitted is disowned")
     func unknownMachineIsDisowned() async {
         let (bridge, _, _) = await makeBridge()

@@ -92,6 +92,37 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         }
     }
 
+    /// Drops every attachment because the tunnel that carried them is gone.
+    ///
+    /// The session controller closes its machine links when the tunnel stops,
+    /// which happens whenever the app goes to the background. The attachments
+    /// this bridge holds are then dead: sending into one is silently discarded
+    /// rather than failing, so without this the first keystrokes after
+    /// returning to a still-open terminal would vanish. Dropping them makes
+    /// the next interaction attach again.
+    ///
+    /// The published rows stay, so the workspace list does not empty out while
+    /// the tunnel is down; their liveness is what changes.
+    public func linksDidBecomeUnavailable() {
+        for machineID in Set(attachTasks.keys)
+            .union(attachments.keys)
+            .union(outputStreams.keys)
+            .union(deliveryTasks.keys) {
+            teardownAttachment(machineID: machineID)
+        }
+        attachedSurfaceIDsByMachine = [:]
+        pendingInputBySurfaceID = [:]
+        for machine in admittedMachines {
+            publish(
+                machine: machine,
+                workspaces: [],
+                terminals: [],
+                status: .reconnecting,
+                isAuthoritative: false
+            )
+        }
+    }
+
     /// Reloads one machine's workspace and terminal catalog and republishes
     /// its rows.
     public func refreshCatalog(for machine: CloudMachine) {

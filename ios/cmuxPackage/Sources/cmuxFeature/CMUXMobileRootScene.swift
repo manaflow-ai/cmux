@@ -422,7 +422,14 @@ public struct CMUXMobileRootScene: View {
                 // the machine as reconnecting. Nothing else re-reads it, so
                 // without this the rows would stay that way until the machine
                 // list happened to change.
-                guard case .ready = phase, let bridge = cloudWorkspaceBridge else { return }
+                guard let bridge = cloudWorkspaceBridge else { return }
+                guard case .ready = phase else {
+                    // The controller closes its machine links with the tunnel,
+                    // so the bridge's attachments are dead and must not be
+                    // sent into.
+                    bridge.linksDidBecomeUnavailable()
+                    return
+                }
                 for machine in bridge.admittedMachines {
                     bridge.refreshCatalog(for: machine)
                 }
