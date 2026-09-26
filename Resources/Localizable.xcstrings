@@ -558483,6 +558483,419 @@
           }
         }
       }
+    },
+    "cli.help.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux paste [flags] [--] [text | -]\n\nيلصق نصًا في سطح طرفية عبر مسار اللصق نفسه الذي يستخدمه Cmd+V. إذا كان البرنامج قيد التشغيل قد فعّل اللصق المحاط (bracketed paste)، يصل النص كلصقة واحدة وتبقى الأسطر الجديدة داخلها؛ وإلا يُرسل كل سطر جديد كضغطة Enter. كما في Cmd+V، تُستبدل أحرف التحكم مثل Esc وBackspace وCtrl-C وCtrl-U بمسافات. لا تُفسَّر تسلسلات الهروب مثل \\n. بدون وسيطة نصية، أو مع - قبل --، يُقرأ النص من stdin. يُرفض النص الذي يتجاوز 15 ميبيبايت بعد ترميز JSON.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --submit                     يضغط مفتاح الإرسال الخاص بالوكيل بعد اللصق\n\nمثال:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux paste [flags] [--] [text | -]\n\nFügt Text über denselben Einfügepfad wie Cmd+V in eine Terminal-Oberfläche ein. Hat das laufende Programm Bracketed Paste aktiviert, kommt der Text als ein einziges Einfügen an und Zeilenumbrüche bleiben darin erhalten; andernfalls wird jeder Zeilenumbruch als Enter gesendet. Wie bei Cmd+V werden Steuerzeichen wie Esc, Rücktaste, Strg-C und Strg-U durch Leerzeichen ersetzt. Escape-Sequenzen wie \\n werden nicht interpretiert. Ohne Textargument oder mit - vor -- wird der Text von stdin gelesen. Text über 15 MiB nach JSON-Escaping wird abgelehnt.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --submit                     Drückt nach dem Einfügen die Absende-Taste des Agenten\n\nBeispiel:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux paste [flags] [--] [text | -]\n\nPaste text into a terminal surface through the same paste path as Cmd+V. If the running program has turned on bracketed paste, the text arrives as one paste and newlines stay inside it; otherwise each newline is sent as Enter. As with Cmd+V, control characters such as Esc, Backspace, Ctrl-C and Ctrl-U are replaced with spaces. Escape sequences such as \\n are not interpreted. With no text argument, or with - before --, the text is read from stdin. Text over 15 MiB after JSON escaping is rejected.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --submit                     Press the agent's submit key after the paste\n\nExample:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux paste [flags] [--] [text | -]\n\nPega texto en una superficie de terminal por la misma ruta de pegado que Cmd+V. Si el programa en ejecución activó el pegado entre corchetes (bracketed paste), el texto llega como un único pegado y los saltos de línea se conservan dentro; si no, cada salto de línea se envía como Intro. Igual que con Cmd+V, los caracteres de control como Esc, Retroceso, Ctrl-C y Ctrl-U se sustituyen por espacios. Las secuencias de escape como \\n no se interpretan. Sin argumento de texto, o con - antes de --, el texto se lee de stdin. Se rechaza el texto de más de 15 MiB tras el escapado JSON.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --submit                     Pulsa la tecla de envío del agente después del pegado\n\nEjemplo:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux paste [flags] [--] [text | -]\n\nColle du texte dans une surface de terminal par le même chemin de collage que Cmd+V. Si le programme en cours a activé le collage entre crochets (bracketed paste), le texte arrive en un seul collage et les retours à la ligne y restent ; sinon, chaque retour à la ligne est envoyé comme Entrée. Comme avec Cmd+V, les caractères de contrôle tels que Échap, Retour arrière, Ctrl-C et Ctrl-U sont remplacés par des espaces. Les séquences d’échappement comme \\n ne sont pas interprétées. Sans argument texte, ou avec - avant --, le texte est lu depuis stdin. Un texte de plus de 15 Mio après échappement JSON est refusé.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --submit                     Appuie sur la touche d’envoi de l’agent après le collage\n\nExemple :\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux paste [flags] [--] [text | -]\n\nCmd+V と同じ貼り付け経路で、ターミナルサーフェスにテキストを貼り付けます。実行中のプログラムがブラケットペースト（bracketed paste）を有効にしている場合、テキストは 1 回の貼り付けとして届き、改行はその中に残ります。そうでない場合、各改行は Enter として送信されます。Cmd+V と同様に、Esc、Backspace、Ctrl-C、Ctrl-U などの制御文字は空白に置き換えられます。\\n などのエスケープシーケンスは解釈されません。テキスト引数がない場合や -- より前に - を指定した場合は、stdin からテキストを読み取ります。JSON エスケープ後に 15 MiB を超えるテキストは拒否されます。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --submit                     貼り付け後にエージェントの送信キーを押す\n\n例:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux paste [flags] [--] [text | -]\n\nCmd+V와 같은 붙여넣기 경로로 터미널 서피스에 텍스트를 붙여넣습니다. 실행 중인 프로그램이 브래킷 붙여넣기(bracketed paste)를 켰다면 텍스트는 하나의 붙여넣기로 도착하고 줄바꿈이 그 안에 유지됩니다. 그렇지 않으면 각 줄바꿈이 Enter로 전송됩니다. Cmd+V와 마찬가지로 Esc, Backspace, Ctrl-C, Ctrl-U 같은 제어 문자는 공백으로 바뀝니다. \\n 같은 이스케이프 시퀀스는 해석되지 않습니다. 텍스트 인수가 없거나 -- 앞에 -를 주면 stdin에서 텍스트를 읽습니다. JSON 이스케이프 후 15MiB를 넘는 텍스트는 거부됩니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --submit                     붙여넣은 뒤 에이전트의 제출 키를 누릅니다\n\n예:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n通过与 Cmd+V 相同的粘贴路径，将文本粘贴到终端表面。如果正在运行的程序已启用括号粘贴（bracketed paste），文本会作为一次粘贴到达，换行保留在其中；否则每个换行都会作为 Enter 发送。与 Cmd+V 一样，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字符会被替换为空格。不会解析 \\n 等转义序列。未提供文本参数，或在 -- 之前使用 - 时，从 stdin 读取文本。经 JSON 转义后超过 15 MiB 的文本会被拒绝。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --submit                     粘贴后按下代理的提交键\n\n示例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n透過與 Cmd+V 相同的貼上路徑，將文字貼到終端機表面。如果執行中的程式已啟用括號貼上（bracketed paste），文字會以單次貼上送達，換行會保留在其中；否則每個換行都會以 Enter 送出。與 Cmd+V 相同，Esc、Backspace、Ctrl-C、Ctrl-U 等控制字元會被替換為空格。不會解讀 \\n 等跳脫序列。未提供文字參數，或在 -- 之前使用 - 時，會從 stdin 讀取文字。經 JSON 跳脫後超過 15 MiB 的文字會被拒絕。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --submit                     貼上後按下代理程式的送出鍵\n\n範例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        }
+      }
+    },
+    "cli.paste.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin is not valid UTF-8 text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: محتوى stdin ليس نص UTF-8 صالحًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin ist kein gültiger UTF-8-Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin no es texto UTF-8 válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : stdin n’est pas un texte UTF-8 valide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin が有効な UTF-8 テキストではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin이 유효한 UTF-8 텍스트가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：stdin 不是有效的 UTF-8 文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：stdin 不是有效的 UTF-8 文字"
+          }
+        }
+      }
+    },
+    "cli.paste.error.missingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste requires text as an argument or on stdin"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب paste نصًا كوسيطة أو عبر stdin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste benötigt Text als Argument oder über stdin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste requiere texto como argumento o en stdin"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste nécessite du texte en argument ou sur stdin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste には引数または stdin からのテキストが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste에는 인수 또는 stdin으로 텍스트가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste 需要通过参数或 stdin 提供文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste 需要以參數或 stdin 提供文字"
+          }
+        }
+      }
+    },
+    "cli.paste.warning.submitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "warning: text was pasted but the submit key was not sent (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تم لصق النص لكن لم يُرسل مفتاح الإرسال (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: Der Text wurde eingefügt, aber die Absende-Taste wurde nicht gesendet (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "advertencia: el texto se pegó pero no se envió la tecla de envío (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "avertissement : le texte a été collé mais la touche d’envoi n’a pas été envoyée (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: テキストは貼り付けられましたが、送信キーは送られませんでした（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: 텍스트는 붙여넣었지만 제출 키를 보내지 못했습니다 (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：文本已粘贴，但未发送提交键（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：文字已貼上，但未送出送出鍵（%@）"
+          }
+        }
+      }
+    },
+    "cli.paste.error.textAndStdin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: pass text or -, not both"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: مرّر نصًا أو -، وليس كليهما"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: Text oder - angeben, nicht beides"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: pasa texto o -, no ambos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : indiquez du texte ou -, pas les deux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: テキストか - のどちらか一方を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 텍스트 또는 - 중 하나만 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：请提供文本或 -，不能同时提供"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：請提供文字或 -，不能同時提供"
+          }
+        }
+      }
+    },
+    "cli.paste.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: unknown flag or missing value: %@ (put text that starts with - after a -- separator)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: خيار غير معروف أو قيمة مفقودة: %@ (ضع النص الذي يبدأ بـ - بعد فاصل --)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: unbekanntes Flag oder fehlender Wert: %@ (Text, der mit - beginnt, nach einem Trennzeichen -- angeben)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: opción desconocida o valor faltante: %@ (coloca el texto que empieza por - después de un separador --)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : option inconnue ou valeur manquante : %@ (placez le texte qui commence par - après un séparateur --)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 不明なフラグ、または値がありません: %@（- で始まるテキストは -- 区切りの後に置いてください）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: 알 수 없는 플래그이거나 값이 없습니다: %@ (-로 시작하는 텍스트는 -- 구분자 뒤에 넣으세요)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：未知标志或缺少值：%@（以 - 开头的文本请放在 -- 分隔符之后）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：未知的旗標或缺少值：%@（以 - 開頭的文字請放在 -- 分隔符之後）"
+          }
+        }
+      }
+    },
+    "cli.paste.error.tooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: text is too large; the limit is %@ MiB after JSON escaping"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: النص كبير جدًا؛ الحد هو %@ ميبيبايت بعد ترميز JSON"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Text ist zu groß; die Grenze liegt bei %@ MiB nach JSON-Escaping"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: el texto es demasiado grande; el límite es de %@ MiB tras el escapado JSON"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : le texte est trop volumineux ; la limite est de %@ Mio après échappement JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: テキストが大きすぎます。JSON エスケープ後の上限は %@ MiB です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 텍스트가 너무 큽니다. JSON 이스케이프 후 한도는 %@MiB입니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：文本过大；经 JSON 转义后的上限为 %@ MiB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：文字過大；經 JSON 跳脫後的上限為 %@ MiB"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -4,7 +4,8 @@ import Testing
 
 /// `cmux set-buffer` stores exactly the text it is given, including trailing
 /// newlines and indentation, and reads that text from stdin when no text
-/// argument is passed, so `cmd | cmux set-buffer` works like tmux.
+/// argument (or a lone `-`) is passed, so `cmd | cmux set-buffer` works the way
+/// tmux's `load-buffer -` does.
 @Suite(.serialized)
 struct CLITmuxCompatBufferContentTests {
     @Test func setBufferReadsStandardInputVerbatim() throws {

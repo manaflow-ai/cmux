@@ -157,6 +157,7 @@ Environment:
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `send` | Send text to a terminal surface. |
 | `send-key` | Send one key to a terminal surface. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
@@ -527,7 +528,7 @@ tmux compatibility commands:
 | `popup` | Placeholder, currently unsupported. |
 | `bind-key`, `unbind-key`, `copy-mode` | Placeholders, currently unsupported. |
 | `set-buffer` | Set a tmux-compat buffer to the given text exactly; reads stdin when no text (or `-`) is given. |
-| `paste-buffer` | Paste a tmux-compat buffer. |
+| `paste-buffer` | Paste a tmux-compat buffer. `--bracketed` sends it through the Cmd+V paste path (`terminal.paste`, local socket only) instead of keystrokes. |
 | `list-buffers` | List tmux-compat buffers. |
 | `respawn-pane` | Send a restart command to a surface. |
 | `display-message` | Print or display a message. |
@@ -949,6 +950,7 @@ the expected text without connecting to a cmux socket.
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
 - `cmux send --help` -> `Usage: cmux send`
 - `cmux send-key --help` -> `Usage: cmux send-key`
+- `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`
