@@ -316,6 +316,46 @@ class Comments(unittest.TestCase):
         self.assertIn("passes on `abc`", ga.render_pr_comment({"state": "green", "sha": "abc", "run_url": "u"}))
 
 
+class Robustness(unittest.TestCase):
+    def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            runner = Path(temp) / "runner"
+            (runner / "scripts/ci").mkdir(parents=True)
+            script = runner / "scripts/ci/guards-local.sh"
+            script.write_text("#!/bin/sh\necho 'ci-guards.yml has no step named x' >&2\nexit 2\n")
+            script.chmod(0o755)
+            self.assertEqual(ga.run_steps(runner, ROOT, {"a", "b"}), {"a": None, "b": None})
+
+    def test_only_this_repositorys_pull_request_counts(self) -> None:
+        fork = {"number": 3, "base": {"repo": {"name": "cmux", "url": "https://api.github.com/repos/someone/cmux"}}}
+        ours = {"number": 9, "base": {"repo": {"name": "cmux", "url": "https://api.github.com/repos/manaflow-ai/cmux"}}}
+        gh = ga.GitHub("manaflow-ai/cmux", "t")
+        self.assertEqual(ga.pr_number(gh, {"pull_requests": [fork, ours]}), 9)
+
+    def test_a_green_run_between_resets_what_the_issue_knows(self) -> None:
+        log = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--first-parent", "--max-count=3", "HEAD"],
+                             capture_output=True, text=True).stdout.split()
+        red, middle, old = log
+        runs = [{"conclusion": "success", "head_sha": middle}]
+        self.assertTrue(ga.green_since(runs, ROOT, old, red))
+        self.assertFalse(ga.green_since(runs, ROOT, middle, red))
+        self.assertFalse(ga.green_since([{"conclusion": "failure", "head_sha": middle}], ROOT, old, red))
+
+    def test_a_flood_of_fake_failures_stays_under_githubs_body_limit(self) -> None:
+        steps = [{"step": f"s{i}", "tests": [{"test": "t", "message": "x" * 1400}] * 4, "excerpt": "",
+                  "reproduce": "r", "fix": {}} for i in range(500)]
+        body = ga.render_pr_comment({"state": "red", "sha": "a", "run_url": "u", "steps": steps})
+        self.assertLess(len(body), 65536)
+        self.assertIn("more failed steps in the run log", body)
+
+    def test_only_a_verified_patch_becomes_a_fix_pr(self) -> None:
+        report = {"branch": "main", "state": "red", "fix": {"patch": "diff\n", "verified": False, "steps": ["s"]}}
+        self.assertEqual(ga.fix_patch(report), "")
+        report["fix"]["verified"] = True
+        self.assertEqual(ga.fix_patch(report), "diff\n")
+        self.assertEqual(ga.fix_patch({**report, "branch": "pr"}), "")
+
+
 class FakeGitHub:
     def __init__(self, issues=(), comments=None):
         self.issues, self.comment_map, self.calls = list(issues), comments or {}, 0

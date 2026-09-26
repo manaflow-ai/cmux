@@ -179,7 +179,9 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
     jobs = workflow["jobs"]
     units: list[Unit] = []
     for job_name in GUARD_JOBS:
-        job = jobs[job_name]
+        job = jobs.get(job_name)
+        if job is None:  # an older checkout (--root) that predates this guard job
+            continue
         matrix = (job.get("strategy") or {}).get("matrix") or {}
         groups = matrix.get("group")
         if isinstance(groups, str):
@@ -434,10 +436,11 @@ def main(argv: list[str]) -> int:
 
     workflow = load_yaml(WORKFLOW)
     step_names = {
-        str(s.get("name")) for job in GUARD_JOBS for s in workflow["jobs"][job]["steps"]
+        str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
     stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
-    if stale:
+    # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
+    if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
         return 2
 

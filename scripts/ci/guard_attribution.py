@@ -58,6 +58,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
@@ -82,6 +83,14 @@ CULPRIT_MARKER = "<!-- cmux-guard-culprit pr={pr} steps={digest} -->"
 MAX_BASELINE_RUNS = 12
 # Commits a step is bisected over. A longer range names no culprit.
 MAX_BISECT_COMMITS = 40
+# Commits run one by one; a longer range is halved instead.
+MAX_LINEAR_COMMITS = 8
+# One run of a few guard steps; the fast guard's own job timeout.
+PROBE_TIMEOUT_S = 300
+# analyze stops bisecting after this long so the report still posts (job timeout 20 min).
+BISECT_BUDGET_S = 11 * 60
+MAX_RENDERED_STEPS = 10
+MAX_COMMENT_CHARS = 60000
 MAX_MESSAGE_LINES = 14
 MAX_MESSAGE_CHARS = 1500
 MAX_TESTS_PER_STEP = 4
@@ -477,14 +486,16 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
                 "--jobs", "4"]
         for step in steps:
             args += ["--step", step]
-        out = subprocess.run(args, capture_output=True, text=True,
-                             env={**os.environ, "CMUX_GUARDS_BASE_SHA": git(tree_root, "rev-parse", "HEAD~1", check=False)})
-        if out.returncode == 3:
-            found: dict[str, bool] = {}
-        elif results.exists():
-            found = json.loads(results.read_text())
-        else:
-            raise RuntimeError(f"guard runner failed without results: {(out.stderr or out.stdout)[-400:]}")
+        # Guard steps get no GitHub token: they never need one.
+        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        env["CMUX_GUARDS_BASE_SHA"] = git(tree_root, "rev-parse", "HEAD~1", check=False)
+        try:
+            out = subprocess.run(args, capture_output=True, text=True, env=env, timeout=PROBE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return {step: None for step in steps}
+        # Exit 3: no such step there. Exit 2 or no results: that checkout's plan
+        # cannot be run by this runner. Either way the commit says nothing.
+        found = json.loads(results.read_text()) if out.returncode != 3 and results.exists() else {}
     return {step: found.get(step) for step in steps}
 
 
@@ -512,10 +523,15 @@ class GitHub:
                 with urllib.request.urlopen(req, timeout=60) as response:
                     raw = response.read()
             except urllib.error.HTTPError as error:
-                if error.code >= 500 and attempt == 0:
+                # Only a read is retried: a POST that answered 502 may have landed.
+                if error.code >= 500 and attempt == 0 and method == "GET":
                     continue
                 detail = error.read().decode("utf-8", "replace")[:300]
                 raise RuntimeError(f"{method} {path}: HTTP {error.code} {detail}") from error
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                if attempt == 0 and method == "GET":
+                    continue
+                raise RuntimeError(f"{method} {path}: {error}") from error
             if text:
                 return raw.decode("utf-8", "replace")
             return json.loads(raw) if raw else None
@@ -540,9 +556,10 @@ class GitHub:
         job = ((jobs or {}).get("jobs") or [None])[0]  # type: ignore[union-attr]
         return str(self.request("GET", f"repos/{self.repo}/actions/jobs/{job['id']}/logs", text=True)) if job else ""
 
-    def main_runs(self, workflow_file: str, extra: str = "") -> list[dict]:
+    def main_runs(self, workflow_file: str, extra: str = "", status: str = "completed") -> list[dict]:
+        # `status` takes a conclusion too (success, failure); there is no `conclusion` parameter.
         body = self.get(f"repos/{self.repo}/actions/workflows/{workflow_file}/runs"
-                        f"?branch=main&status=completed&per_page=50{extra}")
+                        f"?branch=main&status={status}&per_page=50{extra}")
         return list((body or {}).get("workflow_runs", []))  # type: ignore[union-attr]
 
     def pull(self, number: int) -> dict:
@@ -555,7 +572,13 @@ class GitHub:
         return list(self.get(f"repos/{self.repo}/issues?labels={ISSUE_LABEL}&state=open&per_page=20") or [])  # type: ignore[arg-type]
 
     def comments(self, number: int) -> list[dict]:
-        return list(self.get(f"repos/{self.repo}/issues/{number}/comments?per_page=100") or [])  # type: ignore[arg-type]
+        found: list[dict] = []
+        for page in range(1, 4):
+            batch = list(self.get(f"repos/{self.repo}/issues/{number}/comments?per_page=100&page={page}") or [])  # type: ignore[arg-type]
+            found += batch
+            if len(batch) < 100:
+                break
+        return found
 
 
 def tracking_issue(issues: Iterable[Mapping], kind: str) -> Mapping | None:
@@ -614,14 +637,12 @@ def is_ancestor(root: Path, older: str, newer: str) -> bool:
     return subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer]).returncode == 0
 
 
-def baselines(gh: GitHub | None, root: Path, red_sha: str, run_id: int | None, steps: set[str]) -> dict[str, str | None]:
+def baselines(runs: list[dict], gh: GitHub | None, root: Path, red_sha: str, steps: set[str]) -> dict[str, str | None]:
     """For each step, the newest earlier main commit whose fast guard run passed it."""
     found: dict[str, str | None] = {step: None for step in steps}
     if gh is None:
         return found
-    runs = [r for r in gh.main_runs(FAST_WORKFLOW_FILE, "&event=push")
-            if r.get("id") != run_id and r.get("conclusion") in RED | {"success"} and r.get("head_sha") != red_sha]
-    runs = [r for r in runs if is_ancestor(root, r["head_sha"], red_sha)]
+    runs = [r for r in runs if r.get("conclusion") in RED | {"success"} and is_ancestor(root, r["head_sha"], red_sha)]
     runs.sort(key=lambda r: int(git(root, "rev-list", "--count", f"{r['head_sha']}..{red_sha}")))
     pending = set(steps)
     for run in runs[:MAX_BASELINE_RUNS]:
@@ -641,19 +662,25 @@ def baselines(gh: GitHub | None, root: Path, red_sha: str, run_id: int | None, s
 Probe = Callable[[str, set[str]], Mapping[str, "bool | None"]]
 
 
-def first_failing(commits: list[str], steps: set[str], probe: Probe, base_passes: bool) -> dict[str, dict]:
+def first_failing(commits: list[str], steps: set[str], probe: Probe, base_passes: bool,
+                  deadline: float | None = None) -> dict[str, dict]:
     """The first commit that fails each step. commits is oldest first, and the
     commit before it passed every step when base_passes. Up to
-    MAX_BISECT_COMMITS commits are each run in order; a longer range is
-    halved (which assumes the step stays red once broken)."""
+    MAX_LINEAR_COMMITS commits are each run in order; a longer range is
+    halved (which assumes the step stays red once broken). Past the deadline
+    the remaining steps are left unattributed."""
     verdicts: dict[str, dict] = {}
     if len(commits) == 1 and base_passes:
         return {step: {"sha": commits[0], "method": "the only commit since the step last passed on main"}
                 for step in steps}
     pending = set(steps)
-    if len(commits) <= MAX_BISECT_COMMITS:
+
+    def late() -> bool:
+        return deadline is not None and time.monotonic() > deadline
+
+    if len(commits) <= MAX_LINEAR_COMMITS:
         for index, sha in enumerate(commits):
-            if not pending:
+            if not pending or late():
                 break
             for step, ok in probe(sha, set(pending)).items():
                 if ok is False:
@@ -667,18 +694,21 @@ def first_failing(commits: list[str], steps: set[str], probe: Probe, base_passes
     else:
         for step in list(pending):
             low, high = 0, len(commits) - 1  # commits[high] fails
-            while low < high:
+            while low < high and not late():
                 middle = (low + high) // 2
                 if probe(commits[middle], {step}).get(step) is False:
                     high = middle
                 else:
                     low = middle + 1
+            if low < high:
+                continue  # out of time
             pending.discard(step)
             verdicts[step] = {"sha": commits[low], "method": f"bisected {len(commits)} commits since the step last "
                                                              "passed on main; this is the first to fail it"}
     for step in pending:
-        verdicts[step] = {"sha": None, "method": f"none of the {len(commits)} commits failed the step when rerun "
-                                                 "alone (flaky, or it depends on the rest of the run)"}
+        why = "ran out of time bisecting" if late() else \
+            "none failed the step when rerun alone (flaky, or it depends on the rest of the run)"
+        verdicts[step] = {"sha": None, "method": f"{len(commits)} commits since it last passed; {why}"}
     return verdicts
 
 
@@ -695,41 +725,65 @@ def bisect(runner_root: Path, root: Path, ranges: Mapping[tuple[str, ...], tuple
             return run_steps(runner_root, scratch, steps)
 
         try:
+            deadline = time.monotonic() + BISECT_BUDGET_S
             for commits, (steps, base_passes) in ranges.items():
-                if commits:
-                    verdicts.update(first_failing(list(commits), steps, probe, base_passes))
+                if not commits:
+                    continue
+                try:
+                    verdicts.update(first_failing(list(commits), steps, probe, base_passes, deadline))
+                except (RuntimeError, OSError, ValueError) as error:
+                    for step in steps:
+                        verdicts[step] = {"sha": None, "method": f"bisect failed: {str(error)[:200]}"}
         finally:
             git(root, "worktree", "remove", "--force", str(scratch), check=False)
     return verdicts
 
 
-def verified_fix(runner_root: Path, root: Path, head: str, step: StepFailure) -> dict:
-    """Apply the step's mechanical fixes to a checkout of main's head and rerun the step there."""
+def verified_fixes(runner_root: Path, root: Path, head: str, failures: list[StepFailure]) -> tuple[dict, dict]:
+    """Hints per step, and one patch: every step's mechanical fixes applied
+    together to a checkout of main's head, verified when the steps then pass."""
     probe = Tree(root, head)
-    fixes = fixes_for(step, probe)
-    out: dict = {"hints": [f.hint for f in fixes if f.hint], "head": head}
+    fixes = {f.step: fixes_for(f, probe) for f in failures}
+    per_step: dict[str, dict] = {step: {"hints": [f.hint for f in found if f.hint]} for step, found in fixes.items()}
+    combined: dict = {}
+    if not failures:
+        return per_step, combined
     with tempfile.TemporaryDirectory(prefix="guard-fix-") as temp:
         scratch = Path(temp) / "tree"
         git(root, "worktree", "add", "--quiet", "--detach", str(scratch), head)
         try:
-            before = run_steps(runner_root, scratch, [step.step]).get(step.step)
-            if before is not False:
-                out["passing_on_head"] = True
-                return out
+            before = run_steps(runner_root, scratch, fixes)
+            red = [step for step, ok in before.items() if ok is False]
+            for step, ok in before.items():
+                if ok is True:
+                    per_step[step]["passing_on_head"] = True
             tree = Tree(scratch)
-            appliable = [f for f in fixes if f.edit or f.command]
-            for fix in appliable:
-                if fix.edit:
-                    fix.edit(tree)
-                if fix.command:
-                    subprocess.run(["bash", "-c", fix.command], cwd=scratch, capture_output=True, text=True)
+            for step in red:
+                for fix in fixes[step]:
+                    if fix.edit:
+                        fix.edit(tree)
+                    if fix.command:
+                        subprocess.run(["bash", "-c", fix.command], cwd=scratch, capture_output=True, text=True,
+                                       timeout=PROBE_TIMEOUT_S)
             patch = git(scratch, "diff")
             if patch:
-                out["patch"] = patch + "\n"
-                out["verified"] = run_steps(runner_root, scratch, [step.step]).get(step.step) is True
+                after = run_steps(runner_root, scratch, red)
+                combined = {"patch": patch + "\n", "head": head, "steps": red,
+                            "verified": all(after.get(step) is True for step in red)}
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+            combined = {"error": str(error)[:300]}
         finally:
             git(root, "worktree", "remove", "--force", str(scratch), check=False)
-    return out
+    return per_step, combined
+
+
+def green_since(runs: list[dict], root: Path, since: str | None, red_sha: str) -> bool:
+    """A green main run after `since` and before the red commit: an earlier breakage was fixed in between."""
+    if not since:
+        return False
+    return any(r.get("conclusion") == "success" and r.get("head_sha") and r["head_sha"] != since
+               and is_ancestor(root, since, r["head_sha"]) and is_ancestor(root, r["head_sha"], red_sha)
+               for r in runs)
 
 
 def analyze_fast_main(gh: GitHub | None, run: Mapping, root: Path, log: str, head: str,
@@ -737,23 +791,31 @@ def analyze_fast_main(gh: GitHub | None, run: Mapping, root: Path, log: str, hea
     red_sha = run["head_sha"]
     report: dict = {"kind": "fast-guards", "workflow": FAST_WORKFLOW, "branch": "main", "sha": red_sha,
                     "run_url": run.get("html_url"), "run_created_at": run.get("created_at")}
+    issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
     if run.get("conclusion") == "success":
-        report["state"] = "green"
+        report["state"] = "green" if issue else "noop"
         return report
     report["state"] = "red"
     failures = parse_guard_log(log)
-    known = issue_data(tracking_issue(gh.open_issues(), "fast-guards")).get("steps", {}) if gh else {}
-    report["known"] = known
+    data = issue_data(issue)
+    runs = [r for r in gh.main_runs(FAST_WORKFLOW_FILE, "&event=push")
+            if r.get("id") != run.get("id") and r.get("head_sha") != red_sha] if gh else []
+    known = data.get("steps", {})
+    if known and green_since(runs, root, data.get("sha"), red_sha):
+        # A green run the report missed (a dropped pending run): this is a new breakage.
+        known = {}
     commands = step_commands(Tree(root, red_sha))
     new = [f for f in failures if f.step not in known]
     ranges: dict[tuple[str, ...], tuple[set[str], bool]] = {}
     if new:
         found = {s.step: baseline for s in new} if baseline else \
-            baselines(gh, root, red_sha, run.get("id"), {s.step for s in new})
+            baselines(runs, gh, root, red_sha, {s.step for s in new})
         for step in new:
             commits, base_passes = first_parent_range(root, found[step.step], red_sha)
             ranges.setdefault(tuple(commits), (set(), base_passes))[0].add(step.step)
     verdicts = bisect(ROOT, root, ranges) if ranges else {}
+    hints, combined = verified_fixes(ROOT, root, head, new) if new else ({}, {})
+    report["fix"] = combined
     steps = []
     for failure in failures:
         entry = dataclasses.asdict(failure)
@@ -761,13 +823,14 @@ def analyze_fast_main(gh: GitHub | None, run: Mapping, root: Path, log: str, hea
         entry["reproduce"] = reproduce(failure.step)
         if failure.step in known:
             entry["culprit"] = known[failure.step].get("culprit")
+            entry["fix"] = known[failure.step].get("fix") or {}
             entry["known"] = True
         else:
             verdict = verdicts.get(failure.step, {})
             culprit = pr_for_commit(gh, root, verdict["sha"]) if verdict.get("sha") else {}
             culprit["method"] = verdict.get("method")
             entry["culprit"] = culprit
-            entry["fix"] = verified_fix(ROOT, root, head, failure)
+            entry["fix"] = hints.get(failure.step, {})
         steps.append(entry)
     report["steps"] = steps
     return report
@@ -778,7 +841,7 @@ def analyze_vars_main(gh: GitHub | None, run: Mapping, root: Path, log: str, gre
     report: dict = {"kind": "repo-variables", "workflow": VARS_WORKFLOW, "branch": "main", "sha": run.get("head_sha"),
                     "run_url": run.get("html_url"), "run_created_at": run.get("created_at"), "event": run.get("event")}
     if run.get("conclusion") == "success":
-        report["state"] = "green"
+        report["state"] = "green" if gh is None or tracking_issue(gh.open_issues(), "repo-variables") else "noop"
         return report
     report["state"] = "red"
     report["errors"] = error_annotations(log)
@@ -798,6 +861,9 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
                     "run_url": run.get("html_url"), "state": "green" if run.get("conclusion") == "success" else "red"}
     report["pr"] = pr_number(gh, run)
     if report["state"] == "green":
+        # Nothing to update unless this PR already has a red guard comment.
+        if not report["pr"] or (gh and not any(PR_MARKER in str(c.get("body") or "") for c in gh.comments(report["pr"]))):
+            report["state"] = "noop"
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
@@ -825,7 +891,9 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
 def pr_number(gh: GitHub | None, run: Mapping) -> int | None:
     repo = (gh.repo if gh else os.environ.get("GITHUB_REPOSITORY", "")).lower()
     for pull in run.get("pull_requests") or []:
-        if str(((pull.get("base") or {}).get("repo") or {}).get("name", "")).lower() in ("", repo.split("/")[-1]):
+        # The list can hold a fork's own PRs with the same head; only this repository's count.
+        base_url = str(((pull.get("base") or {}).get("repo") or {}).get("url", "")).lower()
+        if base_url.endswith(f"/repos/{repo}"):
             return int(pull["number"])
     if gh is None:
         return None
@@ -887,16 +955,34 @@ def render_step(step: Mapping, heading: str = "###") -> list[str]:
     fix = step.get("fix") or {}
     hints = fix.get("hints") or []
     if fix.get("passing_on_head"):
-        out.append(f"**Fix:** already passing on main's head `{short(fix.get('head'))}`; nothing to do.")
+        out.append("**Fix:** already passing on main's head; nothing to do.")
     elif hints:
         out.append("**Fix:** " + " ".join(hints))
     else:
         out.append("**Fix:** the assertion above names what the guard expects; change the tree to match it.")
-    if fix.get("patch"):
-        state = f"verified: the step passes with it on main at `{short(fix.get('head'))}`" if fix.get("verified") \
-            else "not verified"
-        out.append(f"<details><summary>Patch ({state})</summary>\n\n{fence(fix['patch'], 'diff')}\n\n</details>")
     out.append(f"Reproduce in seconds, no build: {code(step['reproduce'], 300)}")
+    return out
+
+
+def render_patch(fix: Mapping) -> list[str]:
+    if not fix.get("patch"):
+        return []
+    state = f"verified: the steps pass with it on main at `{short(fix.get('head'))}`" if fix.get("verified") \
+        else "not verified: the steps still fail with it"
+    return [f"<details><summary>Patch ({state})</summary>\n\n{fence(fix['patch'], 'diff')}\n\n</details>"]
+
+
+def cap(text: str) -> str:
+    """GitHub refuses a comment or issue body over 65536 characters."""
+    return text if len(text) <= MAX_COMMENT_CHARS else text[:MAX_COMMENT_CHARS] + "\n\n... (cut; see the run log)\n"
+
+
+def render_steps(steps: list[Mapping]) -> list[str]:
+    out: list[str] = []
+    for step in steps[:MAX_RENDERED_STEPS]:
+        out += [""] + render_step(step)
+    if len(steps) > MAX_RENDERED_STEPS:
+        out.append(f"\n... and {len(steps) - MAX_RENDERED_STEPS} more failed steps in the run log.")
     return out
 
 
@@ -909,17 +995,18 @@ def render_culprit_comment(report: Mapping, pr: int, steps: list[Mapping], issue
            "until it is fixed forward.",
            f"How this was found: {culprit.get('method') or 'bisected on main'}. Merge commit `{short(culprit.get('sha'))}`; "
            f"main run: {report.get('run_url')}."]
-    for step in steps:
-        out += [""] + render_step(step)
+    out += render_steps(steps)
     out.append("")
+    fix = report.get("fix") or {}
     if fix_pr:
         out.append(f"Fix PR (opened automatically, verified on main's head): {fix_pr}")
-    elif any((s.get("fix") or {}).get("patch") for s in steps):
-        out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the patch above in a checkout of main.")
+    elif fix.get("patch") and set(fix.get("steps") or []) & {s["step"] for s in steps}:
+        out += render_patch(fix)
+        out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies it in a checkout of main.")
     mentions = " ".join(dict.fromkeys(f"@{u}" for u in (culprit.get("author"), culprit.get("merger")) if u))
     tail = f"Tracking: #{issue}. " if issue else ""
     out.append(f"{tail}{mentions}".strip())
-    return "\n".join(out) + "\n"
+    return cap("\n".join(out) + "\n")
 
 
 def render_issue(report: Mapping, steps_state: Mapping[str, Mapping], fix_prs: Mapping[str, str]) -> str:
@@ -956,16 +1043,15 @@ def render_issue(report: Mapping, steps_state: Mapping[str, Mapping], fix_prs: M
         out.append("| Step | Since | Fix PR |\n| --- | --- | --- |")
         for step, state in sorted(steps_state.items()):
             out.append(f"| {code(step)} | {who(state.get('culprit'))} | {fix_prs.get(step, '')} |")
-        for step in report.get("steps") or []:
-            if not step.get("known"):
-                out += [""] + render_step(step)
+        out += render_steps(report.get("steps") or [])
+        out += render_patch(report.get("fix") or {})
     out.append("")
     out.append("Opened and closed by `scripts/ci/guard_attribution.py` (ci-guard-attribution.yml); it closes when "
                "the workflow is green on main again.")
     data = {"kind": kind, "sha": report.get("sha"), "steps": dict(steps_state),
             "run_url": report.get("run_url")}
-    out.append(DATA_PREFIX + json.dumps(data, separators=(",", ":")).replace("-->", "--\\u003e") + " -->")
-    return "\n".join(out) + "\n"
+    marker = DATA_PREFIX + json.dumps(data, separators=(",", ":")).replace("-->", "--\\u003e") + " -->"
+    return cap("\n".join(out) + "\n") + marker + "\n"
 
 
 def render_pr_comment(report: Mapping) -> str:
@@ -976,7 +1062,7 @@ def render_pr_comment(report: Mapping) -> str:
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "
                "It does not block the merge; a red guard merged into main breaks it for every open PR.")
-    for step in steps:
+    for step in steps[:MAX_RENDERED_STEPS]:
         out.append("")
         main = step.get("red_on_main")
         if main:
@@ -986,12 +1072,14 @@ def render_pr_comment(report: Mapping) -> str:
                        "the fix lands there.")
             continue
         out += render_step(step)
+    if len(steps) > MAX_RENDERED_STEPS:
+        out.append(f"\n... and {len(steps) - MAX_RENDERED_STEPS} more failed steps in the run log.")
     if not steps:
         out.append("The log named no failed step; see the run.")
     out.append("")
     out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally. "
                "This comment is updated in place on each push.")
-    return "\n".join(out) + "\n"
+    return cap("\n".join(out) + "\n")
 
 
 def headline(report: Mapping) -> str:
@@ -1051,6 +1139,7 @@ def report_main(writer: Writer, gh: GitHub | None, repo: str, report: Mapping, f
     steps_state: dict[str, dict] = {}
     for step in report.get("steps") or []:
         steps_state[step["step"]] = {"culprit": step.get("culprit"),
+                                     "fix": {"hints": (step.get("fix") or {}).get("hints") or []},
                                      "fix_pr": fix_prs.get(step["step"]) or
                                      (previous.get("steps", {}).get(step["step"]) or {}).get("fix_pr")}
     body = render_issue(report, steps_state, {k: v["fix_pr"] for k, v in steps_state.items() if v.get("fix_pr")})
@@ -1138,7 +1227,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             if args.green_log:
                 green_log = Path(args.green_log).read_text(errors="replace")
             elif gh:
-                greens = [r for r in gh.main_runs(VARS_WORKFLOW_FILE, "&conclusion=success")
+                greens = [r for r in gh.main_runs(VARS_WORKFLOW_FILE, status="success")
                           if r.get("id") != run.get("id")]
                 if greens:
                     green_run = greens[0]
@@ -1168,12 +1257,11 @@ def command_analyze(args: argparse.Namespace) -> int:
 
 
 def fix_patch(report: Mapping) -> str:
-    """One patch for main from every verified fix in the report."""
-    if report.get("branch") != "main" or report.get("state") != "red":
+    """The verified fix for main, when there is one."""
+    fix = report.get("fix") or {}
+    if report.get("branch") != "main" or report.get("state") != "red" or not fix.get("verified"):
         return ""
-    patches = [s["fix"]["patch"] for s in report.get("steps") or []
-               if (s.get("fix") or {}).get("verified") and (s.get("fix") or {}).get("patch")]
-    return "".join(dict.fromkeys(patches))
+    return str(fix.get("patch") or "")
 
 
 def command_report(args: argparse.Namespace) -> int:
@@ -1185,9 +1273,8 @@ def command_report(args: argparse.Namespace) -> int:
     writer = Writer(gh, args.dry_run)
     fix_prs: dict[str, str] = {}
     if args.fix_pr:
-        for step in report.get("steps") or []:
-            if (step.get("fix") or {}).get("verified"):
-                fix_prs[step["step"]] = args.fix_pr
+        for step in (report.get("fix") or {}).get("steps") or []:
+            fix_prs[step] = args.fix_pr
     if report.get("branch") == "pr":
         report_pr(writer, gh, args.repo, report)
     else:
@@ -1205,15 +1292,16 @@ def command_patch(args: argparse.Namespace) -> int:
     if not patch:
         return 1
     Path(args.patch_out).write_text(patch)
-    steps = [s for s in report["steps"] if (s.get("fix") or {}).get("verified")]
+    fixed = set(report["fix"].get("steps") or [])
+    steps = [s for s in report["steps"] if s["step"] in fixed]
     culprits = list(dict.fromkeys(who(s.get("culprit")) for s in steps))
     title = f"ci: fix {FAST_WORKFLOW} on main after {culprits[0].split(' ')[0]}" if culprits else \
         f"ci: fix {FAST_WORKFLOW} on main"
     body = [f"`{FAST_WORKFLOW}` is red on main since {', '.join(culprits)} ({report.get('run_url')}).", ""]
     for step in steps:
         body.append(f"- {code(step['step'])}: " + " ".join(step["fix"].get("hints") or []))
-    body += ["", f"Opened by `scripts/ci/guard_attribution.py`. The failing step passes with this patch on main at "
-                 f"`{short(steps[0]['fix'].get('head'))}`; nothing else was run. Review, then merge."]
+    body += ["", f"Opened by `scripts/ci/guard_attribution.py`. The failing steps pass with this patch on main at "
+                 f"`{short(report['fix'].get('head'))}`; nothing else was run. Review, then merge."]
     Path(args.body_out).write_text(json.dumps({"title": title, "body": "\n".join(body) + "\n"}))
     return 0
 

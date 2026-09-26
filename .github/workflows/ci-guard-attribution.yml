@@ -32,7 +32,9 @@ permissions: {}
 
 concurrency:
   # One report at a time per PR (a newer run replaces an older one) and per
-  # workflow on main (in order, so the tracking issue sees every run).
+  # workflow on main. GitHub keeps one pending run per group, so a burst of
+  # main runs can skip one; each report re-derives the state from main's runs
+  # and the tracking issue, and a green run it missed resets what the issue knows.
   group: ci-guard-attribution-${{ github.event.workflow_run.event == 'pull_request' && format('pr-{0}-{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) || format('main-{0}', github.event.workflow_run.path) }}
   cancel-in-progress: ${{ github.event.workflow_run.event == 'pull_request' }}
 
