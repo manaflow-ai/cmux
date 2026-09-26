@@ -15777,32 +15777,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         if let workspaceTerminalFontSizeAction,
            !matchingExplicitActionShouldPreemptFontSizeDefault {
-            let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
-            let routedTabs = routedContext?.tabManager ?? tabManager
-            if let selectedWorkspace = routedTabs?.selectedWorkspace {
-                let originatingSurface = resolvedShortcutEventWindow(event)?
-                    .firstResponder
-                    .cmuxStrictOwningGhosttyView()?
-                    .terminalSurface
-                let enqueueOutcome =
-                    enqueueWorkspaceTerminalFontSizeChange(
-                        workspaceTerminalFontSizeAction,
-                        workspace: selectedWorkspace,
-                        tabManager: routedTabs,
-                        deferFlush: event.isARepeat
-                    )
-                switch enqueueOutcome {
-                case .rejected:
-                    NSSound.beep()
-                case .acceptedMutation:
-                    // The font mutation fans out across the workspace. Attribute
-                    // the handled input only to the responder that originated it.
-                    originatingSurface?.didReceiveExplicitInput()
-                    originatingSurface?.didAcceptExplicitInput()
-                case .consumedWithoutMutation:
-                    break
-                }
-            }
+            performWorkspaceTerminalFontSizeShortcut(
+                workspaceTerminalFontSizeAction,
+                event: event
+            )
             return true
         }
         if handlePaneSizingShortcut(event: event, equalize: equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault) {
@@ -16229,6 +16207,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    /// Shared action path for the workspace terminal font-size shortcuts so
+    /// the app-level monitor and the focused text box route identically
+    /// (issue #9463).
+    func performWorkspaceTerminalFontSizeShortcut(
+        _ action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) {
+        let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
+        let routedTabs = routedContext?.tabManager ?? tabManager
+        guard let selectedWorkspace = routedTabs?.selectedWorkspace else { return }
+        let originatingSurface = resolvedShortcutEventWindow(event)?
+            .firstResponder
+            .cmuxStrictOwningGhosttyView()?
+            .terminalSurface
+        let enqueueOutcome =
+            enqueueWorkspaceTerminalFontSizeChange(
+                action,
+                workspace: selectedWorkspace,
+                tabManager: routedTabs,
+                deferFlush: event.isARepeat
+            )
+        switch enqueueOutcome {
+        case .rejected:
+            NSSound.beep()
+        case .acceptedMutation:
+            // The font mutation fans out across the workspace. Attribute
+            // the handled input only to the responder that originated it.
+            originatingSurface?.didReceiveExplicitInput()
+            originatingSurface?.didAcceptExplicitInput()
+        case .consumedWithoutMutation:
+            break
+        }
     }
 
     private func enqueueWorkspaceTerminalFontSizeChange(

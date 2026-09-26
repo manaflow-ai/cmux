@@ -20,6 +20,31 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(GhosttyConfig().fontSize == 13)
     }
 
+    @Test("text box terminal font size follows runtime zoom lineage")
+    func textBoxTerminalFontSizeFollowsRuntimeZoomLineage() {
+        #expect(
+            TerminalPanelView.resolvedTerminalFontSize(
+                lineage: nil,
+                configuredFontSize: 13,
+                magnificationPercent: 100
+            ) == 13
+        )
+        #expect(
+            TerminalPanelView.resolvedTerminalFontSize(
+                lineage: TerminalFontSizeLineage(basePoints: 16, isExplicitOverride: true),
+                configuredFontSize: 13,
+                magnificationPercent: 100
+            ) == 16
+        )
+        #expect(
+            TerminalPanelView.resolvedTerminalFontSize(
+                lineage: TerminalFontSizeLineage(basePoints: 16, isExplicitOverride: true),
+                configuredFontSize: 13,
+                magnificationPercent: 150
+            ) == 24
+        )
+    }
+
     @Test("workspace font-size shortcuts and equalize default stay distinct")
     func workspaceFontSizeShortcutDefaults() {
         #expect(
