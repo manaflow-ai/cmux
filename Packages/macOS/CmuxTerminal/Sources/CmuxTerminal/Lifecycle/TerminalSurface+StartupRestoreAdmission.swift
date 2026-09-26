@@ -33,7 +33,7 @@ extension TerminalSurface {
     public func cancelStartupRestoreAdmission() {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
         nextRuntimeInitialInput = nil
-        startupRestoreAdmissionCommandOverride = startupRestoreAdmissionFallbackCommand
+        startupRestoreAdmissionCommandOverride = nil
         hasStartupRestoreAdmissionCommandOverride = true
         suppressConfiguredInitialInput = true
         startupRestoreAdmissionPhase = .admitted
@@ -45,7 +45,7 @@ extension TerminalSurface {
     func cancelStartupRestoreAdmissionForExplicitInput() -> Bool {
         guard startupRestoreAdmissionPhase == .awaitingAdmission else { return false }
         nextRuntimeInitialInput = nil
-        startupRestoreAdmissionCommandOverride = startupRestoreAdmissionFallbackCommand
+        startupRestoreAdmissionCommandOverride = nil
         hasStartupRestoreAdmissionCommandOverride = true
         suppressConfiguredInitialInput = true
         startupRestoreAdmissionPhase = .admitted
