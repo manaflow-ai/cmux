@@ -467,22 +467,6 @@ struct DeviceTerminalMirrorTests {
         #expect(DeviceTerminalEvent.decode(MobileEventEnvelope(topic: "terminal.updated", payloadJSON: nil, streamID: nil)) == nil)
     }
 
-    @Test(
-        "A device link delivers each subscribed resize topic to its surface's mirror",
-        .timeLimit(.minutes(1)),
-        arguments: ["terminal.updated", "device.terminal.grid"]
-    )
-    func linkDeliversResizeEvents(topic: String) async throws {
-        #expect(DeviceLink.eventTopics.contains(topic))
-        let events = DeviceLinkTerminalEvents()
-        defer { events.finishAll() }
-        var updates = events.stream(surfaceID: surfaceID).makeAsyncIterator()
-        events.receive(try envelope(topic, [
-            "surface_id": surfaceID.uuidString, "columns": 132, "rows": 40,
-        ]))
-        #expect(await updates.next() == .updated(columns: 132, rows: 40))
-    }
-
     @Test("Terminal grid updates reject malformed dimensions")
     func rejectsMalformedGridUpdates() throws {
         let invalid: [Any] = [true, "80", 1.5, 0, -1, 65_536, NSNull()]

@@ -418,7 +418,10 @@ final class DeviceLink {
         }
     }
 
-    private func handle(_ envelope: MobileEventEnvelope) {
+    /// Route one host event: layout snapshots to `onLayoutChange`, sync
+    /// deltas to the mirror, and every other topic to the terminal fan-out,
+    /// which drops the topics it does not decode.
+    func handle(_ envelope: MobileEventEnvelope) {
         switch envelope.topic {
         case DeviceWorkspaceLayoutHost.eventTopic:
             guard let payload = envelope.payloadJSON,

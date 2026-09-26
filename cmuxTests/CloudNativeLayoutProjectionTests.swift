@@ -5,6 +5,7 @@ import Bonsplit
 import CmuxCloud
 import CmuxCore
 import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -409,6 +410,33 @@ struct CloudNativeLayoutProjectionTests {
         #expect(adopted.workspaceID == viewer.id)
         #expect(adopted.panelID == reservation.panelID)
         #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
+    }
+
+    @Test(
+        "A device link routes each subscribed resize topic to its surface's mirror",
+        .timeLimit(.minutes(1)),
+        arguments: ["terminal.updated", "device.terminal.grid"]
+    )
+    func deviceLinkRoutesResizeEvents(topic: String) async throws {
+        let defaultsName = "DeviceLinkResize-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let record = DeviceDirectoryRecord(instance: .init(deviceID: "resize-owner", tag: "test"), deviceName: "Source",
+            platform: "mac", bundleID: nil, presenceState: .online, isPaired: false, lastSeenAt: nil, routes: [],
+            ownerUserID: "test", accountTrust: .sameAccount)
+        let link = DeviceLink(record: record, runtime: DeviceLinkRuntime(tokens: HiveAccountTokenSource(
+            auth: makeDeviceTestAuth(defaults: defaults),
+            identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"), teamID: nil
+        )), authorization: UnpairedDeviceLayoutSource())
+        defer { link.stop() }
+        #expect(DeviceLink.eventTopics.contains(topic))
+        let surfaceID = UUID()
+        var updates = link.terminalEvents.stream(surfaceID: surfaceID).makeAsyncIterator()
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "surface_id": surfaceID.uuidString, "columns": 132, "rows": 40
+        ])
+        link.handle(MobileEventEnvelope(topic: topic, payloadJSON: payload, streamID: nil))
+        #expect(await updates.next() == .updated(columns: 132, rows: 40))
     }
 
     private func settled(_ condition: @MainActor () -> Bool) async throws {
