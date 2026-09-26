@@ -19,12 +19,9 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
     private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = CJKIMEInputSourceFixture(snapshot: .init(
+            id: "com.apple.inputmethod.TCIM.Pinyin"
+        )).makeSurface()
         let hostedView = surface.hostedView
 
         let window = NSWindow(
@@ -251,17 +248,14 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }
 
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Pinyin"
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, _ in
             guard candidateView === surfaceView else { return false }
