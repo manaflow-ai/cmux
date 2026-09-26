@@ -20,7 +20,9 @@ guard (cmuxterm-hq tools/agent-guards) accepts in place of the CI check:
 before them), in seconds. `--root DIR` runs another checkout's ci-guards.yml
 and tests with this runner, and `--results FILE` writes each step's outcome as
 JSON; guard_attribution.py uses the three to find the commit that first fails
-a step.
+a step. `--json PATH` writes the full plan and every step's result, which
+scripts/ci/merge_main.py uses to tell a failure the branch inherited from main
+from one it introduced.
 """
 
 from __future__ import annotations
@@ -416,7 +418,37 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
     return stamp
 
 
+def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
+                  results: list[StepResult], seconds: float) -> None:
+    body = {
+        "root": str(ROOT),
+        "head": head_sha,
+        "base": base_sha,
+        "seconds": round(seconds, 1),
+        "units": [{"label": unit.label, "job": unit.job, "group": unit.group, "stateful": is_stateful(unit)}
+                  for unit in units],
+        # Every step the plan held, run or not: a step missing from "steps"
+        # but planned was not reached (an earlier step of its stateful group
+        # failed); one missing from both does not exist in this checkout.
+        "planned": [{"unit": unit.label, "name": step.name} for unit in units for step in unit.steps],
+        "steps": [
+            {
+                "unit": r.unit.label,
+                "job": r.unit.job,
+                "group": r.unit.group,
+                "name": r.step.name,
+                "status": "skipped" if r.ok is None else ("pass" if r.ok else "fail"),
+                "seconds": round(r.seconds, 2),
+                "output_tail": "\n".join(r.output.rstrip().splitlines()[-40:]) if r.ok is False else "",
+            }
+            for r in results
+        ],
+    }
+    Path(path).write_text(json.dumps(body, indent=2) + "\n")
+
+
 def main(argv: list[str]) -> int:
+    global ROOT, WORKFLOW
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--group", action="append", default=[], help="run these matrix groups or jobs instead of the fast set")
     parser.add_argument("--all", action="store_true", help="run every guard group, not only the fast set")
@@ -428,9 +460,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
+    parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
     args = parser.parse_args(argv)
     if args.root:
-        global ROOT, WORKFLOW
         ROOT = Path(args.root).resolve()
         WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 
@@ -456,12 +488,20 @@ def main(argv: list[str]) -> int:
         units = [u for u in units if u.group in wanted or u.job in wanted]
         if not units:
             print(f"no guard group matches {sorted(wanted)}", file=sys.stderr)
+            if args.json_path:
+                # An empty plan is an answer for a caller comparing checkouts:
+                # this one has none of those groups.
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 2
     if args.step:
         units = select_steps(units, set(args.step))
         if not units:
             # Exit 3: the checkout has no such step (it predates the test).
             print(f"no guard step named {sorted(args.step)}", file=sys.stderr)
+            if args.json_path:
+                # An empty plan tells a caller comparing checkouts that this
+                # one has none of those steps.
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 3
 
     if args.list:
@@ -525,6 +565,8 @@ def main(argv: list[str]) -> int:
                 outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
         Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
     print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
+    if args.json_path:
+        write_results(args.json_path, head_sha, base_sha, units, results, seconds)
     if failed:
         print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
