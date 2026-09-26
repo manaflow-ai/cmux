@@ -37,7 +37,7 @@ class EnsureGhosttyKitZigTests(unittest.TestCase):
         bin_dir = root / "bin"
         bin_dir.mkdir()
         for name in (
-            "bash", "dirname", "python3", "awk", "git", "mkdir", "rmdir",
+            "bash", "dirname", "python3", "awk", "grep", "git", "mkdir", "rmdir",
             "cat", "cp", "mv", "tar", "gzip", "rm", "mktemp", "tr", "ln", "sed", "head",
         ):
             executable = shutil.which(name)
