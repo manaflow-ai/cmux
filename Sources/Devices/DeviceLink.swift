@@ -427,12 +427,8 @@ final class DeviceLink {
             onLayoutChange?(snapshot)
         case "mobile.sync.delta":
             applyDelta(envelope.payloadJSON)
-        case "terminal.bytes", "terminal.updated", DeviceTerminalGridPublisher.eventTopic:
-            if let decoded = DeviceTerminalEvent.decode(envelope) {
-                terminalEvents.send(decoded.event, surfaceID: decoded.surfaceID)
-            }
         default:
-            break
+            terminalEvents.receive(envelope)
         }
     }
 

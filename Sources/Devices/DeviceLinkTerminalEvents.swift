@@ -75,6 +75,13 @@ final class DeviceLinkTerminalEvents {
 
     var hasSubscribers: Bool { continuations.values.contains { !$0.isEmpty } }
 
+    /// Deliver a host envelope to the sessions attached to its surface.
+    /// Topics that `DeviceTerminalEvent` does not decode are ignored.
+    func receive(_ envelope: MobileEventEnvelope) {
+        guard let decoded = DeviceTerminalEvent.decode(envelope) else { return }
+        send(decoded.event, surfaceID: decoded.surfaceID)
+    }
+
     func send(_ event: DeviceTerminalEvent, surfaceID: UUID) {
         for (id, continuation) in continuations[surfaceID] ?? [:] {
             deliver(event, to: continuation, surfaceID: surfaceID, id: id)
