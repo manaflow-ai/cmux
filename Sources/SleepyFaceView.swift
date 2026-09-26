@@ -134,14 +134,22 @@ struct SleepyFaceView: View {
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
 
                 Button {
-                    // The real macOS login lock — genuinely secure (Apple's), unlike
-                    // the overlay. The screensaver stays up behind it as the backdrop.
-                    let power = power
-                    Task { await power.lockMacNow() }
+                    // The real macOS login lock — genuinely secure (the system's),
+                    // unlike the overlay. The screensaver stays up behind it as the
+                    // backdrop.
+                    //
+                    // The attempt is owned by the shared state, which the controller
+                    // cancels on teardown: every display shows this button, and a
+                    // lock finishing after Sleepy Mode ended must not report onto a
+                    // later session. Failure is surfaced there too, because this
+                    // button silently did nothing on systems missing the CGSession
+                    // tool, which reads as "the lock is broken" with no explanation.
+                    powerUIState.lockMac(using: power)
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
+                .disabled(powerUIState.isLocking)
 
                 Button {
                     let power = power
@@ -176,6 +184,15 @@ struct SleepyFaceView: View {
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
                 .disabled(powerUIState.isBusy)
+            }
+            if powerUIState.lockFailed {
+                Text(String(
+                    localized: "sleepyMode.lockFailed",
+                    defaultValue: "Couldn't lock the Mac \u{2014} use the system menu \u{203A} Lock Screen"
+                ))
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color(red: 0.95, green: 0.62, blue: 0.30))
+                .padding(.top, 18)
             }
             Spacer().frame(height: 50)
             Text(hintText)
