@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
@@ -26,6 +27,12 @@ struct AgentFeedStoreView: View {
             actions: actions,
             searchText: searchCoordinator.searchDestinationText(for: .feed)
         )
+        .onAppear {
+            store.recordAppEvent(.agentFeedOpened, count: items.count)
+        }
+        .onDisappear {
+            store.recordAppEvent(.agentFeedClosed)
+        }
         .alert(String(localized: "mobile.agentFeed.openFailed.title", defaultValue: "Couldn’t open event", bundle: .module),
                isPresented: $showsNavigationFailure) {
             Button(String(localized: "mobile.agentFeed.fullText.close", defaultValue: "Close", bundle: .module), role: .cancel) {}
@@ -48,9 +55,19 @@ struct AgentFeedStoreView: View {
                 Task { await store.submitAgentFeedExitPlanReply(item, mode: mode, feedback: feedback) }
             },
             terminalReply: { item, text in
-                Task { await store.submitAgentFeedTerminalReply(item, text: text) }
+                Task {
+                    if await store.submitAgentFeedTerminalReply(item, text: text) {
+                        store.recordAppEvent(.agentFeedReplySucceeded)
+                    } else if let failure = store.agentFeedFailedTerminalReplies[item.id] {
+                        store.recordAppEvent(
+                            .agentFeedReplyFailed,
+                            count: failure.delivery == .notSent ? 0 : 1
+                        )
+                    }
+                }
             },
             openDestination: { item in
+                store.recordAppEvent(.agentFeedItemOpened, count: item.remoteSurfaceID == nil ? 0 : 1)
                 Task {
                     showsNavigationFailure = !(await store.openAgentFeedDestination(
                         item,
@@ -66,6 +83,9 @@ struct AgentFeedStoreView: View {
             },
             refresh: {
                 await store.refreshAgentFeed()
+            },
+            filterChanged: { filter in
+                store.recordAppEvent(.agentFeedFilterChanged, count: filter == .needsInput ? 1 : 0)
             }
         )
     }

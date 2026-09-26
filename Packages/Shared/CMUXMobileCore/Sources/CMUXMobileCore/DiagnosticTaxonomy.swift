@@ -876,6 +876,18 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// effort count for root-cause queries. `b` is the provider,
     /// `c` is the source, and `ms` is the effort count.
     case taskModelListResultObserved = 666
+
+    // MARK: Appended agent Feed events
+    /// The Feed became visible. `c` is the visible item count.
+    case agentFeedOpened = 667
+    case agentFeedClosed = 668
+    /// `c` is 1 for the Needs Input filter and 0 for All.
+    case agentFeedFilterChanged = 669
+    /// A row opened its workspace or tab. `c` is 1 when a tab was targeted.
+    case agentFeedItemOpened = 670
+    case agentFeedReplySucceeded = 671
+    /// `c` is 0 when the reply was not sent and 1 when its delivery is unconfirmed.
+    case agentFeedReplyFailed = 672
 }
 
 /// The user's configured connection method, mirrored from the settings picker

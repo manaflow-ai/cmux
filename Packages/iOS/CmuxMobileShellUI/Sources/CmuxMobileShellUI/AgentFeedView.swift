@@ -90,7 +90,10 @@ struct AgentFeedView: View {
                 AgentFeedFilterMenu(
                     filter: filter,
                     needsInputCount: needsInputCount,
-                    setFilter: { filter = $0 }
+                    setFilter: {
+                        filter = $0
+                        actions.filterChanged($0)
+                    }
                 )
             }
         }

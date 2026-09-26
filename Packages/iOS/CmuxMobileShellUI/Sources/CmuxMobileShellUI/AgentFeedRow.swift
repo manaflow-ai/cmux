@@ -26,6 +26,7 @@ struct AgentFeedActions {
     /// Local needs-input triage — the Feed's mark-read/unread analogue.
     var setNeedsInput: @MainActor (MobileAgentFeedItem, Bool) -> Void = { _, _ in }
     var refresh: @MainActor () async -> Void = {}
+    var filterChanged: @MainActor (AgentFeedFilter) -> Void = { _ in }
 }
 
 /// The one visual family every Feed action shares: option-bar-shaped
