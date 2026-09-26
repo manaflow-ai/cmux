@@ -266,13 +266,16 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             lock.unlock()
             return .rejected
         }
+        // A Mac grid is an absolute snapshot, so the new frame supersedes the
+        // queued one and may use its room. The old entry leaves only once the
+        // new frame is admitted at the back like any other grid frame, so a
+        // replacement that overflows still leaves the last admitted grid.
+        var replacedGridID: UUID?
+        var replacedGrid: QueuedEvent?
         if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey,
            let eventID = gridEventIDs[coalesceKey] {
-            // A Mac grid is an absolute snapshot, so the new frame supersedes
-            // the queued one. Drop the old entry and admit the new frame at
-            // the back like any other grid frame, shedding droppable events
-            // before an overflow closes the connection.
-            _ = removeQueuedEventLocked(eventID)
+            replacedGridID = eventID
+            replacedGrid = queuedEvents[eventID]
         }
         let policy = MobileHostEventTopicPolicy()
         let isRenderGrid = topic == policy.renderGridTopic
@@ -311,8 +314,12 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
             }
         }
         var shedSummary = MobileHostEventShedSummary()
-        if !hasRoomLocked(for: frame) {
-            shedSummary = shedDroppableEventsLocked(for: frame, resyncSurfaceIDs: &resyncSurfaceIDs)
+        if !hasRoomLocked(for: frame, reclaiming: replacedGrid) {
+            shedSummary = shedDroppableEventsLocked(
+                for: frame,
+                reclaiming: replacedGrid,
+                resyncSurfaceIDs: &resyncSurfaceIDs
+            )
             simulatorFrameReplayAfterDrainPanelIDs.formUnion(shedSummary.simulatorFramePanelIDs)
         }
         if isRenderGrid,
@@ -333,7 +340,7 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 overflowed: false
             )
         }
-        if !hasRoomLocked(for: frame),
+        if !hasRoomLocked(for: frame, reclaiming: replacedGrid),
            policy.isDroppable(topic: topic, coalesceKey: coalesceKey) {
             if isRenderGrid, let coalesceKey {
                 if poisonedRenderGridSurfaceIDs.insert(coalesceKey).inserted {
@@ -356,11 +363,12 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 overflowed: false
             )
         }
-        if !hasRoomLocked(for: frame), topic == DeviceTerminalGridPublisher.eventTopic {
+        if !hasRoomLocked(for: frame, reclaiming: replacedGrid), topic == DeviceTerminalGridPublisher.eventTopic {
             let result = recordOverflowLocked(shedSummary: shedSummary, resyncSurfaceIDs: resyncSurfaceIDs)
             lock.unlock()
             return result
         }
+        if let replacedGridID { _ = removeQueuedEventLocked(replacedGridID) }
         let eventID = UUID()
         queuedEvents[eventID] = QueuedEvent(
             topic: topic,
@@ -694,20 +702,26 @@ public final class MobileHostConnectionEventQueue: @unchecked Sendable {
         }
     }
 
-    private func hasRoomLocked(for frame: Data) -> Bool {
-        queuedEvents.count < maximumEventCount
-            && queuedByteCount + frame.count <= maximumByteCount
+    /// `reclaimed` is a queued event the new frame replaces on admission, so
+    /// its room counts as free.
+    private func hasRoomLocked(for frame: Data, reclaiming reclaimed: QueuedEvent? = nil) -> Bool {
+        let reclaimedCount = reclaimed == nil ? 0 : 1
+        let reclaimedBytes = reclaimed?.frame.count ?? 0
+        return queuedEvents.count - reclaimedCount < maximumEventCount
+            && queuedByteCount - reclaimedBytes + frame.count <= maximumByteCount
     }
 
     private func shedDroppableEventsLocked(
         for frame: Data,
+        reclaiming reclaimed: QueuedEvent? = nil,
         resyncSurfaceIDs: inout Set<String>
     ) -> MobileHostEventShedSummary {
         let policy = MobileHostEventTopicPolicy()
         var summary = MobileHostEventShedSummary()
         var sheddable: [UUID] = []
-        var releasedCount = 0
-        var releasedBytes = 0
+        // The replaced event is not droppable, so the walk never counts it twice.
+        var releasedCount = reclaimed == nil ? 0 : 1
+        var releasedBytes = reclaimed?.frame.count ?? 0
         // Pick the oldest droppable events first, then remove them, so the
         // walk never sees the order compact under it.
         for eventID in arrivalOrder.ids[arrivalOrder.head...] {
