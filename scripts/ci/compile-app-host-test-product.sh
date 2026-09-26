@@ -106,9 +106,34 @@ fingerprint() {
 # once without fetching each package remote. Pins are exact revisions, so
 # skipping the fetch cannot change what is checked out. If it fails for any
 # reason, fall through to the normal resolve of the same cache.
+#
+# An owned Mac hands the resolve the packages its last job resolved
+# (owned_build_state.py), which is no `spm-` hit at all, so every owned
+# admission fetched all 11 package remotes: 10 to 55 s of the resolve,
+# depending on GitHub (hq#661). A successful resolve therefore stamps the
+# packages with the Package.resolved (and cache layout) it resolved. When the
+# stamp matches this checkout, the packages are exactly what an exact `spm-`
+# hit holds and take the same offline resolve and fallback.
+RESOLVED_STAMP=.cmux-resolved-sha256
+
+resolved_stamp() {
+  local resolved=cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+  [ -f "$resolved" ] || return 0
+  cat "$resolved" "$SCRIPT_DIR/swiftpm-cache-layout" | shasum -a 256 | cut -d' ' -f1
+}
+
 resolve() {
-  local derived_data="$1" source_packages="$2" attempt
+  local derived_data="$1" source_packages="$2" attempt stamp offline=""
+  stamp="$(resolved_stamp)"
   if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
+    offline=1
+  elif [ -n "$stamp" ] && [ "$(cat "$source_packages/$RESOLVED_STAMP" 2>/dev/null)" = "$stamp" ]; then
+    echo "Kept Swift packages were resolved from this Package.resolved; resolving without package updates"
+    offline=1
+  fi
+  # Stamped again only by a resolve that succeeds below.
+  rm -f "$source_packages/$RESOLVED_STAMP"
+  if [ -n "$offline" ]; then
     mkdir -p "$source_packages" "$derived_data"
     if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -119,9 +144,10 @@ resolve() {
       -resolvePackageDependencies \
       && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
       && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
       return 0
     fi
-    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+    echo "Offline resolve of the restored or kept packages failed; resolving normally" >&2
   fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
@@ -133,6 +159,7 @@ resolve() {
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+        [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
         return 0
       fi
       echo "Resolve succeeded but binary artifacts are missing" >&2

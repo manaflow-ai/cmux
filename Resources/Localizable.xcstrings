@@ -61250,7 +61250,8 @@
           }
         }
       }
-    },    "browser.import.error.title": {
+    },
+    "browser.import.error.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -100398,121 +100399,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, reviews, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, reviews, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, custom [sidebar-name]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices, reviews 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices, reviews oder custom [Seitenleisten-Name]"
+            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices oder custom [Seitenleisten-Name]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices, reviews ou custom [nom-barre-latérale]"
+            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices ou custom [nom-barre-latérale]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices, reviews، أو custom [sidebar-name]"
+            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو custom [sidebar-name]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices, reviews o custom [sidebar-name]"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices o custom [sidebar-name]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices, reviews 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices, reviews 또는 custom [sidebar-name]"
+            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices, reviews ili custom [naziv bočne trake]"
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices ili custom [naziv bočne trake]"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices, reviews eller custom [navn på sidepanel]"
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidepanel]"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices, reviews o custom [nome barra laterale]"
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices o custom [nome barra laterale]"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices, reviews ឬ custom [ឈ្មោះរបារចំហៀង]"
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices ឬ custom [ឈ្មោះរបារចំហៀង]"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices, reviews eller custom [navn på sidestolpe]"
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidestolpe]"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices, reviews lub custom [nazwa paska bocznego]"
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices lub custom [nazwa paska bocznego]"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices, reviews ou custom [nome da barra lateral]"
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices ou custom [nome da barra lateral]"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices, reviews или custom [имя боковой панели]"
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices или custom [имя боковой панели]"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices, reviews หรือ custom [ชื่อแถบด้านข้าง]"
+            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices หรือ custom [ชื่อแถบด้านข้าง]"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices, reviews veya custom [kenar çubuğu adı]"
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices veya custom [kenar çubuğu adı]"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices, reviews або custom [назва бічної панелі]"
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices або custom [назва бічної панелі]"
           }
         }
       }
@@ -556717,54 +556718,14 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereichfarbe: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l’espace de travail : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون مساحة العمل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color del espacio de trabajo: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作區顏色：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区颜色：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 색상: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの色: %@"
-          }
-        }
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -557254,129 +557215,129 @@
       }
     },
     "devices.options.hint": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Change these options in the ⋯ menu next to My Devices."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
-          }
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Change these options in the ⋯ menu next to My Devices."
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+                }
+            }
         }
-      }
     },
     "cli.sshTmux.error.nameRequiresTitle": {
       "extractionState": "manual",
@@ -559380,6 +559341,603 @@
           "stringUnit": {
             "state": "translated",
             "value": "審查"
+          }
+        }
+      }
+    },
+    "cli.forwarding.error.forwardingLoop": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تمرير هذا الأمر إلى أداة سطر الأوامر المضمّنة لأن إعادة التوجيه عادت إلى التطبيق نفسه. أعد تثبيت cmux أو شغّل الأمر من تثبيت قياسي لواجهة cmux لسطر الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao proslijediti ovu komandu svom ugrađenom alatu komandne linije jer je prosljeđivanje vratilo na samu aplikaciju. Ponovo instalirajte cmux ili pokrenite komandu iz standardne cmux CLI instalacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke videregive denne kommando til det medfølgende kommandolinjeværktøj, fordi videresendelsen pegede tilbage på selve appen. Geninstallér cmux, eller kør kommandoen fra en standard cmux CLI-installation."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diesen Befehl nicht an das mitgelieferte Kommandozeilenwerkzeug übergeben, weil die Weiterleitung zurück zur App selbst führte. Installieren Sie cmux neu oder führen Sie den Befehl aus einer standardmäßigen cmux-CLI-Installation aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not hand this command to its bundled command-line tool because forwarding resolved back to the app itself. Reinstall cmux or run the command from a standard cmux CLI installation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo entregar este comando a su herramienta de línea de comandos integrada porque el reenvío volvió a la propia aplicación. Reinstala cmux o ejecuta el comando desde una instalación estándar de la CLI de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu transmettre cette commande à son outil en ligne de commande intégré car le transfert est revenu vers l'application elle-même. Réinstallez cmux ou exécutez la commande depuis une installation standard de la CLI cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a passare questo comando allo strumento a riga di comando integrato perché l'inoltro è tornato all'app stessa. Reinstalla cmux oppure esegui il comando da un'installazione standard della CLI di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送がアプリ自体に戻ってしまったため、cmux はこのコマンドを同梱のコマンドラインツールに引き渡せませんでした。cmux を再インストールするか、標準の cmux CLI インストールからコマンドを実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចប្រគល់ពាក្យបញ្ជានេះទៅឱ្យឧបករណ៍បន្ទាត់ពាក្យបញ្ជាដែលភ្ជាប់មកជាមួយបានទេ ព្រោះការបញ្ជូនបន្តបានវិលត្រឡប់មកកម្មវិធីខ្លួនឯងវិញ។ សូមដំឡើង cmux ឡើងវិញ ឬដំណើរការពាក្យបញ្ជាពីការដំឡើង cmux CLI ស្តង់ដារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달이 앱 자신으로 되돌아와 cmux 가 이 명령을 내장 명령줄 도구에 넘기지 못했습니다. cmux 를 다시 설치하거나 표준 cmux CLI 설치에서 명령을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke overlevere denne kommandoen til det medfølgende kommandolinjeverktøyet fordi videresendingen pekte tilbake på selve appen. Installer cmux på nytt, eller kjør kommandoen fra en standard cmux CLI-installasjon."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł przekazać tego polecenia do dołączonego narzędzia wiersza poleceń, ponieważ przekierowanie wróciło do samej aplikacji. Zainstaluj cmux ponownie lub uruchom polecenie ze standardowej instalacji cmux CLI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu entregar este comando à sua ferramenta de linha de comando integrada porque o encaminhamento voltou para o próprio aplicativo. Reinstale o cmux ou execute o comando a partir de uma instalação padrão da CLI do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не смог передать эту команду встроенному инструменту командной строки, потому что перенаправление вернулось к самому приложению. Переустановите cmux или выполните команду из стандартной установки cmux CLI."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถส่งต่อคำสั่งนี้ไปยังเครื่องมือบรรทัดคำสั่งที่มาพร้อมแอปได้ เนื่องจากการส่งต่อวนกลับมาที่ตัวแอปเอง โปรดติดตั้ง cmux ใหม่ หรือเรียกใช้คำสั่งจากการติดตั้ง cmux CLI แบบมาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönlendirme uygulamanın kendisine geri döndüğü için cmux bu komutu birlikte gelen komut satırı aracına aktaramadı. cmux'u yeniden yükleyin veya komutu standart bir cmux CLI kurulumundan çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не зміг передати цю команду вбудованому інструменту командного рядка, оскільки переспрямування повернулося до самого застосунку. Перевстановіть cmux або виконайте команду зі стандартної інсталяції cmux CLI."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于转发又回到了应用本身,cmux 无法将此命令交给随附的命令行工具。请重新安装 cmux,或从标准的 cmux CLI 安装中运行该命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由於轉發又回到了應用程式本身,cmux 無法將此命令交給隨附的命令列工具。請重新安裝 cmux,或從標準的 cmux CLI 安裝中執行該命令。"
+          }
+        }
+      }
+    },
+    "cli.window.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window handle is blank"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف النافذة فارغ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster-Handle ist leer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador de ventana está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant de fenêtre est vide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウハンドルが空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 핸들이 비어 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗控制代碼為空"
+          }
+        }
+      }
+    },
+    "cli.workspace.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace handle is blank"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف مساحة العمل فارغ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace-Handle ist leer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador del espacio de trabajo está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant d’espace de travail est vide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースハンドルが空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 핸들이 비어 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區控制代碼為空"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.revealInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中显示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Finder anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Révéler dans le Finder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار في Finder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en el Finder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中顯示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 보기"
+          }
+        }
+      }
+    },
+    "shortcut.focusHistoryLast.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Last"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز الأخير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Fokus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前のフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 포커스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到上一个焦点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到上一個焦點"
+          }
+        }
+      }
+    },
+    "menu.history.focusLast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Last"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز الأخير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Fokus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último foco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前のフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 포커스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到上一个焦点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換到上一個焦點"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalize Splits on Create"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسوية التقسيمات عند الإنشاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungen beim Erstellen angleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar divisiones al crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser les divisions à la création"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成時に分割を均等にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성 시 분할 균등화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建时均分面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立時均等分割"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits take half of the pane they were created from."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغل التقسيمات الجديدة نصف الجزء الذي أُنشئت منه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen nehmen die Hälfte des Bereichs ein, aus dem sie erstellt wurden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ocupan la mitad del panel desde el que se crearon."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions occupent la moitié du volet à partir duquel elles ont été créées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割は、作成元のペインの半分を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할은 생성된 원래 창의 절반을 차지합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建的分屏会占用其来源面板的一半。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增的分割會佔用其來源窗格的一半。"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits resize the panes in that direction to equal sizes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيد التقسيمات الجديدة تحجيم الأجزاء في ذلك الاتجاه إلى أحجام متساوية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen gleichen die Bereiche in dieser Richtung auf dieselbe Größe an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ajustan los paneles en esa dirección a tamaños iguales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions redimensionnent les volets dans cette direction à des tailles égales."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割を作成すると、その方向のペインが同じサイズに調整されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할을 만들면 해당 방향의 창 크기가 같아지도록 조정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分屏时，会将该方向上的面板调整为相同大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
           }
         }
       }

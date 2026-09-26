@@ -257,6 +257,29 @@ class Refusal(unittest.TestCase):
         self.assertEqual((code, api.calls), (0, []))
         self.assertIn("is not a number", summary)
 
+    def test_a_refused_shard_waits_for_its_running_siblings_instead_of_cancelling_them(self):
+        # Run 36198335113: shards 2/7 and 6/7 were refused while the other
+        # shards and the CLI product tests ran fine. Cancelling to re-run the
+        # refused ones killed the healthy jobs, and attempt 3 put all of them on
+        # Blacksmith. GitHub refuses any re-run while the run is going, so wait.
+        def jobs(seconds):
+            sibling = job("macos / app-host unit tests (1/7)", labels=[MINI], created=40, runner="mini-2",
+                          status="completed" if seconds >= 900 else "in_progress")
+            sibling["started_at"] = stamp(41)
+            if seconds >= 900:
+                sibling.update(conclusion="success", completed_at=stamp(900))
+            return [changes()(seconds), refused_job("macos / app-host unit tests (2/7)"), sibling]
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda seconds: seconds >= 900)
+        _, summary = run_main(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertGreaterEqual(api.rerun_at, 900)
+        self.assertIn("waiting for the rest of the run to finish", summary)
+        self.assertIn("re-ran the failed jobs", summary)
+
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
@@ -822,9 +845,10 @@ class E2E(unittest.TestCase):
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        # The build never finished, so every job re-runs and the sibling wait looks again.
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
         self.assertIn("cancel", api.calls)
-        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
 
     def test_a_refused_e2e_job_is_rerun(self):
         def jobs(seconds):
@@ -836,8 +860,31 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
         self.assertIn("refused", summary)
+        self.assertIn("so its sibling wait runs again", summary)
+
+    def test_an_e2e_run_whose_build_passed_keeps_it(self):
+        # Only the test job failed: re-running every job would compile again.
+        def jobs(seconds):
+            passed = dict(job("build", labels=[MINI], created=10, status="completed"), conclusion="success")
+            found = [e2e_runner()(seconds), passed]
+            if seconds >= 60:
+                found.append(refused_job("test"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_only_e2e_runs_rerun_every_job_for_an_unfinished_build(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [refused_job("build")])
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha="a" * 40, pr_number=7)
+        self.assertFalse(rescue.e2e_build_unfinished(api, target, clock.sleep, lambda text: None))
+        self.assertEqual(api.calls, [], "a ci.yml run is not read here")
 
 
     def test_a_stuck_e2e_run_that_finished_otherwise_is_not_rerun(self):
@@ -1086,6 +1133,10 @@ class MainDispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn("refused", summary)
+        # Cancelled at once, not held: a failed main run opens the red-CI issue.
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("waiting for the rest of the run", summary)
+        self.assertLess(clock.seconds, 600)
         # Even once main moved: a fleet refusal must not leave main's run red.
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)
