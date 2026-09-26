@@ -8,9 +8,11 @@ final class CmuxEventLogWriteSpy: @unchecked Sendable {
     // Retained so a closed handle's address cannot be reused by a later one.
     private var handles: [FileHandle] = []
     private let failedCall: Int?
+    private let beforeWrite: (@Sendable () throws -> Void)?
 
-    init(failedCall: Int? = nil) {
+    init(failedCall: Int? = nil, beforeWrite: (@Sendable () throws -> Void)? = nil) {
         self.failedCall = failedCall
+        self.beforeWrite = beforeWrite
     }
 
     var writeSizes: [Int] {
@@ -40,6 +42,7 @@ final class CmuxEventLogWriteSpy: @unchecked Sendable {
         let shouldFail = sizes.count == failedCall
         lock.unlock()
         if shouldFail { throw CocoaError(.fileWriteUnknown) }
+        try beforeWrite?()
         try handle.write(contentsOf: data)
     }
 }

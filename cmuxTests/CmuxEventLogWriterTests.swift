@@ -220,6 +220,29 @@ struct CmuxEventLogWriterTests {
         }
     }
 
+    /// Another cmux process can append to the shared log after this writer has
+    /// positioned its handle but before its write lands. The append-only
+    /// descriptor must keep both lines instead of overwriting the other writer's.
+    @Test
+    func concurrentExternalAppendIsNotOverwritten() throws {
+        let urlBox = CmuxEventLogURLBox()
+        let spy = CmuxEventLogWriteSpy(beforeWrite: {
+            guard let url = urlBox.url else { return }
+            let external = try FileHandle(forWritingTo: url)
+            defer { try? external.close() }
+            try external.seekToEnd()
+            try external.write(contentsOf: Data("{\"external\":true}\n".utf8))
+        })
+        let (writer, url, _) = makeWriter(spy: spy)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        flush([#"{"seq":1}"#], with: writer)
+        urlBox.url = url
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":1}"#, #"{"external":true}"#, #"{"seq":2}"#]))
+    }
+
     private func makeWriter(
         maxBytes: UInt64 = 16 * 1024 * 1024,
         spy: CmuxEventLogWriteSpy = CmuxEventLogWriteSpy()
@@ -266,6 +289,25 @@ struct CmuxEventLogWriterTests {
         #expect(records.count == count)
         for record in records {
             #expect(try JSONSerialization.jsonObject(with: Data(record)) is [String: Any])
+        }
+    }
+}
+
+/// Lets a `@Sendable` write hook see the log URL once the writer exists.
+private final class CmuxEventLogURLBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedURL: URL?
+
+    var url: URL? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedURL
+        }
+        set {
+            lock.lock()
+            storedURL = newValue
+            lock.unlock()
         }
     }
 }
