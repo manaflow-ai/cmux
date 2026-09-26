@@ -41,7 +41,7 @@ Exit codes: 0 merged or already up to date, 1 blocked (needs a person),
 2 error (dirty tree, unknown ref, git failure).
 
 Usage:
-  catch_up_pr.py merge --base origin/main [--repo DIR] [--tools-root DIR] [--json]
+  catch_up_pr.py merge --base origin/main|SHA [--repo DIR] [--tools-root DIR] [--title T] [--json]
   catch_up_pr.py verify --repo DIR --head SHA --base SHA --merged SHA --base-tip REF
   catch_up_pr.py comment --result result.json --push pushed|...
 """
@@ -463,7 +463,7 @@ def check_git_version() -> None:
         raise CatchUpError(f"git {need} or newer is required for attr.tree; found {version.strip()}")
 
 
-def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "") -> Result:
+def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "", title: str = "") -> Result:
     check_git_version()
     repo = Repo(repo_path)
     result = Result(base_ref=base_ref)
@@ -484,23 +484,24 @@ def catch_up(repo_path: Path, base_ref: str, tools_root: Path, note: str = "") -
         result.message = f"HEAD already contains {base_ref}"
         return result
 
-    merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
-    in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
-    unmerged = repo.unmerged() if in_merge else {}
-    if merge.returncode != 0 and not unmerged:
-        if in_merge:
-            repo.run("merge", "--abort", check=False)
-        raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
-
+    # One guard from the moment git starts merging: an interrupt (Ctrl-C in
+    # scripts/merge-main.sh) or any error before the commit leaves no half
+    # merge behind. No merge was in progress before this point (checked above).
     try:
-        return finish(repo, result, Resolver(repo, tools_root), unmerged, base_ref, note)
+        merge = repo.run("merge", "--no-ff", "--no-commit", "--no-edit", result.base, check=False)
+        in_merge = repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0
+        unmerged = repo.unmerged() if in_merge else {}
+        if merge.returncode != 0 and not unmerged:
+            raise CatchUpError(f"git merge failed: {tail(merge.stderr.decode(errors='replace'))}")
+        return finish(repo, result, Resolver(repo, tools_root), unmerged, base_ref, note, title)
     except BaseException:
-        repo.run("merge", "--abort", check=False)
+        if repo.run("rev-parse", "--verify", "--quiet", "MERGE_HEAD", check=False).returncode == 0:
+            repo.run("merge", "--abort", check=False)
         raise
 
 
 def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, set[int]],
-           base_ref: str, note: str) -> Result:
+           base_ref: str, note: str, title: str = "") -> Result:
     """Resolve, then commit or abort. The caller aborts the merge on any exception."""
     for path in sorted(unmerged):
         stages = unmerged[path]
@@ -532,7 +533,7 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
         result.message = f"{len(result.blocking)} file(s) need a person; merge aborted"
         return result
 
-    lines = [f"Merge {base_ref} into the pull request head", ""]
+    lines = [title or f"Merge {base_ref} into the pull request head", ""]
     lines.append("Catch-up merge by scripts/ci/catch_up_pr.py (RFC #14631).")
     if note:
         lines.append(note)
@@ -550,7 +551,8 @@ def finish(repo: Repo, result: Result, resolver: Resolver, unmerged: dict[str, s
 def command_merge(args: argparse.Namespace) -> int:
     result = Result(base_ref=args.base)
     try:
-        result = catch_up(Path(args.repo).resolve(), args.base, Path(args.tools_root).resolve(), args.note)
+        result = catch_up(Path(args.repo).resolve(), args.base, Path(args.tools_root).resolve(), args.note,
+                          args.title)
     except CatchUpError as error:
         result.status = "error"
         result.message = str(error)
@@ -706,6 +708,7 @@ def main(argv: list[str]) -> int:
     merge.add_argument("--tools-root", default=str(DEFAULT_TOOLS_ROOT),
                        help="trusted checkout whose generators resolve conflicts")
     merge.add_argument("--note", default="", help="extra line for the merge commit message")
+    merge.add_argument("--title", default="", help="merge commit subject (default: Merge <base> into the pull request head)")
     merge.add_argument("--json", action="store_true", help="print a machine-readable result")
     merge.set_defaults(func=command_merge)
     verify = sub.add_parser("verify", help="check a merge commit before pushing it")
