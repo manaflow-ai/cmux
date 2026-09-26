@@ -26,6 +26,7 @@ import Testing
 
     /// SSH computers have no Mac version; the Mac floor must never read
     /// them as outdated (SSH-only mode showed "Mac update required").
+    @MainActor
     @Test func sshComputersNeverCountAsMacsForTheWarning() {
         let ssh = "cmux-ssh-8c4e2f6a-3b1d-4e5f-9a7b-1c2d3e4f5a6b"
         #expect(MobileDevicesToolbarLabel.macPairingIDs([ssh]).isEmpty)

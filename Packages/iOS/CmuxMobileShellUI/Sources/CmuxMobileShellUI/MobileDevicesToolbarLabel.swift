@@ -37,12 +37,14 @@ struct MobileDevicesToolbarLabel: View {
         self.computerPairingIDs = Self.macPairingIDs(computerPairingIDs)
     }
 
-    /// The paired-Mac ids among the computers a button represents.
-    static func macPairingIDs(_ computerIDs: Set<String>) -> Set<String> {
+    /// The paired-Mac ids among the computers a button represents. Pure and
+    /// nonisolated: the view's inferred main-actor isolation would otherwise
+    /// make the filter closure trap when called off the main actor.
+    nonisolated static func macPairingIDs(_ computerIDs: Set<String>) -> Set<String> {
         computerIDs.filter { !MobileShellComposite.isSSHComputerID($0) }
     }
 
-    static func warningVisible(
+    nonisolated static func warningVisible(
         hasGateWarning: Bool,
         hasOutdatedListAuth: Bool,
         hasComputers: Bool = true
