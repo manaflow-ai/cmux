@@ -1783,6 +1783,7 @@
       "metaTitle": "Değişiklik günlüğü",
       "versionTitle": "cmux {version} · Değişiklik günlüğü",
       "releaseNavLabel": "cmux {version} civarındaki sürümler",
+      "tryIt": "Deneyin",
       "sections": {
         "added": "Eklendi",
         "changed": "Değiştirildi",

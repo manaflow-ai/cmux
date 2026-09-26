@@ -1785,6 +1785,7 @@
       "metaTitle": "Historia zmian",
       "versionTitle": "cmux {version} · Historia zmian",
       "releaseNavLabel": "Wydania w pobliżu cmux {version}",
+      "tryIt": "Wypróbuj",
       "sections": {
         "added": "Dodano",
         "changed": "Zmieniono",

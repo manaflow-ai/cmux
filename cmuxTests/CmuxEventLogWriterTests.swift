@@ -180,6 +180,86 @@ struct CmuxEventLogWriterTests {
         #expect(try Data(contentsOf: url) == jsonl([#"{"seq":9}"#]))
     }
 
+    /// Every hook, feed, and sidebar event is flushed on its own. Reopening,
+    /// seeking, and stat'ing the log per flush made the event-log queue one of
+    /// the busiest background queues in an idle app sample.
+    @Test
+    func consecutiveFlushesReuseOneOpenHandle() throws {
+        let (writer, url, spy) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        flush([#"{"seq":1}"#], with: writer)
+        flush([#"{"seq":2}"#], with: writer)
+        flush([#"{"seq":3}"#], with: writer)
+
+        #expect(spy.writeSizes.count == 3)
+        #expect(Set(spy.handleIdentities).count == 1)
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":1}"#, #"{"seq":2}"#, #"{"seq":3}"#]))
+    }
+
+    /// Another cmux process (a tagged dev build shares `~/.cmuxterm/events.jsonl`)
+    /// can rotate or delete the log between flushes. The next flush must land in
+    /// the file now at the path, not the renamed or unlinked inode.
+    @Test(arguments: [false, true])
+    func externalRotationOrDeletionBetweenFlushesWritesToCurrentPath(deleteInsteadOfRotate: Bool) throws {
+        let (writer, url, _) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let rotatedURL = url.appendingPathExtension("external")
+
+        flush([#"{"seq":1}"#], with: writer)
+        if deleteInsteadOfRotate {
+            try FileManager.default.removeItem(at: url)
+        } else {
+            try FileManager.default.moveItem(at: url, to: rotatedURL)
+        }
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":2}"#]))
+        if !deleteInsteadOfRotate {
+            #expect(try Data(contentsOf: rotatedURL) == jsonl([#"{"seq":1}"#]))
+        }
+    }
+
+    /// When another process rotates and has already created the next log, the
+    /// path exists but names a different inode. The writer must switch to it.
+    @Test
+    func externalRotationWithReplacementFileWritesToReplacement() throws {
+        let (writer, url, _) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let rotatedURL = url.appendingPathExtension("external")
+
+        flush([#"{"seq":1}"#], with: writer)
+        try FileManager.default.moveItem(at: url, to: rotatedURL)
+        #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":2}"#]))
+        #expect(try Data(contentsOf: rotatedURL) == jsonl([#"{"seq":1}"#]))
+    }
+
+    /// Another cmux process can append to the shared log after this writer has
+    /// positioned its handle but before its write lands. The append-only
+    /// descriptor must keep both lines instead of overwriting the other writer's.
+    @Test
+    func concurrentExternalAppendIsNotOverwritten() throws {
+        let urlBox = CmuxEventLogURLBox()
+        let spy = CmuxEventLogWriteSpy(beforeWrite: {
+            guard let url = urlBox.url else { return }
+            let external = try FileHandle(forWritingTo: url)
+            defer { try? external.close() }
+            try external.seekToEnd()
+            try external.write(contentsOf: Data("{\"external\":true}\n".utf8))
+        })
+        let (writer, url, _) = makeWriter(spy: spy)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        flush([#"{"seq":1}"#], with: writer)
+        urlBox.url = url
+        flush([#"{"seq":2}"#], with: writer)
+
+        #expect(try Data(contentsOf: url) == jsonl([#"{"seq":1}"#, #"{"external":true}"#, #"{"seq":2}"#]))
+    }
+
     private func makeWriter(
         maxBytes: UInt64 = 16 * 1024 * 1024,
         spy: CmuxEventLogWriteSpy = CmuxEventLogWriteSpy()
@@ -226,6 +306,25 @@ struct CmuxEventLogWriterTests {
         #expect(records.count == count)
         for record in records {
             #expect(try JSONSerialization.jsonObject(with: Data(record)) is [String: Any])
+        }
+    }
+}
+
+/// Lets a `@Sendable` write hook see the log URL once the writer exists.
+private final class CmuxEventLogURLBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedURL: URL?
+
+    var url: URL? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedURL
+        }
+        set {
+            lock.lock()
+            storedURL = newValue
+            lock.unlock()
         }
     }
 }

@@ -331750,55 +331750,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Tailscale QR…"
+            "value": "Open Pairing…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale QRを表示…"
+            "value": "ペアリングを開く…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示 Tailscale 二维码…"
+            "value": "打开配对…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-QR anzeigen…"
+            "value": "Kopplung öffnen…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher le code QR Tailscale…"
+            "value": "Ouvrir le jumelage…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار رمز QR الخاص بـ Tailscale…"
+            "value": "فتح الاقتران…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar QR de Tailscale…"
+            "value": "Abrir vinculación…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示 Tailscale QR 碼…"
+            "value": "開啟配對…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale QR 표시…"
+            "value": "페어링 열기…"
           }
         }
       }
@@ -331809,55 +331809,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
+            "value": "Sign in to cmux on your iPhone with the same account and it connects automatically. No QR code is needed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
+            "value": "iPhoneのcmuxに同じアカウントでサインインすると、自動的に接続されます。QRコードは不要です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录同一账户的设备会自动连接。此二维码仅用于通过 Tailscale 配对。"
+            "value": "在 iPhone 上使用同一账户登录 cmux，即可自动连接。无需二维码。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mit demselben Konto angemeldete Geräte verbinden sich automatisch. Verwenden Sie diesen QR-Code nur, um die Kopplung über Tailscale durchzuführen."
+            "value": "Melden Sie sich in cmux auf Ihrem iPhone mit demselben Konto an, dann verbindet es sich automatisch. Ein QR-Code ist nicht nötig."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les appareils connectés au même compte se connectent automatiquement. Utilisez ce code QR uniquement pour un jumelage via Tailscale."
+            "value": "Connectez-vous à cmux sur votre iPhone avec le même compte et la connexion se fait automatiquement. Aucun code QR n’est nécessaire."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتصل الأجهزة التي سجلت الدخول إلى الحساب نفسه تلقائيًا. استخدم رمز QR هذا فقط للاقتران عبر Tailscale."
+            "value": "سجّل الدخول إلى cmux على iPhone بالحساب نفسه وسيتصل تلقائيًا. لا حاجة إلى رمز QR."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los dispositivos con la sesión iniciada en la misma cuenta se conectan automáticamente. Use este QR solo para emparejar a través de Tailscale."
+            "value": "Inicie sesión en cmux en su iPhone con la misma cuenta y se conectará automáticamente. No se necesita ningún código QR."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登入相同帳戶的裝置會自動連線。僅在使用 Tailscale 配對時才使用此 QR 碼。"
+            "value": "在 iPhone 上以相同帳戶登入 cmux，即會自動連線。不需要 QR 碼。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "동일한 계정에 로그인한 기기는 자동으로 연결됩니다. Tailscale을 통해 페어링하는 경우에만 이 QR을 사용하세요."
+            "value": "iPhone의 cmux에 동일한 계정으로 로그인하면 자동으로 연결됩니다. QR 코드는 필요하지 않습니다."
           }
         }
       }
@@ -558640,6 +558640,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "machines.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }

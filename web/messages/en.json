@@ -3234,6 +3234,7 @@
       "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
       "versionTitle": "cmux {version} · Changelog",
       "releaseNavLabel": "Releases near cmux {version}",
+      "tryIt": "Try it",
       "sections": {
         "added": "Added",
         "changed": "Changed",

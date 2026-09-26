@@ -1985,15 +1985,29 @@ final class ClaudeHookSessionStore {
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
             // earlier capture to an env-only stub.
+            // Every write path into this store lands here, so the external launcher is carried
+            // across in one place: ancestor detection can miss on a later hook once the launcher
+            // process has exited, and such a record must not overwrite the wrapper id the session
+            // was captured with. #10494
             if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
-                record.launchCommand = launchCommand
+                record.launchCommand = launchCommand.preservingExternalLauncher(
+                    from: [record.launchCommand]
+                )
             } else if let verificationHome = normalizeOptional(launchCommand.verificationHome),
                       var existingLaunchCommand = record.launchCommand,
                       normalizeOptional(existingLaunchCommand.verificationHome) == nil {
                 // Keep a richer argv capture while filling in the separate
                 // Codex verification hint learned by a later hook event.
                 existingLaunchCommand.verificationHome = verificationHome
-                record.launchCommand = existingLaunchCommand
+                record.launchCommand = existingLaunchCommand.preservingExternalLauncher(
+                    from: [launchCommand]
+                )
+            } else if let existingLaunchCommand = record.launchCommand {
+                // The incoming record is not rich enough to replace the stored one, but it may be
+                // the only capture that saw the launcher.
+                record.launchCommand = existingLaunchCommand.preservingExternalLauncher(
+                    from: [launchCommand]
+                )
             }
         }
         if let isRestorable {
@@ -6670,6 +6684,22 @@ struct CMUXCLI {
                 throw CLIError(message: "close-window requires --window")
             }
             let response = try sendV1Command("close_window \(windowID)", client: client)
+            print(response)
+
+        case "resize-window":
+            guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
+                throw CLIError(message: "resize-window requires --window")
+            }
+            let width = optionValue(commandArgs, name: "--width") ?? "-"
+            let height = optionValue(commandArgs, name: "--height") ?? "-"
+            for (flag, value) in [("--width", width), ("--height", height)] where value != "-" {
+                guard let points = Double(value), points.isFinite, points > 0 else {
+                    throw CLIError(message: "\(flag) must be a positive number")
+                }
+            }
+            // With neither flag the command is a frame read: the app changes
+            // nothing and reports the window's current size.
+            let response = try sendV1Command("resize_window \(windowID) \(width) \(height)", client: client)
             print(response)
 
         case "move-workspace-to-window":
@@ -18332,7 +18362,7 @@ struct CMUXCLI {
                                         Rename one daemon tab placement.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the
                                         kickoff prompt for any agent; --open starts a
-                                        local claude|codex|opencode terminal with it.
+                                        local claude|codex|opencode|pi terminal with it.
               tree [<machine>|local] [--refresh]
                                         Finder-style view of every surface: This Mac
                                         (terminals by workspace, browsers), then each
@@ -18809,6 +18839,27 @@ struct CMUXCLI {
             Example:
               cmux close-window --window 0
               cmux close-window --window window:1
+            """
+        case "resize-window":
+            return """
+            Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]
+
+            Resize a window, keeping its top-left corner fixed: height grows or shrinks
+            downward, width rightward. Prints the resulting window frame size
+            (title bar included). With neither --width nor --height it changes
+            nothing and prints the current frame size. A height change is what
+            drives the terminal's resize path, so this is how a test reproduces
+            what a user does by dragging a window.
+
+            Flags:
+              --window <id|ref|index>   Window to resize (required)
+              --width <points>          New frame width; unchanged if omitted
+              --height <points>         New frame height; unchanged if omitted
+
+            Example:
+              cmux resize-window --window 0 --height 400
+              cmux resize-window --window window:1 --width 1200 --height 900
+              cmux resize-window --window 0        # read the current frame size
             """
         case "move-workspace-to-window":
             return """
@@ -23616,18 +23667,29 @@ struct CMUXCLI {
     /// whole session, so it lives in ~/.cmuxterm with the other CLI shims rather
     /// than in $TMPDIR, which macOS purges under long-lived sessions (#12022).
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        // Match the wrapper: refuse a relative HOME and symlinked paths.
+        let environmentHome = ProcessInfo.processInfo.environment["HOME"] ?? ""
+        let homePath = environmentHome.hasPrefix("/") ? environmentHome : NSHomeDirectory()
+        guard homePath.hasPrefix("/") else {
+            throw CLIError(message: "Claude NODE_OPTIONS restore module needs an absolute HOME")
+        }
         let root = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         let fileManager = FileManager.default
+        for url in [root, restoreModuleURL] {
+            if let type = try? fileManager.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType,
+               type == .typeSymbolicLink {
+                throw CLIError(message: "Refusing symlinked Claude NODE_OPTIONS restore path: \(url.path)")
+            }
+        }
         try fileManager.createDirectory(
             at: root,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
         return restoreModuleURL
     }
@@ -31565,6 +31627,39 @@ struct CMUXCLI {
         return arguments.isEmpty ? nil : arguments
     }
 
+    /// User-declared launchers that wrap a built-in agent (`agents.launchers` in `cmux.json`).
+    ///
+    /// The project directory is passed in rather than taken from this process: the project-level
+    /// config that applies belongs to the agent's session, and a hook or restore process can be
+    /// started from anywhere. Read per call, like the vault agent registry — a hook invocation is
+    /// short-lived, and one config read keeps a mid-session config edit from going stale.
+    func externalAgentLaunchers(workingDirectory: String?) -> AgentExternalLauncherRegistry {
+        let key = workingDirectory ?? ""
+        Self.externalAgentLauncherCacheLock.lock()
+        let cached = Self.externalAgentLauncherCache[key]
+        Self.externalAgentLauncherCacheLock.unlock()
+        if let cached { return cached }
+
+        let registry = AgentExternalLauncherRegistry.load(
+            homeDirectory: NSHomeDirectory(),
+            workingDirectory: workingDirectory,
+            sanitize: { try JSONCParser.preprocess(data: $0) }
+        )
+        Self.externalAgentLauncherCacheLock.lock()
+        Self.externalAgentLauncherCache[key] = registry
+        Self.externalAgentLauncherCacheLock.unlock()
+        return registry
+    }
+
+    /// Memoized `agents.launchers` reads, keyed by the directory they were resolved from.
+    ///
+    /// A CLI process handles one hook event and exits, so this is a within-invocation memo rather
+    /// than a cache with a lifetime: capture and the resume-command builder can each ask for the
+    /// same directory, and the config should be read once for both. Nothing is shared across
+    /// invocations, so a config edit still takes effect on the next event.
+    private static let externalAgentLauncherCacheLock = NSLock()
+    private nonisolated(unsafe) static var externalAgentLauncherCache: [String: AgentExternalLauncherRegistry] = [:]
+
     private func isClaudeForkSessionLaunch(
         payload: [String: Any]?,
         env: [String: String],
@@ -31677,6 +31772,44 @@ struct CMUXCLI {
             ? normalizedHookValue(env["HOME"])
             : nil
 
+        // A launcher cmux does not own (a multi-account router such as teamclaude, a gateway shim)
+        // execs the agent as a child, so nothing above records it and restore would replay a bare
+        // `claude --resume <id>` outside the wrapper. Detection walks the agent's ancestors here,
+        // while the agent is still running and its launcher process is still alive; the id is
+        // replayed through `agents.launchers` at resume time. #10494
+        // A relayed hook's PID belongs to the remote host's namespace, so an ancestor walk here
+        // would read unrelated local processes.
+        let externalLauncher = env[agentHookRelayOriginEnvironmentKey] == "1" ? nil : fallbackPID.flatMap { fallbackPID in
+            externalAgentLaunchers(workingDirectory: workingDirectory).detectedLauncher(
+                agentPID: pid_t(fallbackPID),
+                kind: fallbackKind,
+                parentPID: { self.parentPID(of: $0) },
+                argv: { self.processArguments(for: $0) }
+            )?.id
+        }
+
+        // One builder for every capture path below: the record's identity fields (launcher, external
+        // launcher, cwd, verification home) are the same in all of them, and threading each new
+        // field through four constructors is how one path silently loses it.
+        func record(
+            executablePath: String?,
+            arguments: [String],
+            environment: [String: String]?,
+            source: String
+        ) -> AgentHookLaunchCommandRecord {
+            AgentHookLaunchCommandRecord(
+                launcher: launcher,
+                externalLauncher: externalLauncher,
+                executablePath: executablePath,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                verificationHome: verificationHome,
+                capturedAt: Date().timeIntervalSince1970,
+                source: source
+            )
+        }
+
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.
         // The argv is gone, but the agent's launch env may still carry a non-default home that
@@ -31689,16 +31822,14 @@ struct CMUXCLI {
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord() -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                return fallbackKind == "codex" ? AgentHookLaunchCommandRecord(launcher: launcher, executablePath: nil, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "default") : nil
+                return fallbackKind == "codex"
+                    ? record(executablePath: nil, arguments: [], environment: nil, source: "default")
+                    : nil
             }
-            return AgentHookLaunchCommandRecord(
-                launcher: launcher,
+            return record(
                 executablePath: nil,
                 arguments: [],
-                workingDirectory: workingDirectory,
                 environment: environment,
-                verificationHome: verificationHome,
-                capturedAt: Date().timeIntervalSince1970,
                 source: "environment"
             )
         }
@@ -31716,18 +31847,19 @@ struct CMUXCLI {
         ) else {
             // Sanitized-away argv means a non-restorable invocation. Do not
             // replace it with an env-only fallback.
-            return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
+            return record(
+                executablePath: executablePath,
+                arguments: [],
+                environment: nil,
+                source: "rejected"
+            )
         }
         let source = envArguments == nil ? "process" : "environment"
 
-        return AgentHookLaunchCommandRecord(
-            launcher: launcher,
+        return record(
             executablePath: executablePath,
             arguments: sanitizedArguments,
-            workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
-            verificationHome: verificationHome,
-            capturedAt: Date().timeIntervalSince1970,
             source: source
         )
     }
@@ -31950,6 +32082,7 @@ struct CMUXCLI {
         guard let normalizedSessionId else { return nil }
 
         let argv: [String]?
+        let routesThroughOwnedLauncher: Bool
         switch AgentResumeArgv().launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
@@ -31961,7 +32094,9 @@ struct CMUXCLI {
             // which must never regain permission state a restored teammate did
             // not explicitly opt into; observed mode applies only below.
             argv = resolved
+            routesThroughOwnedLauncher = true
         case .passthrough:
+            routesThroughOwnedLauncher = false
             argv = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: normalizedSessionId,
@@ -31972,11 +32107,35 @@ struct CMUXCLI {
         }
 
         guard let argv, !argv.isEmpty else { return nil }
+        // Re-supply a user-declared external launcher (#10494). Applied to the agent argv the
+        // resolution above produced, so the wrapper receives exactly the options cmux would have
+        // passed to the agent directly. The config is only read when a launcher was captured.
+        let resumeWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
+        // A cmux-owned route already names its own launcher in argv[0]; only the bare agent argv
+        // is wrapped.
+        let externalLauncher = routesThroughOwnedLauncher ? nil : launchCommand?.externalLauncher.flatMap { launcherID in
+            externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
+                .resolvedLauncher(id: launcherID, kind: kind)
+        }
         return agentSurfaceResumeShellCommand(
             argv: argv,
-            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            workingDirectory: resumeWorkingDirectory,
             kind: kind,
-            environment: environment
+            environment: environment,
+            // Passed unwrapped: the sanitizer and the Hermes provider rewrite below operate on the
+            // agent's own argv, and the launcher prefix is applied after them so a wrapper's own
+            // words are never rewritten or stripped.
+            externalLauncher: externalLauncher,
+            // A wrapper that re-execs the agent by name loses the shim that would have been
+            // substituted into argv[0], and with it cmux's hooks; keep it first on PATH instead.
+            wrappedAgentShimEnvironmentKey: externalLauncher.flatMap { launcher in
+                launcher.includesAgentExecutable
+                    ? nil
+                    : AgentRestoreLaunch(
+                        kind: kind,
+                        sessionID: normalizedSessionId
+                    )?.wrapperShimEnvironmentKey
+            }
         )
     }
 
@@ -31984,7 +32143,9 @@ struct CMUXCLI {
         argv: [String],
         workingDirectory: String?,
         kind: String,
-        environment: [String: String]?
+        environment: [String: String]?,
+        externalLauncher: AgentExternalLauncher? = nil,
+        wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
         var commandParts: [String] = []
         commandParts.append(contentsOf: argv)
@@ -31994,9 +32155,13 @@ struct CMUXCLI {
             from: commandParts,
             workingDirectory: cwd
         )
-        let resumeCommandParts = kind == "hermes-agent"
+        let agentCommandParts = kind == "hermes-agent"
             ? hermesAgentArgumentsByReplacingOpenAICodexProvider(sanitizedCommandParts)
             : sanitizedCommandParts
+        // Wrap last: the rewrites above target the agent's own argv, and a launcher's prefix may
+        // legitimately carry words that look like the captured working directory or a provider flag.
+        let resumeCommandParts = externalLauncher?.applyingResumePrefix(to: agentCommandParts)
+            ?? agentCommandParts
         // Route the claude executable through the wrapper shim token so the executed
         // command re-injects cmux hooks even when run via the `$SHELL -lic` restore
         // launcher (where the integration's PATH shim / `claude()` function are not
@@ -32010,8 +32175,19 @@ struct CMUXCLI {
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
-                arguments: resumeCommandParts,
+                // The agent's own argv: the bootstrap commands run the agent, so their executable
+                // comes from here and the launcher prefix is applied to each of them below. Passing
+                // the wrapped argv would make the wrapper's own name the executable and turn
+                // `hermes config set …` into `<wrapper> config set …`.
+                arguments: agentCommandParts,
+                externalLauncher: externalLauncher,
                 environment: environment
+            )
+        }
+        if let wrappedAgentShimEnvironmentKey {
+            command = AgentExternalLauncherRegistry.portableShellCommandRoutingWrappedAgentThroughShim(
+                posixCommand: command,
+                shimEnvironmentKey: wrappedAgentShimEnvironmentKey
             )
         }
         if let cwd {
@@ -32028,6 +32204,7 @@ struct CMUXCLI {
     private func hermesAgentSubrouterResumeCommand(
         _ command: String,
         arguments: [String],
+        externalLauncher: AgentExternalLauncher? = nil,
         environment: [String: String]?
     ) -> String {
         guard !hermesAgentArgumentsSetModelAPIMode(arguments),
@@ -32037,17 +32214,24 @@ struct CMUXCLI {
             return command
         }
         let hermesExecutable = normalizedHookValue(arguments.first) ?? "hermes"
+        // Each bootstrap command is a whole agent invocation, so it goes through the launcher the
+        // same way the resumed session does.
+        func bootstrapCommand(_ settingArguments: [String]) -> String {
+            let argv = externalLauncher?.applyingResumePrefix(to: [hermesExecutable] + settingArguments)
+                ?? ([hermesExecutable] + settingArguments)
+            return argv.map(cliShellQuote).joined(separator: " ") + " >/dev/null"
+        }
 
         var bootstrap = [
-            "\(cliShellQuote(hermesExecutable)) config set model.provider \(cliShellQuote(HermesAgentCodexEnvironment.defaultProvider)) >/dev/null",
-            "\(cliShellQuote(hermesExecutable)) config set model.base_url \(cliShellQuote(baseURL)) >/dev/null",
-            "\(cliShellQuote(hermesExecutable)) config set model.api_mode \(cliShellQuote(HermesAgentCodexEnvironment.codexResponsesAPIMode)) >/dev/null"
+            bootstrapCommand(["config", "set", "model.provider", HermesAgentCodexEnvironment.defaultProvider]),
+            bootstrapCommand(["config", "set", "model.base_url", baseURL]),
+            bootstrapCommand(["config", "set", "model.api_mode", HermesAgentCodexEnvironment.codexResponsesAPIMode]),
         ]
         if let model = HermesAgentCodexEnvironment.defaultCodexModel(
             environment: environment,
             ambientEnvironment: ProcessInfo.processInfo.environment
         ) {
-            bootstrap.append("\(cliShellQuote(hermesExecutable)) config set model.default \(cliShellQuote(model)) >/dev/null")
+            bootstrap.append(bootstrapCommand(["config", "set", "model.default", model]))
         }
         return bootstrap.joined(separator: " && ") + " && " + command
     }

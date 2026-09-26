@@ -19,6 +19,7 @@ extension TerminalPlainTextPasteStartupTests {
             let fixture = try PlainPastePTYFixture(optimized: optimized)
             defer { fixture.close() }
             try await fixture.waitUntilReady()
+            try await fixture.warmWorkerLaunchPath()
             for trial in 0..<6 {
                 let text = "paste-\(trial) 日本語 🦀 e\u{301}\nsecond\tline\n"
                 NSPasteboard.general.clearContents()
@@ -32,7 +33,17 @@ extension TerminalPlainTextPasteStartupTests {
                         windowNumber: fixture.window.windowNumber, context: nil,
                         characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9
                     ))
-                    try #require(fixture.view.performKeyEquivalent(with: event))
+                    // A real Cmd+V reaches the terminal through its key window,
+                    // where the terminal is first responder. On a live window
+                    // server (the owned Mac runners) this fixture window is not
+                    // key, and cmux's focus handling has yielded the terminal's
+                    // responder to the window by the time the key is sent.
+                    // Restore the key-window precondition per keystroke.
+                    try #require(fixture.window.makeFirstResponder(fixture.view))
+                    try #require(
+                        fixture.view.performKeyEquivalent(with: event),
+                        "Cmd+V was not handled; firstResponder=\(String(describing: fixture.window.firstResponder))"
+                    )
                 case 1:
                     fixture.view.paste(nil)
                 default:
