@@ -163,7 +163,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portDiscovery.reconcile(
             supportsPreviews: summary.capabilities.ports || summary.preferredPrivateAddress != nil,
             isAwake: summary.status == "running",
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            allowLoopback: summary.machine.isSSH
         )
         info = Self.info(
             from: summary,
@@ -273,7 +274,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portDiscovery.reconcile(
             supportsPreviews: supportsPortPreviews,
             isAwake: isAwake,
-            privateAddress: privateAddress
+            privateAddress: privateAddress,
+            allowLoopback: machine.isSSH
         )
         var scannedPorts: [Int]?
         if !supportsPortPreviews {
@@ -289,6 +291,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         let currentPorts = scannedPorts ?? portsCache?.ports ?? []
         guard isAwake, summary.cloudSummary == nil || vmClient != nil else {
+            // No blocker covers a missing control-plane client, so settle a requested scan here.
+            portDiscovery.linkFailed()
             tabByTerminal = [:]
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
@@ -405,6 +409,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+            portDiscovery.linkFailed()
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -1373,6 +1378,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stdout = object["stdout"] as? String else {
+            // A cancelled scan belongs to whichever pass cancelled it.
+            guard generation == refreshGeneration, !Task.isCancelled else { return nil }
+            let request = portDiscovery.beginScan()
+            if portDiscovery.complete(nil, request: request, at: Date.now, socketPath: socketPath) {
+                publishPortDiscovery()
+            }
             return nil
         }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")

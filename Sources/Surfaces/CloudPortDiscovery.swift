@@ -13,9 +13,13 @@ struct CloudPortDiscovery: Sendable {
     private var blocker: CloudPortDiscoveryState?
     private let cacheLifetime: TimeInterval = 30
 
-    mutating func reconcile(supportsPreviews: Bool, isAwake: Bool, privateAddress: String?) {
-        let nextBlocker = CloudPortRoutePlan.blocker(supportsPreviews: supportsPreviews, privateAddress: privateAddress)
-            ?? (isAwake ? nil : .unavailable(.machineAsleep))
+    /// SSH machines reach their ports over the SSH link's loopback forward, so they opt in with `allowLoopback`.
+    mutating func reconcile(supportsPreviews: Bool, isAwake: Bool, privateAddress: String?, allowLoopback: Bool = false) {
+        let nextBlocker = CloudPortRoutePlan.blocker(
+            supportsPreviews: supportsPreviews,
+            privateAddress: privateAddress,
+            allowLoopback: allowLoopback
+        ) ?? (isAwake ? nil : .unavailable(.machineAsleep))
         if self.privateAddress != privateAddress || blocker != nextBlocker {
             requestID &+= 1
             scan = nil

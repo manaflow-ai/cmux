@@ -33,7 +33,8 @@ extension CloudTreeNodeBuilder {
         if children.isEmpty {
             children.append(CloudMachineSurfacePresentation.emptyPorts(info: info))
         }
-        if showsCloudVPNWarning, info.linkState == .connected || info.linkState == .notApplicable {
+        // SSH ports ride the SSH link's loopback forward; the Cloud VPN never reaches them.
+        if showsCloudVPNWarning, !machine.isSSH, info.linkState == .connected || info.linkState == .notApplicable {
             children.append(CloudTreeNode(
                 id: "machine:\(machine.rawValue)/ports/vpn-guidance",
                 kind: .placeholder(
