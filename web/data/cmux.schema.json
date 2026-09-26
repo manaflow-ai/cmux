@@ -674,6 +674,12 @@
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "prefixProgramTitlesWithDirectory": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.prefixProgramTitlesWithDirectory",
+          "description": "When true, prefix program-set terminal titles with the current directory name. Titles beginning with ~ or already identifying the directory are left unchanged."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

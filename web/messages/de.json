@@ -1316,6 +1316,7 @@
           "sessionContentMaxWidth": "Optionale maximale Breite in Punkten für Terminalinhalte und den integrierten Agentenchat. Mit false wird die gesamte Breite des Bereichs verwendet.",
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
+          "prefixProgramTitlesWithDirectory": "Wenn aktiviert, wird der Name des aktuellen Verzeichnisses vor von Programmen gesetzte Terminaltitel gesetzt. Titel, die mit ~ beginnen oder das Verzeichnis bereits nennen, bleiben unverändert.",
           "scrollSpeed": "Multiplikator für die Scroll-Werte von Mausrad und Trackpad im Terminal. Höhere Werte scrollen schneller, niedrigere Werte langsamer.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."

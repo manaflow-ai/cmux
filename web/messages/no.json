@@ -1316,6 +1316,7 @@
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
+          "prefixProgramTitlesWithDirectory": "Når dette er aktivert, settes navnet på gjeldende mappe foran terminaltitler som programmer angir. Titler som begynner med ~ eller allerede identifiserer mappen, forblir uendret.",
           "scrollSpeed": "Multiplikator brukt på rulleverdier fra musehjul og styreflate i terminalen. Høyere verdier ruller raskere, lavere verdier saktere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."

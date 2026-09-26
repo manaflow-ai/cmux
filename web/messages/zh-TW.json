@@ -1316,6 +1316,7 @@
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
+          "prefixProgramTitlesWithDirectory": "啟用後，會在程式設定的終端機標題前加上目前目錄名稱。以 ~ 開頭或已經指出目錄的標題維持不變。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
