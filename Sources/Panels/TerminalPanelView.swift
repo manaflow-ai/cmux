@@ -179,6 +179,10 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                // Bonsplit reuses structural slots when a pane switches panels. Keep the
+                // AppKit editor and its panel registration tied to the current terminal so
+                // prompt submissions cannot retain the previous panel's target.
+                .id(panel.id)
                 .sessionContentWidth(fillsHeight: false)
             }
         }

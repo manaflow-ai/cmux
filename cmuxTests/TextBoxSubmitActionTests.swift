@@ -1,6 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
 import Darwin
+import Observation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -1245,6 +1247,63 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testReplacingTerminalPanelMountsTextBoxForTheCurrentPanel() throws {
+        let firstPanel = TerminalPanel(workspaceId: UUID())
+        let secondPanel = TerminalPanel(workspaceId: UUID())
+        firstPanel.isTextBoxActive = true
+        secondPanel.isTextBoxActive = true
+        let model = TextBoxTerminalPanelReplacementModel(panel: firstPanel)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let hostingView = NSHostingView(
+            rootView: TextBoxTerminalPanelReplacementHarness(model: model)
+        )
+        hostingView.frame = window.contentView?.bounds ?? .zero
+        hostingView.autoresizingMask = [.width, .height]
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+            firstPanel.close()
+            secondPanel.close()
+        }
+
+        let firstTextView = try #require(waitForTextBoxInputView(for: firstPanel, in: window))
+        #expect(firstPanel.textBoxInputView === firstTextView)
+
+        model.panel = secondPanel
+
+        let secondTextView = try #require(waitForTextBoxInputView(for: secondPanel, in: window))
+        #expect(secondPanel.textBoxInputView === secondTextView)
+        #expect(firstTextView !== secondTextView)
+        #expect(firstTextView.window == nil)
+    }
+
+    private func waitForTextBoxInputView(
+        for panel: TerminalPanel,
+        in window: NSWindow,
+        timeout: TimeInterval = 1
+    ) -> TextBoxInputTextView? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            if let textView = panel.textBoxInputView,
+               textView.window === window {
+                return textView
+            }
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        return nil
+    }
+
     private func makeIsolatedDefaults() throws -> UserDefaults {
         let suiteName = "TextBoxSubmitActionTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -1285,6 +1344,47 @@ struct TextBoxSubmitActionTests {
             charactersIgnoringModifiers: key,
             isARepeat: false,
             keyCode: keyCode
+        )
+    }
+}
+
+@MainActor
+@Observable
+private final class TextBoxTerminalPanelReplacementModel {
+    var panel: TerminalPanel
+
+    init(panel: TerminalPanel) {
+        self.panel = panel
+    }
+}
+
+@MainActor
+private struct TextBoxTerminalPanelReplacementHarness: View {
+    let model: TextBoxTerminalPanelReplacementModel
+
+    var body: some View {
+        TerminalPanelView(
+            panel: model.panel,
+            paneId: .init(),
+            isFocused: true,
+            isVisibleInUI: true,
+            portalPaneOwnershipResolver: { true },
+            portalPriority: 1,
+            isSplit: false,
+            appearance: PanelAppearance(
+                backgroundColor: .windowBackgroundColor,
+                foregroundColor: .labelColor,
+                dividerColor: .clear,
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0,
+                usesClearContentBackground: false
+            ),
+            hasUnreadNotification: false,
+            terminalAgentContext: "",
+            onFocus: {},
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
         )
     }
 }
