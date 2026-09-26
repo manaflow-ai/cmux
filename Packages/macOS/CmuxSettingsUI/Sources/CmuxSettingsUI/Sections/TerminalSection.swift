@@ -25,6 +25,7 @@ public struct TerminalSection: View {
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var textEditingCommandMovesByWord: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -54,6 +55,9 @@ public struct TerminalSection: View {
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _textEditingCommandMovesByWord = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingCommandMovesByWord)
+        )
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -91,6 +95,7 @@ public struct TerminalSection: View {
             copyOnSelect,
             reflowHardWrapOnCopy,
             textEditingGestures,
+            textEditingCommandMovesByWord,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -448,13 +453,27 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
                 subtitle: textEditingGestures.current
-                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "Command and Option arrow keys move by line and word, and the Command and Option delete keys kill by line and word. Applications receive these chords instead of the gesture, so turn this off before working in a full-screen TUI.")
+                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "At the shell prompt, Command and Option arrow and delete keys move and delete by line and word. Full-screen apps such as vim still receive the original keys.")
                     : String(localized: "settings.terminal.textEditingGestures.subtitleOff", defaultValue: "Command and Option key combinations reach the terminal unchanged.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textEditingCommandMovesByWord"),
+                String(localized: "settings.terminal.textEditingCommandMovesByWord", defaultValue: "Command Moves by Word"),
+                subtitle: textEditingCommandMovesByWord.current
+                    ? String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOn", defaultValue: "Command arrow and delete keys move and delete by word, like Option. Control Left and Right Arrow move to the start and end of the line.")
+                    : String(localized: "settings.terminal.textEditingCommandMovesByWord.subtitleOff", defaultValue: "Command arrow and delete keys move and delete by line, as in macOS text fields.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingCommandMovesByWord.current }, set: { textEditingCommandMovesByWord.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!textEditingGestures.current)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingCommandMovesByWordToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

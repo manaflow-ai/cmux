@@ -62,6 +62,17 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether text-editing gestures use the browser-style layout: Command
+    /// moves and deletes by word like Option, and Control+Left/Right move to
+    /// the line start and end. Only consulted while ``textEditingGestures`` is
+    /// on. Off by default, which keeps the macOS text-field convention of
+    /// Command for lines and Option for words.
+    public let textEditingCommandMovesByWord = DefaultsKey<Bool>(
+        id: "terminal.textEditingCommandMovesByWord",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingCommandMovesByWord"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.

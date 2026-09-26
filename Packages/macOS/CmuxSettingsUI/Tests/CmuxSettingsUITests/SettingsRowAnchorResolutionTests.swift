@@ -142,6 +142,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
         "terminal.textEditingGestures",
+        "terminal.textEditingCommandMovesByWord",
         "terminal.resumeCommands",
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",

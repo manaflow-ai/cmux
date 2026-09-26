@@ -6276,6 +6276,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
     }
 
+    /// The gesture layout, read from the same defaults key as
+    /// `terminal.textEditingCommandMovesByWord`, whose default is `false`.
+    private var textEditingLayout: TerminalTextEditingLayout {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingCommandMovesByWord")
+            ? .commandMovesByWord
+            : .standard
+    }
+
     /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
     private func textEditingModifiers(
         from flags: NSEvent.ModifierFlags
@@ -6318,14 +6326,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so without this guard reading scrollback with a half-typed command at
         // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
         guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        let modifiers = textEditingModifiers(from: event.modifierFlags)
+        // The defaults reads are the costly half, so they run only after the
+        // pure pre-filter has confirmed this keystroke is gesture-shaped under
+        // some layout. Every other keystroke leaves this path having done no I/O.
+        guard terminalTextEditingIsGestureCandidate(keyCode: event.keyCode, modifiers: modifiers) else {
+            return false
+        }
+        guard textEditingGesturesEnabled else { return false }
         guard let chord = terminalTextEditingResolve(
             keyCode: event.keyCode,
-            modifiers: textEditingModifiers(from: event.modifierFlags)
+            modifiers: modifiers,
+            layout: textEditingLayout
         ) else { return false }
-        // The defaults read is the costly half, so it runs only after the pure
-        // resolver has confirmed this keystroke is gesture-shaped at all. Every
-        // other keystroke leaves this path having done no I/O.
-        guard textEditingGesturesEnabled else { return false }
+        // A full-screen application decides what these chords mean, so it gets
+        // the original keystroke. The alternate-screen read serializes the
+        // viewport, which is why it waits until a gesture has actually resolved
+        // with the mode on.
+        guard terminalSurface?.isAlternateScreenActive() != true else { return false }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
             let scalar = chord.letter.unicodeScalars.first
