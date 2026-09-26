@@ -28244,6 +28244,14 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            guard let record = (try? sessionStore.lookup(sessionId: sessionId)) ?? nil,
+                  record.workspaceId == workspaceId,
+                  record.surfaceId == surfaceId,
+                  record.transcriptPath == transcriptPath else {
+                telemetry.breadcrumb("claude-hook.title-scan.stale")
+                printClaudeHookAck()
+                return
+            }
             let result = claudeTranscriptTitleScan(path: transcriptPath)
             try? sessionStore.finishAutoNamingTitleScan(
                 sessionId: sessionId,
