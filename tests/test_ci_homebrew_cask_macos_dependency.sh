@@ -50,7 +50,7 @@ for file in "${FILES[@]}"; do
         sub(/[[:space:]]*$/, "")
         print
       }
-    ' "$file" | sort -u
+    ' "$file"
   )"
   symbol_count="$(printf '%s\n' "$symbols" | sed '/^$/d' | wc -l | tr -d ' ')"
   if [ "$symbol_count" -ne 1 ]; then
