@@ -30,15 +30,16 @@ extension TerminalController {
         )
         let connection = SSHTuiConnection(configuration: configuration)
         let provider = try coordinator.provider(connection: connection)
+        guard let links = provider.links as? SSHTuiLinkManager else { throw CloudDiagnosticFailure.unsupported }
         do {
-            _ = try await provider.links.connected(machineID: connection.id)
+            // Like `ssh`, a new route reports OpenSSH's own failure in seconds
+            // instead of waiting out the headless carrier's retries.
+            _ = try await links.connected(machineID: connection.id, preflight: true)
+        } catch let error where Self.sshTuiNeedsInteractiveLogin(error) {
+            return ["auth_required": true, "ssh_argv": connection.authenticationArguments,
+                    "destination": host.destination]
         } catch {
-            let reason = CloudMachineLink.errorText(error)
-            if RemoteTmuxSSHTransport.indicatesAuthRequired(reason) {
-                return ["auth_required": true, "ssh_argv": connection.authenticationArguments,
-                        "destination": host.destination]
-            }
-            throw error
+            throw Self.sshTuiOpenFailure(error)
         }
         try Task.checkCancellation()
         guard ManagedRemoteConnectionsPolicy.isEnabled else { throw CancellationError() }
@@ -69,7 +70,28 @@ extension TerminalController {
             return result
         } catch {
             workspace.applyRemoteConnectionStateUpdate(.error, detail: CloudMachineLink.errorText(error), target: host.destination)
-            throw error
+            throw Self.sshTuiOpenFailure(error)
         }
     }
+
+    /// Whether an interactive `ssh` can clear an open's failure. Only the
+    /// prompt-free login decides this: carrier output after it passed can
+    /// quote a remote "Permission denied" that no login fixes.
+    static func sshTuiNeedsInteractiveLogin(_ error: Error) -> Bool {
+        guard let failure = error as? SSHTuiPreflightError else { return false }
+        return failure.stalledBeforeAuthentication
+            || RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(failure.standardError)
+    }
+
+    /// OpenSSH and carrier output belongs to the user's own SSH route, so it
+    /// keeps its text instead of the Cloud VM fallback that hides provider detail.
+    private static func sshTuiOpenFailure(_ error: Error) -> Error {
+        guard error is SSHTuiPreflightError || error is CloudMachineLink.LinkError else { return error }
+        return SSHTuiOpenFailure(reason: CloudMachineLink.errorText(error))
+    }
+}
+
+/// An SSH route failure reported to the caller with OpenSSH's diagnostic.
+struct SSHTuiOpenFailure: Error {
+    let reason: String
 }
