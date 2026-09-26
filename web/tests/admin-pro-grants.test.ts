@@ -138,6 +138,7 @@ const noStripe: StripeBillingStatus = {
   cancelAtPeriodEnd: false,
   hasCustomer: false,
   hasActiveSubscription: false,
+  seats: null,
 };
 const activeStripe: StripeBillingStatus = {
   customerId: "cus_1",
@@ -147,6 +148,7 @@ const activeStripe: StripeBillingStatus = {
   cancelAtPeriodEnd: false,
   hasCustomer: true,
   hasActiveSubscription: true,
+  seats: null,
 };
 
 const lease: AccountDeletionUserMutationLease = { refresh: async () => undefined };

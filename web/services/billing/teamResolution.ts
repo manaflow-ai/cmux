@@ -2,9 +2,22 @@ export type BillingTeamLike = {
   readonly id: string;
   readonly displayName: string | null;
   readonly clientReadOnlyMetadata?: unknown;
+  readonly listUsers?: (
+    options?: BillingTeamMemberListOptions,
+  ) => Promise<BillingTeamMemberList>;
+};
+
+export type BillingTeamMemberListOptions = {
+  readonly cursor?: string;
+  readonly limit?: number;
+};
+
+export type BillingTeamMemberList = readonly unknown[] & {
+  readonly nextCursor?: string | null;
 };
 
 export type BillingTeamUserLike = {
+  readonly id?: string;
   readonly selectedTeam?: unknown;
   readonly listTeams?: () => Promise<readonly unknown[]>;
 };
@@ -54,12 +67,21 @@ export function billingTeamFromUnknown(value: unknown): BillingTeamLike | null {
   if (typeof id !== "string" || !id) return null;
   const displayName = (value as { displayName?: unknown; name?: unknown }).displayName ??
     (value as { name?: unknown }).name;
+  const listUsers = (value as { listUsers?: unknown }).listUsers;
   return {
     id,
     displayName: typeof displayName === "string" && displayName.trim()
       ? displayName.trim()
       : null,
     clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
+    ...(typeof listUsers === "function"
+      ? {
+          listUsers: async (options?: BillingTeamMemberListOptions) =>
+            await (listUsers as (
+              options?: BillingTeamMemberListOptions,
+            ) => Promise<unknown> | unknown).call(value, options) as BillingTeamMemberList,
+        }
+      : {}),
   };
 }
 
