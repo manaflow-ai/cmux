@@ -669,7 +669,7 @@ jobs:
           # Fixed paths survive across jobs on persistent runners. Clear them
           # before any trusted product/cache restoration.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
 

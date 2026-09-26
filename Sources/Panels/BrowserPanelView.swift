@@ -277,6 +277,7 @@ struct BrowserPanelView: View {
     /// theme and is never used to resolve browser toolbar colors.
     private let inheritedColorScheme: ColorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
+    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
     @Environment(\.paneDropZone) private var paneDropZone
     /// Held detector instance used to summarize installed browsers rather than
     /// the former `BrowserInstalledBrowserDetector` static namespace.
@@ -2410,7 +2411,7 @@ struct BrowserPanelView: View {
     private func presentImportDialogFromHint() {
         isBrowserImportHintPopoverPresented = false
         DispatchQueue.main.async {
-            BrowserDataImportCoordinator.shared.presentImportDialog(
+            browserDataImportCoordinator?.presentImportDialog(
                 defaultDestinationProfileID: panel.profileID
             )
         }
@@ -2419,7 +2420,7 @@ struct BrowserPanelView: View {
     private func presentImportDialogFromProfileMenu() {
         isBrowserProfileMenuPresented = false
         DispatchQueue.main.async {
-            BrowserDataImportCoordinator.shared.presentImportDialog(
+            browserDataImportCoordinator?.presentImportDialog(
                 defaultDestinationProfileID: panel.profileID
             )
         }
@@ -2505,9 +2506,8 @@ struct BrowserPanelView: View {
         }
 
         tasks.replaceOnMainActor(.emptyStateImportBrowserRefresh) {
-            let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector().detectInstalledBrowsers()
-            }.value
+            guard let browserDataImportCoordinator else { return }
+            let browsers = await browserDataImportCoordinator.detectInstalledBrowsers()
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard emptyStateImportBrowserRefreshGeneration == generation,
