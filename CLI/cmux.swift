@@ -27848,9 +27848,9 @@ struct CMUXCLI {
                 // background task or a pending cron). Cached on the session record so
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
+                // Claude's stop_hook_active flag only guards recursive Stop hooks; it
+                // does not establish that background work is still running.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-                let hasUnsettledWork = hasPendingBackgroundWork
-                    || parsedInput.rawObject?["stop_hook_active"] as? Bool == true
 
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
@@ -27869,7 +27869,7 @@ struct CMUXCLI {
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
                         // a live task (mirrors the antigravity fullyIdle flip).
-                        agentLifecycle: hasUnsettledWork ? .running : .idle,
+                        agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
                         hookEventName: reportedHookEventName(from: parsedInput) ?? "Stop",
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
@@ -27900,14 +27900,14 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     isSubagent: isNestedAgentSession,
-                    pendingWork: hasUnsettledWork,
+                    pendingWork: hasPendingBackgroundWork,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "Stop",
                         attention: Self.semanticAttentionContext(parsedInput.rawObject),
                         occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
                     telemetry: telemetry
                 )
-                if hasUnsettledWork {
+                if hasPendingBackgroundWork {
                     // The turn ended but a background task or scheduled wakeup is
                     // still live, so the pane is not idle — show it as still
                     // running rather than the misleading "Idle". Reuse the shared
@@ -27940,7 +27940,7 @@ struct CMUXCLI {
                         subtitle: completion.subtitle,
                         body: completion.body,
                         meta: AgentHookNotifyCategory.turnComplete.metaSegment(
-                            pending: hasUnsettledWork,
+                            pending: hasPendingBackgroundWork,
                             agentID: "claude",
                             isSubagent: isNestedAgentSession
                         )
@@ -27948,7 +27948,7 @@ struct CMUXCLI {
                     _ = try? sendV1Command(try semanticNotificationCommand(source: "claude", agentKey: Self.claudeCodeStatusKey,
                         sessionId: parsedInput.sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
                         kind: .turnCompleted, rawObject: parsedInput.rawObject, payload: payload,
-                        pendingWork: hasUnsettledWork), client: client)
+                        pendingWork: hasPendingBackgroundWork), client: client)
                 }
                 printClaudeHookAck()
             } catch {
