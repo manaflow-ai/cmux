@@ -2,6 +2,8 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+For themes, fonts, transparency, and other appearance settings across Ghostty config and `cmux.json`, see [Customizing cmux's look](customizing-appearance.md).
+
 ## Automation socket trust boundary
 
 `cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This
@@ -42,7 +44,7 @@ Customize split-workspace pane boundaries controlled by cmux.
 - `paneBorderColor`: overrides the divider color between cmux panes in split workspaces.
 - `activePaneBorderColor`: draws a border around the focused cmux pane in split workspaces.
 
-Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
+Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to use the default. These settings apply to cmux's multi-surface pane layout. When `paneBorderColor` is unset, the divider uses Ghostty's `split-divider-color` if one is configured.
 
 ## `app.windowTitleTemplate`
 
