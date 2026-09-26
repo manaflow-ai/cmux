@@ -4743,7 +4743,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // uses configureTerminalPanel — so it keeps reflecting the workspace the
         // surface's env was built from until the panel is respawned.
         terminalPanel.seededWorkspaceEnvironment = workspaceEnvironment
-        if TerminalTextBoxInputSettings.focusOnNewTerminals(), allowTextBoxFocusDefault {
+        if TerminalTextBoxInputSettings.composeMode(), allowTextBoxFocusDefault {
+            terminalPanel.applyComposeMode(true)
+        } else if TerminalTextBoxInputSettings.focusOnNewTerminals(), allowTextBoxFocusDefault {
             terminalPanel.preferTextBoxInputWhenActivated()
         } else if TerminalTextBoxInputSettings.focusOnNewTerminals() {
             terminalPanel.showTextBoxInputWhenAvailable()

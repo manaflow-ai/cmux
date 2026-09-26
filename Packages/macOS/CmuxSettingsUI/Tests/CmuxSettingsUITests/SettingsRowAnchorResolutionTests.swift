@@ -145,6 +145,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.sessionContentAlignment",
         "terminal.sessionContentMaxWidth",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.composeMode",
         "terminal.scrollSpeed",
         "terminal.showScrollBar",
         "terminal.showTextBoxOnNewTerminals",

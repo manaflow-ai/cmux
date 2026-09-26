@@ -140,6 +140,13 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.showTextBoxOnNewTerminals"
     )
 
+    /// Whether newly created terminals start in the native TextBox composer.
+    public let composeMode = DefaultsKey<Bool>(
+        id: "terminal.composeMode",
+        defaultValue: false,
+        userDefaultsKey: "terminal.composeMode"
+    )
+
     public let focusTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.focusTextBoxOnNewTerminals",
         defaultValue: false,

@@ -59,6 +59,7 @@ final class TerminalPanel: Panel, ObservableObject {
     private var shouldOpenTextBoxFilePickerWhenAvailable = false
     private var shouldHideTextBoxOnNextEscape = false
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
+    private var composeModeOwnsTextBox = false
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
     private var isClosingPanel = false
@@ -258,6 +259,25 @@ final class TerminalPanel: Panel, ObservableObject {
         focusTextBoxIfNeeded()
     }
 
+    /// Applies the global Compose Mode preference without taking ownership of
+    /// a TextBox the user opened manually.
+    func applyComposeMode(_ enabled: Bool) {
+        switch TerminalComposeModePolicy().transition(
+            isEnabled: enabled,
+            ownsTextBox: composeModeOwnsTextBox,
+            isTextBoxActive: isTextBoxActive
+        ) {
+        case .activate:
+            composeModeOwnsTextBox = true
+            preferTextBoxInputWhenActivated()
+        case .deactivate:
+            composeModeOwnsTextBox = false
+            hideTextBoxInput()
+        case .unchanged:
+            break
+        }
+    }
+
     func showTextBoxInputWhenAvailable() {
         isTextBoxActive = true
         textBoxInputFocusIntent = .terminal
@@ -383,6 +403,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func hideTextBoxInput() {
+        composeModeOwnsTextBox = false
         shouldHideTextBoxOnNextEscape = false
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false

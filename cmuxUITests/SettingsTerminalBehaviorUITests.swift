@@ -5,9 +5,9 @@ import XCTest
 /// The Terminal section exposes six controls:
 /// Show Terminal Scroll Bar, Copy on Selection, Resume Agent Sessions on Reopen,
 /// Agent Hibernation (enable), Hibernate After Idle Seconds, and Max Live Agent
-/// Terminals. The TextBox section exposes three controls:
-/// Show TextBox on New Terminals, Focus TextBox on New Terminals, and TextBox
-/// Max Lines.
+/// Terminals. The TextBox section exposes four controls:
+/// Compose Mode, Show TextBox on New Terminals, Focus TextBox on New Terminals,
+/// and TextBox Max Lines.
 ///
 /// Most of these settings only become observable inside the
 /// Ghostty/Metal terminal surface, the system clipboard, or across an
@@ -35,6 +35,7 @@ import XCTest
 ///   SettingsTerminalAgentHibernationToggle,
 ///   SettingsTerminalAgentHibernationIdleSecondsStepper,
 ///   SettingsTerminalAgentHibernationMaxLiveStepper.
+///   SettingsTextBoxComposeModeToggle,
 ///   SettingsTextBoxShowOnNewTerminalsToggle,
 ///   SettingsTextBoxFocusOnNewTerminalsToggle,
 ///   SettingsTextBoxMaxLinesStepper.
@@ -109,6 +110,7 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         "terminal.agentHibernation.maxLiveTerminals",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.composeMode",
         "terminal.textBoxMaxLines",
     ]
 
@@ -166,9 +168,38 @@ final class SettingsTerminalBehaviorUITests: SettingsUITestCase {
         static let showTextBoxOff = "start with the TextBox hidden"
         static let focusTextBoxOn = "put keyboard focus in the TextBox"
         static let focusTextBoxOff = "keep keyboard focus in the terminal surface"
+        static let composeModeOn = "New terminals open with a native editor"
+        static let composeModeOff = "Shell input stays direct"
     }
 
     // MARK: - TIER 1: bound description flips with the setting
+
+    /// Compose Mode defaults OFF; toggling it switches the bound description
+    /// between direct shell input and the native editor description.
+    func testComposeModeToggleFlipsBoundDescription() {
+        let app = makeLaunchedApp()
+        let window = openTextBoxSettings(app)
+
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.composeModeOff),
+            "Compose Mode should start with the direct shell-input description (default false)"
+        )
+
+        let control = toggle(window, id: "SettingsTextBoxComposeModeToggle")
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.composeModeOn),
+            "Enabling Compose Mode should switch the description to the native editor sentence"
+        )
+
+        control.click()
+        XCTAssertTrue(
+            waitForStaticText(window, Subtitle.composeModeOff),
+            "Disabling Compose Mode should restore the direct shell-input sentence"
+        )
+
+        closeSettings(app, window)
+    }
 
     /// Show Terminal Scroll Bar defaults ON, so the description starts in
     /// its "on" sentence; toggling the control flips the bound subtitle

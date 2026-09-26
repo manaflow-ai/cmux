@@ -4622,6 +4622,183 @@
           }
         }
       }
+    },
+    "settings.textBox.composeMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compose Mode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompositionsmodus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode composition"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع التأليف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de composición"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編寫模式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编写模式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작성 모드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成モード"
+          }
+        }
+      }
+    },
+    "settings.textBox.composeMode.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell input stays direct. Open TextBox when you want native selection and multiline editing."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shell-Eingabe bleibt direkt. Öffne TextBox, wenn du native Auswahl und mehrzeilige Bearbeitung möchtest."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La saisie du shell reste directe. Ouvrez TextBox pour utiliser la sélection native et la modification multiligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقى إدخال الصدفة مباشرًا. افتح TextBox عندما تريد التحديد الأصلي والتحرير متعدد الأسطر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La entrada del shell sigue siendo directa. Abre TextBox cuando quieras selección nativa y edición multilínea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 輸入維持直接輸入。需要原生選取和多行編輯時，請開啟 TextBox。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 输入保持直接输入。需要原生选择和多行编辑时，请打开 TextBox。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 입력은 직접 입력으로 유지됩니다. 네이티브 선택 및 여러 줄 편집이 필요할 때 TextBox를 여세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル入力は直接入力のままです。ネイティブ選択や複数行編集を使うときは TextBox を開いてください。"
+          }
+        }
+      }
+    },
+    "settings.textBox.composeMode.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminals open with a native editor for selection, undo, and multiline input before you submit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Terminals werden vor dem Senden mit einem nativen Editor für Auswahl, Rückgängigmachen und mehrzeilige Eingaben geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux terminaux s’ouvrent avec un éditeur natif pour la sélection, l’annulation et la saisie multiligne avant l’envoi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح المحطات الطرفية الجديدة بمحرر أصلي للتحديد والتراجع والإدخال متعدد الأسطر قبل الإرسال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los terminales nuevos se abren con un editor nativo para seleccionar, deshacer y escribir varias líneas antes de enviar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新終端機會開啟原生編輯器，讓您在送出前進行選取、復原和多行輸入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新终端会打开原生编辑器，让你在提交前进行选择、撤销和多行输入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널은 제출하기 전에 네이티브 편집기에서 선택, 실행 취소 및 여러 줄 입력을 할 수 있도록 열립니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルは、送信前にネイティブエディタで選択、取り消し、複数行入力ができる状態で開きます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
