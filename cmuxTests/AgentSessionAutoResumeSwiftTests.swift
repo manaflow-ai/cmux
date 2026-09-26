@@ -2071,7 +2071,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(firstRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
-        #expect(restoredPanel.requestedWorkingDirectory == latestRemoteDirectory)
+        // A remote workspace's local surface never takes a remote path as its own cwd; the
+        // directory travels to the remote side as CMUX_REMOTE_INITIAL_CWD.
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restoredPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD") == latestRemoteDirectory)
     }
 
     @MainActor
@@ -2134,7 +2137,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(startupInput.contains(launchRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
         #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
-        #expect(restoredPanel.requestedWorkingDirectory == launchRemoteDirectory)
+        // A remote workspace's local surface never takes a remote path as its own cwd; the
+        // directory travels to the remote side as CMUX_REMOTE_INITIAL_CWD.
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restoredPanel.surface.startupEnvironmentValue("CMUX_REMOTE_INITIAL_CWD") == launchRemoteDirectory)
     }
 
     @MainActor
