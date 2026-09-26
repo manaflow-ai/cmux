@@ -10,6 +10,22 @@ import Testing
 @MainActor
 struct WorkspaceSwitchRendererProtectionTests {
     @Test
+    func bonsplitGeometryCallbackDoesNotPublishDuringLayoutTurn() async {
+        let workspace = Workspace()
+        let snapshot = workspace.bonsplitController.layoutSnapshot()
+        let before = workspace.tmuxLayoutSnapshot
+
+        workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: snapshot)
+
+        #expect(workspace.tmuxLayoutSnapshot == before)
+        let didPublishSnapshot = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            workspace.tmuxLayoutSnapshot == snapshot
+        }
+        #expect(didPublishSnapshot)
+        #expect(workspace.tmuxLayoutSnapshot == snapshot)
+    }
+
+    @Test
     func rendererProtectionOwnerExpiresWithCoordinator() {
         var ownerIsAlive: (() -> Bool)?
         var coordinator: WorkspaceSwitchCoordinator? = WorkspaceSwitchCoordinator(
@@ -95,5 +111,32 @@ struct WorkspaceSwitchRendererProtectionTests {
         )
 
         #expect(!selected.contains(switchTargetID))
+    }
+
+    @Test
+    func inactiveWorkspaceCannotAuthorizePortalPresentation() throws {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let originalTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.tabManager = originalTabManager
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let selectedWorkspace = try #require(manager.selectedWorkspace)
+        let inactiveWorkspace = manager.addWorkspace(select: false, placementOverride: .end)
+
+        #expect(Workspace.portalRenderingEnabled(for: selectedWorkspace.id))
+        #expect(!Workspace.portalRenderingEnabled(for: inactiveWorkspace.id))
+
+        manager.selectedTabId = inactiveWorkspace.id
+
+        #expect(!Workspace.portalRenderingEnabled(for: selectedWorkspace.id))
+        #expect(Workspace.portalRenderingEnabled(for: inactiveWorkspace.id))
     }
 }

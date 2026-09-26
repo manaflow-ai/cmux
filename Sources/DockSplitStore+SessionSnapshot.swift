@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import Darwin
@@ -301,7 +302,7 @@ extension DockSplitStore {
             let shouldPersistScrollback = policy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: Workspace.resolveCloseConfirmation(
                     shellActivityState: terminal.shellActivity.state,
-                    fallbackNeedsConfirmClose: terminal.needsConfirmClose()
+                    fallbackNeedsConfirmClose: terminal.surface.snapshotNeedsConfirmClose()
                 )
             ) && policy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
@@ -381,7 +382,7 @@ extension DockSplitStore {
                     forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                     transparentBackground: browser.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewer?.token,
-                    diffViewerRequestPath: diffViewer?.requestPath
+                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession
                 )
             } else if let deferred = panel as? DeferredBrowserPanel {
                 browserSnapshot = deferred.sessionPanelSnapshot.browser
@@ -390,9 +391,9 @@ extension DockSplitStore {
             }
             filePreviewSnapshot = nil
         case .filePreview:
-            guard let filePreview = panel as? FilePreviewPanel else {
-                return nil
-            }
+            guard let filePreview = panel as? FilePreviewPanel,
+                  filePreview.cloudPreviewLease == nil,
+                  filePreview.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(

@@ -18,9 +18,11 @@ enum DockShortcutCommand {
     case focusPane(NavigationDirection)
     case cyclePaneFocus(forward: Bool)
     case togglePaneZoom
+    case resizePane(ResizeDirection)
     case equalizeSplits
     case focusHistoryBack
     case focusHistoryForward
+    case focusHistoryLast
     case triggerFlash
     case renameSurface(presentingWindow: NSWindow?)
     case closeOtherTabsInPane
@@ -39,7 +41,7 @@ enum DockShortcutCommand {
 
     var isFocusHistoryNavigation: Bool {
         switch self {
-        case .focusHistoryBack, .focusHistoryForward:
+        case .focusHistoryBack, .focusHistoryForward, .focusHistoryLast:
             true
         default:
             false
@@ -85,16 +87,16 @@ extension DockSplitStore {
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)
+        case .resizePane(let direction):
+            return resizeFocusedPane(direction: direction)
         case .equalizeSplits:
-            let result = PaneLayoutService().equalizeSplits(
-                in: bonsplitController.treeSnapshot(),
-                controller: bonsplitController
-            )
-            return result.foundSplit && result.allSucceeded
+            return equalizeDockSplits()
         case .focusHistoryBack:
             return focusHistoryNavigation.navigateBack()
         case .focusHistoryForward:
             return focusHistoryNavigation.navigateForward()
+        case .focusHistoryLast:
+            return focusHistoryNavigation.navigateToLastFocused()
         case .triggerFlash:
             guard let focusedPanelId else { return false }
             triggerUserInitiatedFocusFlash(panelId: focusedPanelId)

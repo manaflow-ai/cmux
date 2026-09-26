@@ -105,7 +105,10 @@ struct CommandRunnerDescriptorLifecycleTests {
         let result = await command.value
         #expect(result.timedOut == false)
         #expect(result.executionError != nil)
-        #expect(kill(pid, 0) == -1 && errno == ESRCH)
+        let killResult = kill(pid, 0)
+        let killErrno = errno
+        #expect(killResult == -1)
+        #expect(killErrno == ESRCH)
 
         expectDescriptorsClosed(descriptors)
     }
@@ -157,7 +160,8 @@ struct CommandRunnerDescriptorLifecycleTests {
                     "CommandRunner retained pipe descriptor \(descriptor.fileDescriptor)"
                 )
             } else {
-                #expect(errno == EBADF)
+                let fstatErrno = errno
+                #expect(fstatErrno == EBADF)
             }
         }
     }

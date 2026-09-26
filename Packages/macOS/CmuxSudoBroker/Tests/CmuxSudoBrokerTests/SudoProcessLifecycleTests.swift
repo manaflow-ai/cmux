@@ -121,8 +121,10 @@ struct SudoProcessLifecycleTests {
 
         #expect(reapedProcessIdentifier == process.identity.processIdentifier)
         var status: Int32 = 0
-        #expect(waitpid(process.identity.processIdentifier, &status, WNOHANG) == -1)
-        #expect(errno == ECHILD)
+        let reapResult = waitpid(process.identity.processIdentifier, &status, WNOHANG)
+        let reapErrno = errno
+        #expect(reapResult == -1)
+        #expect(reapErrno == ECHILD)
     }
 
     @Test("Execution deadline terminates a script PTY tree", .timeLimit(.minutes(1)))

@@ -301,7 +301,7 @@ public final class SocketControlServer {
         listenerStateSnapshot().pendingRearmGeneration != nil
     }
 
-    /// The access mode of the current (or most recently started) listener.
+    /// The access mode currently owned by the authorization state.
     public nonisolated var accessMode: SocketControlMode {
         connectionAuthorizationState.accessMode
     }
@@ -323,7 +323,7 @@ public final class SocketControlServer {
         _ generation: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> Bool {
-        connectionAuthorizationState.permitsContinuation(
+        return connectionAuthorizationState.permitsContinuation(
             generation: generation,
             authenticatedPasswordFingerprint:
                 passwordAuthorization.authenticatedCredentialFingerprint
@@ -394,7 +394,7 @@ public final class SocketControlServer {
         stateMirror.withLock { $0 }
     }
 
-    nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
+    func configureConnectionAuthorization(accessMode: SocketControlMode) {
         connectionAuthorizationState.configure(
             accessMode: accessMode,
             effectivePassword: accessMode.requiresPasswordAuth

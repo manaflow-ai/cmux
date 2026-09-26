@@ -21,6 +21,12 @@ let authJson = {
 };
 let authJsonError: Error | null = null;
 const getUser = mock(async () => currentUser);
+const createTeam = mock(async ({ displayName, creatorUserId }: { displayName: string; creatorUserId?: string }) => ({
+  id: "team-created",
+  displayName,
+  creatorUserId,
+}));
+const updateUser = mock(async (_data: unknown) => {});
 const getAuthJson = mock(async () => {
   if (authJsonError) throw authJsonError;
   return authJson;
@@ -30,7 +36,7 @@ let hostedCutoverReady = true;
 const hostedSubrouterCutoverReadyForTeam = mock(async () => hostedCutoverReady);
 
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser, getAuthJson }),
+  getStackServerApp: () => ({ getUser, getAuthJson, getTeam: async (id: string) => ({ id }), createTeam }),
   getNonRedirectingStackServerApp: () => ({ getUser, signOut }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
@@ -98,6 +104,8 @@ beforeEach(() => {
   exchangeStatus = 200;
   accountListStatus = 200;
   getUser.mockClear();
+  createTeam.mockClear();
+  updateUser.mockClear();
   getAuthJson.mockClear();
   signOut.mockClear();
   hostedSubrouterCutoverReadyForTeam.mockClear();
@@ -247,6 +255,7 @@ describe("hosted Subrouter account routes", () => {
     // both capabilities, so the hosted tenant exchange asks for both and the
     // upload succeeds.
     currentUser = Object.assign(stackUser(), {
+      hasPermission: async () => false,
       listPermissions: async () => [],
     });
 
@@ -631,7 +640,7 @@ describe("hosted Subrouter account routes", () => {
     );
     expect(organizationsResponse.status).toBe(200);
     expect(await organizationsResponse.json()).toEqual({
-      selectedTeamId: "team-b",
+      selectedTeamId: "team-a",
       teams: [
         {
           id: "team-a",
@@ -679,6 +688,54 @@ describe("hosted Subrouter account routes", () => {
       },
     });
   });
+
+  test("creates a team only for the authenticated member", async () => {
+    const response = await teamsRoute.POST(
+      request("/api/subrouter/teams", {
+        method: "POST",
+        body: JSON.stringify({ displayName: "Shared Cloud" }),
+      }),
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      team: { id: "team-created", name: "Shared Cloud" },
+      selectedTeamId: "team-created",
+    });
+    expect(createTeam).toHaveBeenCalledWith({
+      displayName: "Shared Cloud",
+      creatorUserId: "user-1",
+    });
+    expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-created" });
+
+    const invalid = await teamsRoute.POST(
+      request("/api/subrouter/teams", {
+        method: "POST",
+        body: JSON.stringify({ displayName: "   " }),
+      }),
+    );
+    expect(invalid.status).toBe(400);
+  });
+
+  test("persists a selected member team in Stack Auth", async () => {
+    currentUser = { ...stackUser(), update: updateUser };
+    const response = await teamsRoute.PATCH(
+      request("/api/subrouter/teams", {
+        method: "PATCH",
+        body: JSON.stringify({ teamId: "team-b" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ selectedTeamId: "team-b" });
+    expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-b" });
+
+    const unauthorized = await teamsRoute.PATCH(
+      request("/api/subrouter/teams", {
+        method: "PATCH",
+        body: JSON.stringify({ teamId: "team-other" }),
+      }),
+    );
+    expect(unauthorized.status).toBe(403);
+  });
 });
 
 type TestRequestInit = RequestInit & {
@@ -703,6 +760,7 @@ function request(path: string, init: TestRequestInit = {}): Request {
 
 function stackUser() {
   return {
+    hasPermission: async () => true,
     id: "user-1",
     displayName: "User One",
     primaryEmail: "user@example.com",
@@ -711,6 +769,7 @@ function stackUser() {
       { id: "team-a", displayName: "Team A" },
       { id: "team-b", displayName: "Team B" },
     ],
+    update: updateUser,
   };
 }
 

@@ -14,7 +14,7 @@
       "get": {
         "operationId": "account.me",
         "summary": "Get the authenticated account and plan",
-        "description": "Returns the signed-in user's id, primary email, and resolved billing plan (free, pro, or max).",
+        "description": "Returns the signed-in user's id, primary email, resolved plan family (free or pro), and exact personal subscription plan (free, go, pro, or max).",
         "tags": [
           "Account"
         ],
@@ -40,12 +40,20 @@
                       "type": "string"
                     },
                     "subscriptionPlanId": {
-                      "enum": [
-                        "free",
-                        "pro",
-                        "max"
-                      ],
-                      "type": "string"
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "free",
+                            "go",
+                            "pro",
+                            "max"
+                          ],
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "isPro": {
                       "type": "boolean"

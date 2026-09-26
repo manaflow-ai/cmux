@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
@@ -15,6 +16,13 @@ struct NewMachineSheet: View {
             if model.supportsSize {
                 sizeSection
             }
+            if model.hasNoAllowedMemoryOptions {
+                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+            }
             planSection
             if let errorText = model.errorText {
                 errorBox(errorText)
@@ -25,18 +33,16 @@ struct NewMachineSheet: View {
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
         .confirmationDialog(
-            String(localized: "machines.new.max.title", defaultValue: "Upgrade to cmux Max"),
+            String(format: String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@"), NewMachineModel.planDisplayName(model.selectedUpgradePlanId)),
             isPresented: $model.showsMaxUpgrade,
             titleVisibility: .visible
         ) {
             Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
-                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
             }
         } message: {
-            Text(String(localized: "machines.new.max.message", defaultValue: "Max is $200 per month, billed monthly. It unlocks 32 GB and 64 GB machines. Review the price before you confirm payment."))
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await model.refreshPlan?() }
+            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
+            + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
         }
 
     }
@@ -87,7 +93,7 @@ struct NewMachineSheet: View {
                             Button { model.selectSize(memoryMb) } label: {
                                 Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
                             }
-                            .disabled(model.memoryUpgradePlanId == nil)
+                            .disabled(model.upgradePlan(for: memoryMb) == nil)
                             .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
@@ -108,6 +114,7 @@ struct NewMachineSheet: View {
                         .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
                     Spacer(minLength: 0)
                     Button(upgradeTitle) {
+                        model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
                         model.showsMaxUpgrade = true
                     }
                     .controlSize(.small)
@@ -183,6 +190,7 @@ struct NewMachineSheet: View {
                 Button(createTitle) {
                     model.create()
                 }
+                .disabled(model.hasNoAllowedMemoryOptions)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("NewMachineSheet.create")

@@ -2,6 +2,7 @@ import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
 import {
   isDevelopmentProAccessEnabled,
+  GO_PLAN_ID,
   MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
@@ -174,8 +175,18 @@ export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576
  * them is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
  */
 export const PLAN_MAX_MEMORY_MB = 24576;
+export const GO_PLAN_MAX_MEMORY_MB = 4096;
+export const GO_PLAN_DEFAULT_MEMORY_MB = 4096;
 export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
 export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
+export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
+
+export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
+  const current = normalizedPlanId(currentPlanId);
+  if (current === MAX_PLAN_ID) return null;
+  if (current === GO_PLAN_ID && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
+}
 
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
@@ -185,9 +196,14 @@ export function maxMemoryMbForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
-  const ceiling = normalized === MAX_PLAN_ID ? MAX_PLAN_MAX_MEMORY_MB : PLAN_MAX_MEMORY_MB;
+  const ceiling = normalized === MAX_PLAN_ID
+    ? MAX_PLAN_MAX_MEMORY_MB
+    : normalized === GO_PLAN_ID
+      ? GO_PLAN_MAX_MEMORY_MB
+      : PLAN_MAX_MEMORY_MB;
   if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
   if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
+  if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
     // The free machine is the product demo: the same computer Pro gets, not a
     // cut-down teaser. The paywall is the 7-day access window and the machine
@@ -203,6 +219,28 @@ export function maxMemoryMbForPlan(
   ));
 }
 
+/** Disk ceiling follows the plan's machine tier. */
+export function maxDiskMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
+  return raw?.trim()
+    ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))
+    : fallback;
+}
+
+/** vCPU ceiling is derived from the plan's memory tier. */
+export function maxVcpusForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / 4096));
+}
+
 /**
  * Ladder sizes above a plan's ceiling, and the plan that sells them. Clients
  * render these as locked rows with an upgrade action instead of hiding them.
@@ -215,9 +253,10 @@ export function lockedMemoryOptionsMbForPlan(
   const max = maxMemoryMbForPlan(planId, env);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
-  const upgradePlanId = locked.length > 0 && normalized !== MEMORY_UPGRADE_PLAN_ID &&
-      maxMemoryMbForPlan(MEMORY_UPGRADE_PLAN_ID, env) >= locked[locked.length - 1]
-    ? MEMORY_UPGRADE_PLAN_ID
+  const candidateUpgradePlanId = normalized === GO_PLAN_ID ? GO_MEMORY_UPGRADE_PLAN_ID : MEMORY_UPGRADE_PLAN_ID;
+  const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
+      maxMemoryMbForPlan(candidateUpgradePlanId, env) >= locked[0]
+    ? candidateUpgradePlanId
     : null;
   return { memoryOptionsMb: locked, upgradePlanId };
 }
@@ -248,7 +287,9 @@ export function defaultMemoryMbForPlan(
   const specific = env[`CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`];
   const raw = specific?.trim()
     ? positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_DEFAULT_MEMORY_MB`)
-    : normalized === "free"
+    : normalized === GO_PLAN_ID
+      ? GO_PLAN_DEFAULT_MEMORY_MB
+      : normalized === "free"
       ? positiveInteger(
         env.CMUX_VM_FREE_DEFAULT_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
         "CMUX_VM_FREE_DEFAULT_MEMORY_MB",
@@ -321,7 +362,7 @@ export function isVmFreeAccessExpired(
   return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
 }
 
-/** A paid Cloud VM plan is Pro, Team, or Founder's Edition; everything else (free) is not. */
+/** Go, Pro, Team, and Founder's Edition are paid Cloud VM plans. */
 export function isPaidVmPlan(planId: string): boolean {
   return isPaidPlanId(normalizedPlanId(planId));
 }
@@ -422,6 +463,8 @@ function activeVmLimitForPlan(
       brake: true,
     };
   }
+
+  if (planId === GO_PLAN_ID) return { limit: 1, brake: false };
 
   // Paid allowance is product policy. Legacy deployment overrides must not
   // silently reduce it or prevent Team seats from scaling. The existing create

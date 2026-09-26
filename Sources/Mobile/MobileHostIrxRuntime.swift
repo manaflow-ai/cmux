@@ -1,909 +1,954 @@
+import CmuxCloud
+import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
 import CmuxSettings
 import Foundation
+import IrohLib
 import OSLog
 
-/// macOS composition root for the irx transport (the from-scratch iroh
-/// rebuild in `CmuxIrxTransport`). DEBUG-only and default-off: when
-/// `cmux.irx.enabled` is set (or `CMUX_IRX_ENABLED=1`), this runtime owns the
-/// app's iroh identity slot and the legacy `MobileHostIrohRuntime` stays
-/// dormant, so the two stacks can never fight over the broker binding.
+private final class MobileHostV2RelayAddressCallback: AddrChangeCallback, Sendable {
+    private let handler: @Sendable () async -> Void
+
+    init(handler: @escaping @Sendable () async -> Void) { self.handler = handler }
+
+    func onChange(addr: EndpointAddr) async throws { await handler() }
+}
+
+/// The sole Mac IROH owner for a selected Stack team and opted-in installation.
 @MainActor
-final class MobileHostIrxRuntime {
+final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     static let shared = MobileHostIrxRuntime(publishesPublicHostStatus: true)
-
-    nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
-    nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
-
-    /// irx is the PRIMARY transport: on by default in every configuration.
-    /// An explicit `false` in defaults (the remote revert switch writes it)
-    /// falls back to the legacy runtime; the env var re-arms and persists.
-    nonisolated static var isEnabled: Bool {
-        if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
-            UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
-            return true
-        }
-        if UserDefaults.standard.object(forKey: enabledDefaultsKey) != nil {
-            return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-        }
-        return true
-    }
-
-    /// Longest wait between two activation attempts on the doubling ladder.
+    nonisolated static let forceRelayDefaultsKey = "cmux.iroh.v2.force-relay"
+    nonisolated static let pathModeDefaultsKey = "cmux.iroh.v2.path-mode"
     nonisolated static let maximumActivationRetryDelay: TimeInterval = 5 * 60
-
-    /// Delay before the next activation attempt after `error`.
-    ///
-    /// The ladder starts at 5 s and doubles per consecutive failure up to
-    /// `maximumActivationRetryDelay`. A broker `Retry-After` is a floor that
-    /// wins over the ladder, and `jitterUnitInterval` (0...1) adds up to a
-    /// quarter of the resulting delay so a fleet told to wait the same window
-    /// does not re-mint in lockstep.
-    nonisolated static func activationRetryDelay(
-        after error: any Error,
-        failureCount: Int,
-        jitterUnitInterval: Double
-    ) -> TimeInterval {
-        let exponent = min(max(failureCount, 0), 16)
-        let ladder = min(5 * pow(2, Double(exponent)), maximumActivationRetryDelay)
-        let serverFloor = TimeInterval(
-            max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0)
-        )
-        let base = max(ladder, serverFloor)
-        let jitter = min(max(jitterUnitInterval, 0), 1) * base * 0.25
-        return base + jitter
-    }
-
     nonisolated static var forceRelayOnly: Bool {
-        if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
-            UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
-            return true
-        }
-        return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
+        ProcessInfo.processInfo.environment["CMUX_IROH_V2_FORCE_RELAY"] == "1"
+            || UserDefaults.standard.string(forKey: "cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY") == "1"
+            || UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
+            || UserDefaults.standard.string(forKey: pathModeDefaultsKey) == "relay-only"
+    }
+    nonisolated static var pathMode: IrxPathMode {
+        if forceRelayOnly { return .relayOnly }
+        return UserDefaults.standard.string(forKey: pathModeDefaultsKey) == "direct-only" ? .directOnly : .automatic
+    }
+    nonisolated static let journal = IrxJournal(subsystem: "dev.cmux", category: "irx-host",
+        journalFileURL: URL(fileURLWithPath: "/tmp/cmux-irx-journal-mac-\(MobileHostIdentity.instanceTag()).jsonl"))
+
+    nonisolated static func activationRetryDelay(after error: any Error, failureCount: Int, jitterUnitInterval: Double) -> TimeInterval {
+        let ladder = min(5 * pow(2, Double(min(max(failureCount, 0), 16))), maximumActivationRetryDelay)
+        let floor = TimeInterval(max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0))
+        let base = max(ladder, floor)
+        return base + min(max(jitterUnitInterval, 0), 1) * base * 0.25
     }
 
-    /// One journal for every irx component on the Mac. The soak analyzer
-    /// tails the JSONL file; `log show` sees the mirrored notice lines.
-    nonisolated static let journal: IrxJournal = {
-        let tag = MobileHostIdentity.instanceTag()
-        return IrxJournal(
-            subsystem: "dev.cmux",
-            category: "irx-host",
-            journalFileURL: URL(
-                fileURLWithPath: "/tmp/cmux-irx-journal-mac-\(tag).jsonl")
-        )
-    }()
-
-    private let managedDevicePolicy: ManagedDevicePolicy
-    /// Only the process-wide host publishes into ``MobileHostPublicStatusCache``.
-    /// Test-constructed runtimes leave that cache alone so parallel suites
-    /// cannot clobber the live identity, and so comparing against ``shared``
-    /// cannot lazily create it.
-    private let publishesPublicHostStatus: Bool
-
-    init(
-        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
-        publishesPublicHostStatus: Bool = false
-    ) {
-        self.managedDevicePolicy = managedDevicePolicy
-        self.publishesPublicHostStatus = publishesPublicHostStatus
-    }
-
-    var isNetworkingAllowed: Bool {
-        !managedDevicePolicy.isEnforced(.disableIrohNetworking)
-            && !managedDevicePolicy.isEnforced(.disableRemoteControl)
-    }
-
-    /// Tears the host down without treating the transition as a sign-out:
-    /// persisted device-list leases stay so a later policy lift can re-arm
-    /// the same account. Idempotent when already idle.
-    func stopHost() async {
-        await enqueueManagedNetworking(.stop)
-    }
-
-    /// Applies `DisableIrohNetworking` / `DisableRemoteControl` and the
-    /// current signed-in account to the live IRX host. Policy activation
-    /// stops the endpoint immediately; lifting it re-arms without a relaunch.
-    func applyManagedNetworkingPolicy() async {
-        await enqueueManagedNetworking(.reconcile)
-    }
-
-    private enum ManagedNetworkingWork {
-        case stop
-        case reconcile
-    }
-
-    /// Serializes policy and account transitions. `MobileHostService.stop()`
-    /// and `syncToSettings()` both fire these from unstructured tasks, so
-    /// without a chain a lift could run against a half-drained teardown and
-    /// no-op on a still-set `activeAccountID`, or a late stop could clear the
-    /// account after a re-arm and tear the new activation down. Each unit of
-    /// work re-reads the policy and the account after the queue drains, so
-    /// the last transition to be requested is the one that decides the state.
-    private func enqueueManagedNetworking(_ work: ManagedNetworkingWork) async {
-        let previous = managedNetworkingTask
-        let task = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            switch work {
-            case .stop:
-                await self.performStopHost()
-            case .reconcile:
-                await self.performManagedNetworkingReconcile()
-            }
-        }
-        managedNetworkingTask = task
-        await task.value
-    }
-
-    private func performStopHost() async {
-        guard activeAccountID != nil
-            || activationTask != nil
-            || settingsPhase != .idle
-            || brokerService != nil
-        else {
-            return
-        }
-        await deactivate()
-        activeAccountID = nil
-    }
-
-    private func performManagedNetworkingReconcile() async {
-        guard isNetworkingAllowed else {
-            await performStopHost()
-            return
-        }
-        let accountID = auth?.currentUser?.id
-        if accountID != activeAccountID {
-            await transition(to: accountID)
-        }
-    }
-
-    private weak var auth: AuthCoordinator?
-    private var authObservationTask: Task<Void, Never>?
-    private var activeAccountID: String?
-    private var activationTask: Task<Void, Never>?
-    /// Chain head for ``enqueueManagedNetworking(_:)``.
-    private var managedNetworkingTask: Task<Void, Never>?
-    /// Changes on every (de)activation; per-connection supervisors compare it.
-    private var generationToken = UUID()
-    /// Consecutive activation failures since the last successful activation.
-    /// Drives the doubling retry ladder; reset on success and on transition.
-    private var activationFailureCount = 0
-
-    /// Coarse lifecycle mirror for the Settings Networking section (see
-    /// `MobileHostIrxRuntime+SettingsControl`). `failed` means the last
-    /// activation attempt errored and the retry ladder owns recovery; it is
-    /// only cleared by a successful activation or an account change.
-    enum SettingsPhase: Equatable {
-        case idle
-        case activating
-        case active
-        case failed
-    }
-
-    private(set) var settingsPhase: SettingsPhase = .idle
-    /// True once an authenticated broker discovery succeeded during the
-    /// current activation, so Settings can report the relay fleet as
-    /// server-verified rather than served from the disk cache.
-    private(set) var hadLiveDiscoveryThisRun = false
-    /// Live settings-snapshot subscribers (`irohSettingsUpdates()`).
-    var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
-    /// Periodic re-yield loop; runs only while subscribers exist.
-    var irxSettingsRefreshTask: Task<Void, Never>?
-
-    private var stateDirectory: URL?
-    private(set) var brokerService: IrxBrokerService?
-    private(set) var endpointSupervisor: IrxEndpointSupervisor?
-    private var autopilot: IrxRelayCredentialAutopilot?
-    private var registry: IrxServerSessionRegistry?
-    private var acceptLoop: Task<Void, Never>?
-    private var localBinding: IrxBindingSnapshot?
-    /// The always-on fact channel to the per-account control-plane DO: the
-    /// host publishes hint announcements on it (instant propagation to
-    /// phones) and ingests pushed relay passes. Never on any serving path.
-    private var controlPlane: IrxControlPlaneClient?
-    /// The CURRENT device-list lease the accept loop judges against:
-    /// synchronous O(1) reads, atomically swapped on every directory apply,
-    /// cleared (fail closed) on deactivation.
-    private var deviceListBox: IrxDeviceListCurrent?
-    /// Durable home of the lease (Keychain in Release, dev file store in
-    /// DEBUG), loaded at activation so admission works offline.
-    private var deviceListStore: IrxDeviceListStore?
-    /// Authenticated Bonjour publisher for the IRX endpoint. Iroh's native
-    /// candidate discovery handles public paths, while this publisher makes
-    /// same-account LAN candidates available to the client-side fallback.
-    private let lanPublisher = CmxIrohLANHostPublisher()
-
-    func configure(auth: AuthCoordinator) {
-        self.auth = auth
-        Self.journal.record(
-            "host-runtime", "configured",
-            ["force_relay": String(Self.forceRelayOnly)]
-        )
-        authObservationTask?.cancel()
-        authObservationTask = Task { @MainActor [weak self] in
-            await auth.awaitBootstrapped()
-            guard !Task.isCancelled else { return }
-            while !Task.isCancelled {
-                // Account changes and MDM policy share this cadence so a
-                // profile that never posts UserDefaults notifications still
-                // lands. `syncToSettings()` also calls the same reconcile
-                // immediately on an observed policy transition.
-                await self?.applyManagedNetworkingPolicy()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-    }
-
-    /// Sets the settings-facing phase and pushes a fresh snapshot to any
-    /// Settings subscribers. Safe to call redundantly; only changes publish.
-    func setSettingsPhase(_ phase: SettingsPhase) {
-        guard phase != settingsPhase else { return }
-        settingsPhase = phase
-        publishIrxSettingsUpdate()
-    }
-
-    /// Marks the current run as having completed a live (network) broker
-    /// discovery, so the Settings policy source reads "server". Called from
-    /// activation and from the settings refresh action.
-    func noteLiveDiscoverySucceeded() {
-        hadLiveDiscoveryThisRun = true
-    }
-
-    private func transition(to accountID: String?) async {
-        guard accountID != activeAccountID else { return }
-        // Explicit sign-out (account -> nil): erase the persisted device-list
-        // lease alongside the in-memory clear deactivate() performs, in the
-        // same breath the account's other cached authorization material
-        // stops being usable. An account SWITCH keeps the old account's
-        // lease (it is account-scoped and TTL-bounded).
-        if accountID == nil, let deviceListStore {
-            await deviceListStore.clear()
-        }
-        await deactivate()
-        activeAccountID = accountID
-        activationFailureCount = 0
-        guard let accountID else { return }
-        Self.journal.record("host-runtime", "activating", ["account": accountID])
-        setSettingsPhase(.activating)
-        activationTask = Task { @MainActor [weak self] in
-            await self?.activate(accountID: accountID)
-        }
-    }
-
-    private func activate(accountID: String) async {
-        guard isNetworkingAllowed, !Task.isCancelled, let auth else { return }
-        generationToken = UUID()
-        let token = generationToken
-        // The control-plane client now starts EARLY in activation (before the
-        // broker calls that can throw), so a retry after a mid-activation
-        // failure must stop the previous attempt's client instead of leaking
-        // its reconnect loop beside a fresh one.
-        if let controlPlane {
-            await controlPlane.stop()
-            self.controlPlane = nil
-        }
-        let tag = MobileHostIrohRuntime.currentTag()
-        guard let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL,
-            let namespace = CmxIrohMacBundleNamespace(
-                bundleIdentifier: Bundle.main.bundleIdentifier)
-        else {
-            Self.journal.record("host-runtime", "activation-failed", ["reason": "environment"])
-            setSettingsPhase(.failed)
-            return
-        }
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0]
-        // Per-bundle, per-backend state: another build (or another
-        // environment's) caches must never be readable here, or staging
-        // trust keys reject production grants at admission.
-        let stateDir = IrxStateLocation.directory(
-            base: appSupport,
-            bundleIdentifier: Bundle.main.bundleIdentifier,
-            brokerHost: brokerBaseURL.host
-        )
-        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
-        stateDirectory = stateDir
-        do {
-            // IDENTITY ADOPTION: reuse the legacy stack's identity, device
-            // ID, and app-instance scope, so the EndpointID, binding slot,
-            // and every existing pair grant carry over (refresh-in-place;
-            // stored routes on phones keep working with zero re-pairing).
-            let legacy = MobileHostIrohRuntime.shared
-            let appInstanceID = try await legacy.appInstances.appInstanceID(
-                accountID: accountID, tag: tag)
-            let material = try await legacy.identities.identity(
-                accountID: accountID, appInstanceID: appInstanceID)
-            try Task.checkCancellation()
-            let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
-            let identity = IrxIdentity(
-                privateKeyData: material.secretKey.bytes,
-                deviceID: deviceID,
-                appInstanceID: appInstanceID
-            )
-            let broker = try IrxBrokerService(
-                configuration: .init(
-                    baseURL: brokerBaseURL,
-                    clientNamespace: namespace.rawValue,
-                    tag: tag,
-                    platform: .mac,
-                    displayName: Host.current().localizedName,
-                    cacheDirectory: stateDir,
-                    identityGeneration: material.generation,
-                    // Release: broker caches live in the Keychain, scoped
-                    // per account + backend; DEBUG stays on the JSON files.
-                    accountID: accountID
-                ),
-                identity: identity,
-                accessTokenPair: { [weak auth] in
-                    guard let auth else { return nil }
-                    let session = try await auth.authenticatedSessionSnapshot()
-                    return (session.accessToken, session.refreshToken)
-                },
-                journal: Self.journal
-            )
-            brokerService = broker
-
-            // Credentials first (the relay-token bootstrap phase works before
-            // the binding exists), so registration can advertise the relay
-            // hint peers dial first.
-            let legacyListener = MobileHostIrxLegacyDialectServer.listenerEnabled
-            let supervisor = IrxEndpointSupervisor(
-                configuration: .init(
-                    identity: identity,
-                    pathMode: Self.forceRelayOnly ? .relayOnly : .automatic,
-                    preferredBindAddress: nil,
-                    // The phone opens control/keepalive/terminal/artifact
-                    // lanes; 1 is enough to admit, raised post-admission.
-                    initialRemoteBiStreams: 1,
-                    initialRemoteUniStreams: 0,
-                    // Dual ALPN: old phones speak the legacy dialect against
-                    // the SAME endpoint/identity while irx is primary.
-                    additionalALPNs: legacyListener
-                        ? [MobileHostIrxLegacyDialectServer.legacyALPN] : []
-                ),
-                journal: Self.journal
-            )
-            endpointSupervisor = supervisor
-            let pilot = IrxRelayCredentialAutopilot(
-                broker: broker, endpoint: supervisor, journal: Self.journal)
-            autopilot = pilot
-            registry = IrxServerSessionRegistry(journal: Self.journal)
-
-            // DEVICE LIST: the admission authority. Load the persisted lease
-            // BEFORE anything network-bound so admission works offline, and
-            // start the control-plane client FIRST so the fresh directory
-            // (and any revocation) lands as early as possible. Neither step
-            // blocks the endpoint bind.
-            let listStore = IrxDeviceListStore(
-                secureStore: Self.deviceListSecureStore(stateDirectory: stateDir),
-                accountID: accountID,
-                backendHost: brokerBaseURL.host ?? "unknown-broker",
-                journal: Self.journal
-            )
-            deviceListStore = listStore
-            let listBox = IrxDeviceListCurrent()
-            deviceListBox = listBox
-            if let persisted = await listStore.loadPersisted() {
-                listBox.replace(persisted)
-            }
-            try Task.checkCancellation()
-            guard generationToken == token, isNetworkingAllowed else { return }
-
-            // Control-plane socket: hint announcements out (instant phone
-            // propagation, the signed HTTPS registration stays authoritative),
-            // pushed relay passes in (same mint rules as HTTPS), and the
-            // device-list directory in (admission authority).
-            let control: IrxControlPlaneClient?
-            if let controlURL = PresenceHeartbeatClient.resolvedServiceURL() {
-                let client = IrxControlPlaneClient(
-                    configuration: .init(
-                        socketURL: controlURL
-                            .appendingPathComponent("v1/control/socket"),
-                        endpointIDHex: identity.endpointIDHex,
-                        // Phase A: passes stay on the HTTPS autopilot (with
-                        // the stale-connection retry). The broker mint
-                        // requires an endpoint-signed proof for non-legacy
-                        // namespaces, which a bearer-only proxy cannot
-                        // satisfy; flip when proof pass-through ships.
-                        wantPasses: false,
-                        cacheDirectory: stateDir,
-                        clientInfo: IrxCtlClientInfo(
-                            deviceID: deviceID,
-                            platform: "mac",
-                            appVersion: IrxCtlClientInfo.appVersionString(
-                                infoDictionary: Bundle.main.infoDictionary),
-                            releaseTrack: Self.hostReleaseTrack(),
-                            capabilities: [
-                                "cmux.irx.v2",
-                                "list-auth",
-                                "iroh.private_paths.v1",
-                            ]
-                        ),
-                        clientNamespace: namespace.rawValue
-                    ),
-                    tokenPair: { [weak auth] in
-                        guard let auth else { return nil }
-                        let session = try await auth.authenticatedSessionSnapshot()
-                        return (session.accessToken, session.refreshToken)
-                    },
-                    handlers: .init(
-                        onRelayPasses: { [weak self, weak broker, weak supervisor, weak pilot] pushed in
-                            guard let broker, let supervisor, let pilot,
-                                let accepted = await broker
-                                    .acceptPushedRelayCredentials(pushed)
-                            else { return false }
-                            await supervisor.rotateCredentials(accepted)
-                            await pilot.kick()
-                            await self?.publishIrxSettingsUpdate()
-                            return true
-                        },
-                        // The host dials no peers; hint facts are for clients.
-                        onHintUpdate: { _, _ in true },
-                        onDirectory: { _ in true },
-                        onSnapshotComplete: { _ in },
-                        onDirectoryFact: { [weak self] fact in
-                            await self?.applyDeviceListFact(fact) ?? false
-                        },
-                        onFreshness: { [weak self] rev, issuedAt in
-                            await self?.applyDeviceListFreshness(
-                                rev: rev, issuedAt: issuedAt)
-                        }
-                    ),
-                    journal: Self.journal
-                )
-                controlPlane = client
-                control = client
-                await client.start()
-            } else {
-                control = nil
-            }
-
-            // Registration FIRST among the broker calls: non-legacy
-            // namespaces need the binding authorization it establishes
-            // before any other broker call (relay minting, discovery) is
-            // accepted.
-            try Task.checkCancellation()
-            let binding = try await broker.register(
-                pairingEnabled: true,
-                relayURLHint: nil
-            )
-            try Task.checkCancellation()
-            localBinding = binding
-            let credentials = try await pilot.usableCredentials()
-            try Task.checkCancellation()
-            let initialDiscovery = try await broker.discover()
-            noteLiveDiscoverySucceeded()
-
-            try Task.checkCancellation()
-            guard generationToken == token, isNetworkingAllowed else { return }
-            _ = try await supervisor.readyEndpoint(credentials: credentials)
-            try Task.checkCancellation()
-            // Advertise the relay the endpoint ACTUALLY homes on, then
-            // refresh the binding so registry consumers see it too.
-            let homeRelay = await supervisor.homeRelayURL() ?? credentials.first?.relayURL
-            let directAddresses = await supervisor.localDirectAddresses()
-            let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
-            try Task.checkCancellation()
-            _ = try? await broker.register(
-                pairingEnabled: true,
-                relayURLHint: homeRelay,
-                directAddresses: directAddresses,
-                directPorts: directPorts
-            )
-            try Task.checkCancellation()
-            if let control, let homeRelay {
-                await control.publishHint(homeRelayURL: homeRelay)
-            }
-            let liveDiscovery = (try? await broker.discover(maximumAge: 0)) ?? initialDiscovery
-            try Task.checkCancellation()
-            if !Self.forceRelayOnly,
-               MobileHostService.isListeningEnabled,
-               let discoveredBinding = liveDiscovery.bindings.first(where: {
-                   $0.endpointID.endpointID == identity.endpointIDHex
-               }),
-               let bindingMetadata = try? CmxIrohBrokerBindingMetadata(
-                   bindingID: discoveredBinding.bindingID,
-                   deviceID: discoveredBinding.deviceID,
-                   appInstanceID: discoveredBinding.appInstanceID,
-                   clientNamespace: discoveredBinding.clientNamespace,
-                   tag: discoveredBinding.tag,
-                   platform: discoveredBinding.platform,
-                   endpointID: discoveredBinding.endpointID,
-                   identityGeneration: discoveredBinding.identityGeneration,
-                   pathHints: discoveredBinding.pathHints
-               )
-            {
-                await lanPublisher.activate(
-                    rendezvous: liveDiscovery.lanRendezvous,
-                    binding: bindingMetadata,
-                    directAddresses: { await supervisor.localDirectAddresses() }
-                )
-            }
-            // Relay hints are server-capped at 1h; refresh the registration on
-            // every credential rotation so the advertised hint never expires,
-            // and announce it over the socket so phones hear about relay
-            // moves in milliseconds instead of at the next registry read.
-            try Task.checkCancellation()
-            await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
-                guard await self?.isNetworkingAllowed == true,
-                      let broker, let supervisor else { return }
-                let relay = await supervisor.homeRelayURL()
-                let directAddresses = await supervisor.localDirectAddresses()
-                let directPorts = CmxIrohDirectPorts(localDirectAddresses: directAddresses)
-                try? await broker.registerHintIfNeeded(
-                    pairingEnabled: true,
-                    relayURLHint: relay,
-                    directAddresses: directAddresses,
-                    directPorts: directPorts
-                )
-                if let relay, let control {
-                    await control.publishHint(homeRelayURL: relay)
-                }
-                await self?.lanPublisher.refresh()
-                await self?.publishRoute(
-                    identity: identity,
-                    relayURL: relay,
-                    directAddresses: directAddresses
-                )
-                // Credential rotation (and any home-relay move it reveals)
-                // changes the Settings snapshot's policy expiry and relay
-                // selection; push it to live subscribers.
-                await self?.publishIrxSettingsUpdate()
-            }
-            await pilot.start()
-
-            try Task.checkCancellation()
-            publishRoute(
-                identity: identity,
-                relayURL: homeRelay,
-                directAddresses: directAddresses
-            )
-            startAcceptLoop(token: token)
-            Self.journal.record(
-                "host-runtime", "active",
-                [
-                    "endpoint_id": identity.endpointIDHex,
-                    "binding": binding.bindingID,
-                    "tag": tag,
-                    "path_mode": Self.forceRelayOnly ? "relay-only" : "automatic",
-                ]
-            )
-            setSettingsPhase(.active)
-            activationFailureCount = 0
-        } catch {
-            guard !Task.isCancelled, generationToken == token else { return }
-            Self.journal.record(
-                "host-runtime", "activation-failed",
-                ["reason": String(describing: error)]
-            )
-            if generationToken == token {
-                // Stays failed across the retry ladder (no activating/failed
-                // flicker in Settings); success or an account change clears it.
-                setSettingsPhase(.failed)
-            }
-            // One bounded retry ladder, reset on success and by the auth
-            // observation loop on account change. The broker's Retry-After
-            // (429 on challenge/register under mint spacing) is a floor, so a
-            // rejected Mac never re-mints inside the window it was told to
-            // wait out; the doubling ladder covers every other failure.
-            let delay = Self.activationRetryDelay(
-                after: error,
-                failureCount: activationFailureCount,
-                jitterUnitInterval: Double.random(in: 0 ... 1)
-            )
-            activationFailureCount = min(activationFailureCount + 1, 20)
-            Self.journal.record(
-                "host-runtime", "activation-retry-scheduled",
-                [
-                    "delay_s": String(Int(delay)),
-                    "server_floor_s": (error as? any CmxRetryAfterProviding)?
-                        .retryAfterSeconds.map(String.init) ?? "-",
-                    "failure_count": String(activationFailureCount),
-                ]
-            )
-            try? await Task.sleep(for: .seconds(delay))
-            if !Task.isCancelled, isNetworkingAllowed,
-               generationToken == token, activeAccountID == accountID {
-                await activate(accountID: accountID)
-            }
-        }
-    }
-
-    private func deactivate() async {
-        generationToken = UUID()
-        acceptLoop?.cancel()
-        acceptLoop = nil
-        let retiringActivation = activationTask
-        activationTask = nil
-        retiringActivation?.cancel()
-        // Drain the canceled activation before releasing its resources: a
-        // late endpoint bind or broker response cannot repopulate them after
-        // this policy/account transition has torn them down.
-        await retiringActivation?.value
-        if let autopilot {
-            await autopilot.stop()
-        }
-        autopilot = nil
-        await lanPublisher.stop()
-        if let registry {
-            await registry.closeAll(code: .hostShutdown)
-        }
-        registry = nil
-        if let controlPlane {
-            await controlPlane.stop()
-        }
-        controlPlane = nil
-        // Fail closed immediately: with the box cleared, the accept loop's
-        // judge denies every hello. Persisted clearing happens only on
-        // explicit sign-out (see `transition(to:)`), so a relaunch on the
-        // same account keeps working offline.
-        deviceListBox?.clear()
-        deviceListBox = nil
-        deviceListStore = nil
-        if let endpointSupervisor {
-            await endpointSupervisor.close()
-        }
-        endpointSupervisor = nil
-        brokerService = nil
-        localBinding = nil
-        hadLiveDiscoveryThisRun = false
-        setSettingsPhase(.idle)
-        if publishesPublicHostStatus, Self.isEnabled {
-            MobileHostPublicStatusCache.update(irohIdentity: nil)
-        }
-        Self.journal.record("host-runtime", "deactivated")
-    }
-
-    // MARK: - Device list (admission authority)
-
-    /// Applies a pushed directory fact: build the lease snapshot, persist it,
-    /// swap it into the accept path atomically, acknowledge the revision,
-    /// then enforce it on LIVE sessions (a revoked or delisted device is cut
-    /// now with `.revoked`, not at its next admission).
-    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async -> Bool {
-        guard let deviceListBox, let deviceListStore else { return false }
-        if let current = deviceListBox.current, fact.rev <= current.rev {
-            Self.journal.record(
-                "host-runtime", "device-list-stale-rev",
-                ["rev": String(fact.rev), "have": String(current.rev)]
-            )
-            return true
-        }
-        let snapshot = IrxDeviceListSnapshot(
-            fact: fact,
-            receivedAtWall: Date(),
-            receivedAtMonotonic: .now
-        )
-        guard await deviceListStore.persist(snapshot) else { return false }
-        deviceListBox.replace(snapshot)
-        Self.journal.record(
-            "host-runtime", "device-list-applied",
-            ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
-        )
-        if let registry {
-            await registry.closeAll(code: .revoked) { endpointIDHex in
-                guard let entry = snapshot.entries[endpointIDHex] else { return true }
-                return entry.revoked
-            }
-        }
-        return true
-    }
-
-    /// An explicit freshness re-stamp (`current`, or a `snapshot_complete`
-    /// carrying `issuedAt`) extends the CURRENT lease without changing its
-    /// membership.
-    private func applyDeviceListFreshness(rev: Int, issuedAt: Date) async {
-        guard let deviceListBox, let deviceListStore else { return }
-        guard
-            let updated = deviceListBox.restamp(
-                rev: rev,
-                issuedAt: issuedAt,
-                receivedAtWall: Date(),
-                receivedAtMonotonic: .now
-            )
-        else { return }
-        await deviceListStore.persist(updated)
-        Self.journal.record(
-            "host-runtime", "device-list-restamped", ["rev": String(rev)]
-        )
-    }
-
-    /// The lease's durable backend: Keychain in Release, the development
-    /// file store inside the irx state directory in DEBUG (the exact split
-    /// every other secure store uses; ad-hoc DEBUG builds lack the
-    /// data-protection Keychain entitlement).
-    private nonisolated static func deviceListSecureStore(
-        stateDirectory: URL
-    ) -> any CmxIrohSecureCredentialStoring {
-        #if DEBUG
-        CmxIrohDevelopmentFileCredentialStore(
-            directory: stateDirectory.appendingPathComponent(
-                "device-list", isDirectory: true)
-        )
-        #else
-        CmxIrohKeychainCredentialStore(
-            service: "com.cmuxterm.irx.device-list.v1"
-        )
-        #endif
-    }
-
-    /// The Mac build's control-plane release track: DEBUG builds are "dev",
-    /// nightly-flavored bundle ids are "nightly", everything else "stable".
-    private nonisolated static func hostReleaseTrack() -> String {
+    private nonisolated static var hostReleaseTrack: String {
         #if DEBUG
         return "dev"
         #else
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
-        return bundleIdentifier.contains("nightly") ? "nightly" : "stable"
+        return (Bundle.main.bundleIdentifier ?? "").contains("nightly") ? "nightly" : "stable"
         #endif
     }
 
-    /// Publishes the irx endpoint as THE iroh route: attach tickets, host
-    /// status, and presence all advertise it, so phones dial irx. Relay and
-    /// validated public direct hints are published here. Private LAN
-    /// candidates stay on the authenticated Bonjour path and are never copied
-    /// into the public status route.
-    private func publishRoute(
-        identity: IrxIdentity,
-        relayURL: String?,
-        directAddresses: [String] = []
-    ) {
-        guard let peerIdentity = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
-        else { return }
-        var hints: [CmxIrohPathHint] = []
-        let now = Date()
-        if let relayURL,
-            let hint = try? CmxIrohPathHint(
-                kind: .relayURL,
-                value: relayURL,
-                source: .native,
-                privacyScope: .publicInternet,
-                observedAt: now,
-                expiresAt: now.addingTimeInterval(30 * 60)
-            )
-        {
-            hints.append(hint)
+    enum SettingsPhase: Equatable { case idle, activating, active, failed }
+    private let managedDevicePolicy: ManagedDevicePolicy
+    private let pairingEnabled: @MainActor () -> Bool
+    private let publishesPublicHostStatus: Bool
+    private(set) weak var auth: AuthCoordinator?
+    weak var outgoingDeviceClient: DeviceIrxClient?
+    /// Native layout synchronization is instantiated only for admitted Mac peers.
+    private lazy var deviceWorkspaceLayouts = DeviceWorkspaceLayoutHost(
+        capture: { Workspace.liveWorkspace(id: $0)?.deviceWorkspaceLayoutSnapshot() },
+        apply: { id, layout in
+            guard let workspace = Workspace.liveWorkspace(id: id) else { throw DeviceLinkError.notConnected }
+            try workspace.applyDeviceWorkspaceLayout(layout)
+        },
+        createTerminal: { id, source, direction in
+            Workspace.liveWorkspace(id: id)?.createDeviceWorkspaceTerminal(near: source, direction: direction)
+        },
+        publish: { snapshot in
+            guard let data = try? JSONEncoder().encode(snapshot),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            MobileHostService.emitEvent(topic: DeviceWorkspaceLayoutHost.eventTopic, payload: payload)
         }
-        if !Self.forceRelayOnly {
-            for address in directAddresses {
-                guard hints.count < 16,
-                      let hint = try? CmxIrohPathHint(
-                          kind: .directAddress,
-                          value: address,
-                          source: .native,
-                          privacyScope: .publicInternet,
-                          observedAt: now,
-                          expiresAt: now.addingTimeInterval(30 * 60)
-                      ) else { continue }
-                if !hints.contains(hint) { hints.append(hint) }
+    )
+    private var activePairingEnabled: Bool?
+    private var activeDeviceCapabilities: [String] = []
+    private var deviceMetadataTask: Task<Void, Never>?
+    private var authObservationTask: Task<Void, Never>?
+    private var wakeTask: Task<Void, Never>?
+    private var shutdownTask: Task<Void, Never>?
+    private var activeScope: AuthenticatedTeamScope?
+    private var signingOutScope: AuthenticatedTeamScope?
+    private var wantsHost = true
+    private var requiresTransition = false
+    private(set) var generationToken = UUID()
+    private(set) var activationTask: Task<Void, Never>?
+    private var controlTask: Task<Void, Never>?
+    private var endpointTask: Task<Void, Never>?
+    private var endpointRefreshPending = false
+    private var relayAddressWatch: WatchHandle?
+    private var relayAddressWatchGeneration: Int?
+    private var permissionExpiryTask: Task<Void, Never>?
+    private var acceptLoop: Task<Void, Never>?
+    private var lastLoggedControlState: String?
+    private var admission: V2InboundAdmissionAuthority?
+    /// Compatibility publication for older iOS dialects. It shares the v2
+    /// signing key but has its own filtered authority and broker lifecycle.
+    private var legacyService: LegacyCompatibilityService?
+    private var legacyAcceptorPeer: CmxIrohGrantPeer?
+    private var legacyStartTask: Task<Void, Never>?
+    private var legacyEventsTask: Task<Void, Never>?
+    private var registry: IrxServerSessionRegistry?
+    private var identity: IrxIdentity?
+    private(set) var controlService: V2ControlService?
+    private(set) var endpointSupervisor: IrxEndpointSupervisor?
+    private(set) var cachedState: V2CachedState?
+    private var listenerContinuations: [UUID: AsyncStream<MobileHostListenerState>.Continuation] = [:]
+    private(set) var listenerState = MobileHostListenerState() {
+        didSet {
+            guard listenerState != oldValue else { return }
+            for continuation in listenerContinuations.values { continuation.yield(listenerState) }
+            if publishesPublicHostStatus {
+                NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
             }
         }
-        if publishesPublicHostStatus {
-            MobileHostPublicStatusCache.update(irohIdentity: peerIdentity, pathHints: hints)
-        }
-        Self.journal.record(
-            "host-runtime", "route-published",
-            [
-                "hints": String(hints.count),
-                "direct": String(hints.count { $0.kind == .directAddress }),
-                "relay": relayURL ?? "-",
-            ]
+    }
+    private(set) var settingsPhase: SettingsPhase = .idle
+    /// Safe native relay diagnosis, retained through retries until recovery.
+    private(set) var relayFailureDescription: String?
+    private(set) var hadLiveDiscoveryThisRun = false
+    var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
+    var irxSettingsRefreshTask: Task<Void, Never>?
+
+    init(managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(), publishesPublicHostStatus: Bool = false,
+         pairingEnabled: @escaping @MainActor () -> Bool = { MobileHostService.isListeningEnabled }) {
+        self.managedDevicePolicy = managedDevicePolicy
+        self.publishesPublicHostStatus = publishesPublicHostStatus
+        self.pairingEnabled = pairingEnabled
+    }
+
+    /// Projects the two Mac-only capabilities independently. Incoming access
+    /// must never implicitly advertise outbound Mac discovery: iOS pairing and
+    /// Mac hosting share this endpoint but are separate authorization routes.
+    nonisolated static func macDeviceCapabilities(
+        discoveryEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> [String] {
+        var result: [String] = []
+        if discoveryEnabled { result.append("cmux.mac-devices.v1") }
+        if incomingAccessEnabled { result.append("cmux.mac-host.v1") }
+        return result
+    }
+
+    /// Selects the independent admission policy after the peer has been
+    /// authenticated by the IROH grant and TLS endpoint identity.
+    nonisolated static func allowsInboundPeer(
+        isMac: Bool,
+        pairingEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> Bool {
+        isMac ? incomingAccessEnabled : pairingEnabled
+    }
+
+    private var deviceCapabilities: [String] {
+        Self.macDeviceCapabilities(
+            discoveryEnabled: DevicesFeature.isEnabled,
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
         )
+    }
+
+    /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
+    /// the legacy `cmux/mobile/1` dialect, so it rides the same endpoint
+    /// instead of a separate listener.
+    nonisolated static var endpointAdditionalALPNs: [Data] {
+        [MobileHostIrxLegacyDialectServer.legacyALPN]
+    }
+
+    /// Whether an inbound connection on `alpn` is handed to the legacy dialect
+    /// server. It follows the same pairing opt-in as the v2 runtime.
+    func acceptsLegacyDialect(alpn: Data) -> Bool {
+        pairingEnabled() && alpn == MobileHostIrxLegacyDialectServer.legacyALPN
+    }
+
+    var isNetworkingAllowed: Bool {
+        (pairingEnabled() || DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess())
+            && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
+            && !managedDevicePolicy.isEnforced(.disableRemoteControl)
+    }
+
+    private func isCurrent(_ token: UUID) -> Bool {
+        guard generationToken == token, wantsHost, isNetworkingAllowed,
+              let activeScope, signingOutScope != activeScope else { return false }
+        return auth?.isAuthenticatedTeamScopeCurrent(activeScope) == true
+    }
+
+    func listenerStateUpdates() -> AsyncStream<MobileHostListenerState> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            listenerContinuations[id] = continuation
+            continuation.yield(listenerState)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in self?.listenerContinuations.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+        authObservationTask?.cancel()
+        authObservationTask = Task { @MainActor [weak self, weak auth] in
+            guard let auth else { return }
+            await auth.awaitBootstrapped()
+            for await scope in auth.authenticatedTeamScopes() {
+                guard !Task.isCancelled else { return }
+                if let scope, scope != self?.signingOutScope { self?.wantsHost = true }
+                await self?.reconcile()
+            }
+        }
+        wakeTask?.cancel()
+        wakeTask = Task { @MainActor [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                guard !Task.isCancelled else { return }
+                await self?.foreground()
+            }
+        }
+    }
+
+    func applyManagedNetworkingPolicy() async {
+        wantsHost = true
+        await reconcile()
+    }
+
+    func prepareForStop() {
+        wantsHost = false
+        requiresTransition = true
+        admission?.invalidate()
+        generationToken = UUID()
+        listenerState = MobileHostListenerState()
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+    }
+
+    func stopHost() async {
+        prepareForStop()
+        await transition(to: nil)
+    }
+
+    func beginSignOutPreparation() {
+        signingOutScope = auth?.authenticatedTeamScope
+        admission?.invalidate()
+        generationToken = UUID()
+        wantsHost = false
+        listenerState = MobileHostListenerState()
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        let token = generationToken
+        shutdownTask?.cancel()
+        shutdownTask = Task { @MainActor [weak self] in
+            guard let self, self.generationToken == token else { return }
+            await self.stopHost()
+        }
+    }
+
+    func foreground() async {
+        await reconcile()
+        guard isCurrent(generationToken) else { return }
+        let token = generationToken
+        await controlService?.foreground()
+        guard isCurrent(token) else { return }
+        await refreshListenerState(token: token)
+        requestEndpointReady(token: token)
+    }
+
+    func restartForConfigurationChange() async {
+        guard wantsHost, isNetworkingAllowed else { return }
+        await transition(to: auth?.authenticatedTeamScope)
+    }
+
+    #if DEBUG
+    func setIrohDebugTransportVerificationMode(_ mode: CmxIrohTransportVerificationMode) async {
+        let modeName: String
+        switch mode {
+        case .automatic: modeName = IrxPathMode.automatic.rawValue
+        case .relayOnly: modeName = IrxPathMode.relayOnly.rawValue
+        case .directOnly: modeName = IrxPathMode.directOnly.rawValue
+        }
+        UserDefaults.standard.set(modeName, forKey: Self.pathModeDefaultsKey)
+        await restartForConfigurationChange()
+    }
+    #endif
+
+    private func reconcile() async {
+        let scope = wantsHost && isNetworkingAllowed ? auth?.authenticatedTeamScope : nil
+        let permitted = scope == signingOutScope ? nil : scope
+        // Discoverability is signed metadata on the existing endpoint. A host
+        // toggle must not retire this Mac's independent outgoing device sessions.
+        if !requiresTransition, permitted != nil, permitted == activeScope,
+           (activePairingEnabled == pairingEnabled() || activeDeviceCapabilities != deviceCapabilities),
+           controlService != nil {
+            if activeDeviceCapabilities != deviceCapabilities {
+                await enforcePeerPermissions(token: generationToken)
+                updateDeviceHostingMetadata()
+            }
+            return
+        }
+        guard requiresTransition || permitted != activeScope
+                || activePairingEnabled != pairingEnabled() || activeDeviceCapabilities != deviceCapabilities || (permitted != nil && controlService == nil && activationTask == nil)
+                || (permitted == nil && settingsPhase != .idle) else { return }
+        await transition(to: permitted)
+    }
+
+    private func updateDeviceHostingMetadata() {
+        guard deviceMetadataTask == nil, let service = controlService else { return }
+        let token = generationToken
+        deviceMetadataTask = Task { @MainActor [weak self] in
+            defer {
+                if self?.generationToken == token { self?.deviceMetadataTask = nil }
+            }
+            while let self, self.isCurrent(token), !Task.isCancelled,
+                  (self.activeDeviceCapabilities != self.deviceCapabilities || self.activePairingEnabled != self.pairingEnabled()) {
+                let capabilities = self.deviceCapabilities
+                let pairing = self.pairingEnabled()
+                guard let metadata = await service.snapshot().cache.device?.descriptor.metadata else { return }
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                let next = V2DeviceMetadata(appVersion: metadata.appVersion,
+                    capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + capabilities,
+                    displayName: metadata.displayName, pairingEnabled: pairing,
+                    platform: metadata.platform, relayURLs: metadata.relayURLs)
+                do {
+                    try await service.updateMetadata(next)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.activeDeviceCapabilities = capabilities
+                    self.activePairingEnabled = pairing
+                    await self.enforcePeerPermissions(token: token)
+                } catch {
+                    Self.journal.record("v2-host", "hosting-metadata-failed", ["error": String(describing: type(of: error))])
+                    return
+                }
+            }
+        }
+    }
+
+    private func transition(to scope: AuthenticatedTeamScope?) async {
+        requiresTransition = false
+        generationToken = UUID()
+        let token = generationToken
+        activeScope = scope
+        activePairingEnabled = pairingEnabled()
+        activeDeviceCapabilities = deviceCapabilities
+        admission?.invalidate()
+        let oldControl = controlService
+        let oldEndpoint = endpointSupervisor
+        let oldRegistry = registry
+        let oldLegacy = legacyService
+        let oldRelayWatch = relayAddressWatch
+        deviceMetadataTask?.cancel(); deviceMetadataTask = nil
+        activationTask?.cancel(); activationTask = nil
+        controlTask?.cancel(); controlTask = nil
+        endpointTask?.cancel(); endpointTask = nil
+        endpointRefreshPending = false
+        relayAddressWatch = nil; relayAddressWatchGeneration = nil
+        permissionExpiryTask?.cancel(); permissionExpiryTask = nil
+        acceptLoop?.cancel(); acceptLoop = nil
+        admission = nil; registry = nil; identity = nil
+        legacyService = nil
+        legacyAcceptorPeer = nil
+        legacyStartTask?.cancel(); legacyStartTask = nil
+        legacyEventsTask?.cancel(); legacyEventsTask = nil
+        controlService = nil; endpointSupervisor = nil; cachedState = nil
+        lastLoggedControlState = nil
+        hadLiveDiscoveryThisRun = false
+        setSettingsPhase(.idle)
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        await outgoingDeviceClient?.enforce(nil)
+        if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
+           metadata.pairingEnabled || metadata.capabilities.contains("cmux.mac-host.v1"), scope == nil || !pairingEnabled() {
+            let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
+                capabilities: metadata.capabilities.filter { $0 != "cmux.mac-host.v1" },
+                displayName: metadata.displayName, pairingEnabled: false, platform: .mac, relayURLs: [])
+            try? await oldControl.updateMetadata(withdrawn)
+        }
+        await oldControl?.stop()
+        await oldRelayWatch?.stop()
+        await oldRegistry?.closeAll(code: .hostShutdown)
+        await oldLegacy?.stop(revokeOwnBinding: true)
+        await oldEndpoint?.deactivate()
+        guard generationToken == token, let scope, isCurrent(token) else { return }
+        setSettingsPhase(.activating)
+        activationTask = Task { @MainActor [weak self] in
+            var failureCount = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrent(token) else { return }
+                do {
+                    try await self.provision(scope: scope, token: token)
+                    return
+                } catch {
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.setSettingsPhase(.failed)
+                    Self.journal.record("v2-host", "setup-retry", [
+                        "error": (error as? V2ControlFailure)?.diagnosticCode ?? String(describing: type(of: error))
+                    ])
+                    let delay = Self.activationRetryDelay(after: error, failureCount: failureCount, jitterUnitInterval: Double.random(in: 0...1))
+                    failureCount += 1
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+            }
+        }
+    }
+
+    func setSettingsPhase(_ phase: SettingsPhase, error: (any Error)? = nil) {
+        let nextFailure: String?
+        if phase == .idle || phase == .active {
+            nextFailure = nil
+        } else if let error {
+            nextFailure = (error as? IrxEndpointError)?.errorDescription
+        } else {
+            // Activation retries briefly re-enter .activating and .failed
+            // without a new endpoint error. Keep the last safe diagnosis
+            // visible until the endpoint recovers or the scope is reset.
+            nextFailure = relayFailureDescription
+        }
+        guard settingsPhase != phase || nextFailure != relayFailureDescription else { return }
+        settingsPhase = phase
+        relayFailureDescription = nextFailure
+        switch phase {
+        case .idle: listenerState = MobileHostListenerState()
+        case .activating: listenerState.phase = .starting
+        case .failed: listenerState = MobileHostListenerState(phase: .retrying)
+        case .active: break
+        }
+        publishIrxSettingsUpdate()
+    }
+
+    func noteLiveDiscoverySucceeded() { hadLiveDiscoveryThisRun = true }
+
+    private func provision(scope: AuthenticatedTeamScope, token: UUID) async throws {
+        guard isCurrent(token), let auth else { throw V2ControlFailure.stopped }
+        let configuration = try MobileHostV2Configuration.current()
+        let installation = MobileHostV2Installation(configuration: configuration)
+        let deviceID = try await installation.deviceID()
+        let tuple = V2Identity(appNamespace: configuration.namespace, buildTag: configuration.tag,
+            deviceID: deviceID, environment: configuration.environment, projectID: configuration.projectID,
+            teamID: scope.teamID, userID: scope.session.accountID)
+        let key = try await installation.key(identity: tuple)
+        let store = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager(), identityKey: key)
+        let restored = try await store.load(identity: tuple)
+        guard isCurrent(token), !Task.isCancelled else { throw V2ControlFailure.stopped }
+        let device = V2DeviceDescriptor(endpointID: key.endpointID, identity: tuple,
+            identityGeneration: restored?.device?.descriptor.identityGeneration ?? 1,
+            metadata: V2DeviceMetadata(appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+                capabilities: ["irx-v2"] + deviceCapabilities, displayName: Host.current().localizedName ?? "Mac",
+                pairingEnabled: pairingEnabled(), platform: .mac,
+                relayURLs: restored?.device?.descriptor.metadata.relayURLs ?? []))
+        let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
+        let preferredPort = MobileHostService.configuredPort()
+        let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
+            preferredBindAddress: "0.0.0.0:\(preferredPort)",
+            initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
+            additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
+        let admission = try V2InboundAdmissionAuthority(host: device)
+        if let restored { _ = admission.restore(restored) }
+        let http = V2URLSessionHTTPTransport(session: .shared)
+        let dependencies = V2ControlDependencies(
+            connect: { V2URLSessionSocket(session: .shared, request: $0) },
+            http: { try await http.send($0) },
+            stackAccessToken: { force in
+                try await Self.accessToken(auth: auth, scope: scope, force: force)
+            },
+            sign: { data in
+                guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
+                return try key.sign(data)
+            })
+        let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
+            dependencies: dependencies, store: store)
+        listenerState.preferredPort = preferredPort
+        self.identity = identity
+        self.admission = admission
+        if pairingEnabled(), let namespace = CmxIrohMacBundleNamespace(bundleIdentifier: Bundle.main.bundleIdentifier),
+           let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL {
+            let compatibility = try LegacyCompatibilityService(
+                configuration: .init(
+                    brokerBaseURL: brokerBaseURL,
+                    controlSocketURL: PresenceHeartbeatClient.resolvedServiceURL(),
+                    clientNamespace: namespace.rawValue,
+                    tag: configuration.tag,
+                    platform: .mac,
+                    displayName: device.metadata.displayName,
+                    cacheDirectory: configuration.stateDirectory.appendingPathComponent("legacy-compat", isDirectory: true)
+                        .appendingPathComponent(identity.endpointIDHex, isDirectory: true),
+                    accountID: scope.session.accountID,
+                    identityGeneration: device.identityGeneration,
+                    appVersion: device.metadata.appVersion,
+                    releaseTrack: Self.hostReleaseTrack),
+                identity: LegacyCompatibilityService.compatibilityIdentity(
+                    from: identity, deviceID: MobileHostIdentity.deviceID()),
+                previousDeviceID: LegacyCompatibilityService.compatibilityIdentity(from: identity).deviceID,
+                accessTokenPair: { [weak auth] in
+                    guard let auth else { return nil }
+                    guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
+                    let snapshot = try await auth.authenticatedSessionSnapshot()
+                    guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
+                    return (access: snapshot.accessToken, refresh: snapshot.refreshToken)
+                }, journal: Self.journal)
+            self.legacyService = compatibility
+        }
+        registry = IrxServerSessionRegistry(journal: Self.journal)
+        endpointSupervisor = supervisor
+        cachedState = restored ?? V2CachedState(identity: tuple)
+        controlService = service
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.updateV2DeviceID(deviceID) }
+        schedulePermissionExpiry(token: token)
+        // A returning Mac listens using its cache while control setup runs independently.
+        requestEndpointReady(token: token)
+        controlTask = Task { @MainActor [weak self] in
+            for await snapshot in await service.events() {
+                guard !Task.isCancelled else { return }
+                await self?.apply(snapshot, token: token)
+            }
+        }
+        await service.start()
+        guard isCurrent(token), !Task.isCancelled else { await service.stop(); throw V2ControlFailure.stopped }
+        Self.journal.record("v2-host", "control-started", ["cached": String(restored != nil)])
+    }
+
+    private static func accessToken(auth: AuthCoordinator, scope: AuthenticatedTeamScope, force: Bool) async throws -> String {
+        guard auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
+        let token: String
+        if force { token = try await auth.forceRefreshAccessToken() }
+        else { token = try await auth.authenticatedSessionSnapshot().accessToken }
+        guard auth.isAuthenticatedTeamScopeCurrent(scope) else { throw V2ControlFailure.scopeMismatch }
+        return token
+    }
+
+    enum RevocationAction { case none, restart, awaitRecovery, stop }
+
+    nonisolated static func revocationAction(previous: V2CachedState?, current: V2CachedState,
+                                             status: V2ControlSnapshot.Status) -> RevocationAction {
+        guard current.authorityRevoked else { return .none }
+        guard current.authorityRevocationRecoverable == true else { return .stop }
+        if previous?.authorityRevoked != true { return .restart }
+        // A newly provisioned service restores the revoked cache before its
+        // first setup. Let it enroll instead of restarting on every snapshot.
+        return status == .stopped ? .stop : .awaitRecovery
+    }
+
+    private func apply(_ snapshot: V2ControlSnapshot, token: UUID) async {
+        guard isCurrent(token), let admission else { return }
+        let status = String(describing: snapshot.status)
+        let failure = snapshot.failure?.diagnosticCode ?? "none"
+        let state = status + ":" + failure
+        if state != lastLoggedControlState {
+            lastLoggedControlState = state
+            Self.journal.record("v2-control", "state-changed", ["status": status, "failure": failure,
+                "environment": snapshot.cache.identity.environment,
+                "project": snapshot.cache.identity.projectID])
+        }
+        // The service publishes an empty initial observation before loading disk.
+        guard snapshot.cache.device != nil || cachedState?.device == nil || snapshot.cache.authorityRevoked else { return }
+        let previousCredentials = cachedState?.relayCredentials
+        let revocation = Self.revocationAction(previous: cachedState, current: snapshot.cache, status: snapshot.status)
+        cachedState = snapshot.cache
+        _ = admission.apply(snapshot)
+        await outgoingDeviceClient?.enforce(snapshot.cache)
+        guard isCurrent(token) else { return }
+        if let legacyService {
+            let modernEndpoints = Set((snapshot.cache.directory?.inboundPeers ?? []).map {
+                $0.device.descriptor.endpointID
+            }).union((snapshot.cache.directory?.devices ?? []).map { $0.descriptor.endpointID })
+            await legacyService.excludeV2Endpoints(modernEndpoints)
+            guard isCurrent(token), !Task.isCancelled else { return }
+        }
+        if snapshot.cache.authorityRevoked {
+            if snapshot.cache.authorityRevocationRecoverable == true,
+               wantsHost, isNetworkingAllowed,
+               let scope = auth?.authenticatedTeamScope,
+               signingOutScope != scope {
+                // The Durable Object delivered the owner's Forget event while
+                // this Mac was connected. Rebuild the complete host now so
+                // the replacement control service enrolls with fresh Stack
+                // authentication instead of waiting for foreground().
+                if revocation == .restart {
+                    await transition(to: scope)
+                    return
+                }
+                if revocation == .awaitRecovery { return }
+            }
+            admission.invalidate()
+            let oldLegacy = legacyService
+            legacyService = nil
+            legacyAcceptorPeer = nil
+            legacyStartTask?.cancel(); legacyStartTask = nil
+            legacyEventsTask?.cancel(); legacyEventsTask = nil
+            endpointTask?.cancel(); endpointTask = nil
+            endpointRefreshPending = false
+            let oldRelayWatch = relayAddressWatch
+            let oldRegistry = registry
+            let oldEndpoint = endpointSupervisor
+            relayAddressWatch = nil; relayAddressWatchGeneration = nil
+            permissionExpiryTask?.cancel(); permissionExpiryTask = nil
+            await oldRegistry?.closeAll(code: .revoked)
+            await oldEndpoint?.deactivate()
+            await oldRelayWatch?.stop()
+            await oldLegacy?.stop(revokeOwnBinding: true)
+            guard isCurrent(token) else { return }
+            setSettingsPhase(.failed)
+            return
+        }
+        if snapshot.status == .ready, let record = snapshot.cache.device,
+           !record.revoked, record.descriptor.identity == snapshot.cache.identity,
+           record.descriptor.endpointID == identity?.endpointIDHex {
+            listenerState.hasAuthenticatedRegistration = true
+            if snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
+            startLegacyCompatibility(token: token)
+        }
+        await enforcePeerPermissions(token: token)
+        guard isCurrent(token) else { return }
+        schedulePermissionExpiry(token: token)
+        // Installing credentials does not replace the endpoint or its admitted sessions.
+        if previousCredentials != snapshot.cache.relayCredentials, let supervisor = endpointSupervisor {
+            await supervisor.rotateCredentials(Self.credentials(snapshot.cache))
+            guard isCurrent(token) else { return }
+        }
+        requestEndpointReady(token: token)
+        if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
+        publishIrxSettingsUpdate()
+    }
+
+    private func startLegacyCompatibility(token: UUID) {
+        guard isCurrent(token), pairingEnabled(), legacyStartTask == nil, legacyAcceptorPeer == nil,
+              let service = legacyService, let identity,
+              let configuration = try? MobileHostV2Configuration.current() else { return }
+        legacyStartTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.generationToken == token { self.legacyStartTask = nil }
+            }
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrent(token), self.legacyService === service else { return }
+                do {
+                    try await service.start()
+                    let snapshot = await service.snapshot()
+                    guard self.isCurrent(token), !Task.isCancelled,
+                          self.legacyService === service, !snapshot.stopped,
+                          let binding = snapshot.binding,
+                          let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) else { return }
+                    self.legacyAcceptorPeer = CmxIrohGrantPeer(bindingID: binding.bindingID,
+                        deviceID: binding.deviceID, tag: binding.tag,
+                        platform: .mac, endpointID: endpointID,
+                        identityGeneration: binding.identityGeneration)
+                    self.legacyEventsTask?.cancel()
+                    self.legacyEventsTask = Task { @MainActor [weak self] in
+                        for await _ in await service.events() {
+                            guard let self, self.isCurrent(token), !Task.isCancelled else { return }
+                            await self.enforcePeerPermissions(token: token)
+                            guard self.isCurrent(token), !Task.isCancelled else { return }
+                            self.schedulePermissionExpiry(token: token)
+                        }
+                    }
+                    await self.publishHomeRelayHintIfNeeded(token: token)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    Self.journal.record("legacy-dialect", "compatibility-started", ["tag": configuration.tag])
+                    return
+                } catch {
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    Self.journal.record("legacy-dialect", "compatibility-start-failed",
+                        ["error": String(describing: type(of: error))])
+                    if let brokerError = error as? CmxIrohTrustBrokerClientError {
+                        switch brokerError {
+                        case .rejected(let status, _), .rejectedWithRetryAfter(let status, _, _):
+                            guard status == 408 || status == 425 || status == 429 || (500...599).contains(status) else { return }
+                        case .missingAuthentication, .invalidAuthentication, .invalidBaseURL,
+                             .nonHTTPResponse, .invalidResponse:
+                            return
+                        default: break
+                        }
+                    }
+                    let delay = Self.activationRetryDelay(after: error, failureCount: failures,
+                        jitterUnitInterval: Double.random(in: 0...1))
+                    failures += 1
+                    do { try await Task.sleep(for: .seconds(delay)) }
+                    catch { return }
+                }
+            }
+        }
+    }
+
+    private static func credentials(_ cache: V2CachedState) -> [IrxRelayCredential] {
+        cache.relayCredentials.map { IrxRelayCredential(relayURL: $0.relayURL, token: $0.token,
+            expiresAt: Date(timeIntervalSince1970: Double($0.expiresAt)),
+            refreshAfter: Date(timeIntervalSince1970: Double($0.refreshAfter))) }
+    }
+
+    private func requestEndpointReady(token: UUID) {
+        guard isCurrent(token) else { return }
+        guard endpointTask == nil else { endpointRefreshPending = true; return }
+        guard let supervisor = endpointSupervisor,
+              let cache = cachedState, !cache.authorityRevoked,
+              Self.pathMode == .directOnly || Self.credentials(cache).contains(where: { $0.isUsable(at: Date()) }) else { return }
+        endpointTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.generationToken == token {
+                    self.endpointTask = nil
+                    if self.endpointRefreshPending {
+                        self.endpointRefreshPending = false
+                        self.requestEndpointReady(token: token)
+                    }
+                }
+            }
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrent(token), let cache = self.cachedState, !cache.authorityRevoked else { return }
+                do {
+                    let endpoint = try await supervisor.readyEndpoint(credentials: Self.credentials(cache))
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    let endpointGeneration = await supervisor.currentGeneration
+                    if self.relayAddressWatchGeneration != endpointGeneration {
+                        await self.relayAddressWatch?.stop()
+                        guard self.isCurrent(token), !Task.isCancelled else { return }
+                        self.relayAddressWatchGeneration = endpointGeneration
+                        self.relayAddressWatch = endpoint.watchAddr(callback: MobileHostV2RelayAddressCallback { [weak self] in
+                            await self?.requestEndpointReady(token: token)
+                        })
+                    }
+                    await self.refreshListenerState(token: token)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.startAcceptLoop(token: token)
+                    self.setSettingsPhase(.active)
+                    Self.journal.record("v2-host", "endpoint-ready", ["generation": String(await supervisor.currentGeneration)])
+                    await self.publishHomeRelayHintIfNeeded(token: token)
+                    return
+                } catch {
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.setSettingsPhase(.failed, error: error)
+                    self.listenerState.phase = .retrying
+                    self.listenerState.boundPort = nil
+                    self.listenerState.localSocketAddresses = []
+                    let delay = Self.activationRetryDelay(after: error, failureCount: failures, jitterUnitInterval: Double.random(in: 0...1))
+                    failures += 1
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+            }
+        }
+    }
+
+    /// Publish only the public relay location needed by peers to address this
+    /// endpoint. Direct addresses stay local to the two clients.
+    private func publishHomeRelayHintIfNeeded(token: UUID) async {
+        guard isCurrent(token), let supervisor = endpointSupervisor else { return }
+        let relay = await supervisor.homeRelayURL()
+        guard isCurrent(token), let metadata = cachedState?.device?.descriptor.metadata else { return }
+        if let legacyService {
+            try? await legacyService.publishRelayHint(relay)
+        }
+        guard isCurrent(token), !Task.isCancelled, let relay,
+              metadata.relayURLs != [relay], let service = controlService else { return }
+        let next = V2DeviceMetadata(
+            appVersion: metadata.appVersion,
+            capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + deviceCapabilities,
+            displayName: metadata.displayName,
+            pairingEnabled: metadata.pairingEnabled,
+            platform: metadata.platform,
+            relayURLs: [relay]
+        )
+        do {
+            try await service.updateMetadata(next)
+            guard isCurrent(token) else { return }
+            Self.journal.record("v2-host", "home-relay-published", ["relay": relay])
+        } catch {
+            guard isCurrent(token) else { return }
+            Self.journal.record("v2-host", "home-relay-publish-failed", ["error": String(describing: type(of: error))])
+        }
+    }
+
+    private func enforcePeerPermissions(token: UUID) async {
+        guard isCurrent(token), let admission, let registry else { return }
+        let legacyCurrent = legacyService?.listCurrent
+        let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
+            $0.device.descriptor.metadata.platform == .mac
+        }.map { $0.device.descriptor.endpointID } ?? [])
+        let allowsMacAccess = MobileRemoteControlPolicy.allowsIncomingAccess()
+        await registry.closeAll(code: .revoked, matching: { endpoint in
+            if !allowsMacAccess, macEndpoints.contains(endpoint) { return true }
+            if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
+                return !list.isFresh(now: .now) || entry.revoked
+                    || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
+            }
+            return admission.authorizedPeer(endpointID: endpoint) == nil
+        })
+    }
+
+    private func schedulePermissionExpiry(token: UUID) {
+        permissionExpiryTask?.cancel()
+        guard isCurrent(token), let admission else { return }
+        let legacyCurrent = legacyService?.listCurrent
+        permissionExpiryTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isCurrent(token) else { return }
+                await self.enforcePeerPermissions(token: token)
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                let now = ContinuousClock().now
+                let legacyDeadline = legacyCurrent?.current.map {
+                    $0.receivedAtMonotonic.advanced(by: .seconds($0.ttlSeconds))
+                }.flatMap { $0 > now ? $0 : nil }
+                // An expired older-client list must not stop enforcement of
+                // future v2 permission expiry, or reschedule an elapsed deadline.
+                let deadline = [admission.nextExpiration, legacyDeadline].compactMap { $0 }.min()
+                guard let deadline else { return }
+                do { try await ContinuousClock().sleep(until: deadline) }
+                catch { return }
+            }
+        }
+    }
+
+    private func refreshListenerState(token: UUID) async {
+        guard isCurrent(token), let supervisor = endpointSupervisor else { return }
+        let healthy = await supervisor.isHealthy()
+        let port = await supervisor.boundPort()
+        let addresses = await supervisor.localDirectAddresses()
+        let relayURL = await supervisor.homeRelayURL()
+        guard isCurrent(token), !Task.isCancelled else { return }
+        var next = listenerState
+        next.phase = healthy ? .ready : .starting
+        next.boundPort = healthy ? port : nil
+        next.localSocketAddresses = healthy ? addresses : []
+        listenerState = next
+        if healthy { publishRoute(relayURL: relayURL) }
+        else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
+    }
+
+    private func publishRoute(relayURL: String?) {
+        guard publishesPublicHostStatus, let identity,
+              let peer = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) else { return }
+        let now = Date()
+        let expiry = cachedState?.relayCredentials.filter { $0.relayURL == relayURL }.map {
+            Date(timeIntervalSince1970: Double($0.expiresAt))
+        }.max()
+        let hints: [CmxIrohPathHint] = relayURL.flatMap { relay in
+            guard let expiry, expiry > now else { return nil }
+            return try? CmxIrohPathHint(kind: .relayURL, value: relay, source: .native,
+                privacyScope: .publicInternet, observedAt: now, expiresAt: expiry)
+        }.map { [$0] } ?? []
+        MobileHostPublicStatusCache.update(irohIdentity: peer, pathHints: hints)
     }
 
     private func startAcceptLoop(token: UUID) {
-        guard let endpointSupervisor, let brokerService, let registry, let localBinding,
-            let deviceListBox
-        else { return }
-        let journal = Self.journal
-        guard let acceptor = try? acceptorPeer(binding: localBinding) else {
-            journal.record("host-runtime", "activation-failed", ["reason": "acceptor-tuple"])
-            return
+        guard acceptLoop == nil, let supervisor = endpointSupervisor, let registry, let admission else { return }
+        let legacyCurrent = legacyService?.listCurrent
+        let v2Judgment = admission.judgment()
+        let legacyJudgment = legacyCurrent.map { IrxListJudge(current: $0, journal: Self.journal).judgment() }
+        let judgment: IrxGrantJudgment = { grant, endpoint in
+            // A current legacy entry is authoritative for old peers. Modern
+            // endpoints are excluded from that list, so they can only pass the
+            // independent v2 authority and never gain legacy fallback.
+            if let legacyCurrent, legacyCurrent.current?.entries[endpoint] != nil,
+               let legacyJudgment {
+                return try legacyJudgment(grant, endpoint)
+            }
+            return try v2Judgment(grant, endpoint)
         }
-        // LIST AUTH: irx admission judges the TLS key against the current
-        // device-list lease, synchronously and O(1) (an atomic box read; no
-        // actor, no disk, no network). The hello's grant is ignored.
-        let judge = IrxListJudge(current: deviceListBox, journal: journal)
-        // The legacy dialect (old phones) still verifies pair grants against
-        // the persisted trust snapshot, read through the broker's cache so
-        // the Release keychain migration cannot strand it.
-        let trustSnapshot = { brokerService.cachedTrustForAdmission() }
-        let brokerClient = brokerService.hostBrokerClient
-        acceptLoop = Task { [weak self] in
-            journal.record("host-runtime", "accept-loop-started")
+        acceptLoop = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                guard let inbound = await endpointSupervisor.acceptNextInbound() else {
-                    // Endpoint closed or unbound: rebind with the freshest
-                    // cached credentials and continue accepting.
-                    do {
-                        let credentials = await brokerService.cachedRelayCredentials()
-                        _ = try await endpointSupervisor.readyEndpoint(credentials: credentials)
-                    } catch {
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                    continue
+                guard let self, self.isCurrent(token) else { return }
+                guard let inbound = await supervisor.acceptNextInbound() else {
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.acceptLoop = nil
+                    await self.refreshListenerState(token: token)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.requestEndpointReady(token: token)
+                    return
+                }
+                guard self.isCurrent(token), !Task.isCancelled else {
+                    if case .irx(let connection) = inbound { await connection.close(code: .hostShutdown, origin: .local) }
+                    return
                 }
                 switch inbound {
-                case .irx(let irx):
+                case .irx(let connection):
                     Task { [weak self] in
-                        await self?.superviseConnection(
-                            irx, judge: judge, registry: registry, token: token)
+                        await self?.superviseConnection(connection, judgment: judgment,
+                            admission: admission, legacyCurrent: legacyCurrent,
+                            registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
-                    guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
-                        MobileHostIrxLegacyDialectServer.listenerEnabled,
-                        let trust = trustSnapshot(),
-                        let adopted = try? CmxIrohLibEndpointFactory
-                            .adoptAcceptedConnection(connection)
-                    else {
-                        try? connection.close(
-                            errorCode: 1, reason: Data("unsupported_alpn".utf8))
+                    guard self.acceptsLegacyDialect(alpn: alpn),
+                          let legacyService,
+                          let trust = legacyService.broker.cachedTrustForAdmission(),
+                          let acceptor = self.legacyAcceptor(token: token) else {
+                        try? connection.close(errorCode: 1, reason: Data("unsupported_alpn".utf8))
                         continue
                     }
-                    Task { [weak self] in
-                        guard let self else { return }
-                        await MobileHostIrxLegacyDialectServer.serve(
-                            adopted: adopted,
-                            acceptor: acceptor,
-                            trust: trust,
-                            brokerClient: brokerClient,
+                    let adopted = try? CmxIrohLibEndpointFactory.adoptAcceptedConnection(connection)
+                    guard let adopted else { continue }
+                    Task {
+                        await MobileHostIrxLegacyDialectServer.serve(adopted: adopted,
+                            acceptor: acceptor, trust: trust,
+                            brokerClient: legacyService.broker.hostBrokerClient,
+                            listCurrent: legacyService.listCurrent,
                             isCurrent: { [weak self] in
-                                let runtime = self
-                                return await MainActor.run { runtime?.generationToken == token }
-                            },
-                            journal: journal
-                        )
+                                guard let self else { return false }
+                                return await MainActor.run { self.isCurrent(token) }
+                            }, journal: Self.journal)
                     }
                 }
             }
         }
     }
 
-    private nonisolated func acceptorPeer(binding: IrxBindingSnapshot) throws -> CmxIrohGrantPeer {
-        CmxIrohGrantPeer(
-            bindingID: binding.bindingID,
-            deviceID: binding.deviceID,
-            tag: binding.tag,
-            platform: .mac,
-            endpointID: try CmxIrohPeerIdentity(endpointID: binding.endpointIDHex),
-            identityGeneration: binding.identityGeneration
-        )
+    private func legacyAcceptor(token: UUID) -> CmxIrohGrantPeer? {
+        guard isCurrent(token) else { return nil }
+        return legacyAcceptorPeer
     }
 
     private func superviseConnection(
         _ irx: IrxConnection,
-        judge: IrxListJudge,
+        judgment: @escaping IrxGrantJudgment,
+        admission: V2InboundAdmissionAuthority,
+        legacyCurrent: IrxDeviceListCurrent?,
         registry: IrxServerSessionRegistry,
         token: UUID
     ) async {
         let journal = Self.journal
         guard
-            let (peer, control, sessionID) = await IrxAdmission.performServer(
+            let (peer, control, sessionID) = await IrxAdmission().performServer(
                 connection: irx,
-                judgment: judge.judgment(),
+                judgment: judgment,
                 journal: journal
             )
         else { return }
+        let isMac = cachedState?.directory?.inboundPeers?.first {
+            $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
+        }?.device.descriptor.metadata.platform == .mac
+        guard Self.allowsInboundPeer(
+            isMac: isMac,
+            pairingEnabled: pairingEnabled(),
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        ) else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
+            guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
+                : MobileHostService.isListeningEnabled else { return false }
+            if !isMac, let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
+                return list.isFresh(now: .now) && !entry.revoked
+                    && entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) != true
+                    && (entry.deviceID == nil || entry.deviceID == peer.deviceID)
+                    && (entry.bindingID == nil || entry.bindingID == peer.bindingID)
+                    && (entry.tag == nil || entry.tag == peer.tag)
+                    && (entry.identityGeneration == nil || entry.identityGeneration == peer.identityGeneration)
+            }
+            return admission.recheck(peer)(endpoint)
+        }
         let registered = await registry.admit(
-            deviceID: peer.deviceID,
+            deviceID: peer.bindingID,
             sessionID: sessionID,
             connection: irx,
-            stillAuthorized: { endpointIDHex in
-                do {
-                    _ = try judge.judgment()(nil, endpointIDHex)
-                    return true
-                } catch {
-                    return false
-                }
-            }
+            stillAuthorized: stillAuthorized
         )
-        guard registered else { return }
+        guard registered, isCurrent(token) else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
         // Automatic path mode: authorize NAT traversal so the admitted session
         // can upgrade to a direct/LAN path make-before-break.
         if !Self.forceRelayOnly {
@@ -917,7 +962,7 @@ final class MobileHostIrxRuntime {
                     bindingID: peer.bindingID,
                     deviceID: peer.deviceID,
                     tag: peer.tag,
-                    platform: .ios,
+                    platform: isMac ? .mac : .ios,
                     endpointID: try CmxIrohPeerIdentity(endpointID: peer.endpointIDHex),
                     identityGeneration: peer.identityGeneration
                 )
@@ -929,25 +974,45 @@ final class MobileHostIrxRuntime {
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
+        let controlTransport = IrxControlByteTransport(
+            connection: irx, control: control, closeCode: .hostShutdown)
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
-                journal: journal)
+                controlTransport: controlTransport,
+                journal: journal,
+                onInteractiveSurface: { surfaceID in
+                    // Fire-and-forget: input delivery never waits on the
+                    // output side. Keystrokes arrive at human rate.
+                    Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
+                })
         }
-        let controlTransport = IrxControlByteTransport(
-            connection: irx, control: control, closeCode: .hostShutdown)
+        let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+        if isMac {
+            let layouts = deviceWorkspaceLayouts
+            peerRequestHandler = { request in
+                await layouts.handle(request)
+            }
+        } else {
+            peerRequestHandler = nil
+        }
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
+            hostDeviceID: legacyCurrent?.current?.entries[peer.endpointIDHex] != nil
+                ? MobileHostIdentity.deviceID() : nil,
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
-            // The bounded Iroh peer pool stays alive via transport keepalives.
-            // Control-idle timeout is for unowned legacy TCP connections and
-            // must not tear down a healthy multi-lane QUIC session.
-            idleTimeoutNanoseconds: 0,
+            // Admission has already authenticated this bounded pooled peer.
+            // It may wait for its first RPC while the client finishes setup;
+            // native Iroh owns its connection lifetime.
+            firstFrameTimeoutNanoseconds: 0,
+            irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
+            remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
+            peerRequestHandler: peerRequestHandler,
             isCurrent: { [weak self] in
                 let runtime = self
-                return await MainActor.run { runtime?.generationToken == token }
+                return await MainActor.run { runtime?.isCurrent(token) == true }
             }
         )
         journal.record(
@@ -961,7 +1026,7 @@ final class MobileHostIrxRuntime {
         laneLoop.cancel()
         await eventWriter.close()
         await irx.close(code: .hostShutdown, origin: .local)
-        await registry.remove(deviceID: peer.deviceID, sessionID: sessionID)
+        await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
     }
 
     /// Post-admission lane dispatch: keepalive echo, terminal streams over
@@ -970,7 +1035,9 @@ final class MobileHostIrxRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
-        journal: IrxJournal
+        controlTransport: IrxControlByteTransport,
+        journal: IrxJournal,
+        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -998,7 +1065,8 @@ final class MobileHostIrxRuntime {
                         resourceID: resource,
                         cursor: cursor,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1013,7 +1081,8 @@ final class MobileHostIrxRuntime {
                     await MobileHostIrxTerminalLaneServer.serveInputOnly(
                         resourceID: resource,
                         stream: lane.bidirectional(),
-                        journal: journal
+                        journal: journal,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1057,6 +1126,15 @@ final class MobileHostIrxRuntime {
                         await stream.receiveStream.stop(errorCode: 2)
                     }
                 }
+            case .controlRepair:
+                // The phone replaces a silent control stream without closing
+                // the connection its terminal lanes share. Off the accept
+                // loop: the acknowledgement write must not delay other lanes.
+                Task {
+                    let replaced = await controlTransport.acceptControlLaneReplacement(lane)
+                    journal.record(
+                        "host-lanes", replaced ? "control-replaced" : "control-replace-refused")
+                }
             case .control, .events:
                 // control arrives only pre-admission; events is server-opened.
                 await lane.writer.reset(errorCode: 2)
@@ -1082,69 +1160,5 @@ private actor MobileHostIrxTerminalLaneQuota {
 
     func release() {
         activeCount = max(0, activeCount - 1)
-    }
-}
-
-/// Synchronous trust-snapshot reader for the admission path (no actor hop,
-/// no network): reads the JSON the broker service persists. The caller passes
-/// the per-bundle, per-broker state directory computed at activation so
-/// admission never reads another build's (or another environment's) cache.
-enum IrxDiskCacheTrustReader {
-    /// Reads the trust snapshot from the state directory selected at activation.
-    nonisolated static func read(stateDirectory: URL) -> IrxTrustSnapshot? {
-        return IrxDiskCache<IrxTrustSnapshot>(
-            fileURL: stateDirectory.appendingPathComponent("trust.json")
-        ).load()
-    }
-}
-
-/// Server-events lane writer over irx: opened lazily at priority 50, reset on
-/// stall so the host service can renegotiate, mirroring the legacy contract.
-actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
-    private let connection: IrxConnection
-    private let journal: IrxJournal
-    private var writer: IrxStreamWriter?
-
-    init(connection: IrxConnection, journal: IrxJournal) {
-        self.connection = connection
-        self.journal = journal
-    }
-
-    func probe(_ framedData: Data) async -> Bool {
-        do {
-            try await send(framedData)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    func send(_ framedData: Data) async throws {
-        let writer = try await openedWriter()
-        try await writer.write(framedData)
-    }
-
-    func reset() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-        journal.record("host-events", "writer-reset")
-    }
-
-    func close() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-    }
-
-    private func openedWriter() async throws -> IrxStreamWriter {
-        if let writer { return writer }
-        let opened = try await connection.openUniLane(IrxLaneDescriptor(lane: .events))
-        try? await opened.setPriority(50)
-        writer = opened
-        journal.record("host-events", "writer-opened")
-        return opened
     }
 }
