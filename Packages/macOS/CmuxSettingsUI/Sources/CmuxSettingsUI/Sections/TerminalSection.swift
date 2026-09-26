@@ -170,15 +170,9 @@ public struct TerminalSection: View {
     }
 
     private var sessionContentWidthSubtitle: String {
-        if sessionContentWidthEnabled {
-            return String(
-                localized: "settings.terminal.sessionContentWidth.subtitleOn",
-                defaultValue: "Terminal and agent chat content wraps within this width. Narrow panes still use all available space."
-            )
-        }
-        return String(
-            localized: "settings.terminal.sessionContentWidth.subtitleOff",
-            defaultValue: "Terminal and agent chat content uses the full pane width."
+        String(
+            localized: "settings.terminal.sessionContentWidth.subtitle",
+            defaultValue: "Terminal and agent chat content wraps at this width. Narrow panes still use all available space."
         )
     }
 
@@ -284,15 +278,7 @@ public struct TerminalSection: View {
                     localized: "settings.terminal.adaptiveDefaultTheme",
                     defaultValue: "Adapt Default Theme to Appearance"
                 ),
-                subtitle: adaptiveDefaultTheme.current
-                    ? String(
-                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
-                    )
-                    : String(
-                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
-                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
-                    )
+                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "When the Ghostty config is empty, terminal colors follow the light or dark app appearance. Existing Ghostty settings always take priority.")
             ) {
                 Toggle(
                     "",
@@ -408,9 +394,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showScrollBar"),
                 String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
-                subtitle: scrollBar.current
-                    ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces.")
-                    : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                subtitle: String(localized: "settings.terminal.scrollBar.subtitle", defaultValue: "Terminals show a scroll bar on the right edge, except while a full-screen app is running.")
             ) {
                 Toggle("", isOn: Binding(get: { scrollBar.current }, set: { scrollBar.set($0) }))
                     .labelsHidden()
@@ -421,9 +405,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.copyOnSelect"),
                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
-                subtitle: copyOnSelect.current
-                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is also copied to the system clipboard when the selection is committed.")
-                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "cmux does not add system-clipboard copy on selection. Ghostty config still controls Paste Selection.")
+                subtitle: String(localized: "settings.terminal.copyOnSelect.subtitle", defaultValue: "Selecting text in a terminal also copies it to the clipboard.")
             ) {
                 Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
                     .labelsHidden()
@@ -434,9 +416,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.reflowHardWrapOnCopy"),
                 String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                subtitle: reflowHardWrapOnCopy.current
-                    ? String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOn", defaultValue: "Copy also rejoins lines that filled the terminal width, and drops a short continuation indent.")
-                    : String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOff", defaultValue: "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line.")
+                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copied text joins lines that wrapped at the terminal edge back into one line.")
             ) {
                 Toggle("", isOn: Binding(get: { reflowHardWrapOnCopy.current }, set: { reflowHardWrapOnCopy.set($0) }))
                     .labelsHidden()
@@ -447,9 +427,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: textEditingGestures.current
-                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "Command and Option arrow keys move by line and word, and the Command and Option delete keys kill by line and word. Applications receive these chords instead of the gesture, so turn this off before working in a full-screen TUI.")
-                    : String(localized: "settings.terminal.textEditingGestures.subtitleOff", defaultValue: "Command and Option key combinations reach the terminal unchanged.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Command or Option with an arrow key moves by line or word. Command or Option with Delete deletes by line or word. Full-screen terminal apps receive these as editing keys.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
@@ -460,9 +438,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.autoResumeAgentSessions"),
                 String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
-                subtitle: autoResume.current
-                    ? String(localized: "settings.terminal.agentAutoResume.subtitleOn", defaultValue: "When cmux reopens after quit, restored agent terminals automatically run their resume command.")
-                    : String(localized: "settings.terminal.agentAutoResume.subtitleOff", defaultValue: "When cmux reopens after quit, restored agent terminals stay idle until you resume them manually.")
+                subtitle: String(localized: "settings.terminal.agentAutoResume.subtitle", defaultValue: "When cmux reopens, restored agent terminals resume their sessions automatically.")
             ) {
                 Toggle("", isOn: Binding(get: { autoResume.current }, set: { autoResume.set($0) }))
                     .labelsHidden()
@@ -473,9 +449,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: hibernation.current
-                    ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
-                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "cmux hibernates idle background agent terminals after the live terminal count exceeds the limit.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()
@@ -516,9 +490,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.rendererRealization.enabled"),
                 String(localized: "settings.terminal.rendererRealization", defaultValue: "Reclaim Offscreen Terminal Memory"),
-                subtitle: rendererReclaim.current
-                    ? String(localized: "settings.terminal.rendererRealization.subtitleOn", defaultValue: "Off-screen terminals release their GPU renderer memory while idle and rebuild it instantly when you switch back. The process keeps running.")
-                    : String(localized: "settings.terminal.rendererRealization.subtitleOff", defaultValue: "Every visited terminal keeps its full GPU renderer allocated until you close it, even when off-screen.")
+                subtitle: String(localized: "settings.terminal.rendererRealization.subtitle", defaultValue: "Terminals out of view free their graphics memory while idle and redraw instantly when shown again. Their processes keep running.")
             ) {
                 Toggle("", isOn: Binding(get: { rendererReclaim.current }, set: { rendererReclaim.set($0) }))
                     .labelsHidden()
@@ -560,9 +532,7 @@ public struct TerminalSection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:terminal:memory-guardrail",
                 String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                subtitle: memGuardrailEnabled.current
-                    ? String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app.")
-                    : String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app.")
+                subtitle: String(localized: "settings.terminal.memoryGuardrail.subtitle", defaultValue: "cmux shows a badge and a banner when the processes in one pane use too much memory.")
             ) {
                 Toggle("", isOn: Binding(get: { memGuardrailEnabled.current }, set: { memGuardrailEnabled.set($0) }))
                     .labelsHidden()

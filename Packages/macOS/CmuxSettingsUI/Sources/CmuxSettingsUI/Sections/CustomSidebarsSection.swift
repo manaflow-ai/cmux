@@ -75,9 +75,7 @@ public struct CustomSidebarsSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:customSidebars:enabled",
             String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"),
-            subtitle: enabled.current
-                ? String(localized: "settings.customSidebars.enabled.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker.")
-                : String(localized: "settings.customSidebars.enabled.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
+            subtitle: String(localized: "settings.customSidebars.enabled.subtitle", defaultValue: "Sidebars saved in ~/.config/cmux/sidebars appear in the sidebar picker.")
         ) {
             Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                 .labelsHidden()

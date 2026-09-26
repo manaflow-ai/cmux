@@ -340,9 +340,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.claudeCodeIntegration"),
                 String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
-                subtitle: claudeCodeModel.current
-                    ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                    : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.claudeCode.subtitle", defaultValue: "The sidebar shows Claude Code session status and notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { claudeCodeModel.current }, set: { claudeCodeModel.set($0) }))
                     .labelsHidden()
@@ -359,9 +357,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.codexIntegration"),
                 String(localized: "settings.automation.codex", defaultValue: "Codex Integration"),
-                subtitle: codexModel.current
-                    ? String(localized: "settings.automation.codex.subtitleOn", defaultValue: "Sidebar shows Codex session status and notifications.")
-                    : String(localized: "settings.automation.codex.subtitleOff", defaultValue: "Codex runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.codex.subtitle", defaultValue: "The sidebar shows Codex session status and notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { codexModel.current }, set: { codexModel.set($0) }))
                     .labelsHidden()
@@ -395,9 +391,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.workspaceAutoNaming"),
                 String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
-                subtitle: autoNamingModel.current
-                    ? String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations.")
-                    : String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated.")
+                subtitle: String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "cmux names workspaces and tabs from agent conversations.")
             ) {
                 Toggle("", isOn: Binding(get: { autoNamingModel.current }, set: { autoNamingModel.set($0) }))
                     .labelsHidden()
@@ -480,9 +474,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.suppressSubagentNotifications"),
                 String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
-                subtitle: suppressSubagentModel.current
-                    ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
-                    : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
+                subtitle: String(localized: "settings.automation.suppressSubagentNotifications.subtitle", defaultValue: "Subagent completions appear in Feed without sending a notification.")
             ) {
                 Toggle("", isOn: Binding(get: { suppressSubagentModel.current }, set: { suppressSubagentModel.set($0) }))
                     .labelsHidden()
@@ -499,9 +491,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.ampIntegration"),
                 String(localized: "settings.automation.amp", defaultValue: "Amp Integration"),
-                subtitle: ampModel.current
-                    ? String(localized: "settings.automation.amp.subtitleOn", defaultValue: "Sidebar shows Amp agent status and notifications.")
-                    : String(localized: "settings.automation.amp.subtitleOff", defaultValue: "Amp runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.amp.subtitle", defaultValue: "The sidebar shows Amp session status and notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { ampModel.current }, set: { ampModel.set($0) }))
                     .labelsHidden()
@@ -519,9 +509,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.cursorIntegration"),
                 String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
-                subtitle: cursorModel.current
-                    ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
-                    : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.cursor.subtitle", defaultValue: "The sidebar shows Cursor session status and notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { cursorModel.current }, set: { cursorModel.set($0) }))
                     .labelsHidden()
@@ -539,9 +527,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.geminiIntegration"),
                 String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
-                subtitle: geminiModel.current
-                    ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
-                    : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.gemini.subtitle", defaultValue: "The sidebar shows Gemini CLI session status and notifications.")
             ) {
                 Toggle("", isOn: Binding(get: { geminiModel.current }, set: { geminiModel.set($0) }))
                     .labelsHidden()
@@ -559,9 +545,7 @@ public struct AutomationSection: View {
             SettingsCardRow(
                 configurationReview: .json("automation.kiroIntegration"),
                 String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"),
-                subtitle: kiroModel.current
-                    ? String(localized: "settings.automation.kiro.subtitleOn", defaultValue: "Sidebar shows Kiro session status, notifications, and Feed tool events.")
-                    : String(localized: "settings.automation.kiro.subtitleOff", defaultValue: "Kiro runs without cmux integration.")
+                subtitle: String(localized: "settings.automation.kiro.subtitle", defaultValue: "The sidebar shows Kiro CLI session status and notifications, and Feed shows its tool events.")
             ) {
                 Toggle("", isOn: Binding(get: { kiroModel.current }, set: { kiroModel.set($0) }))
                     .labelsHidden()

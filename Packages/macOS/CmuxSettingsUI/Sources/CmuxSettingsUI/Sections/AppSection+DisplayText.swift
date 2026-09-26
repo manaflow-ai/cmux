@@ -77,24 +77,18 @@ extension AppSection {
         }
     }
 
-    func warnCloseXSubtitle(hideCloseButton: Bool, warnEnabled: Bool) -> String {
-        // Mirrors legacy warnBeforeClosingTabXButtonSubtitle: hidden override
-        // takes priority, then on/off wording.
+    func warnCloseXSubtitle(hideCloseButton: Bool) -> String {
+        // The hidden-button status replaces the description. The warning
+        // cannot apply while close buttons are hidden.
         if hideCloseButton {
             return String(
                 localized: "settings.app.warnBeforeClosingTabXButton.subtitleHidden",
-                defaultValue: "Tab close buttons are hidden, so this warning is inactive."
-            )
-        }
-        if warnEnabled {
-            return String(
-                localized: "settings.app.warnBeforeClosingTabXButton.subtitleOn",
-                defaultValue: "The tab close button asks for confirmation before closing."
+                defaultValue: "Unavailable while tab close buttons are hidden."
             )
         }
         return String(
-            localized: "settings.app.warnBeforeClosingTabXButton.subtitleOff",
-            defaultValue: "The tab close button closes tabs immediately."
+            localized: "settings.app.warnBeforeClosingTabXButton.subtitle",
+            defaultValue: "cmux asks for confirmation before a tab close button closes a tab."
         )
     }
 }
