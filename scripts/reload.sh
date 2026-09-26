@@ -915,8 +915,10 @@ Options:
                          the long-lived Mac process environment.
   --auth-profile <personal|agent>
                          Select one identity class and replace any stale tagged
-                         session on launch. Without --credentials-file, resolve
-                         the selected profile from the standard secret files.
+                         session on launch. Agent launches default to the shared
+                         agent profile; pass personal explicitly for iPhone
+                         dogfood. Without --credentials-file, resolve the
+                         selected profile from the standard secret files.
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
@@ -1330,7 +1332,11 @@ fi
 # before the app is started.  Keeping this gate here covers agents that call
 # reload.sh directly instead of the higher-level dev-setup wrapper.
 if [[ "$LAUNCH" -eq 1 && -n "$TAG" && -z "$AUTH_PROFILE" ]]; then
-  AUTH_PROFILE="personal"
+  # Tagged launches are the agent-facing entrypoint used by reload-cloud and
+  # direct dogfood commands. Keep them on the shared simulator account unless
+  # a physical-device flow explicitly selects personal. The iOS device lane
+  # already passes --auth-profile personal when it launches its Mac peer.
+  AUTH_PROFILE="agent"
   if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
     for candidate in "${HOME:-}/.secrets/cmuxterm-dev.env" "${HOME:-}/.secrets/cmux.env"; do
       if [[ -f "$candidate" ]]; then
