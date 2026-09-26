@@ -432,6 +432,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
 
+      - name: Validate the owned idle catch-up build
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_catch_up.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
