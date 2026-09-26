@@ -32,6 +32,25 @@ restart_budget_exit_code=123
 export CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS:-180}"
 startup_hang_exit_code=122
 startup_hangs=0
+# testmanagerd is this user's on-demand launchd agent; launchd starts a fresh
+# one for the next session. The app-host lock keeps other app-host runs away,
+# but other XCTest clients of this user (E2E UI tests, tmux-corpus, compat
+# lanes) are not under it, and a restart would drop their sessions. This
+# attempt's own xcodebuild has exited by now, so any live one belongs to them.
+restart_testmanagerd() {
+  local pid args
+  for pid in $(pgrep -x -U "$(id -u)" xcodebuild 2>/dev/null || true); do
+    args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+    case " $args " in
+      *" test "*|*" test-without-building "*)
+        echo "Not restarting testmanagerd: xcodebuild $pid is running tests on this Mac" >&2
+        return 0
+        ;;
+    esac
+  done
+  launchctl kickstart -k "gui/$(id -u)/com.apple.testmanagerd" >&2 \
+    || echo "warning: could not restart testmanagerd before retrying" >&2
+}
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, startup timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
@@ -387,11 +406,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
     if [ "$startup_hang" -eq 1 ]; then
       startup_hangs=$((startup_hangs + 1))
-      # Two startup hangs in a row mean this Mac's testmanagerd refuses the
-      # IDE channel; every further attempt hangs the same way. Stop and say
-      # so, so the rerun lands on another runner instead of burning this one.
-      if [ "$startup_hangs" -ge 2 ]; then
-        echo "::error title=App-host runner fault::${RUNNER_NAME:-this runner}: the XCTest runner never connected in $startup_hangs launches (testmanagerd refused xcodebuild). Runner fault, not a test verdict; rerun the job." >&2
+      # Two startup hangs in one invocation mean this Mac's testmanagerd
+      # refuses the IDE channel; every further attempt hangs the same way.
+      # Stop and say so, so the rerun lands on another runner. A single-attempt
+      # caller gets the same annotation on its only hang.
+      if [ "$startup_hangs" -ge 2 ] || [ "$attempt" -ge "$max_attempts" ]; then
+        echo "::error title=App-host runner fault::${RUNNER_NAME:-this runner}: the XCTest runner never connected in $startup_hangs launch(es) (testmanagerd refused xcodebuild). Runner fault, not a test verdict; rerun the job." >&2
         exit "$status"
       fi
     fi
@@ -404,11 +424,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       kill_stale_app_host
       if [ "$startup_hang" -eq 1 ]; then
-        # testmanagerd is this user's on-demand launchd agent; launchd starts
-        # a fresh one for the next session. Safe here because the app-host
-        # lock guarantees no other app-host test on this Mac is using it.
-        launchctl kickstart -k "gui/$(id -u)/com.apple.testmanagerd" >&2 \
-          || echo "warning: could not restart testmanagerd before retrying" >&2
+        restart_testmanagerd
       fi
       attempt=$((attempt + 1))
       continue
