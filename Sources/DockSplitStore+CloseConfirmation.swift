@@ -267,7 +267,7 @@ extension DockSplitStore {
         alert.messageText = title
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let content = scrollableDetails.map {
             CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
         } ?? CmuxAlertContent(informativeText: message)
