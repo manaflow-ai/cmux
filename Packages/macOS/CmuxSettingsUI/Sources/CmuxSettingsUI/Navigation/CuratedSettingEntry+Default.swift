@@ -290,6 +290,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), synonyms: "Show Custom Metadata in Sidebar sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(section: .sidebarAppearance, id: "left-min-width", title: String(localized: "settings.sidebar.leftMinWidth", defaultValue: "Sidebar Minimum Width"), synonyms: "Sidebar Minimum Width sidebar.leftMinWidth left sidebar minimum min width narrow narrower thin resize drag workspace sidebar terminal space"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), synonyms: "Dock Max Width sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile
