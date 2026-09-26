@@ -79,6 +79,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             contentWorld: .page,
             name: AgentSessionBridgeContract.handlerName
         )
+        configuration.setURLSchemeHandler(
+            AgentSessionWebRendererURLSchemeHandler(),
+            forURLScheme: AgentSessionWebRendererURLSchemeHandler.scheme
+        )
         let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
         isClosed = false
         webView.onPointerDown = onPointerDown
@@ -105,21 +109,33 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         guard let webView, webView.window != nil else {
             return
         }
-        guard let resourceDirectoryURL = Bundle.main.resourceURL else {
-            return
+        let indexURL: URL
+        if rendererKind == .react {
+            indexURL = AgentSessionWebRendererURLSchemeHandler.shellURL()
+        } else {
+            guard let resourceDirectoryURL = Bundle.main.resourceURL else {
+                return
+            }
+            indexURL = Self.shellURL(
+                rendererKind: rendererKind,
+                resourceDirectoryURL: resourceDirectoryURL
+            )
         }
-        let indexURL = Self.shellURL(
-            rendererKind: rendererKind,
-            resourceDirectoryURL: resourceDirectoryURL
-        )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = Self.normalizedTrustedShellURL(indexURL)
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
             "index=\(indexURL.path)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        if indexURL.isFileURL {
+            guard let resourceDirectoryURL = Bundle.main.resourceURL else {
+                return
+            }
+            webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+        } else {
+            webView.load(URLRequest(url: indexURL))
+        }
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
@@ -328,24 +344,39 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         resourceDirectoryURL: URL
     ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
+        if rendererKind == .react {
+            return AgentSessionWebRendererURLSchemeHandler.shellURL()
+        }
+        return rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
             $0.appendingPathComponent($1, isDirectory: false)
         }
     }
 
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
+        guard let candidate = normalizedTrustedShellURL(candidate),
+              let expected = normalizedTrustedShellURL(expected) else {
             return false
         }
         return candidate == expected
     }
 
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else {
+    nonisolated static func normalizedTrustedShellURL(_ url: URL?) -> URL? {
+        guard let url else {
             return nil
         }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
+        if url.isFileURL {
+            return url.standardizedFileURL.resolvingSymlinksInPath()
+        }
+        guard url.scheme?.lowercased() == AgentSessionWebRendererURLSchemeHandler.scheme,
+              url.host?.lowercased() == AgentSessionWebRendererURLSchemeHandler.host,
+              url.query == nil,
+              url.fragment == nil else {
+            return nil
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.scheme = AgentSessionWebRendererURLSchemeHandler.scheme
+        components?.host = AgentSessionWebRendererURLSchemeHandler.host
+        return components?.url
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
