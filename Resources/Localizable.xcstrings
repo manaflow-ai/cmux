@@ -558171,6 +558171,124 @@
           }
         }
       }
+    },
+    "cli.help.newWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux new-window [--name <title>]\n\nCreate a new window.\n\nFlags:\n  --name <title>   Set the initial workspace and window title before the window appears.\n\nExamples:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux new-window [--name <title>]\n\n新しいウィンドウを作成します。\n\nオプション:\n  --name <title>   表示前に初期ワークスペース名とウィンドウ名を設定します。\n\n例:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux new-window [--name <Titel>]\n\nErstellt ein neues Fenster.\n\nOptionen:\n  --name <Titel>   Legt den anfänglichen Arbeitsbereichs- und Fenstertitel vor dem Anzeigen fest.\n\nBeispiele:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux new-window [--name <titre>]\n\nCrée une nouvelle fenêtre.\n\nOptions :\n  --name <titre>   Définit le titre initial avant l’affichage.\n\nExemples :\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux new-window [--name <العنوان>]\n\nينشئ نافذة جديدة.\n\nالخيارات:\n  --name <العنوان>   يعيّن العنوان قبل ظهور النافذة.\n\nأمثلة:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux new-window [--name <título>]\n\nCrea una ventana nueva.\n\nOpciones:\n  --name <título>   Establece el título antes de mostrarla.\n\nEjemplos:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux new-window [--name <標題>]\n\n建立新視窗。\n\n選項：\n  --name <標題>   在顯示前設定標題。\n\n範例：\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux new-window [--name <标题>]\n\n创建新窗口。\n\n选项：\n  --name <标题>   在显示前设置标题。\n\n示例：\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux new-window [--name <제목>]\n\n새 창을 만듭니다.\n\n옵션:\n  --name <제목>   표시 전에 제목을 설정합니다.\n\n예:\n  cmux new-window\n  cmux new-window --name \"Build server\""
+          }
+        }
+      }
+    },
+    "cli.newWindow.error.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux new-window [--name <title>]. The name must not be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux new-window [--name <title>]。名前は空にできません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux new-window [--name <Titel>]. Der Name darf nicht leer sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux new-window [--name <titre>]. Le nom ne doit pas être vide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux new-window [--name <العنوان>]. يجب ألا يكون الاسم فارغًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux new-window [--name <título>]. El nombre no puede estar vacío."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux new-window [--name <標題>]。名稱不可為空。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux new-window [--name <标题>]。名称不能为空。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux new-window [--name <제목>]. 이름은 비워 둘 수 없습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

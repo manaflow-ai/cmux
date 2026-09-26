@@ -10411,6 +10411,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.autorecalculatesKeyViewLoop = true
             window.recalculateKeyViewLoop()
         }
+        // The initial workspace predates its NSWindow attachment. Set the
+        // native title before discovery so window-manager rules see its name.
+        tabManager.refreshWindowTitle()
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {

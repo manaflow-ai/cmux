@@ -7,6 +7,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_cli_new_window_name.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
