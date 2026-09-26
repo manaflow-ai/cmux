@@ -206,8 +206,8 @@ extension AppDelegate {
     }
 
     private func shortcutFocusedMarkdownPanel(in window: NSWindow?) -> MarkdownPanel? {
-        // `focusedMarkdownPanel` is already gated to preview mode, where the
-        // rendered viewer responds to zoom (the raw text editor does not).
+        // `focusedMarkdownPanel` is already gated to rendered preview and rich
+        // edit modes, where the Markdown viewer responds to zoom.
         if let window {
             guard let context = shortcutMainWindowContext(in: window) else {
                 return nil
