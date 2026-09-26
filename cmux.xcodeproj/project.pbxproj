@@ -3738,6 +3738,7 @@
 		F6AAAA235B7F431E8D1D2E94 /* VMTunnelStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87BDCAB46A44D7596A4784D /* VMTunnelStalenessTests.swift */; };
 		A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */; };
 		A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000012 /* WebSurfaceSelectionReader.swift */; };
+		C0DE7A1E0000000000000001 /* WhatsNewCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7A1E0000000000000002 /* WhatsNewCenter.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -7687,6 +7688,7 @@
 		E87BDCAB46A44D7596A4784D /* VMTunnelStalenessTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMTunnelStalenessTests.swift; sourceTree = "<group>"; };
 		A1002000000000000000001A /* WebSurfaceSelectionEvaluationOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionEvaluationOwner.swift; sourceTree = "<group>"; };
 		A10020000000000000000012 /* WebSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WebSurfaceSelectionReader.swift; sourceTree = "<group>"; };
+		C0DE7A1E0000000000000002 /* WhatsNewCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WhatsNewCenter.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -8777,6 +8779,7 @@
 				F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
+				C0DE7A1E0000000000000002 /* WhatsNewCenter.swift */,
 				A50019A1 /* SettingsNavigation.swift */,
 				B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */,
 				B11D00000000000000000002 /* TerminalController+MobileTerminalLifecycle.swift */,
@@ -15049,6 +15052,7 @@
 				C10DC1000000000000000013 /* VMClientTelemetry+Live.swift in Sources */,
 				A10020000000000000000019 /* WebSurfaceSelectionEvaluationOwner.swift in Sources */,
 				A10020000000000000000011 /* WebSurfaceSelectionReader.swift in Sources */,
+				C0DE7A1E0000000000000001 /* WhatsNewCenter.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				9065A0020000000000000001 /* WindowAppKitCapture.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,

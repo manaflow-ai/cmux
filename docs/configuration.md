@@ -79,6 +79,18 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
+## `app.whatsNew`
+
+Controls what cmux does on its own after an update:
+
+- `off`: nothing.
+- `quiet`: a dot on the sidebar help button marks new highlights until you open them. Nothing opens or takes focus.
+- `sheet`: the recap opens once after the first launch of a new version.
+
+Default: `quiet`. Each version is announced once. Nightly and RC builds announce each release once, not every build, and DEV builds never announce on their own. Help > What's New in cmux, the command palette, and the sidebar help menu open the recap any time, whatever this is set to.
+
+The recap shows the same highlights as https://cmux.com/docs/changelog, served as JSON from `/api/changelog/highlights`.
+
 ## `app.forkConversationDefaultDestination`
 
 Controls what the tab right-click `Fork Conversation` item does. The submenu still exposes every destination.

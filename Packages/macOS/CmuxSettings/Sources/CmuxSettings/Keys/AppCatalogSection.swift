@@ -149,6 +149,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
+    /// How What's New appears after an update. Quiet by default: an indicator
+    /// the user can open, never an automatic window.
+    public let whatsNew = DefaultsKey<WhatsNewPresentationMode>(
+        id: "app.whatsNew",
+        defaultValue: .quiet,
+        userDefaultsKey: "whatsNewPresentationMode"
+    )
+
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,

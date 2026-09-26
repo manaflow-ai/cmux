@@ -67,6 +67,7 @@ public struct AppSection: View {
     @State private var soundAgents: [NotificationSoundAgentOption] = []
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
+    @State private var whatsNew: DefaultsValueModel<WhatsNewPresentationMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
@@ -134,6 +135,7 @@ public struct AppSection: View {
         ))
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
+        _whatsNew = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.whatsNew))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
@@ -160,7 +162,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, whatsNew, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
@@ -825,6 +827,24 @@ public struct AppSection: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+            }
+            SettingsCardDivider()
+
+            // What's New
+            SettingsCardRow(
+                configurationReview: .json("app.whatsNew"),
+                String(localized: "settings.app.whatsNew", defaultValue: "What's New After Updates"),
+                subtitle: whatsNewSubtitle(whatsNew.current),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { whatsNew.current }, set: { whatsNew.set($0) })) {
+                    Text(String(localized: "settings.app.whatsNew.off", defaultValue: "Off")).tag(WhatsNewPresentationMode.off)
+                    Text(String(localized: "settings.app.whatsNew.quiet", defaultValue: "Quiet")).tag(WhatsNewPresentationMode.quiet)
+                    Text(String(localized: "settings.app.whatsNew.sheet", defaultValue: "Show Once")).tag(WhatsNewPresentationMode.sheet)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.small)
             }
             SettingsCardDivider()
 

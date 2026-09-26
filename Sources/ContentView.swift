@@ -7702,6 +7702,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.whatsNew",
+                title: constant(String(localized: "command.whatsNew.title", defaultValue: "What's New in cmux")),
+                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
+                keywords: ["whats", "new", "changelog", "release", "notes", "highlights", "update", "version"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
                 title: constant(String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)")),
                 subtitle: constant(String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global")),
@@ -8919,6 +8927,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
+        }
+        registry.register(commandId: "palette.whatsNew") {
+            WhatsNewCenter.shared.presentOnDemand(source: "commandPalette")
         }
         registry.register(commandId: "palette.applyUpdateIfAvailable") {
             AppDelegate.shared?.applyUpdateIfAvailable(nil)
@@ -15434,6 +15445,7 @@ private enum SidebarHelpMenuAction {
     case checkForUpdates
     case sendFeedback
     case welcome
+    case whatsNew
 }
 
 private struct SidebarHelpMenuButton: View {
@@ -15456,6 +15468,7 @@ private struct SidebarHelpMenuButton: View {
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
+    private var whatsNewCenter: WhatsNewCenter { .shared }
 
     private var iconSize: CGFloat {
 #if DEBUG
@@ -15490,6 +15503,13 @@ private struct SidebarHelpMenuButton: View {
         } label: {
             SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
+                .overlay(alignment: .topTrailing) {
+                    // Quiet What's New: a static dot, no motion, cleared once opened.
+                    if whatsNewCenter.hasUnseenHighlights {
+                        SidebarWhatsNewDot()
+                            .offset(x: -3, y: 3)
+                    }
+                }
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
@@ -15513,6 +15533,13 @@ private struct SidebarHelpMenuButton: View {
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
+            )
+            helpOptionButton(
+                title: String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
+                action: .whatsNew,
+                accessibilityIdentifier: "SidebarHelpMenuOptionWhatsNew",
+                isExternalLink: false,
+                showsUnseenDot: whatsNewCenter.hasUnseenHighlights
             )
             if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
                 helpOptionButton(
@@ -15607,7 +15634,8 @@ private struct SidebarHelpMenuButton: View {
         accessibilityIdentifier: String,
         isExternalLink: Bool,
         shortcutHint: String? = nil,
-        trailingSystemImage: String? = nil
+        trailingSystemImage: String? = nil,
+        showsUnseenDot: Bool = false
     ) -> some View {
         Button {
             isPopoverPresented = false
@@ -15616,6 +15644,9 @@ private struct SidebarHelpMenuButton: View {
             HStack(spacing: 8) {
                 Text(title)
                     .cmuxFont(size: 12)
+                if showsUnseenDot {
+                    SidebarWhatsNewDot()
+                }
                 Spacer(minLength: 0)
                 if let shortcutHint {
                     helpOptionShortcutHint(text: shortcutHint)
@@ -15708,9 +15739,24 @@ private struct SidebarHelpMenuButton: View {
                     appDelegate.openWelcomeWorkspace()
                 }
             }
+        case .whatsNew:
+            isPopoverPresented = false
+            Task { @MainActor in
+                WhatsNewCenter.shared.presentOnDemand(source: "sidebarHelpMenu")
+            }
         }
     }
 
+}
+
+/// The quiet What's New indicator: a small accent dot with no animation.
+private struct SidebarWhatsNewDot: View {
+    var body: some View {
+        Circle()
+            .fill(cmuxAccentColor())
+            .frame(width: 6, height: 6)
+            .accessibilityLabel(String(localized: "sidebar.help.whatsNew.unseen", defaultValue: "New highlights"))
+    }
 }
 
 // PERF: TabItemView is an Equatable value projection. The parent owns every

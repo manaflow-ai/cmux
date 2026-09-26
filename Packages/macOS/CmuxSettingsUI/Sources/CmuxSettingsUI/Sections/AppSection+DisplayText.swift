@@ -68,6 +68,17 @@ extension AppSection {
         }
     }
 
+    func whatsNewSubtitle(_ mode: WhatsNewPresentationMode) -> String {
+        switch mode {
+        case .off:
+            return String(localized: "settings.app.whatsNew.subtitleOff", defaultValue: "Nothing after updates. Help > What's New in cmux still opens the recap.")
+        case .quiet:
+            return String(localized: "settings.app.whatsNew.subtitleQuiet", defaultValue: "A dot on the sidebar help button marks new highlights. Nothing opens on its own.")
+        case .sheet:
+            return String(localized: "settings.app.whatsNew.subtitleSheet", defaultValue: "Open the recap once after the first launch of a new version.")
+        }
+    }
+
     func confirmQuitSubtitle(_ mode: ConfirmQuitMode) -> String {
         // Mirrors legacy confirmQuitModeSubtitle keys/text.
         switch mode {
