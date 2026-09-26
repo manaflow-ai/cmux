@@ -558483,6 +558483,242 @@
           }
         }
       }
+    },
+    "cli.help.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux paste [flags] [--] [text | -]\n\nيلصق نصًا في سطح طرفية كلصقة واحدة محاطة (bracketed paste)، تمامًا مثل Cmd+V. يُرسل النص كما هو: تبقى الأسطر الجديدة داخل اللصقة بدلًا من الضغط على Enter، ولا تُفسَّر تسلسلات الهروب مثل \\n. بدون وسيطة نصية، أو مع -، يُقرأ النص من stdin.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --submit                     يضغط مفتاح الإرسال الخاص بالوكيل بعد اللصق\n\nمثال:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux paste [flags] [--] [text | -]\n\nFügt Text als einen einzigen Bracketed Paste in eine Terminal-Oberfläche ein, genau wie Cmd+V. Der Text wird unverändert gesendet: Zeilenumbrüche bleiben Teil des Einfügens, statt Enter zu drücken, und Escape-Sequenzen wie \\n werden nicht interpretiert. Ohne Textargument oder mit - wird der Text von stdin gelesen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --submit                     Drückt nach dem Einfügen die Absende-Taste des Agenten\n\nBeispiel:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux paste [flags] [--] [text | -]\n\nPaste text into a terminal surface as a single bracketed paste, the same way Cmd+V does. Text is sent exactly as given: newlines stay inside the paste instead of pressing Enter, and escape sequences such as \\n are not interpreted. With no text argument, or with -, the text is read from stdin.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --submit                     Press the agent's submit key after the paste\n\nExample:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux paste [flags] [--] [text | -]\n\nPega texto en una superficie de terminal como un único pegado entre corchetes (bracketed paste), igual que Cmd+V. El texto se envía tal cual: los saltos de línea permanecen dentro del pegado en lugar de pulsar Intro, y las secuencias de escape como \\n no se interpretan. Sin argumento de texto, o con -, el texto se lee de stdin.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --submit                     Pulsa la tecla de envío del agente después del pegado\n\nEjemplo:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux paste [flags] [--] [text | -]\n\nColle du texte dans une surface de terminal en un seul collage entre crochets (bracketed paste), comme Cmd+V. Le texte est envoyé tel quel : les retours à la ligne restent dans le collage au lieu d’appuyer sur Entrée, et les séquences d’échappement comme \\n ne sont pas interprétées. Sans argument texte, ou avec -, le texte est lu depuis stdin.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --submit                     Appuie sur la touche d’envoi de l’agent après le collage\n\nExemple :\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux paste [flags] [--] [text | -]\n\nテキストを Cmd+V と同じく 1 回のブラケットペースト（bracketed paste）としてターミナルサーフェスに貼り付けます。テキストはそのまま送信されます。改行は Enter を押す代わりに貼り付け内に残り、\\n などのエスケープシーケンスは解釈されません。テキスト引数がない場合や - を指定した場合は、stdin からテキストを読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --submit                     貼り付け後にエージェントの送信キーを押す\n\n例:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux paste [flags] [--] [text | -]\n\n텍스트를 Cmd+V와 똑같이 하나의 브래킷 붙여넣기(bracketed paste)로 터미널 서피스에 붙여넣습니다. 텍스트는 그대로 전송됩니다. 줄바꿈은 Enter를 누르는 대신 붙여넣기 안에 남고, \\n 같은 이스케이프 시퀀스는 해석되지 않습니다. 텍스트 인수가 없거나 -를 주면 stdin에서 텍스트를 읽습니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --submit                     붙여넣은 뒤 에이전트의 제출 키를 누릅니다\n\n예:\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n将文本以单次括号粘贴（bracketed paste）发送到终端表面，与 Cmd+V 相同。文本按原样发送：换行保留在粘贴内容中，而不是按下 Enter，且不会解析 \\n 等转义序列。未提供文本参数或使用 - 时，从 stdin 读取文本。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --submit                     粘贴后按下代理的提交键\n\n示例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux paste [flags] [--] [text | -]\n\n將文字以單次括號貼上（bracketed paste）送入終端機表面，與 Cmd+V 相同。文字會原樣送出：換行會保留在貼上內容中，而不是按下 Enter，且不會解讀 \\n 等跳脫序列。未提供文字參數或使用 - 時，會從 stdin 讀取文字。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --submit                     貼上後按下代理程式的送出鍵\n\n範例：\n  git diff | cmux paste --surface surface:2\n  cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2\n  cmux paste --surface surface:2 --submit \"Review this change\""
+          }
+        }
+      }
+    },
+    "cli.paste.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin is not valid UTF-8 text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: محتوى stdin ليس نص UTF-8 صالحًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin ist kein gültiger UTF-8-Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin no es texto UTF-8 válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste : stdin n’est pas un texte UTF-8 valide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin が有効な UTF-8 テキストではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste: stdin이 유효한 UTF-8 텍스트가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：stdin 不是有效的 UTF-8 文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste：stdin 不是有效的 UTF-8 文字"
+          }
+        }
+      }
+    },
+    "cli.paste.error.missingText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste requires text as an argument or on stdin"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب paste نصًا كوسيطة أو عبر stdin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste benötigt Text als Argument oder über stdin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste requiere texto como argumento o en stdin"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste nécessite du texte en argument ou sur stdin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste には引数または stdin からのテキストが必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste에는 인수 또는 stdin으로 텍스트가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste 需要通过参数或 stdin 提供文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paste 需要以參數或 stdin 提供文字"
+          }
+        }
+      }
+    },
+    "cli.paste.warning.submitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "warning: text was pasted but the submit key was not sent (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحذير: تم لصق النص لكن لم يُرسل مفتاح الإرسال (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung: Der Text wurde eingefügt, aber die Absende-Taste wurde nicht gesendet (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "advertencia: el texto se pegó pero no se envió la tecla de envío (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "avertissement : le texte a été collé mais la touche d’envoi n’a pas été envoyée (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: テキストは貼り付けられましたが、送信キーは送られませんでした（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고: 텍스트는 붙여넣었지만 제출 키를 보내지 못했습니다 (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：文本已粘贴，但未发送提交键（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告：文字已貼上，但未送出送出鍵（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

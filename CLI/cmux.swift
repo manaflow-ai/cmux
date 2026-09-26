@@ -7495,6 +7495,15 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
 
+        case "paste":
+            try runPasteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
@@ -19886,12 +19895,13 @@ struct CMUXCLI {
             """
         case "paste-buffer":
             return """
-            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+            Usage: cmux paste-buffer [--name <name>] [--bracketed] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
             Paste a named tmux-compat buffer into a surface.
 
             Flags:
               --name <name>         Buffer name (default: default)
+              --bracketed           Deliver the buffer as one bracketed paste, like Cmd+V, instead of keystrokes
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>    Surface context (default: focused surface)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
@@ -19927,6 +19937,8 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "paste":
+            return Self.pasteHelp
         case "send":
             return """
             Usage: cmux send [flags] [--] <text>
@@ -27472,14 +27484,19 @@ struct CMUXCLI {
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
+            // --bracketed delivers the buffer as one paste (like Cmd+V) instead
+            // of keystrokes, so newlines stay in the text and vim-mode prompts
+            // do not eat the first character.
+            let bracketed = hasFlag(commandArgs, name: "--bracketed")
             var params: [String: Any] = ["text": buffer]
+            if bracketed { params["submit_key"] = "none" }
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: bracketed ? "terminal.paste" : "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":

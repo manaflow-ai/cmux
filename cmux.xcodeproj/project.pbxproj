@@ -624,6 +624,7 @@
 		A5D41205A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */; };
 		89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */; };
 		C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */; };
+		C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A1 /* CLIPasteCommandTests.swift */; };
 		C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */; };
 		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
 		A5D41209A1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */; };
@@ -1070,6 +1071,7 @@
 		D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */; };
 		54D273BB0F1A89BFEA1E00E1 /* CMUXCLI+NotificationFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B6BF7B8DE8A42DA3620CADA /* CMUXCLI+NotificationFormatting.swift */; };
 		B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */; };
+		5A57E0000000000000000001 /* CMUXCLI+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A57E0000000000000000002 /* CMUXCLI+Paste.swift */; };
 		C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */; };
 		C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000002 /* CMUXCLI+PiExtension.swift */; };
 		C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */; };
@@ -4729,6 +4731,7 @@
 		A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLINotifyProcessTestSupport.swift; sourceTree = "<group>"; };
 		89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpHookBindingTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
+		C117570000000000000000A1 /* CLIPasteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIPasteCommandTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRelayQueuedHookRegressionTests.swift; sourceTree = "<group>"; };
 		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
 		A5D4120AA1B2C3D4E5F60718 /* CLIRovoDevHookPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRovoDevHookPersistenceTests.swift; sourceTree = "<group>"; };
@@ -5150,6 +5153,7 @@
 		D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		1B6BF7B8DE8A42DA3620CADA /* CMUXCLI+NotificationFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+NotificationFormatting.swift"; sourceTree = "<group>"; };
 		B9000073A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+OmpExtension.swift"; sourceTree = "<group>"; };
+		5A57E0000000000000000002 /* CMUXCLI+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Paste.swift"; sourceTree = "<group>"; };
 		C08672010000000000000006 /* CMUXCLI+PiCompactedFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiCompactedFeed.swift"; sourceTree = "<group>"; };
 		C05555010000000000000002 /* CMUXCLI+PiExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtension.swift"; sourceTree = "<group>"; };
 		C05555010000000000000004 /* CMUXCLI+PiExtensionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSource.swift"; sourceTree = "<group>"; };
@@ -8181,6 +8185,7 @@
 				C1175700000000000000001A /* CLIStdioSIGPIPERegressionTests.swift */,
 				C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */,
 				C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */,
+				C117570000000000000000A1 /* CLIPasteCommandTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
 				C1175700000000000000001D /* CLIWorkspaceGroupSafetyTests.swift */,
 				C1175700000000000000001E /* CLIWorkspaceStableIDTests.swift */,
@@ -10941,6 +10946,7 @@
 				C08672010000000000000008 /* PiCompactedFeedEventExpander.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 				A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */,
+				5A57E0000000000000000002 /* CMUXCLI+Paste.swift */,
 				A64B5058972147F941BD6FA5 /* CMUXCLI+WindowDispatch.swift */,
 				E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */,
 				A13385000000000000000001 /* CMUXCLI+Glaeda.swift */,
@@ -12847,6 +12853,7 @@
 				C1175700000000000000002F /* CLIHookNoResponseTests.swift in Sources */,
 				C11757000000000000000044 /* CLIHookProcessRunner.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
+				C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C11757000000000000000032 /* CLISSHPTYResizeInputTests.swift in Sources */,
 				C11757000000000000000033 /* CLIStdioSIGPIPERegressionTests.swift in Sources */,
@@ -15361,6 +15368,7 @@
 				D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
 				54D273BB0F1A89BFEA1E00E1 /* CMUXCLI+NotificationFormatting.swift in Sources */,
 				B9000072A1B2C3D4E5F60719 /* CMUXCLI+OmpExtension.swift in Sources */,
+				5A57E0000000000000000001 /* CMUXCLI+Paste.swift in Sources */,
 				C08672010000000000000005 /* CMUXCLI+PiCompactedFeed.swift in Sources */,
 				C05555010000000000000001 /* CMUXCLI+PiExtension.swift in Sources */,
 				C05555010000000000000003 /* CMUXCLI+PiExtensionSource.swift in Sources */,
