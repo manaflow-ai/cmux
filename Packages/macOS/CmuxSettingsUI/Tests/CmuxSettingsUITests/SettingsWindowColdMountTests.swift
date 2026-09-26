@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettings
 import Foundation
 import Observation
+import os
 import SwiftUI
 import Testing
 @testable import CmuxSettingsUI
@@ -13,16 +14,15 @@ import Testing
 /// AppKit-backed controls at once.
 ///
 /// Hosts ``SettingsWindowRoot`` exactly the way the app's window factory
-/// does and compares the controls present after that synchronous pass with
-/// the controls present once the run loop has mounted the remaining
-/// sections. The synchronous pass must be a small fraction of the full
-/// tree, the rest must arrive one section per turn, and navigation into a
-/// section that is still a placeholder must mount it on demand.
+/// does. The window shows one section at a time (issue #11484), so only
+/// the selected section's controls may exist, both in the synchronous
+/// pass and after it, and navigation into a section that is not mounted
+/// yet must mount it on demand.
 ///
 /// Tests are `async` and wait on the mount model's observation signals:
 /// the main run loop keeps turning while a test is suspended, which is
-/// what drives SwiftUI's renders and the chained mounts. The suite time
-/// limit bounds the failure path only.
+/// what drives SwiftUI's renders. The suite time limit bounds the failure
+/// path only, so every wait honors cancellation.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(3))) struct SettingsWindowColdMountTests {
     /// Per-test settings stack. `defaults` also backs the root's `@AppStorage`
@@ -77,66 +77,60 @@ import Testing
     }
 
     /// Suspends until `condition` holds, waking on every change to the
-    /// model's mount state — a real signal, not a poll.
+    /// model's mount state — a real signal, not a poll. Returns early when
+    /// the suite time limit cancels the test, so a condition that never
+    /// holds fails the test instead of hanging the runner.
     static func wait(
         for model: SettingsSectionMountModel,
         until condition: @escaping @MainActor () -> Bool
     ) async {
-        while !condition() {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                withObservationTracking {
-                    _ = model.mounted
-                    _ = model.deferredScroll
-                    _ = model.isComplete
-                } onChange: {
-                    continuation.resume()
+        while !condition(), !Task.isCancelled {
+            let pending = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+            let resume: @Sendable () -> Void = { pending.withLock { $0.take() }?.resume() }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    pending.withLock { $0 = continuation }
+                    withObservationTracking {
+                        _ = model.mounted
+                        _ = model.deferredScroll
+                        _ = model.pinnedScroll
+                    } onChange: {
+                        resume()
+                    }
+                    if Task.isCancelled { resume() }
                 }
+            } onCancel: {
+                resume()
             }
         }
     }
 
-    @Test func synchronousColdHostMountsOnlyAFractionOfTheControls() async {
+    @Test func onlyTheSelectedSectionIsEverBuilt() async {
         let fixture = Self.makeFixture()
         let model = Self.makeMountModel()
         let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
         defer { window.orderOut(nil) }
-
-        let synchronousControls = Self.controlCount(in: window.contentView)
-        await Self.wait(for: model) { model.isComplete }
-        let mountedControls = Self.controlCount(in: window.contentView)
-
-        // The complete tree carries a couple of hundred AppKit-backed
-        // controls; the pass that blocks window creation may hold only the
-        // sidebar plus the section the window opens on.
-        #expect(mountedControls > 100, "progressive mounting must still deliver every section (\(mountedControls) controls)")
-        #expect(
-            synchronousControls * 4 < mountedControls,
-            "window creation materialized \(synchronousControls) of \(mountedControls) controls synchronously"
-        )
-    }
-
-    @Test func remainingSectionsMountOneAtATimeAfterTheWindowExists() async {
-        let fixture = Self.makeFixture()
-        let model = Self.makeMountModel()
-        let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
-        defer { window.orderOut(nil) }
-
+        let accountControls = Self.controlCount(in: window.contentView)
         #expect(model.mounted == [.account])
 
-        // Every run-loop turn may add at most one section: sample the
-        // mounted set as the chain advances and reject any jump of two.
-        var sizes: [Int] = [model.mounted.count]
-        await Self.wait(for: model) {
-            let count = model.mounted.count
-            if count != sizes.last { sizes.append(count) }
-            return model.isComplete
-        }
-        #expect(model.isComplete)
-        #expect(model.mounted == Set(model.order))
-        #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 - $0 == 1 }, "sections mounted in bursts: \(sizes)")
+        NotificationCenter.default.post(
+            name: SettingsWindowRoot.navigationRequestName,
+            object: nil,
+            userInfo: ["target": SettingsSectionID.keyboardShortcuts.rawValue]
+        )
+        await Self.wait(for: model) { model.isMounted(.keyboardShortcuts) && model.deferredScroll == nil }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let shortcutControls = Self.controlCount(in: window.contentView)
+
+        // Mounting records that a section was built once; only the
+        // selected one is in the hierarchy, so the window never carries
+        // the couple of hundred controls of the full settings tree.
+        #expect(!model.isMounted(.workspaceColors))
+        #expect(shortcutControls != accountControls, "pane did not switch: \(shortcutControls) controls")
+        #expect(shortcutControls < 100, "inactive sections are in the hierarchy: \(shortcutControls) controls")
     }
 
-    @Test func navigatingToAnUnmountedSectionMountsItAheadOfTheChain() async {
+    @Test func navigatingToAnUnmountedSectionMountsItOnDemand() async {
         let fixture = Self.makeFixture()
         let model = Self.makeMountModel()
         let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
@@ -153,7 +147,7 @@ import Testing
             ]
         )
         await Self.wait(for: model) { model.isMounted(.keyboardShortcuts) }
-        // Mounted on demand, not because the chain happened to reach it.
+        // Mounted on demand; sections in between stay unbuilt.
         #expect(!model.isMounted(.workspaceColors))
         #expect(model.pinnedScroll?.section == .keyboardShortcuts)
         // The scroll owed to the placeholder is paid once its content appears.

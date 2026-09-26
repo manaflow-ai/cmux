@@ -171,7 +171,7 @@ extension SettingsWindowRoot {
     ) -> some View {
         SettingsSectionSlot(
             section: section,
-            isActive: section == selectedSection,
+            isActive: section == SettingsSectionMountModel.hostSection(for: activeSection),
             isMounted: mountModel.isMounted(section),
             showsPlaceholder: section != .cloudMachines || isCloudSectionAvailable,
             onMountedAppear: { sectionContentDidAppear(section, proxy: proxy) },

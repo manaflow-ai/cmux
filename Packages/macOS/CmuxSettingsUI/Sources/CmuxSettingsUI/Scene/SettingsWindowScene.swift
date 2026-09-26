@@ -42,6 +42,7 @@ public struct SettingsWindowRoot: View {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
         self.initialSection = initialSection
+        _pendingInitialSection = State(initialValue: initialSection)
         // The `@AppStorage` properties below read the same store; the restore
         // target has to be known before the first body evaluation because
         // that pass runs inside `NSWindow(contentViewController:)`.
@@ -58,6 +59,10 @@ public struct SettingsWindowRoot: View {
             order: Self.mountOrder(cloudAvailable: cloudAvailable)
         ))
     }
+    /// A targeted open's section, shown until the first navigation request
+    /// lands. The restore navigation posts one hop after the first pass, and
+    /// the stored selection still names the last-viewed pane until then.
+    @State private var pendingInitialSection: SettingsSectionID?
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0
     @State private var searchText: String = ""
@@ -124,6 +129,10 @@ public struct SettingsWindowRoot: View {
     /// is unrecognized (e.g., after dropping a case).
     var selectedSection: SettingsSectionID {
         SettingsSectionID(rawValue: selectedSectionRaw)?.canonicalSection ?? .account
+    }
+    /// The section whose pane the detail shows.
+    var activeSection: SettingsSectionID {
+        pendingInitialSection ?? selectedSection
     }
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
@@ -208,6 +217,7 @@ public struct SettingsWindowRoot: View {
             let rawValue = notification.userInfo?["target"] as? String,
             let target = SettingsSectionID(rawValue: rawValue)?.canonicalSection
         else { return }
+        pendingInitialSection = nil
         // Legacy preserves the highlighted search hit when an external
         // navigation request resolves to the same section the currently
         // selected sidebar entry already lives in. Without this, typing
@@ -482,7 +492,7 @@ public struct SettingsWindowRoot: View {
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
                     applyScrollNavigation(notification, proxy: proxy)
                 }
-                .navigationTitle(selectedSection.title)
+                .navigationTitle(activeSection.title)
             }
         }
     }
