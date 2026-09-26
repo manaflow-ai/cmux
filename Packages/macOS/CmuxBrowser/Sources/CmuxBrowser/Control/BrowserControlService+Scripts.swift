@@ -138,7 +138,7 @@ extension BrowserControlService {
                   if (aria) return aria.toLowerCase();
                   const labelledBy = String(el.getAttribute('aria-labelledby') || '').trim();
                   if (labelledBy) {
-                    const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => String(n.textContent || '').trim()).join(' ').trim();
+                    const text = labelledBy.split(/\\s+/).map((id) => el.getRootNode().getElementById(id)).filter(Boolean).map((n) => String(n.textContent || '').trim()).join(' ').trim();
                     if (text) return text.toLowerCase();
                   }
                   const txt = String(el.innerText || el.textContent || '').trim();

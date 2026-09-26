@@ -7827,7 +7827,7 @@ class TerminalController {
                 if (aria) return aria;
                 const labelledBy = __normalize(el.getAttribute('aria-labelledby') || '');
                 if (labelledBy) {
-                  const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  const text = labelledBy.split(/\\s+/).map((id) => el.getRootNode().getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
                 if (el.labels && el.labels.length) {

@@ -113,11 +113,7 @@ extension BrowserControlService {
               }
             } else {
               for (const root of roots) {
-                // New paths use >>> only at an open shadow boundary. Keep a
-                // light-DOM fallback for refs emitted by older cmux versions
-                // that used >>> for every ancestor hop.
-                const shadowRoot = root.shadowRoot;
-                __cmuxCollectMatches(shadowRoot || root, part.selector, matches, seen);
+                __cmuxCollectMatches(root.shadowRoot, part.selector, matches, seen);
               }
             }
             if (index === parts.length - 1) return matches;
