@@ -220,6 +220,7 @@ extension CMUXCLI {
         new-window
         focus-window --window <id>
         close-window --window <id>
+        resize-window --window <id> [--width <points>] [--height <points>]
         move-workspace-to-window --workspace <id|ref> --window <id|ref>
         reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
         reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
