@@ -65,7 +65,7 @@ public struct TerminalTextEditingChord: Equatable, Sendable {
 }
 
 /// Strips modifiers that never participate in gesture matching.
-private func terminalTextEditingNormalizedModifiers(
+func terminalTextEditingNormalizedModifiers(
     _ modifiers: TerminalTextEditingModifiers
 ) -> TerminalTextEditingModifiers {
     modifiers.subtracting([.numericPad, .function, .capsLock])
