@@ -85,6 +85,10 @@ final class CloudTerminalPaneReservation {
     private(set) var sourcePlacement: CloudTerminalSourcePlacement
     /// An existing terminal's saved target, never the source tab of a new create.
     let attachmentPlacement: SurfaceResourcePlacement?
+    /// The terminal this pane will show; never the split source. A new create
+    /// has none until its receipt binds one, and until then no terminal may
+    /// take this pane or its queued input.
+    private(set) var boundResourceID: SurfaceResourceID?
     let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
     let requestID: UUID?
@@ -114,16 +118,18 @@ final class CloudTerminalPaneReservation {
             remoteTabID: attachmentPlacement?.remoteTabID
         )
         self.attachmentPlacement = attachmentPlacement
+        boundResourceID = attachmentPlacement?.resource
         self.inputRelay = inputRelay
         self.requestID = requestID
         self.startedAt = startedAt
     }
 
     var machine: SurfaceMachineID { sourcePlacement.machine }
-    var resourceID: SurfaceResourceID? { sourcePlacement.resource?.id ?? attachmentPlacement?.resource }
 
+    /// Records the create receipt: `sourcePlacement.resource` is now the created terminal.
     func bind(sourcePlacement: CloudTerminalSourcePlacement) {
         self.sourcePlacement = sourcePlacement
+        boundResourceID = sourcePlacement.resource?.id
     }
     var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
     var remoteTabID: String? { sourcePlacement.remoteTabID }

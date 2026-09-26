@@ -468,25 +468,22 @@ final class DeviceWorkspaceLayoutCoordinator {
                           let pane = native.paneId(forPanelId: panelUUID) else { continue }
                     localPanesByRemotePane[location.paneID] = pane.id
                 }
-                let pendingReservation = native.pendingCloudTerminalReservation(
-                    machine: machine, remoteWorkspaceID: target.remoteID
-                )
-                let pendingPane = native.pendingCloudTerminalPane(
-                    machine: machine, remoteWorkspaceID: target.remoteID
-                )
                 for resourceID in wanted where !present.contains(resourceID) {
                     let view = try catalog.remoteView(for: resourceID, workspaceID: target.remoteID)
                     let location = locations[resourceID.key]
-                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] } ?? pendingPane?.id
+                    // Only the reservation bound to this terminal lends its pane,
+                    // and that same reservation is the one adopted.
+                    let reservation = native.pendingCloudTerminalReservation(
+                        for: resourceID, remoteWorkspaceID: target.remoteID, remoteTabID: view?.tabID
+                    )
+                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] }
+                        ?? reservation.flatMap { native.paneId(forPanelId: $0.panelID)?.id }
                     let destination: SurfaceDestination = pane.map {
                         .tab(workspaceID: id, paneID: $0.uuidString, index: location?.tabIndex)
                     } ?? .workspace(id: id, placement: .tab)
-                    let adopting = pendingReservation?.resourceID == resourceID
-                        && pendingReservation?.remoteTabID == view?.tabID
-                        ? pendingReservation : nil
                     _ = try await catalog.project(resourceID, into: destination,
                         focus: false, reuseExisting: true, reuseInWorkspace: id,
-                        remoteView: view, adopting: adopting)
+                        remoteView: view, adopting: reservation)
                 }
                 guard !Task.isCancelled, suspended.isEmpty, snapshots[target.remoteID] == snapshot,
                       writers[target.remoteID] == nil, pending[target.remoteID] == nil else { continue }

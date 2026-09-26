@@ -16,28 +16,23 @@ import GhosttyKit
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
-    /// Returns the optimistic pane reserved for a provider's in-flight terminal.
-    /// Device layout reconciliation uses it to adopt the authoritative terminal
-    /// in its final pane instead of projecting it through the focused tab first.
+    /// Returns the optimistic pane reserved for exactly this terminal.
+    /// Device layout reconciliation uses the same reservation for the pane it
+    /// projects into and the pane it adopts, so the terminal lands in its final
+    /// pane instead of the focused tab first. `cloudPendingCreations` is the only
+    /// request-to-terminal record: a reservation matches only the resource its
+    /// create receipt bound, so an unbound or sibling reservation never lends
+    /// its pane or queued input to another terminal.
     func pendingCloudTerminalReservation(
-        machine: SurfaceMachineID,
-        remoteWorkspaceID: String
+        for resource: SurfaceResourceID,
+        remoteWorkspaceID: String,
+        remoteTabID: String?
     ) -> CloudTerminalPaneReservation? {
         cloudPendingCreations.values.first { reservation in
-            reservation.machine == machine
+            reservation.boundResourceID == resource
                 && reservation.remoteWorkspaceID == remoteWorkspaceID
+                && reservation.remoteTabID == remoteTabID
         }
-    }
-
-    /// The Bonsplit pane currently occupied by an optimistic reservation.
-    func pendingCloudTerminalPane(
-        machine: SurfaceMachineID,
-        remoteWorkspaceID: String
-    ) -> PaneID? {
-        guard let reservation = pendingCloudTerminalReservation(
-            machine: machine, remoteWorkspaceID: remoteWorkspaceID
-        ) else { return nil }
-        return paneId(forPanelId: reservation.panelID)
     }
 
     /// Hands a device provider the native pane without requiring a Cloud
@@ -51,8 +46,7 @@ extension Workspace {
     ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
         guard reservation.machine == machine,
               reservation.remoteWorkspaceID == remoteWorkspaceID,
-              reservation.attachmentPlacement?.resource == resource.id
-                || reservation.sourcePlacement.resource?.id == resource.id,
+              reservation.boundResourceID == resource.id,
               cloudPendingCreations[reservation.panelID] === reservation,
               let panel = panels[reservation.panelID] as? TerminalPanel,
               panel.surface.ioMode == .manualMirror else { return nil }

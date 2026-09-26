@@ -20,6 +20,12 @@ extension DeviceSurfaceProvider: SurfaceLayoutTerminalCreating {
             throw SurfaceCatalogError.unknownResource(sourceID)
         }
         request.bind(remoteWorkspaceID: workspace.id)
+        // The host can push a layout naming the new terminal before this
+        // receipt returns. Reconciliation waits until the receipt has bound
+        // the reservation, because only a bound reservation lends its pane.
+        let mutation = UUID()
+        layoutSync.beginMutation(mutation)
+        defer { layoutSync.endMutation(mutation) }
         var params: [String: Any] = [
             "workspace_id": workspace.id, "source_surface_id": nearTabID,
             "request_id": request.id.uuidString
