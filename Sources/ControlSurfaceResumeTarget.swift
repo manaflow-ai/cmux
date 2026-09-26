@@ -131,35 +131,13 @@ enum ControlSurfaceResumeTarget {
         }
     }
 
+    /// Relay-originated registrations named a persistent-SSH daemon slot. TTY
+    /// SSH runs through cmux-tui without one, so no relay binding can resume.
     func registeredBinding(
         _ binding: SurfaceResumeBindingSnapshot,
         inputs: ControlSurfaceResumeSetInputs
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let remoteWorkspaceID = inputs.remoteWorkspaceID else { return binding }
-        guard let relayParameters = inputs.remoteRelayParameters else { return nil }
-
-        switch self {
-        case .workspace(_, let workspace, let surfaceID):
-            guard remoteWorkspaceID == workspace.id,
-                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-                      relayParameters.mapValues(\.foundationObject),
-                      remoteRelayTokenHex: workspace.remoteConfiguration?.relayToken
-                  ),
-                  let context = workspace.persistentSSHResumeContext(panelID: surfaceID) else {
-                return nil
-            }
-            return binding.registeredForPersistentSSH(context)
-        case .dock(_, let dock, let surfaceID):
-            guard let registration = dock.persistentSSHResumeRegistration(panelId: surfaceID),
-                  remoteWorkspaceID == registration.context.workspaceID,
-                  WorkspaceRemoteRelayCommandRewriter.authenticatesRemoteResumeParameters(
-                      relayParameters.mapValues(\.foundationObject),
-                      remoteRelayTokenHex: registration.relayToken
-                  ) else {
-                return nil
-            }
-            return binding.registeredForPersistentSSH(registration.context)
-        }
+        inputs.remoteWorkspaceID == nil ? binding : nil
     }
 }
 
