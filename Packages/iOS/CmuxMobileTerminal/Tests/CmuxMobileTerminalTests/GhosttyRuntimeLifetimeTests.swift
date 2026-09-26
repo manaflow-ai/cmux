@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import Foundation
 import Testing
 import UIKit
@@ -15,26 +16,30 @@ struct GhosttyRuntimeLifetimeTests {
     func runtimeOutlivesItsSurfaces() async throws {
         let delegate = LifetimeTestSurfaceDelegate()
         weak var weakRuntime: GhosttyRuntime?
+        weak var weakView: GhosttySurfaceView?
         var view: GhosttySurfaceView?
         do {
             let runtime = try GhosttyRuntime()
             weakRuntime = runtime
             view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+            weakView = view
         }
-        #expect(await view?.processOutputAndWait(Data("X".utf8)) == true)
         // Only the view refers to the runtime now, and its surface still
         // needs the app.
         try #require(weakRuntime != nil)
+        #expect(await view?.processOutputAndWait(Data("X".utf8)) == true)
 
         view?.prepareForDismantle()
+        view?.disposeSurface()
         view = nil
         // The surface is freed later on the view's output queue.
         #expect(weakRuntime != nil)
 
         let deadline = ContinuousClock.now + .seconds(10)
-        while weakRuntime != nil, ContinuousClock.now < deadline {
+        while weakView != nil || weakRuntime != nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+        #expect(weakView == nil)
         #expect(weakRuntime == nil)
     }
 }
