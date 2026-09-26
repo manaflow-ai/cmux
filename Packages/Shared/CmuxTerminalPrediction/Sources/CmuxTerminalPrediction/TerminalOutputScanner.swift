@@ -47,6 +47,10 @@ public struct TerminalOutputScanner: Sendable {
     private enum State: Sendable, Equatable {
         case ground
         case escape
+        /// After `ESC` and at least one intermediate byte (0x20...0x2F), final
+        /// byte pending. Holds the intermediate when there was exactly one,
+        /// 0x20 when there were more.
+        case escapeIntermediate(UInt8)
         /// Inside a CSI sequence, final byte pending. Its parameter bytes
         /// live in `parameters`, not here, so collecting one is an in-place
         /// append rather than a copy of everything collected so far.
@@ -115,10 +119,30 @@ public struct TerminalOutputScanner: Sendable {
                 // A string terminator with no string open changes nothing.
                 state = .ground
                 return .ignorable
+            case 0x20...0x2F:
+                // Intermediates, as in `ESC ( B`, the start of xterm's sgr0.
+                state = .escapeIntermediate(byte)
+                return nil
             default:
                 state = .ground
                 return .disruptive
             }
+
+        case .escapeIntermediate(let intermediate):
+            if (0x20...0x2F).contains(byte) {
+                state = .escapeIntermediate(0x20)
+                return nil
+            }
+            if byte == 0x1B {
+                state = .escape
+                return nil
+            }
+            state = .ground
+            guard (0x30...0x7E).contains(byte) else { return .disruptive }
+            // Designating ASCII into G0-G3 changes no cell. Any other set (DEC
+            // line drawing, say) changes how later printables render.
+            let designatesASCII = (0x28...0x2B).contains(intermediate) && byte == UInt8(ascii: "B")
+            return designatesASCII ? .ignorable : .disruptive
 
         case .controlSequence:
             // Parameter and intermediate bytes accumulate; 0x40...0x7E ends it.

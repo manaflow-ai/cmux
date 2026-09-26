@@ -376,6 +376,16 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.glyphs.first?.standing == .confirmed)
     }
 
+    @Test func terminfoAttributeResetAroundTheEchoStillConfirms() {
+        // xterm-family terminfo spells sgr0 as `ESC ( B ESC [ m`.
+        var session = armedSession()
+        session.type("s")
+        session.remote("\u{1B}(B\u{1B}[ms")
+
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.first?.standing == .confirmed)
+    }
+
     @Test func shellIntegrationMarkersDoNotEndTheRun() {
         // cmux's shell integration emits OSC 133 and OSC 7 constantly; they
         // carry no grid content.
