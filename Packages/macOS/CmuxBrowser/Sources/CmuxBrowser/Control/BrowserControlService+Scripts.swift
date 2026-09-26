@@ -87,35 +87,6 @@ extension BrowserControlService {
         return """
         (() => {
           \(elementQueryPrelude)
-          const __cmuxCssPath = (el) => {
-            if (!el || el.nodeType !== 1) return null;
-            const parts = [];
-            const separators = [];
-            let cur = el;
-            while (cur && cur.nodeType === 1 && parts.length < 12) {
-              let part = String(cur.tagName || '').toLowerCase();
-              if (!part) break;
-              if (cur.id) {
-                part = '#' + CSS.escape(cur.id);
-              } else {
-                const root = cur.parentElement || cur.getRootNode();
-                const siblings = root && root.children
-                  ? Array.from(root.children).filter((n) => String(n.tagName || '').toLowerCase() === part)
-                  : [];
-                if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
-              }
-              parts.unshift(part);
-              const root = cur.getRootNode && cur.getRootNode();
-              const crossesShadowRoot = !!(root && root.host);
-              const parent = crossesShadowRoot ? root.host : cur.parentElement;
-              if (parent) separators.unshift(crossesShadowRoot ? ' >>> ' : ' > ');
-              cur = parent;
-            }
-            return parts.reduce((path, part, index) => {
-              return index === 0 ? part : path + separators[index - 1] + part;
-            }, '');
-          };
-
           const __cmuxFound = (() => {
         \(finderBody)
           })();

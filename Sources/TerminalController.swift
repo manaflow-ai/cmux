@@ -7847,38 +7847,6 @@ class TerminalController {
                 return '';
               };
 
-              const __cssSegment = (el) => {
-                if (!el || el.nodeType !== 1) return null;
-                let part = String(el.tagName || '').toLowerCase();
-                if (!part) return null;
-                if (el.id) return '#' + CSS.escape(el.id);
-                const root = el.parentElement || el.getRootNode();
-                const siblings = root && root.children
-                  ? Array.from(root.children).filter((n) => String(n.tagName || '').toLowerCase() === part)
-                  : [];
-                if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(el) + 1})`;
-                return part;
-              };
-              const __cssPath = (el) => {
-                if (!el || el.nodeType !== 1) return null;
-                const parts = [];
-                const separators = [];
-                let cur = el;
-                while (cur && cur.nodeType === 1 && parts.length < 12) {
-                  const segment = __cssSegment(cur);
-                  if (!segment) break;
-                  parts.unshift(segment);
-                  const root = cur.getRootNode && cur.getRootNode();
-                  const crossesShadowRoot = !!(root && root.host);
-                  const parent = crossesShadowRoot ? root.host : cur.parentElement;
-                  if (parent) separators.unshift(crossesShadowRoot ? ' >>> ' : ' > ');
-                  cur = parent;
-                }
-                return parts.reduce((path, part, index) => {
-                  return index === 0 ? part : path + separators[index - 1] + part;
-                }, '');
-              };
-
               const __root = (() => {
                 if (__scopeSelector) {
                   return __cmuxQuery(__scopeSelector) || document.body || document.documentElement;
@@ -7904,7 +7872,7 @@ class TerminalController {
                   }
                 }
 
-                const selector = __cssPath(el);
+                const selector = __cmuxCssPath(el);
                 if (!selector || __seen.has(selector)) return;
                 __seen.add(selector);
                 __entries.push({
