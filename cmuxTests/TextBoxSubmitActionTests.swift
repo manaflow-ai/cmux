@@ -1283,6 +1283,7 @@ struct TextBoxSubmitActionTests {
         let secondTextView = try #require(waitForTextBoxInputView(for: secondPanel, in: window))
         #expect(secondPanel.textBoxInputView === secondTextView)
         #expect(firstTextView !== secondTextView)
+        #expect(firstTextView.window == nil)
     }
 
     private func waitForTextBoxInputView(
@@ -1294,7 +1295,8 @@ struct TextBoxSubmitActionTests {
         repeat {
             window.displayIfNeeded()
             window.contentView?.layoutSubtreeIfNeeded()
-            if let textView = panel.textBoxInputView {
+            if let textView = panel.textBoxInputView,
+               textView.window === window {
                 return textView
             }
             _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))

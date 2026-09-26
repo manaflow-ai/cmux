@@ -2759,6 +2759,13 @@ struct TextBoxInputContainer: View {
     }
 
     private func focusTerminalForSubmission() {
+        // The text editor deliberately deactivates its terminal surface while it owns
+        // first responder. Re-arm the panel's normal focus intent before asking the
+        // hosted view to restore first responder; calling ensureFocus alone is a no-op
+        // while the surface is inactive.
+        surface.hostedView.preparePanelFocusIntentForActivation(.surface)
+        surface.hostedView.setActive(true)
+        surface.setFocus(true)
         surface.hostedView.ensureFocus(
             for: surface.tabId,
             surfaceId: surface.id,
