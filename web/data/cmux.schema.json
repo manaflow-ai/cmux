@@ -1542,6 +1542,12 @@
           "default": true,
           "description": "Allow hidden browser tabs to release page memory and restore when shown again."
         },
+        "disableTrackingPrevention": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.browser.disableTrackingPrevention",
+          "description": "Disable WebKit tracking prevention and its inactivity-based storage expiry for all browser profiles where supported. Reduces cross-site tracking protection. Restart cmux after changing this setting. Does not prevent websites from expiring sessions or restore deleted data."
+        },
         "hiddenWebViewDiscardDelaySeconds": {
           "type": "number",
           "minimum": 0,

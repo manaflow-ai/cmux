@@ -382,6 +382,10 @@ enum AutomationSettingsFileMapping {
 
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "disableTrackingPrevention",
+            defaultsKey: SettingCatalog().browser.disableTrackingPrevention.userDefaultsKey
+        ),
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(

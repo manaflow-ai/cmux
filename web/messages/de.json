@@ -1328,6 +1328,7 @@
         },
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
+          "disableTrackingPrevention": "Deaktiviert, soweit unterstützt, den WebKit-Tracking-Schutz und den inaktivitätsbedingten Ablauf gespeicherter Daten für alle Browserprofile. Verringert den Schutz vor websiteübergreifendem Tracking. Starten Sie cmux nach einer Änderung neu. Verhindert nicht den Ablauf von Sitzungen durch Websites und stellt keine gelöschten Daten wieder her.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",
           "urlAllowlist": "Host- oder URL-Muster, die die Navigation im eingebetteten Browser einschränken. Die Einstellungen schlagen lokale Entwicklungsursprünge vor; durch Speichern einer Liste wird die optionale Einschränkung aktiviert. Entfernen Sie Einträge, um sie zu blockieren, oder lassen Sie den Benutzerwert ohne verwaltete Richtlinie leer, um die Einschränkung zu deaktivieren."

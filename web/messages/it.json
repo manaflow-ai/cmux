@@ -1328,6 +1328,7 @@
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
+          "disableTrackingPrevention": "Disattiva, se supportato, la prevenzione del tracciamento di WebKit e la scadenza dei dati per inattività in tutti i profili del browser. Riduce la protezione dal tracciamento tra siti. Riavvia cmux dopo la modifica. Non impedisce ai siti di far scadere le sessioni e non ripristina i dati eliminati.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
           "urlAllowlist": "Pattern di host o URL che limitano la navigazione nel browser incorporato. Le impostazioni suggeriscono le origini di sviluppo locale; salvare un elenco attiva la limitazione opzionale. Rimuovi le voci per bloccarle oppure lascia vuoto il valore utente, quando non esiste una policy gestita, per disattivare la limitazione."

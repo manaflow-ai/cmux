@@ -3096,8 +3096,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        defaults: UserDefaults = .standard
     ) {
+        BrowserTrackingPreventionPolicy(
+            disabled: defaults.bool(forKey: SettingCatalog().browser.disableTrackingPrevention.userDefaultsKey)
+        ).apply(to: websiteDataStore)
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.

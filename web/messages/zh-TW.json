@@ -1328,6 +1328,7 @@
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
+          "disableTrackingPrevention": "在支援的環境中，為所有瀏覽器設定檔停用 WebKit 追蹤防護及其基於閒置時間的儲存到期機制。這會降低跨網站追蹤防護。變更後請重新啟動 cmux。此設定不會阻止網站使工作階段到期，也不會還原已刪除的資料。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
           "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"

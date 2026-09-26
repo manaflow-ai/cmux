@@ -183,6 +183,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.customSearchEngineName` | string | `""` | Display name used when defaultSearchEngine is custom. |
 | `browser.customSearchEngineURLTemplate` | string | `"https://www.google.com/search?q={query}"` | Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL. |
 | `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory and restore when shown again. |
+| `browser.disableTrackingPrevention` | boolean | `false` | Disable WebKit tracking prevention and its inactivity-based storage expiry for all browser profiles where supported. Reduces cross-site tracking protection. Restart cmux after changing this setting. Does not prevent websites from expiring sessions or restore deleted data. |
 | `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
