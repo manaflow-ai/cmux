@@ -2780,6 +2780,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
+        XCTAssertTrue(waitForMockSocketCommand(in: context.state) { AgentJournalAppendCapture.captures(in: [$0]).contains { $0.kind == "agent.turn.completed" && $0.isSubagent && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn" } }, "The late terminal monitor event must be observed before the current Stop")
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
             context: context,
