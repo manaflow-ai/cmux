@@ -128,8 +128,9 @@ extension DeadKeyCompositionRegressionTests {
         }
         withExtendedLifetime(surface) {
             events.forEach { view.keyDown(with: $0) }
+            // Restore while the surface is still alive: `liveSurface` is a raw pointer.
+            restoreConfiguration()
         }
-        restoreConfiguration()
 
         XCTAssertEqual(interpretedKeyCodes, deadKeyEvents.map(\.keyCode))
         XCTAssertEqual(pressedText, expectedText)
