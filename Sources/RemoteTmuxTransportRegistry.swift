@@ -8,10 +8,18 @@ import Foundation
 /// dictionary bookkeeping live behind a small `@MainActor` surface. It only manages
 /// the transport handles; it deliberately does NOT own the `ssh -O exit`
 /// (``RemoteTmuxSSHTransport/spawnControlMasterExit(host:)``) teardown, which the
-/// controller sequences around its own `await` gaps.
+/// controller sequences around its own `await` gaps. It DOES own notifying
+/// ``onHostRemoved`` on every path that drops a host's transport, since a host's
+/// browser-preview proxy (``RemoteTmuxBrowserProxyRegistry``) rides that same
+/// transport's ControlMaster and must not outlive it.
 @MainActor
 final class RemoteTmuxTransportRegistry {
     var transports: [String: RemoteTmuxSSHTransport] = [:]
+
+    /// Fired whenever a host's transport is dropped, from every removal path
+    /// below (including ``removeAll()``, once per host). Wired by
+    /// `RemoteTmuxController` to `browserProxyRegistry.releaseHost(connectionHash:)`.
+    var onHostRemoved: ((String) -> Void)?
 
     /// Returns (creating if needed) the transport for a host.
     func transport(for host: RemoteTmuxHost) -> RemoteTmuxSSHTransport {
@@ -26,6 +34,7 @@ final class RemoteTmuxTransportRegistry {
     /// Tears down a host's shared SSH master (used when removing a host).
     func disconnectMaster(host: RemoteTmuxHost) async {
         let transport = transports.removeValue(forKey: host.connectionHash)
+        onHostRemoved?(host.connectionHash)
         await transport?.shutdownMaster()
     }
 
@@ -37,7 +46,11 @@ final class RemoteTmuxTransportRegistry {
     /// Removes and returns the transport for `connectionHash`, if any.
     @discardableResult
     func remove(connectionHash: String) -> RemoteTmuxSSHTransport? {
-        transports.removeValue(forKey: connectionHash)
+        let removed = transports.removeValue(forKey: connectionHash)
+        if removed != nil {
+            onHostRemoved?(connectionHash)
+        }
+        return removed
     }
 
     /// The hosts of every currently-tracked transport.
@@ -47,6 +60,10 @@ final class RemoteTmuxTransportRegistry {
 
     /// Drops every tracked transport (does not exit their masters).
     func removeAll() {
+        let hashes = Array(transports.keys)
         transports.removeAll()
+        for hash in hashes {
+            onHostRemoved?(hash)
+        }
     }
 }

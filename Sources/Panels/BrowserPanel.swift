@@ -3654,6 +3654,12 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        // Decouples "route through `proxyEndpoint` and park navigation until
+        // it lands" from "is a daemon-backed cmux remote workspace": an
+        // ssh-tmux mirror workspace's browser tab/split needs the former
+        // without being `isRemoteWorkspace`. Defaults to `isRemoteWorkspace`
+        // when omitted, so every existing call site is unaffected.
+        routesThroughRemoteProxy: Bool? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
@@ -3668,13 +3674,18 @@ final class BrowserPanel: Panel, ObservableObject {
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
-        self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        self.usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassRemoteProxy
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
+        // Keyed on `usesRemoteWorkspaceProxy`, not `isRemoteWorkspace`: every
+        // panel whose `proxyConfigurations` get mutated must own a dedicated
+        // store. Sharing `BrowserProfileStore`'s default store here would route
+        // every other local browser panel through this panel's remote proxy,
+        // then strip that store's proxy config when the endpoint goes away.
         let websiteDataStore = explicitWebsiteDataStore ?? (
-            isRemoteWorkspace
+            usesRemoteWorkspaceProxy
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         )
@@ -4384,13 +4395,16 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         proxyEndpoint: BrowserProxyEndpoint?,
-        remoteStatus: BrowserRemoteWorkspaceStatus?
+        remoteStatus: BrowserRemoteWorkspaceStatus?,
+        routesThroughRemoteProxy: Bool? = nil
     ) {
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassesRemoteWorkspaceProxy
+        // Keyed on `usesRemoteWorkspaceProxy`, not `isRemoteWorkspace` — see
+        // the matching comment in `init`.
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
-            : isRemoteWorkspace
+            : usesRemoteWorkspaceProxy
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore

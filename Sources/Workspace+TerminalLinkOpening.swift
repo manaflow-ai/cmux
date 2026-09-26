@@ -75,6 +75,19 @@ extension Workspace: TerminalLinkOpenContainer {
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        if isRemoteTmuxMirror {
+            // In a mirror a link opens as a sibling tab, never a new split
+            // pane. It lands in the pane holding the clicked terminal's own
+            // tab (`target.containerPanelID`, not `sourcePanelId`, which may be
+            // a tmux pane inside that window) rather than `focusedPaneId` —
+            // those diverge once the side-by-side browser pane exists.
+            guard let paneId = paneId(forPanelId: target.containerPanelID)
+                ?? bonsplitController.focusedPaneId
+                ?? bonsplitController.allPaneIds.first else {
+                return false
+            }
+            return newBrowserSurface(inPane: paneId, url: url, focus: focus) != nil
+        }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
             return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
         }

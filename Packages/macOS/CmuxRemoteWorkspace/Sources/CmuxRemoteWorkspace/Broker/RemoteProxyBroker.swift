@@ -46,6 +46,8 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private let tunnelProvider: any RemoteProxyTunnelProviding
     private let clock: any RemoteProxyRetryClock
+    // Not `private`: read from the `+LoopbackPortAllocation` extension file.
+    let loopbackPortAllocator: LoopbackPortAllocator
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
     private var ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
@@ -60,12 +62,16 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     ///     ``RemoteDaemonProxyTunnelProvider``).
     ///   - clock: Sleep seam driving the restart backoff (production
     ///     default: the continuous clock).
+    ///   - loopbackPortAllocator: Local port discovery for the proxy
+    ///     listener, injected so tests can substitute their own.
     public init(
         tunnelProvider: any RemoteProxyTunnelProviding,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        loopbackPortAllocator: LoopbackPortAllocator = LoopbackPortAllocator()
     ) {
         self.tunnelProvider = tunnelProvider
         self.clock = clock
+        self.loopbackPortAllocator = loopbackPortAllocator
     }
 
     /// Re-mints a managed Cloud VM daemon endpoint before a retry. Stored endpoints go stale
@@ -425,7 +431,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             localPort = forcedLocalPort
         } else {
             let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
-            guard let allocatedPort = Self.allocateLoopbackPort() else {
+            guard let allocatedPort = allocateLoopbackPort() else {
                 notifyLocked(
                     entry,
                     update: .error("Failed to allocate local proxy port\(Self.retrySuffix(delay: retryDelay))")

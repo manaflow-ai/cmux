@@ -1,8 +1,38 @@
 import CmuxCore
 import CmuxRemoteDaemon
 import Darwin
-import Foundation
-import Network
+public import Foundation
+public import Network
+
+/// The cross-module handle for one accepted proxy connection. Exists so
+/// ssh-tmux's browser-proxy listener (a different module) can drive
+/// ``RemoteDaemonProxySession`` without that concrete type — or its
+/// internals — becoming `public`.
+public protocol RemoteDaemonProxySessionHandling: AnyObject, Sendable {
+    var id: UUID { get }
+    func start()
+    func stop()
+}
+
+/// Constructs sessions for accepted local proxy connections. A constructable,
+/// injectable type rather than a free function, per the package's
+/// no-ambient-global-state policy.
+public struct RemoteDaemonProxySessionFactory: Sendable {
+    public init() {}
+
+    /// Constructs a session for one accepted local proxy connection. The
+    /// SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias rewriting behind
+    /// it depend only on ``RemoteProxyStreamOpening``, so ssh-tmux's browser proxy
+    /// reuses them verbatim against its non-daemon SOCKS backend.
+    public func makeSession(
+        connection: NWConnection,
+        rpcClient: any RemoteProxyStreamOpening,
+        queue: DispatchQueue,
+        onClose: @escaping (UUID) -> Void
+    ) -> any RemoteDaemonProxySessionHandling {
+        RemoteDaemonProxySession(connection: connection, rpcClient: rpcClient, queue: queue, onClose: onClose)
+    }
+}
 
 /// One accepted local proxy connection inside ``RemoteDaemonProxyTunnel``:
 /// parses the SOCKS5 or HTTP CONNECT handshake, opens a matching daemon
@@ -18,8 +48,12 @@ import Network
 /// handshake parsing and close side effects. `@unchecked Sendable` because
 /// the `@Sendable` Network callbacks capture `self`; the queue confinement
 /// above is the safety argument.
-final class RemoteDaemonProxySession: @unchecked Sendable {
+final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
+    /// Caps how much of a loopback-alias response's headers this buffers while
+    /// scanning for `CRLFCRLF`. Without a bound, a remote server that never
+    /// terminates its headers grows this indefinitely.
+    private static let maxPendingRemoteHTTPHeaderBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
 
     private enum HandshakeProtocol {
@@ -43,7 +77,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     let id = UUID()
 
     private let connection: NWConnection
-    private let rpcClient: any RemoteDaemonTunnelRPCClient
+    private let rpcClient: any RemoteProxyStreamOpening
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
 
@@ -60,7 +94,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     init(
         connection: NWConnection,
-        rpcClient: any RemoteDaemonTunnelRPCClient,
+        rpcClient: any RemoteProxyStreamOpening,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
@@ -403,6 +437,14 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         pendingRemoteHTTPHeaderBytes.append(data)
         let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
         guard pendingRemoteHTTPHeaderBytes.range(of: marker) != nil else {
+            // The terminator hasn't arrived yet, so this is still all header
+            // bytes (a chunk that also contains body data past `CRLFCRLF`
+            // would have matched above) — only now is it safe to bound growth
+            // without punishing a small-header response with a large body.
+            guard pendingRemoteHTTPHeaderBytes.count <= Self.maxPendingRemoteHTTPHeaderBytes else {
+                close(reason: "proxy remote response headers exceeded \(Self.maxPendingRemoteHTTPHeaderBytes) bytes")
+                return Data()
+            }
             guard eof else { return Data() }
             hasForwardedRemoteHTTPHeaders = true
             let payload = pendingRemoteHTTPHeaderBytes
