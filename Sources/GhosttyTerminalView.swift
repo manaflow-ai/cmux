@@ -1077,7 +1077,7 @@ class GhosttyApp {
 
     /// cmux sources Ghostty's shell integration from its own bootstrap files,
     /// so keep Ghostty's prompt cursor escape out of that managed path.
-    private func loadCmuxShellIntegrationOverride(_ config: ghostty_config_t) {
+    func loadCmuxShellIntegrationOverride(_ config: ghostty_config_t) {
         loadInlineGhosttyConfig(
             """
             shell-integration = none

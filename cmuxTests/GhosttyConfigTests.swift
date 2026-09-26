@@ -90,6 +90,39 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    /// Verifies the cursor override keeps every other shell-integration feature
+    /// the user configured. Ghostty parses `shell-integration-features` from
+    /// its defaults, so a bare `no-cursor` would reset them (#10670).
+    func testCmuxShellIntegrationOverridePreservesUserFeatures() {
+        _ = GhosttyApp.shared
+        guard let config = ghostty_config_new() else {
+            XCTFail("Expected a Ghostty config")
+            return
+        }
+        defer { ghostty_config_free(config) }
+
+        let userConfig = "shell-integration-features = no-title,sudo,ssh-terminfo"
+        userConfig.withCString { contents in
+            "/__cmux_test__/user.conf".withCString { path in
+                ghostty_config_load_string(config, contents, UInt(userConfig.utf8.count), path)
+            }
+        }
+        GhosttyApp.shared.loadCmuxShellIntegrationOverride(config)
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(ghostty_config_get(config, &features, key, UInt(key.utf8.count)))
+
+        // Ghostty's packed ShellIntegrationFeatures bit order:
+        // cursor, sudo, title, ssh-env, ssh-terminfo, path.
+        XCTAssertEqual(features & (1 << 0), 0, "cursor must be off")
+        XCTAssertNotEqual(features & (1 << 1), 0, "user-enabled sudo must survive")
+        XCTAssertEqual(features & (1 << 2), 0, "user-disabled title must stay off")
+        XCTAssertEqual(features & (1 << 3), 0, "ssh-env keeps its default")
+        XCTAssertNotEqual(features & (1 << 4), 0, "user-enabled ssh-terminfo must survive")
+        XCTAssertNotEqual(features & (1 << 5), 0, "path keeps its default")
+    }
+
     /// Verifies bundled Ghostty resources take precedence over inherited paths.
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
