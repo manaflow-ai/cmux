@@ -23,6 +23,10 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     }
 
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        try await connected(machineID: machineID, preflight: false)
+    }
+
+    func connected(machineID: String, preflight: Bool) async throws -> CloudMachineLink.Connected {
         guard machineID == connection.id else { throw CancellationError() }
         guard isEnabled() else { await disconnect(); throw CancellationError() }
         if let current, await current.isConnected, let ready = await current.connected { return ready }
