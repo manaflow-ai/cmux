@@ -74,29 +74,11 @@ struct cmuxApp: App {
             ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
 
-        // Lift any plaintext socket-control password out of `cmux.json` into the
-        // secure store, then scrub it from the config. This runs here, in the App
-        // initializer, on purpose: it completes before the managed-config layer
-        // (`CmuxSettingsFileStore`, loaded later during app launch) reads the
-        // file, so removing the key can never be misread as a removed managed
-        // override that would trigger a restore. The secure file the migration
-        // writes is the same one both the Settings UI (via `secretStore`) and the
-        // socket listener (via `SocketControlPasswordStore`) read.
-        let socketPasswordStore = SocketControlPasswordStore()
-        let secretMigrationTimestamp: String = {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime]
-            return formatter.string(from: Date())
-                .replacingOccurrences(of: ":", with: "")
-                .replacingOccurrences(of: "-", with: "")
-        }()
-        PlaintextSecretMigration.scrub(
-            plaintextKeyPath: ["automation", "socketPassword"],
-            configURL: configFileURL,
-            loadCurrentSecret: { (try? socketPasswordStore.loadPassword()) ?? nil },
-            saveSecret: { try socketPasswordStore.savePassword($0) },
-            backupTimestamp: secretMigrationTimestamp
-        )
+        // An explicitly configured socket password is a managed setting owned
+        // by CmuxSettingsFileStore. Preserve its JSON key: scrubbing it here
+        // makes the importer restore its persisted pre-override backup, which
+        // can clear the credential on relaunch. The importer writes the same
+        // private password file used by Settings, the listener, and the CLI.
         let authComposition = MacAuthComposition()
         let browserDataImportCoordinator = BrowserDataImportCoordinator()
         let notificationStore = TerminalNotificationStore.shared
