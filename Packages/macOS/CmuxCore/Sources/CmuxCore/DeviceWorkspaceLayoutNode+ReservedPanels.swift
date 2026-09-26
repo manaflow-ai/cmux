@@ -33,8 +33,11 @@ extension DeviceWorkspaceLayoutNode {
     /// Each surface, pane, and local node is indexed once. The cost is linear
     /// in the panels of both trees, plus the depth of this tree for each
     /// restored split.
+    ///
+    /// Panel IDs must be unique within each tree. When one repeats, only its
+    /// first occurrence anchors a kept neighbor.
     /// - Parameters:
-    ///   - kept: Panel IDs to restore. They should not already appear in this tree.
+    ///   - kept: Panel IDs to restore. They must not already appear in this tree.
     ///   - local: The viewer's layout, which places the kept panels.
     /// - Returns: This tree with every kept panel placed exactly once.
     public func grafting(_ kept: Set<String>, from local: Self) -> Self {
