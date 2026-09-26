@@ -30,15 +30,20 @@ public struct ComputersSettingsSnapshot: Equatable, Sendable {
     public var discoveryEnabled: Bool
     /// Whether this Mac permits incoming remote sessions.
     public var incomingAccessEnabled: Bool
+    /// Why the account's Macs cannot be listed at all (Cloud Machines is off,
+    /// unavailable, or disabled by policy), or `nil` when they can.
+    public var unavailableMessage: String?
 
     public init(
         computers: [Computer] = [], isSignedIn: Bool = false, error: String? = nil,
-        discoveryEnabled: Bool = false, incomingAccessEnabled: Bool = false
+        discoveryEnabled: Bool = false, incomingAccessEnabled: Bool = false,
+        unavailableMessage: String? = nil
     ) {
         self.computers = computers
         self.isSignedIn = isSignedIn
         self.error = error
         self.discoveryEnabled = discoveryEnabled
         self.incomingAccessEnabled = incomingAccessEnabled
+        self.unavailableMessage = unavailableMessage
     }
 }

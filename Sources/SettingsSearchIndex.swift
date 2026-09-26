@@ -3,7 +3,7 @@ import SwiftUI
 enum SettingsSearchIndex {
     static let defaultSelectionID = sectionID(for: .account)
 
-    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.visibleCases.map { target in
+    private static let sectionEntries: [SettingsSearchEntry] = SettingsNavigationTarget.allCases.map { target in
         SettingsSearchEntry(
             id: sectionID(for: target),
             kind: .section,
@@ -358,9 +358,7 @@ enum SettingsSearchIndex {
     }
 
     static func sectionEntry(for target: SettingsNavigationTarget) -> SettingsSearchEntry {
-        entriesByID[sectionID(for: target)]
-            ?? entriesByID[sectionID(for: target.canonicalTarget)]
-            ?? sectionEntries[0]
+        entriesByID[sectionID(for: target)] ?? sectionEntries[0]
     }
 
     static func sectionID(for target: SettingsNavigationTarget) -> String { "section:\(target.rawValue)" }

@@ -13,15 +13,16 @@ extension SettingsWindowRoot {
     }
 
     func anchorID(for section: SettingsSectionID) -> String {
-        "section:\(section.canonicalSection.rawValue)"
+        "section:\(section.rawValue)"
     }
 
     @ViewBuilder
     func sectionStack(proxy: ScrollViewProxy) -> some View {
-        // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile (including Computers), Sidebar, Beta Features,
-        // Automation, Browser (with embedded Import), Global Hotkey,
-        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
+        // Top to bottom in ``SettingsSectionMountModel/displayOrder``, the
+        // order sections mount in: Account through Sleepy Mode, then Mobile,
+        // Cloud, Devices, Networking, the sidebar sections, Beta Features,
+        // Automation, Computer Use, Browser (with embedded Import), Global
+        // Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         slot(.account, proxy: proxy) {
             AccountSection(
                 defaultsStore: defaultsStore,
@@ -56,10 +57,7 @@ extension SettingsWindowRoot {
         }
 
         slot(.mobile, proxy: proxy) {
-            VStack(alignment: .leading, spacing: 14) {
-                MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
-                ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
-            }
+            MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
         }
 
         slot(.cloudMachines, proxy: proxy) {
@@ -68,6 +66,10 @@ extension SettingsWindowRoot {
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
             }
+        }
+
+        slot(.computers, proxy: proxy) {
+            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
         }
 
         slot(.networking, proxy: proxy) {

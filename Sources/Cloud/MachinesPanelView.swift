@@ -620,12 +620,12 @@ struct MachinesPanelView: View {
                     .foregroundStyle(.secondary)
                 Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
                     .font(.callout.weight(.medium))
-                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Mobile › Computers."))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
-                Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
+                Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
                     SettingsWindowPresenter.show(navigationTarget: .computers)
                 }
             } else if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {

@@ -2164,6 +2164,18 @@
       "ja": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "settings.computers.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settings.computers.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
   "settings.config.source.cmux": {
     "class": "brand",
     "source": "cmux"

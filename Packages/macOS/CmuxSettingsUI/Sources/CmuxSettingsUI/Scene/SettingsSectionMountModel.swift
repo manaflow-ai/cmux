@@ -47,18 +47,18 @@ public final class SettingsSectionMountModel {
     /// its own, so it never appears here.
     public static let displayOrder: [SettingsSectionID] = [
         .account, .app, .terminal, .textBox, .sleepyMode, .mobile, .cloudMachines,
-        .networking, .sidebarAppearance, .customSidebars, .betaFeatures, .automation,
-        .computerUse, .browser, .globalHotkey, .keyboardShortcuts, .workspaceColors,
-        .settingsJSON, .reset,
+        .computers, .networking, .sidebarAppearance, .customSidebars, .betaFeatures,
+        .automation, .computerUse, .browser, .globalHotkey, .keyboardShortcuts,
+        .workspaceColors, .settingsJSON, .reset,
     ]
 
     /// The slot that hosts `section`'s content.
     public static func hostSection(for section: SettingsSectionID) -> SettingsSectionID {
-        switch section.canonicalSection {
+        switch section {
         case .browserImport:
             return .browser
         default:
-            return section.canonicalSection
+            return section
         }
     }
 

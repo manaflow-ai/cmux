@@ -88,8 +88,8 @@ struct SettingsSearchIndexTests {
         let sectionCount = result.filter {
             if case .section = $0.kind { return true } else { return false }
         }.count
-        #expect(sectionCount == SettingsSectionID.allCases.count - 1)
-        #expect(result.contains { $0.id == "section:computers" } == false)
+        #expect(sectionCount == SettingsSectionID.allCases.count)
+        #expect(result.contains { $0.id == "section:computers" })
     }
 
     @Test func tokenizedQueryFiltersBothSectionsAndSettings() {
@@ -99,34 +99,29 @@ struct SettingsSearchIndexTests {
         #expect(result.contains(where: { $0.title == "Automation" }))
     }
 
-    @Test func exactComputersSearchTargetsMobileSubsection() throws {
+    /// Every name people use for the Cloud sidebar's My Devices feature ranks
+    /// a Devices result first, anchored on the Devices section (#14771).
+    @Test(arguments: ["computers", "Computers", "devices", "Devices", "my devices", "macs", "discovery", "discoverable"])
+    func devicesQueriesLandOnTheDevicesSection(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let result = try #require(index.match("Computers").first)
+        let first = try #require(index.match(query).first)
 
-        #expect(result.id == "section:computers")
-        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
-        #expect(result.kind == .section)
+        switch first.kind {
+        case .section:
+            #expect(first.id == "section:computers")
+            #expect(first.anchorID == "section:computers")
+        case .setting(let parent):
+            #expect(parent == .computers, "\(query) ranked \(first.id) first")
+        }
     }
 
-    @Test(arguments: ["devices", "mac", "tailscale", "remote"])
-    func computersSectionAliasesPreserveSearchRanking(query: String) throws {
+    @Test(arguments: ["mac", "tailscale", "remote"])
+    func devicesSectionAliasesPreserveSearchRanking(query: String) throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = try #require(index.match(query).first { $0.kind == .section })
 
         #expect(result.id == "section:computers")
-        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
-    }
-
-    /// `devices` legitimately ranks the phone-push row first because its
-    /// subtitle contains an exact `devices` token. The Computers section
-    /// must still outrank the less-specific Mobile Pairing result.
-    @Test func devicesAliasRanksComputersAboveMobilePairing() throws {
-        let index = SettingsSearchIndex(catalog: SettingCatalog())
-        let results = index.match("devices")
-        let computersIndex = try #require(results.firstIndex { $0.id == "section:computers" })
-        let mobilePairingIndex = try #require(results.firstIndex { $0.id == "setting:mobile:pairDevice" })
-
-        #expect(computersIndex < mobilePairingIndex)
+        #expect(result.anchorID == "section:computers")
     }
 
     /// Typing an exact section name navigates to that section first.
