@@ -56,7 +56,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     ) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
               let sourcePane = paneId(forPanelId: panelId) else { return false }
-        let orientation = splitDirection.splitOrientation
+        let orientation = splitDirection.splitOrientation.splitOrientation
         if let targetPane = BrowserSplitPaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController,
