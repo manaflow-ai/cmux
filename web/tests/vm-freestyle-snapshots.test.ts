@@ -159,3 +159,12 @@ describe("FreestyleProvider.deleteSnapshot", () => {
     expect(isProviderNotFoundError(other)).toBe(false);
   });
 });
+
+describe("FreestyleProvider.deleteSnapshotById", () => {
+  test("deletes a provider snapshot without requiring its source VM", async () => {
+    const { provider, calls } = providerWith({});
+    await provider.deleteSnapshotById("snap-retention");
+    expect(calls.get).toEqual([]);
+    expect(calls.delete).toEqual(["snap-retention"]);
+  });
+});

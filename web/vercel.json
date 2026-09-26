@@ -44,6 +44,10 @@
       "schedule": "49 * * * *"
     },
     {
+      "path": "/api/cron/vm-env-retention",
+      "schedule": "11 * * * *"
+    },
+    {
       "path": "/api/cron/cloud-diagnostics",
       "schedule": "* * * * *"
     },

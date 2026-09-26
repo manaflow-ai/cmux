@@ -556843,14 +556843,54 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichfarbe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區顏色：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区颜色：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 색상: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの色: %@"
+          }
+        }
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -557340,129 +557380,129 @@
       }
     },
     "devices.options.hint": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Change these options in the ⋯ menu next to My Devices."
-                }
-            },
-            "bs": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
-                }
-            },
-            "da": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
-                }
-            },
-            "ar": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
-                }
-            },
-            "de": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
-                }
-            },
-            "es": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
-                }
-            },
-            "fr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
-                }
-            },
-            "it": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
-                }
-            },
-            "ko": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
-                }
-            },
-            "km": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
-                }
-            },
-            "nb": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
-                }
-            },
-            "pl": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
-                }
-            },
-            "pt-BR": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
-                }
-            },
-            "ru": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
-                }
-            },
-            "th": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
-                }
-            },
-            "tr": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
-                }
-            },
-            "uk": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
-                }
-            },
-            "zh-Hans": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
-                }
-            },
-            "zh-Hant": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
-                }
-            }
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change these options in the ⋯ menu next to My Devices."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+          }
         }
+      }
     },
     "cli.sshTmux.error.nameRequiresTitle": {
       "extractionState": "manual",
@@ -557991,6 +558031,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "cli.vm.env.recordLayer.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer requires base image, chain, spec, snapshot, and step fields. Use `cmux vm env build` instead of calling the socket method directly."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer benötigt Felder für Basis-Image, Kette, Spezifikation, Snapshot und Schritt. Verwende `cmux vm env build`, statt die Socket-Methode direkt aufzurufen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer nécessite les champs de l’image de base, de la chaîne, de la spécification, du snapshot et de l’étape. Utilisez `cmux vm env build` au lieu d’appeler directement la méthode socket."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب vm.env_record_layer حقول الصورة الأساسية والسلسلة والمواصفات واللقطة والخطوة. استخدم `cmux vm env build` بدلًا من استدعاء طريقة المقبس مباشرةً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer requiere los campos de imagen base, cadena, especificación, instantánea y paso. Usa `cmux vm env build` en lugar de llamar directamente al método del socket."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer 需要基礎映像、鏈結、規格、快照和步驟欄位。請使用 `cmux vm env build`，不要直接呼叫 Socket 方法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer 需要基础映像、链、规范、快照和步骤字段。请使用 `cmux vm env build`，不要直接调用 Socket 方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer에는 기본 이미지, 체인, 사양, 스냅샷 및 단계 필드가 필요합니다. Socket 메서드를 직접 호출하지 말고 `cmux vm env build`를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer にはベースイメージ、チェーン、仕様、スナップショット、ステップの各フィールドが必要です。Socket メソッドを直接呼び出さず、`cmux vm env build` を使用してください。"
           }
         }
       }
