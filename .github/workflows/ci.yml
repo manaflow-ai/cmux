@@ -122,6 +122,9 @@ jobs:
       # for this run's merge base: ["<root label>", "glaeda-runner-<name>"],
       # the labels compile admission's attempt 1 takes instead.
       macos_pr_admission_runner: ${{ steps.macos-pool.outputs.admission_runner }}
+      # JSON tiers of root runner names warm for this run (merge base first,
+      # then this pull request), for ci-macos.yml's admission-placement.
+      macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
     permissions:
       actions: read
       # The delta step reads the ci-status check run of the last green head.
@@ -1318,9 +1321,10 @@ jobs:
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_admission_runner: ${{ needs.changes.outputs.macos_pr_admission_runner }}
+      pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
       pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
-    # ci-macos.yml's late-placement reads idle root runners with it.
+    # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 

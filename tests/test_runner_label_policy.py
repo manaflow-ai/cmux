@@ -217,6 +217,21 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
 
 
+class SideLaneVariable(unittest.TestCase):
+    def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
+        # CI_SIDE_LANE_RUNNER is the picker-less side lanes' whole runs-on.
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "blacksmith-6vcpu-macos-26"}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-side-nonsense", "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_SIDE_LANE_RUNNER": label})],
+                    ["CI_SIDE_LANE_RUNNER"],
+                )
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
+
+
 class OwnedPoolLabels(unittest.TestCase):
     OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
 

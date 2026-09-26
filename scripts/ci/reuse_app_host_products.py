@@ -236,6 +236,61 @@ def contract(derived=None):
     return value
 
 
+# glaeda's canonical-root helper on an owned Mac (glaeda-cmux-runner). A job
+# holds one canonical root; `take ROOT --switch` moves it to another, waiting
+# for ROOT while it still holds its own, so a timeout leaves it where it was.
+ROOT_HELPER = Path("/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root")
+ROOT_SWITCH_WAIT_S = 120
+# Root 1. CANONICAL_DERIVED_DATA follows the job's own root instead.
+FIRST_ROOT = Path("/private/tmp/cmux-ci")
+DERIVED_NAME = "derived-data-compile-admission"
+CAS_NAME = "compile-admission-cas"
+
+
+def canonical_roots():
+    """This Mac's canonical roots: /private/tmp/cmux-ci, then every
+    /private/tmp/cmux-ci-<n> a job has used. The helper refuses a root the Mac
+    does not have, so a stray directory is only a wasted lookup."""
+    base = FIRST_ROOT
+    numbered = [path for path in base.parent.glob(base.name + "-*")
+                if re.fullmatch(re.escape(base.name) + r"-[0-9]+", path.name) and path.is_dir()]
+    return [base] + sorted(numbered, key=lambda path: int(path.name.rsplit("-", 1)[1]))
+
+
+def at_root(value, root):
+    """The same product compiled at another canonical root."""
+    return {**value, "build_location": str((root / DERIVED_NAME).resolve())}
+
+
+def switch_root(root):
+    """Move this job to `root` and give it an empty DerivedData there.
+
+    A product's test binaries carry #filePath strings under the root that
+    compiled it, which relocation cannot edit, so a product from another root
+    runs only from that root. The helper points $GITHUB_ENV's
+    CMUX_CI_CANONICAL_ROOT at it; the DerivedData and cache paths follow here.
+    """
+    try:
+        result = subprocess.run(
+            [str(ROOT_HELPER), "take", str(root), "--switch", "--wait", str(ROOT_SWITCH_WAIT_S)],
+            text=True, capture_output=True, timeout=ROOT_SWITCH_WAIT_S + 60)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"Could not move this job to {root} ({error}); compiling here.")
+        return None
+    if result.returncode != 0:
+        print(f"Could not move this job to {root} (take exited {result.returncode}): "
+              f"{result.stderr.strip()[-300:]}; compiling here.")
+        return None
+    derived, cache = root / DERIVED_NAME, root / CAS_NAME
+    for path in (derived, cache):
+        shutil.rmtree(path, ignore_errors=True)
+        path.mkdir(parents=True)
+    with open(os.environ["GITHUB_ENV"], "a") as env:
+        env.write(f"CMUX_DERIVED_DATA_PATH={derived}\nCMUX_E2E_COMPILATION_CACHE={cache}\n")
+    print(f"Moved this job to {root}, where the product was compiled.")
+    return derived
+
+
 def portable_contract(value):
     """The same product compiled at the canonical root, which runs on any pool."""
     return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
@@ -894,8 +949,14 @@ def upstream_compile_seconds(upstream):
     return upstream["metrics"]["compile_seconds_avoided"]
 
 
-def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None):
-    """Restore in staging; a miss never leaves partial products in DerivedData."""
+def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None,
+            claim=None):
+    """Restore in staging; a miss never leaves partial products in DerivedData.
+
+    `claim`, when given, runs once a downloaded product has passed every check
+    and returns the DerivedData to restore it into, or None when this job
+    cannot use it after all (switch_root). The product is then a miss.
+    """
     reuse_started = time.monotonic()
     reasons = []
     consumer = load_consumer(
@@ -963,6 +1024,12 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
+            if claim is not None:
+                claimed = claim()
+                if claimed is None:
+                    record_reason(reasons, "root_unavailable")
+                    break
+                derived, claim = claimed, None
             # After relocation starts, any failure must abort to main's cleanup.
             destination = derived / "Build/Products"
             if destination.exists():
@@ -1059,7 +1126,11 @@ def main():
             "restore_seconds": None,
             "total_reuse_seconds": None,
             "macos_runner_minutes_saved": None,
+            # Set when the product came from another root (switch_root).
+            "product_key": "",
         }
+        # A DerivedData this job moved to (switch_root), cleaned like its own.
+        switched = []
         try:
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
@@ -1067,11 +1138,29 @@ def main():
                 api = GitHub(os.environ["GITHUB_REPOSITORY"])
                 # A product this job would compile, then the same product
                 # compiled at the canonical root, which this job can also run.
-                wanted = [value]
-                if portable_contract(value) != value:
-                    wanted.append(portable_contract(value))
+                # An owned Mac (CMUX_REUSE_SWITCH_ROOTS) has several roots
+                # instead, and takes a product from any of them by moving to
+                # its root first (switch_root).
+                wanted = [(value, None)]
+                here = derived.resolve().parent
+
+                def moved(target):
+                    # From here the job is at the other root, hit or not, and
+                    # packaging seals whatever it builds under that root's key.
+                    if target is not None:
+                        switched.append(target)
+                        report["product_key"] = key(at_root(value, target.parent))
+                    return target
+
+                if (os.environ.get("CMUX_REUSE_SWITCH_ROOTS") == "1" and ROOT_HELPER.exists()
+                        and derived.name == DERIVED_NAME):
+                    wanted += [(at_root(value, root), root) for root in canonical_roots()
+                               if root.resolve() != here]
+                elif portable_contract(value) != value:
+                    wanted.append((portable_contract(value), None))
                 reasons = []
-                for candidate in wanted:
+                for candidate, root in wanted:
+                    extra = {} if root is None else {"claim": lambda root=root: moved(switch_root(root))}
                     hit = restore(
                         api,
                         candidate,
@@ -1080,6 +1169,7 @@ def main():
                         products.identity(),
                         os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
                         report,
+                        **extra,
                     )
                     reasons.extend(r for r in report["miss_reasons"].split(",")
                                    if r and r not in reasons)
@@ -1093,7 +1183,8 @@ def main():
             print("Compiled-product reuse unavailable; compiling normally.")
             report["reason"] = "fallback"
             report["miss_reasons"] = "reuse_api_or_validation_error"
-            shutil.rmtree(derived, ignore_errors=True)
+            for target in (derived, *switched):
+                shutil.rmtree(target, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"hit={'true' if hit else 'false'}\n")
             for name, item in report.items():
