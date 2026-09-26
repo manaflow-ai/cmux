@@ -318,7 +318,7 @@ extension CMUXCLI {
         open-notification --id <uuid>
         jump-to-unread
         clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-        set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
+        set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <token>] [--color <#hex>] [--priority <n>]
         clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
         set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref|index>] [--window <id|ref|index>]

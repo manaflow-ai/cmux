@@ -20035,7 +20035,7 @@ struct CMUXCLI {
             (e.g. "claude_code", "build") can manage their own entries.
 
             Flags:
-              --icon <name>          Icon name (e.g. "sparkle", "hammer")
+              --icon <token>         SF Symbol name, emoji:<value>, text:<value>, or image:<absolute-path>
               --color <#hex>         Pill color (e.g. "#ff9500")
               --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -20043,6 +20043,7 @@ struct CMUXCLI {
 
             Example:
               cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
+              cmux set-status everyapi_codex "working" --icon "image:~/.config/cmux/icons/codex.png"
               cmux set-status deploy "v1.2.3" --workspace workspace:2
             """)
         case "clear-status":
