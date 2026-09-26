@@ -112,9 +112,10 @@ private struct MobileHostEventShedSummary: Sendable {
     }
 }
 
-/// Arrival order of queued event IDs. Removing an event leaves its ID behind;
-/// readers skip IDs that are no longer queued, and `compact` drops them once
-/// they outnumber the live ones, so every operation stays amortized O(1).
+/// Arrival order of queued event IDs. Consuming or removing an event leaves
+/// its ID behind; readers skip IDs that are no longer queued, and `compact`
+/// drops them once they outnumber the live ones, so every operation stays
+/// amortized O(1).
 private struct MobileHostQueuedEventOrder {
     private(set) var ids: [UUID] = []
     private(set) var head = 0
@@ -130,7 +131,7 @@ private struct MobileHostQueuedEventOrder {
     }
 
     mutating func compact(liveCount: Int, isQueued: (UUID) -> Bool) {
-        guard ids.count - head > 2 * liveCount + 64 else { return }
+        guard ids.count > 2 * liveCount + 64 else { return }
         ids = ids[head...].filter(isQueued)
         head = 0
     }
