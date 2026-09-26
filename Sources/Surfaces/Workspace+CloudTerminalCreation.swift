@@ -344,6 +344,18 @@ extension Workspace {
             }
             defer { onFinish() }
             let remoteView = try reservation.sourcePlacement.remoteView(of: created)
+            // The device layout can mirror the terminal here before its receipt
+            // binds this reservation: a layout event that beats the create
+            // response, or a retry after the first receipt was lost. A second
+            // pane for the same terminal would leave that layout unable to
+            // apply, so the reserved pane gives way to the mirrored one.
+            if let existing = catalog.projections.first(where: {
+                $0.workspaceID == self.id && $0.resource == created.id
+                    && (remoteView == nil || $0.remoteTabID == remoteView?.tabID)
+            }) {
+                self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: existing.panelID)
+                return (existing, true)
+            }
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
             let result = try await CloudOperationContext.phase(.materialize) {
