@@ -557994,6 +557994,242 @@
           }
         }
       }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Directory in Program Titles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムタイトルにディレクトリを表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verzeichnis in Programmtiteln beibehalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder le répertoire dans les titres des programmes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الدليل في عناوين البرامج"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener el directorio en los títulos de los programas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在程式標題中保留目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在程序标题中保留目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로그램 제목에 디렉터리 유지"
+          }
+        }
+      }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix program-set terminal titles with the current directory name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムが設定するターミナルタイトルの前に現在のディレクトリ名を付けます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vom Programm gesetzten Terminaltiteln den Namen des aktuellen Verzeichnisses voranstellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préfixer les titres de terminal définis par un programme avec le nom du répertoire actuel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة اسم الدليل الحالي قبل عناوين الطرفية التي يحددها البرنامج."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anteponer el nombre del directorio actual a los títulos de terminal establecidos por los programas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在程式設定的終端機標題前加上目前目錄名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在程序设置的终端标题前加上当前目录名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로그램이 설정한 터미널 제목 앞에 현재 디렉터리 이름을 붙입니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program-set terminal titles show without a directory prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログラムが設定するターミナルタイトルにディレクトリ名を付けません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vom Programm gesetzte Terminaltitel werden ohne Verzeichnispräfix angezeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres de terminal définis par un programme s’affichent sans préfixe de répertoire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُعرض عناوين الطرفية التي يحددها البرنامج من دون بادئة الدليل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos de terminal establecidos por los programas se muestran sin prefijo de directorio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式設定的終端機標題不顯示目錄前綴。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序设置的终端标题不显示目录前缀。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로그램이 설정한 터미널 제목에 디렉터리 접두사를 표시하지 않습니다."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.prefix-program-titles-with-directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory program title directory folder basename working directory cwd terminal tab workspace agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory プログラム タイトル ディレクトリ フォルダ 作業ディレクトリ ターミナル タブ ワークスペース エージェント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory Programm Titel Verzeichnis Ordner Arbeitsverzeichnis Terminal Tab Arbeitsbereich Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory programme titre répertoire dossier répertoire de travail terminal onglet espace de travail agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory برنامج عنوان دليل مجلد دليل العمل طرفية علامة تبويب مساحة عمل وكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory programa título directorio carpeta directorio de trabajo terminal pestaña espacio de trabajo agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory 程式 標題 目錄 資料夾 工作目錄 終端機 分頁 工作區 代理程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory 程序 标题 目录 文件夹 工作目录 终端 标签页 工作区 代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.prefixProgramTitlesWithDirectory 프로그램 제목 디렉터리 폴더 작업 디렉터리 터미널 탭 워크스페이스 에이전트"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

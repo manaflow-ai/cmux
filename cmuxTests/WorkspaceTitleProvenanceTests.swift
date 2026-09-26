@@ -1,4 +1,5 @@
 import CmuxSurfaceCatalogModel
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -97,6 +98,64 @@ import Testing
 
     // MARK: - Panel titles
 
+    @Test func programTitleCanKeepDirectoryName() throws {
+        let suiteName = "WorkspaceTitleDirectoryPrefix.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.prefixProgramTitlesWithDirectory")
+
+        let workspace = Workspace(
+            workingDirectory: "/tmp/app",
+            settings: UserDefaultsSettingsClient(defaults: defaults)
+        )
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/app"))
+
+        #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+        #expect(Workspace.titlePrefixedWithDirectoryName("app", directory: "/tmp/app") == "app")
+        #expect(Workspace.titlePrefixedWithDirectoryName("app: shell", directory: "/tmp/app") == "app: shell")
+        #expect(Workspace.titlePrefixedWithDirectoryName("~/src/app", directory: "/tmp/app") == "~/src/app")
+        #expect(Workspace.titlePrefixedWithDirectoryName("✳ app / Claude Code", directory: "/tmp/app") == "✳ app / Claude Code")
+
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        #expect(workspace.updatePanelTitle(
+            panelId: panelID, title: "⠋ Claude Code", stableTitle: "Claude Code"
+        ))
+        #expect(workspace.bonsplitController.tab(tabID)?.title == "⠋ app / Claude Code")
+        #expect(workspace.panelTitle(panelId: panelID) == "app / Claude Code")
+        #expect(workspace.title == "app / Claude Code")
+
+        // Spinner frames repaint the tab without republishing workspace state.
+        #expect(!workspace.updatePanelTitle(
+            panelId: panelID, title: "⠙ Claude Code", stableTitle: "Claude Code"
+        ))
+        #expect(workspace.bonsplitController.tab(tabID)?.title == "⠙ app / Claude Code")
+        #expect(workspace.panelTitle(panelId: panelID) == "app / Claude Code")
+        #expect(workspace.title == "app / Claude Code")
+    }
+
+    @Test func programTitleUsesWorkspaceDirectoryBeforeShellReportsCwd() throws {
+        let suiteName = "WorkspaceTitleDirectoryFallback.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.prefixProgramTitlesWithDirectory")
+
+        let workspace = Workspace(
+            workingDirectory: "/tmp/app",
+            settings: UserDefaultsSettingsClient(defaults: defaults)
+        )
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/other"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ other / Claude Code")
+    }
+
     @Test func panelProvenanceMirrorsWorkspaceRules() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -119,6 +178,27 @@ import Testing
         #expect(workspace.panelCustomTitleSources[panelId] == nil)
         #expect(workspace.setPanelCustomTitle(panelId: panelId, title: "Refreshed", source: .auto))
         #expect(workspace.panelCustomTitleSources[panelId] == .auto)
+    }
+
+    @Test func directoryReportUsesTheSameStartupDirectoryForPrefixRemoval() throws {
+        let suiteName = "WorkspaceTitleDirectoryReconciliation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.prefixProgramTitlesWithDirectory")
+
+        let workspace = Workspace(
+            workingDirectory: "/tmp/workspace",
+            settings: UserDefaultsSettingsClient(defaults: defaults)
+        )
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try #require(workspace.newTerminalSurface(
+            inPane: pane, focus: true, workingDirectory: "/tmp/app"
+        )?.id)
+
+        #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/other"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ other / Claude Code")
     }
 
     @Test func panelAutoWriteRejectedForCarriedTitleWithoutProvenance() throws {

@@ -134,6 +134,13 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.titleUpdates.diagnostics"
     )
 
+    /// Whether program-set terminal titles include the current directory name.
+    public let prefixProgramTitlesWithDirectory = DefaultsKey<Bool>(
+        id: "terminal.prefixProgramTitlesWithDirectory",
+        defaultValue: false,
+        userDefaultsKey: "terminal.prefixProgramTitlesWithDirectory"
+    )
+
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.showTextBoxOnNewTerminals",
         defaultValue: false,

@@ -147,17 +147,34 @@ extension Workspace {
         let admitted = panels[panelId]?.panelType == .terminal
             ? AutomaticTerminalTitle(candidate)?.value : candidate
         guard let admitted else { return false }
-        let trimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
-        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
+        let rawTrimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTrimmed.isEmpty, panels[panelId] != nil else { return false }
+        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: rawTrimmed) else {
             return false
+        }
+        let shouldPrefixTitle = panels[panelId]?.panelType == .terminal
+            && remote == nil && prefixesProgramTitlesWithDirectory
+        let titleDirectory = shouldPrefixTitle ? directoryForProgramTitle(panelId: panelId) : nil
+        let trimmed: String
+        if shouldPrefixTitle {
+            let prefixedTitle = Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: titleDirectory)
+            trimmed = AutomaticTerminalTitle(prefixedTitle)?.value ?? rawTrimmed
+        } else {
+            trimmed = rawTrimmed
         }
         // A cloud-projected terminal displays the cloud process title, so the
         // local PTY's stable title must not leak into panelTitles or the
         // workspace title there.
         let trimmedStable = remote == nil
             ? stableTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-        let stable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? trimmed
+        let rawStable = trimmedStable.flatMap { $0.isEmpty ? nil : $0 } ?? rawTrimmed
+        let stable: String
+        if shouldPrefixTitle {
+            let prefixedStable = Self.titlePrefixedWithDirectoryName(rawStable, directory: titleDirectory)
+            stable = AutomaticTerminalTitle(prefixedStable)?.value ?? rawStable
+        } else {
+            stable = rawStable
+        }
 
         // Runs on every frame, which is what keeps the animation. It still
         // invalidates the tab bar's own SwiftUI subtree; what it avoids is the
@@ -194,6 +211,19 @@ extension Workspace {
         return true
     }
 
+    /// Resolves the best local directory available while a program title arrives.
+    /// OSC 7 may not have populated `panelDirectories` yet, so startup and workspace
+    /// directories are valid fallbacks for the first title frame.
+    private func directoryForProgramTitle(panelId: UUID) -> String? {
+        [
+            panelDirectories[panelId],
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            currentDirectory,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+    }
+
     /// Pushes a title straight to the Bonsplit tab model without touching
     /// `panelTitles` or the workspace title, so an animation frame reaches the
     /// tab label without waking the sidebar, the titlebar, or the App body.
@@ -216,6 +246,52 @@ extension Workspace {
             hasCustomTitle: hasCustomTitle
         )
         return true
+    }
+
+    /// Prefixes a program-set terminal title with the directory basename.
+    ///
+    /// A leading status glyph remains at the front, while shell prompt titles
+    /// beginning with `~` and titles that already identify the directory stay
+    /// unchanged.
+    nonisolated static func titlePrefixedWithDirectoryName(_ title: String, directory: String?) -> String {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else { return title }
+        let name = (directory as NSString).lastPathComponent
+        guard !name.isEmpty, name != "/" else { return title }
+
+        var marker = ""
+        var body = Substring(title)
+        if let first = title.first,
+           !first.isLetter, !first.isNumber, !first.isASCII,
+           title.dropFirst().first == " " {
+            marker = "\(first) "
+            body = title.dropFirst(2)
+        }
+        guard body != name,
+              !body.hasPrefix("\(name):"),
+              !body.hasPrefix("\(name) / "),
+              !body.hasPrefix("~") else {
+            return title
+        }
+        return "\(marker)\(name) / \(body)"
+    }
+
+    nonisolated static func titleWithoutDirectoryPrefix(_ title: String, directory: String?) -> String {
+        guard let directory = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !directory.isEmpty else { return title }
+        let name = (directory as NSString).lastPathComponent
+        guard !name.isEmpty, name != "/" else { return title }
+        var marker = ""
+        var body = Substring(title)
+        if let first = title.first,
+           !first.isLetter, !first.isNumber, !first.isASCII,
+           title.dropFirst().first == " " {
+            marker = "\(first) "
+            body = title.dropFirst(2)
+        }
+        let prefix = "\(name) / "
+        guard body.hasPrefix(prefix) else { return title }
+        return "\(marker)\(body.dropFirst(prefix.count))"
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {

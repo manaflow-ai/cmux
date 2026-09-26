@@ -175,6 +175,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["terminal.scrollSpeed"],
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
+            .init(
+                section: .terminal,
+                id: "prefix-program-titles-with-directory",
+                title: String(localized: "settings.terminal.prefixProgramTitlesWithDirectory", defaultValue: "Keep Directory in Program Titles"),
+                detailText: String(localized: "settings.terminal.prefixProgramTitlesWithDirectory.subtitleOn", defaultValue: "Prefix program-set terminal titles with the current directory name."),
+                paths: ["terminal.prefixProgramTitlesWithDirectory"],
+                synonyms: "terminal.prefixProgramTitlesWithDirectory program title directory folder basename working directory cwd terminal tab workspace agent"
+            ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),

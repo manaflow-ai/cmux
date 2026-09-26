@@ -2668,6 +2668,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
     private let settings: any SettingsReading
 
+    /// Whether newly received program titles should identify their directory.
+    var prefixesProgramTitlesWithDirectory: Bool {
+        settings.value(for: SettingCatalog().terminal.prefixProgramTitlesWithDirectory)
+    }
+
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -5867,6 +5872,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             trimmed = reportedDirectory
         }
         let previousPresentedDirectory = presentedCurrentDirectory
+        let previousTitleDirectory = panelDirectories[panelId]
+            ?? terminalPanel(for: panelId)?.requestedWorkingDirectory
+            ?? currentDirectory
+        let titleBeforeDirectoryUpdate = panelTitles[panelId]
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport &&
             (cloudDirectoryProvenanceRequired(panelId: panelId) ||
@@ -5883,6 +5892,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
+        if directoryChanged,
+           prefixesProgramTitlesWithDirectory,
+           panels[panelId]?.panelType == .terminal,
+           let titleBeforeDirectoryUpdate,
+           panels[panelId].map({ titleBeforeDirectoryUpdate != $0.displayTitle }) == true {
+            let rawTitle = Workspace.titleWithoutDirectoryPrefix(
+                titleBeforeDirectoryUpdate,
+                directory: previousTitleDirectory
+            )
+            _ = updatePanelTitle(panelId: panelId, title: rawTitle, stableTitle: rawTitle)
+        }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
