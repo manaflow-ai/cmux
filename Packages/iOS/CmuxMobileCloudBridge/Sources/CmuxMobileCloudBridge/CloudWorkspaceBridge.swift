@@ -28,6 +28,18 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private var attachedSurfaceIDsByMachine: [String: String] = [:]
     private var attachTasks: [String: Task<Void, Never>] = [:]
     private var lastReportedGridBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
+    /// The surface each machine is in the middle of attaching, so a repeated
+    /// repaint request does not restart an attach that is already running.
+    private var attachingSurfaceIDsByMachine: [String: String] = [:]
+    /// Ordered hand-off from the library's callback threads to the main actor,
+    /// one per machine. Terminal bytes must arrive in the order the daemon
+    /// sent them, and an unstructured task per event does not guarantee that.
+    private var outputStreams: [String: AsyncStream<CloudTerminalOutputEvent>.Continuation] = [:]
+    private var deliveryTasks: [String: Task<Void, Never>] = [:]
+    /// Keystrokes typed before a terminal's attachment exists. The view is on
+    /// screen and accepting input from the first frame, so without this the
+    /// first characters after opening a terminal are lost.
+    private var pendingInputBySurfaceID: [String: Data] = [:]
 
     /// Creates a bridge over the Cloud session controller.
     public init(controller: CloudSessionController) {
@@ -140,8 +152,14 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         // keystrokes are queued: a keystroke sent while another terminal holds
         // the machine's single attachment would land in the wrong terminal.
         ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: terminalID)
-        guard attachedSurfaceIDsByMachine[machine.id] == surfaceID,
-              let attachment = attachments[machine.id] else { return }
+        guard attachedSurfaceIDsByMachine[machine.id] == surfaceID else { return }
+        guard let attachment = attachments[machine.id] else {
+            // The attach is still in flight. Hold the keystroke rather than
+            // dropping it; `ensureAttached` flushes in order once the link is
+            // up.
+            pendingInputBySurfaceID[surfaceID, default: Data()].append(Data(text.utf8))
+            return
+        }
         attachment.send(Data(text.utf8))
     }
 
@@ -187,25 +205,42 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         if !forceReattach, attachedSurfaceIDsByMachine[machine.id] == surfaceID {
             return
         }
+        // A repaint request for the surface already being attached is
+        // satisfied by that attach's own snapshot. Restarting would tear the
+        // link down and ask for the same screen again, which a view reset or
+        // a resync sweep can trigger repeatedly.
+        if attachingSurfaceIDsByMachine[machine.id] == surfaceID { return }
         guard let connection = controller.connection(for: machine) else { return }
-        attachTasks[machine.id]?.cancel()
-        if let existing = attachments.removeValue(forKey: machine.id) {
-            existing.detach()
-        }
+        teardownAttachment(machineID: machine.id)
         attachedSurfaceIDsByMachine[machine.id] = surfaceID
+        attachingSurfaceIDsByMachine[machine.id] = surfaceID
+
+        // The daemon's callback runs on library threads. Yielding into a
+        // stream preserves arrival order across that boundary; one consumer
+        // then applies the events on the main actor in the same order.
+        let (events, continuation) = AsyncStream<CloudTerminalOutputEvent>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        outputStreams[machine.id] = continuation
+        deliveryTasks[machine.id] = Task { @MainActor [weak self] in
+            for await event in events {
+                self?.deliver(event, surfaceID: surfaceID)
+            }
+        }
+
         attachTasks[machine.id] = Task { [weak self] in
             guard let self else { return }
             do {
                 let attachment = try await connection.attach(terminalID: terminalID) { event in
-                    Task { @MainActor [weak self] in
-                        self?.deliver(event, surfaceID: surfaceID)
-                    }
+                    continuation.yield(event)
                 }
                 guard !Task.isCancelled else {
                     attachment.detach()
+                    continuation.finish()
                     return
                 }
                 attachments[machine.id] = attachment
+                attachingSurfaceIDsByMachine.removeValue(forKey: machine.id)
                 // The mounted view reports its grid as soon as it lays out,
                 // which is usually before this attachment exists. Replay the
                 // last report so the daemon's pseudo-terminal matches the
@@ -213,13 +248,31 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
                 if let grid = lastReportedGridBySurfaceID[surfaceID] {
                     attachment.resize(cols: grid.columns, rows: grid.rows)
                 }
+                // Then anything typed while the link was coming up, in order.
+                if let pending = pendingInputBySurfaceID.removeValue(forKey: surfaceID),
+                   !pending.isEmpty {
+                    attachment.send(pending)
+                }
             } catch {
+                continuation.finish()
                 guard !Task.isCancelled else { return }
+                attachingSurfaceIDsByMachine.removeValue(forKey: machine.id)
+                pendingInputBySurfaceID.removeValue(forKey: surfaceID)
                 if attachedSurfaceIDsByMachine[machine.id] == surfaceID {
                     attachedSurfaceIDsByMachine.removeValue(forKey: machine.id)
                 }
             }
         }
+    }
+
+    /// Ends one machine's attachment and its ordered delivery, leaving the
+    /// link itself open for the catalog.
+    private func teardownAttachment(machineID: String) {
+        attachTasks.removeValue(forKey: machineID)?.cancel()
+        attachments.removeValue(forKey: machineID)?.detach()
+        outputStreams.removeValue(forKey: machineID)?.finish()
+        deliveryTasks.removeValue(forKey: machineID)?.cancel()
+        attachingSurfaceIDsByMachine.removeValue(forKey: machineID)
     }
 
     private func deliver(_ event: CloudTerminalOutputEvent, surfaceID: String) {
@@ -283,10 +336,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     private func retire(machineID: String) {
         catalogTasks.removeValue(forKey: machineID)?.cancel()
-        attachTasks.removeValue(forKey: machineID)?.cancel()
-        attachments.removeValue(forKey: machineID)?.detach()
+        teardownAttachment(machineID: machineID)
         if let surfaceID = attachedSurfaceIDsByMachine.removeValue(forKey: machineID) {
             lastReportedGridBySurfaceID.removeValue(forKey: surfaceID)
+            pendingInputBySurfaceID.removeValue(forKey: surfaceID)
         }
         store?.removeExternalHostWorkspaceState(
             macDeviceID: CloudAddress(machineID: machineID).identifier
@@ -295,13 +348,16 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     private func cancelAll() {
         for task in catalogTasks.values { task.cancel() }
-        for task in attachTasks.values { task.cancel() }
-        for attachment in attachments.values { attachment.detach() }
+        for machineID in Set(attachTasks.keys)
+            .union(attachments.keys)
+            .union(outputStreams.keys)
+            .union(deliveryTasks.keys) {
+            teardownAttachment(machineID: machineID)
+        }
         catalogTasks = [:]
-        attachTasks = [:]
-        attachments = [:]
         attachedSurfaceIDsByMachine = [:]
         lastReportedGridBySurfaceID = [:]
+        pendingInputBySurfaceID = [:]
     }
 
     private func machine(id: String) -> CloudMachine? {
