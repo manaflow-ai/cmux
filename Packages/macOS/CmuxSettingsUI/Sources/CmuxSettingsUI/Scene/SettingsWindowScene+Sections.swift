@@ -171,6 +171,7 @@ extension SettingsWindowRoot {
     ) -> some View {
         SettingsSectionSlot(
             section: section,
+            isActive: section == SettingsSectionMountModel.hostSection(for: activeSection),
             isMounted: mountModel.isMounted(section),
             showsPlaceholder: section != .cloudMachines || isCloudSectionAvailable,
             onMountedAppear: { sectionContentDidAppear(section, proxy: proxy) },
@@ -189,6 +190,7 @@ extension SettingsWindowRoot {
     /// later update pass — so every section is built in a pass of its own
     /// and input queued meanwhile is serviced first.
     func sectionContentDidAppear(_ section: SettingsSectionID, proxy: ScrollViewProxy) {
+        shownPaneSection = section
         if let deferred = mountModel.takeDeferredScroll(for: section),
            deferred.generation == settingsNavigationGeneration {
             proxy.scrollTo(deferred.anchorID, anchor: deferred.anchor)

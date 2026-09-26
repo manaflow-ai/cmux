@@ -207,6 +207,27 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
 }
 
 extension ContentView {
+    /// Palette context key: the terminal a terminal shortcut would act on is
+    /// focused. That is the focused Dock panel while the Dock owns keyboard
+    /// focus, else the main-area focused panel.
+    static let commandPaletteShortcutTerminalFocusedKey = CommandPaletteContextKeys(
+        rawValue: "shortcut.terminalFocused"
+    )
+
+    static func commandPaletteShortcutTerminalFocused(
+        focusedDockPanelIsTerminal: Bool?,
+        mainAreaPanelIsTerminal: Bool
+    ) -> Bool {
+        focusedDockPanelIsTerminal ?? mainAreaPanelIsTerminal
+    }
+
+    /// Whether a command's post-run focus restore targets the focused Dock
+    /// panel while the Dock owns keyboard focus, because the command itself
+    /// acts on the Dock first like its shortcut.
+    static func commandPalettePostRunFocusFollowsFocusedDock(forCommandId commandId: String) -> Bool {
+        commandId == ShortcutParityPaletteCommand.toggleTerminalCopyMode.rawValue
+    }
+
     static func commandPaletteShortcutParityContributions(
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
         terminalSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
@@ -219,7 +240,7 @@ extension ContentView {
             switch command.scope {
             case .terminal:
                 subtitle = terminalSubtitle
-                when = { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+                when = { $0.bool(Self.commandPaletteShortcutTerminalFocusedKey) }
             case .workspace:
                 subtitle = workspaceSubtitle
                 when = { $0.bool(CommandPaletteContextKeys.hasWorkspace) }

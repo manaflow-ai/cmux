@@ -85,6 +85,37 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         )
     }
 
+    func testCopyModeVisibilityFollowsTheTerminalTheShortcutWouldHit() {
+        // Dock owns focus: its focused panel decides, whatever the main area holds.
+        XCTAssertTrue(ContentView.commandPaletteShortcutTerminalFocused(
+            focusedDockPanelIsTerminal: true,
+            mainAreaPanelIsTerminal: false
+        ))
+        XCTAssertFalse(ContentView.commandPaletteShortcutTerminalFocused(
+            focusedDockPanelIsTerminal: false,
+            mainAreaPanelIsTerminal: true
+        ))
+        // Main area owns focus.
+        XCTAssertTrue(ContentView.commandPaletteShortcutTerminalFocused(
+            focusedDockPanelIsTerminal: nil,
+            mainAreaPanelIsTerminal: true
+        ))
+        XCTAssertFalse(ContentView.commandPaletteShortcutTerminalFocused(
+            focusedDockPanelIsTerminal: nil,
+            mainAreaPanelIsTerminal: false
+        ))
+    }
+
+    func testCopyModeRestoresFocusToTheFocusedDockTerminal() {
+        XCTAssertTrue(ContentView.commandPalettePostRunFocusFollowsFocusedDock(
+            forCommandId: ShortcutParityPaletteCommand.toggleTerminalCopyMode.rawValue
+        ))
+        // Text box commands act on the main-area terminal, so their restore stays there.
+        XCTAssertFalse(ContentView.commandPalettePostRunFocusFollowsFocusedDock(
+            forCommandId: "palette.terminalFocusTextBoxInput"
+        ))
+    }
+
     @MainActor
     func testShortcutOnlyActionsHavePaletteCommandsLabeledAndBoundLikeTheirShortcuts() throws {
         let contributions = ContentView.commandPaletteShortcutParityContributions(
@@ -96,7 +127,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         XCTAssertEqual(contributions.count, ShortcutParityPaletteCommand.allCases.count)
 
         var terminalContext = CommandPaletteContextSnapshot()
-        terminalContext.setBool(CommandPaletteContextKeys.panelIsTerminal, true)
+        terminalContext.setBool(ContentView.commandPaletteShortcutTerminalFocusedKey, true)
         var browserContext = CommandPaletteContextSnapshot()
         browserContext.setBool(CommandPaletteContextKeys.panelIsBrowser, true)
         var workspaceContext = CommandPaletteContextSnapshot()
