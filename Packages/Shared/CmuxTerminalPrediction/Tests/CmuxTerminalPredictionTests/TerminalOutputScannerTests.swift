@@ -132,4 +132,19 @@ struct TerminalOutputScannerTests {
     @Test func anUnknownEscapeIsDisruptiveAndRecovers() {
         #expect(scan("\u{1B}Mx") == [.disruptive, .printable(0x78)])
     }
+
+    @Test func designatingASCIIIsIgnorable() {
+        // xterm's sgr0 is `ESC ( B ESC [ m`; shells emit it around the
+        // characters they echo, so it must not read as `(` then a printed B.
+        #expect(scan("\u{1B}(B\u{1B}[m") == [.ignorable, .ignorable])
+        #expect(scan("\u{1B})Bx") == [.ignorable, .printable(0x78)])
+        #expect(scan(["\u{1B}(", "B"]) == [.ignorable])
+    }
+
+    @Test func designatingAnotherCharacterSetIsDisruptive() {
+        // DEC line drawing remaps later printables, so the echo no longer
+        // matches the key that was typed.
+        #expect(scan("\u{1B}(0x") == [.disruptive, .printable(0x78)])
+        #expect(scan("\u{1B}#8x") == [.disruptive, .printable(0x78)])
+    }
 }
