@@ -28,14 +28,13 @@ struct SidebarDensityTests {
             let keys = [
                 sidebar.showWorkspaceDescription, sidebar.showNotificationMessage, sidebar.showBranchDirectory,
                 sidebar.showPullRequests, sidebar.showPorts, sidebar.showLog, sidebar.showProgress,
-                sidebar.showCustomMetadata
+                sidebar.showCustomMetadata, sidebar.showSSH
             ]
             for key in keys {
                 #expect(settings.sidebarDetailValue(for: key) == false, "\(key.id)")
             }
-            // Attention signals and unrelated toggles are left alone.
+            // Attention signals are left alone.
             #expect(settings.sidebarDetailValue(for: sidebar.showAgentActivity) == true)
-            #expect(settings.sidebarDetailValue(for: sidebar.showSSH) == true)
         }
     }
 

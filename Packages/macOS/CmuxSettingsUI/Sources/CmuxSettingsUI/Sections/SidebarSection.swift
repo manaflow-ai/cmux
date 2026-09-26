@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor
 public struct SidebarSection: View {
     let catalog: SettingCatalog
-    let defaultsStore: UserDefaultsSettingsStore
     let hostActions: SettingsHostActions
     @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
@@ -40,7 +39,6 @@ public struct SidebarSection: View {
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
-        self.defaultsStore = defaultsStore
         self.hostActions = hostActions
         _rightSidebarTabs = State(initialValue: hostActions.rightSidebarTabs())
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
@@ -478,7 +476,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"),
                 subtitle: String(localized: "settings.app.showSSH.subtitle", defaultValue: "Display the SSH target for remote workspaces in its own row.")
             ) {
-                Toggle("", isOn: Binding(get: { showSSH.current }, set: { showSSH.set($0) }))
+                Toggle("", isOn: detailToggleBinding(showSSH, key: catalog.sidebar.showSSH))
                     .labelsHidden()
                     .controlSize(.small)
             }

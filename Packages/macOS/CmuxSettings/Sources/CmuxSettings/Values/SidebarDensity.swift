@@ -43,6 +43,7 @@ public enum SidebarDensity: String, CaseIterable, Sendable, SettingCodable {
     }
 
     /// The detail toggles whose effective value depends on the density.
+    /// (`compact` only touches `sidebar.showLog`, which quiet also hides.)
     public static let governedSettingIDs: Set<String> = quietHiddenSettingIDs
 
     private static let quietHiddenSettingIDs: Set<String> = [
@@ -54,5 +55,6 @@ public enum SidebarDensity: String, CaseIterable, Sendable, SettingCodable {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        "sidebar.showSSH",
     ]
 }

@@ -22,7 +22,7 @@ struct SidebarWorkspaceDetailSettings: Equatable {
         showBranchDirectory = settings.sidebarDetailValue(for: sidebar.showBranchDirectory)
         showPullRequests = settings.sidebarDetailValue(for: sidebar.showPullRequests)
         watchGitStatus = settings.value(for: sidebar.watchGitStatus)
-        showSSH = settings.value(for: sidebar.showSSH)
+        showSSH = settings.sidebarDetailValue(for: sidebar.showSSH)
         showPorts = settings.sidebarDetailValue(for: sidebar.showPorts)
         showLog = settings.sidebarDetailValue(for: sidebar.showLog)
         showProgress = settings.sidebarDetailValue(for: sidebar.showProgress)

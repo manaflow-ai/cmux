@@ -24,8 +24,7 @@ extension SidebarSection {
     /// The value a detail toggle shows: its own stored value, or the density
     /// preset when the user never set it.
     func effectiveDetailValue(_ model: DefaultsValueModel<Bool>, key: DefaultsKey<Bool>) -> Bool {
-        _ = model.revision
-        guard !defaultsStore.initialHasStoredValue(for: key) else { return model.current }
+        guard !model.hasStoredValue else { return model.current }
         return density.current.presetValue(forSettingID: key.id) ?? model.current
     }
 
@@ -35,9 +34,7 @@ extension SidebarSection {
 
     /// The notification preview line limit, following the density when unset.
     var effectiveNotificationMessageLineLimit: Int {
-        _ = notificationMessageLineLimit.revision
-        let key = catalog.sidebar.notificationMessageLineLimit
-        guard !defaultsStore.initialHasStoredValue(for: key) else { return notificationMessageLineLimit.current }
+        guard !notificationMessageLineLimit.hasStoredValue else { return notificationMessageLineLimit.current }
         return density.current.notificationMessageLineLimit ?? notificationMessageLineLimit.current
     }
 

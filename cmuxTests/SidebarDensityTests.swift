@@ -39,6 +39,7 @@ final class SidebarDensityTests: XCTestCase {
             XCTAssertFalse(details.showsBranchDirectory)
             XCTAssertFalse(details.showsPullRequests)
             XCTAssertFalse(details.showsPorts)
+            XCTAssertFalse(snapshot.showsSSH)
         }
     }
 
