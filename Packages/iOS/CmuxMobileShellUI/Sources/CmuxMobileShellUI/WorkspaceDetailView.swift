@@ -536,7 +536,11 @@ struct WorkspaceDetailView: View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
-        let canReconnect = Self.canReconnectFromTitleMenu(
+        // An SSH computer decides from its own connection: Reconnect only
+        // when the host is not connected or the shown session ended.
+        let canReconnect = sshHostID.map {
+            store.sshComputers.canReconnect(hostID: $0, surfaceID: selectedTerminal?.id.rawValue)
+        } ?? Self.canReconnectFromTitleMenu(
             effectiveConnectionStatus: effectiveConnectionStatus,
             connectionRequiresReauth: store.connectionRequiresReauth
         )
@@ -753,6 +757,11 @@ struct WorkspaceDetailView: View {
     }
 
     func reconnectToWorkspaceMac() {
+        if let hostID = sshHostID {
+            let surfaceID = selectedTerminal?.id.rawValue
+            Task { await store.sshComputers.reconnect(hostID: hostID, surfaceID: surfaceID) }
+            return
+        }
         Task {
             await store.reconnectToMac(
                 macDeviceID: workspace.macDeviceID,

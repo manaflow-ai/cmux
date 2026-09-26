@@ -95,6 +95,9 @@ public final class MobileSSHComputers {
     public private(set) var lastUsedHostID: UUID?
     public private(set) var keys: [SSHKeyRecord] = []
     public private(set) var statusByHost: [UUID: MobileSSHHostStatus] = [:]
+    /// Terminals whose remote session ended (shell exited, pane or
+    /// session killed) and have not attached again since.
+    public private(set) var endedSurfaces: Set<String> = []
     /// Questions waiting for the user, oldest first.
     public private(set) var prompts: [MobileSSHPrompt] = []
     /// Which workspace kinds each connected host can create (PRD D31).
@@ -312,6 +315,30 @@ public final class MobileSSHComputers {
         // through the same first-connect questions.
         if let pending = autoConnectTasks[hostID] { await pending.value }
         await connectAndList(hostID: hostID)
+    }
+
+    /// Whether a terminal's title menu offers Reconnect, the way a Mac
+    /// workspace offers it unless a reconnect already owns recovery: the
+    /// host is not connected (idle after a drop, or failed), or the shown
+    /// terminal's session ended. Never while a connect is in flight, and
+    /// never for a live terminal on a connected host.
+    public func canReconnect(hostID: UUID, surfaceID: String?) -> Bool {
+        guard host(id: hostID) != nil else { return false }
+        switch statusByHost[hostID] ?? .idle {
+        case .connecting: return false
+        case .idle, .failed: return true
+        case .connected: return surfaceID.map { endedSurfaces.contains($0) } ?? false
+        }
+    }
+
+    /// Reconnect from the title menu: opens the host (connects if needed,
+    /// relists) and reattaches the shown terminal when its session is no
+    /// longer live. A shell whose session ended opens a new shell.
+    public func reconnect(hostID: UUID, surfaceID: String?) async {
+        await open(hostID: hostID)
+        guard let surfaceID, statusByHost[hostID] == .connected,
+              attachments[surfaceID] == nil, attachTasks[surfaceID] == nil else { return }
+        replay(surfaceID: surfaceID)
     }
 
     /// Whether ``autoConnect(hostID:)`` would start a connection: the host
@@ -679,6 +706,7 @@ public final class MobileSSHComputers {
         guard let hostID = MobileSSHIdentifier(surfaceID).hostID,
               let local = MobileSSHLocalID(scopedID: surfaceID),
               attachTasks[surfaceID] == nil else { return }
+        endedSurfaces.remove(surfaceID)
         guard let grid = gridBySurface[surfaceID] else {
             // Seeding at a placeholder size would capture the screen (and
             // resize a shared tmux window) at the wrong grid; attach when
@@ -744,6 +772,7 @@ public final class MobileSSHComputers {
             sink?.sshApplyViewport(surfaceID: surfaceID)
         case .ended:
             attachments[surfaceID] = nil
+            endedSurfaces.insert(surfaceID)
             let notice = L10nSSH().sessionEnded
             sink?.sshDeliver(Data("\r\n\u{1B}[2m[\(notice)]\u{1B}[0m\r\n".utf8), surfaceID: surfaceID)
             if let hostID = MobileSSHIdentifier(surfaceID).hostID {
