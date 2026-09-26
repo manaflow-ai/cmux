@@ -439,6 +439,9 @@ class TabManager: ObservableObject {
     }
     private struct PendingPanelTitleUpdate {
         let title: String
+        /// `title` with any spinner frame removed. Carried alongside so the
+        /// flush can tell an advancing spinner from a changed label.
+        let stableTitle: String
         weak var sourceSurface: TerminalSurface?
         let sourceTerminalLifecycleId: UUID
     }
@@ -3815,9 +3818,11 @@ class TabManager: ObservableObject {
             )
         }
 #endif
+        let trimmedStable = change.stableTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
         pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
             title: trimmed,
+            stableTitle: trimmedStable.isEmpty ? trimmed : trimmedStable,
             sourceSurface: sourceSurface,
             sourceTerminalLifecycleId: sourceSurface.terminalLifecycleId
         )
@@ -3841,19 +3846,44 @@ class TabManager: ObservableObject {
                   sourceSurface.terminalLifecycleId == update.sourceTerminalLifecycleId else {
                 continue
             }
-            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title, sourceSurface: sourceSurface)
+            updatePanelTitle(
+                tabId: key.tabId,
+                panelId: key.panelId,
+                title: update.title,
+                stableTitle: update.stableTitle,
+                sourceSurface: sourceSurface
+            )
         }
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() {
         panelTitleUpdateCoalescer.flushNow()
     }
-
     @discardableResult
     func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) -> Bool {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: nil)
+    }
+
+    @discardableResult
+    private func applyPanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String?,
+        sourceSurface: TerminalSurface?
+    ) -> Bool {
         guard let tab = workspacesById[tabId] else { return false }
+        if let sourceSurface {
+            // Batched flush path: the queued surface must still own the panel.
+            guard let terminalPanel = tab.terminalPanel(for: panelId),
+                  terminalPanel.surface === sourceSurface else { return false }
+        }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        let applied = tab.updatePanelTitle(panelId: panelId, title: title)
+        let applied = tab.updatePanelTitle(panelId: panelId, title: title, stableTitle: stableTitle)
         guard !tab.isRemoteTmuxMirror else { return applied }
+        // A spinner-only frame has already refreshed the AppKit tab label inside
+        // `tab.updatePanelTitle`. Nothing below it can produce a different result,
+        // so stop before the window title and the display-title comparison.
+        guard applied else { return false }
         if tab.focusedPanelId == panelId, selectedTabId == tabId {
             updateWindowTitle(for: tab)
         }
@@ -3871,11 +3901,14 @@ class TabManager: ObservableObject {
         return applied
     }
 
-    private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId],
-              let terminalPanel = tab.terminalPanel(for: panelId),
-              terminalPanel.surface === sourceSurface else { return }
-        _ = updatePanelTitle(tabId: tabId, panelId: panelId, title: title)
+    private func updatePanelTitle(
+        tabId: UUID,
+        panelId: UUID,
+        title: String,
+        stableTitle: String,
+        sourceSurface: TerminalSurface
+    ) {
+        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: stableTitle, sourceSurface: sourceSurface)
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
@@ -4336,6 +4369,12 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateForward()
     }
 
+    /// Toggles focus back to the position it most recently left.
+    @discardableResult
+    func navigateToLastFocused() -> Bool {
+        focusHistoryNavigation.navigateToLastFocused()
+    }
+
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }
@@ -4373,7 +4412,7 @@ class TabManager: ObservableObject {
         remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        guard let panel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
@@ -4384,7 +4423,12 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Move focus in the specified direction
@@ -4462,7 +4506,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(
+        guard let panel = tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4470,7 +4514,12 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        )?.id
+        ) else { return nil }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+        }
+        return panel.id
     }
 
     /// Create a new browser surface in a pane

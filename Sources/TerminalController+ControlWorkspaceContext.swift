@@ -316,6 +316,12 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
+    /// Runs the same Focus Last toggle as the app's shortcut and History menu
+    /// (`TabManager.navigateToLastFocused()`), so repeated `workspace.last`
+    /// calls flip between the two most recent positions instead of walking
+    /// further back through history. With pane-scoped history the toggle can
+    /// land in the current workspace; that still reports `not_found` so tmux
+    /// `-` targets never resolve to the current workspace.
     func controlSelectLastWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -325,8 +331,9 @@ extension TerminalController: ControlWorkspaceContext {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
-        tabManager.navigateBack()
-        guard let after = tabManager.selectedTabId, after != before else { return .notFound }
+        guard tabManager.navigateToLastFocused(),
+              let after = tabManager.selectedTabId,
+              after != before else { return .notFound }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(workspaceID: after, windowID: windowId)
     }
@@ -592,6 +599,9 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
+        // Deprecated: `cmux ssh` no longer sends this shape (TTY SSH moved to
+        // cmux-tui in #13866). A hand-written call still gets a persistent PTY
+        // slot, but agent resume bindings are not registered or replayed for it.
         if preserveAfterTerminalExit,
            transport == .ssh,
            !skipDaemonBootstrap,
