@@ -532,9 +532,18 @@ _cmux_tmux_shell_env_signature() {
     done
 }
 
+# A published environment only matters to a running default tmux server; a
+# server started later inherits it from the shell that starts it. Checking the
+# socket keeps every prompt and command from spawning a tmux client that can
+# only fail when no server is running.
+_cmux_tmux_default_server_running() {
+    [[ -S "${TMUX_TMPDIR:-/tmp}/tmux-${UID}/default" ]]
+}
+
 _cmux_tmux_publish_cmux_environment() {
     [[ -z "$TMUX" ]] || return 0
     command -v tmux >/dev/null 2>&1 || return 0
+    _cmux_tmux_default_server_running || return 0
 
     local signature
     signature="$(_cmux_tmux_shell_env_signature)"
