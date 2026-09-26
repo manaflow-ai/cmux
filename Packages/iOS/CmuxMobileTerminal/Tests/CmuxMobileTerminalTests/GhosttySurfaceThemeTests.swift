@@ -137,7 +137,8 @@ import UIKit
 }
 
 @MainActor
-@Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
+@Test(.timeLimit(.minutes(1)))
+func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
     var rawConfig = TerminalTheme.monokai
@@ -158,6 +159,12 @@ import UIKit
         terminalConfigTheme: rawConfig
     )
     defer { view.prepareForDismantle() }
+    // The display link runs the output apply watchdog, which replaces the
+    // surface and fails the apply after two seconds. A simulator running the
+    // suite in parallel can take that long to apply one chunk. Stop the link
+    // so the apply only fails if it never finishes, which the time limit
+    // catches. Nothing here restarts the link on a view without a window.
+    view.stopDisplayLink()
     let resetWhileReversed = Data(
         ("\u{1B}]10;#123456\u{1B}\\" +
             "\u{1B}]11;#654321\u{1B}\\" +
@@ -185,6 +192,7 @@ import UIKit
         terminalConfigTheme: try #require(frame.terminalConfigTheme)
     )
     defer { mirror.prepareForDismantle() }
+    mirror.stopDisplayLink()
 
     #expect(await mirror.processOutputAndWait(frame.vtPatchBytes()))
     let mirroredFrame = try exportThemeFrame(from: mirror, surfaceID: "reverse-reset-mirror")
@@ -193,11 +201,14 @@ import UIKit
 }
 
 @MainActor
-@Test func semanticCursorConfigAppliesBeforeReplayReset() async throws {
+@Test(.timeLimit(.minutes(1)))
+func semanticCursorConfigAppliesBeforeReplayReset() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
     let view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
     defer { view.prepareForDismantle() }
+    // Keep the output apply watchdog out of the test, as above.
+    view.stopDisplayLink()
     var semanticConfig = TerminalTheme.monokai
     semanticConfig.foreground = "#123456"
     semanticConfig.cursorColorSemantic = .foreground
@@ -216,7 +227,8 @@ import UIKit
 }
 
 @MainActor
-@Test func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
+@Test(.timeLimit(.minutes(1)))
+func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
     let runtime = try GhosttyRuntime()
     let localColors = """
     bold-color = #ff0000
@@ -246,6 +258,8 @@ import UIKit
         terminalConfigTheme: remoteTheme
     )
     defer { view.prepareForDismantle() }
+    // Keep the output apply watchdog out of the test, as above.
+    view.stopDisplayLink()
 
     #expect(await view.processOutputAndWait(Data("\u{1B}[1mX".utf8)))
     let frame = try exportThemeFrame(from: view, surfaceID: "local-optional-color-reset")
