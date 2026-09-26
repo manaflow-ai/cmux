@@ -77,6 +77,89 @@ struct BrowserInlineHostAttachmentTests {
         })
     }
 
+    @Test func deferredOldHostCannotReclaimBrowserAfterPaneOwnershipChanges() throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        let preloadWindow = makeWindow(size: NSSize(width: 800, height: 600))
+        preloadWindow.alphaValue = 0
+        let preloadContent = try #require(preloadWindow.contentView)
+        preloadContent.addSubview(panel.webView)
+        panel.webView.frame = preloadContent.bounds
+        defer { preloadWindow.close() }
+
+        let oldRepresentable = WebViewRepresentable(
+            panel: panel,
+            paneId: PaneID(),
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: false,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            paneOwnershipOverride: false,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let oldRoot = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        let oldHosting = NSHostingView(rootView: oldRepresentable)
+        oldHosting.sizingOptions = []
+        oldHosting.frame = oldRoot.bounds
+        oldRoot.addSubview(oldHosting)
+        oldRoot.layoutSubtreeIfNeeded()
+        oldHosting.layoutSubtreeIfNeeded()
+        let oldHost = try #require(waitForHost(in: oldHosting))
+        #expect(oldHost.window == nil)
+        #expect(panel.webView.superview === preloadContent)
+
+        let newRepresentable = WebViewRepresentable(
+            panel: panel,
+            paneId: PaneID(),
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: false,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            paneOwnershipOverride: true,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let visibleWindow = makeWindow(size: oldRoot.bounds.size)
+        defer {
+            oldHosting.removeFromSuperview()
+            visibleWindow.close()
+        }
+        let visibleContent = try #require(visibleWindow.contentView)
+        let newHosting = NSHostingView(rootView: newRepresentable)
+        newHosting.sizingOptions = []
+        newHosting.frame = visibleContent.bounds
+        visibleContent.addSubview(newHosting)
+        visibleWindow.orderFrontRegardless()
+        visibleContent.layoutSubtreeIfNeeded()
+        newHosting.layoutSubtreeIfNeeded()
+        let newHost = try #require(waitForHost(in: newHosting))
+        #expect(waitUntil { panel.webView.isDescendant(of: newHost) })
+
+        let oldWindow = makeWindow(size: oldRoot.bounds.size)
+        defer { oldWindow.close() }
+        let oldWindowContent = try #require(oldWindow.contentView)
+        oldWindowContent.addSubview(oldHosting)
+        oldWindow.orderFrontRegardless()
+        oldWindowContent.layoutSubtreeIfNeeded()
+        oldHosting.layoutSubtreeIfNeeded()
+
+        #expect(waitUntil {
+            oldHost.window === oldWindow &&
+                panel.webView.isDescendant(of: newHost) &&
+                !panel.webView.isDescendant(of: oldHost)
+        })
+    }
+
     private func makeWindow(size: NSSize) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
