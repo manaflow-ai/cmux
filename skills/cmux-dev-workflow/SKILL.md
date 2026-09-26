@@ -15,8 +15,7 @@ before preparing a native build. Fast feedback starts with
 `python3 scripts/verify-local.py`; portable-tooling and documentation changes use
 their scoped checks without an unrelated app build.
 
-For native app or build-input changes, follow the current root `AGENTS.md`
-build routing and capacity owner. Setup (`./scripts/setup.sh`) initializes
+For native app or build-input changes, build with a tag as below. Setup (`./scripts/setup.sh`) initializes
 submodules, builds GhosttyKit and installs the project-normalization hook;
 it is not a prerequisite for portable static checks.
 

@@ -1108,6 +1108,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    /// Account-scoped identities whose revoke completed locally but whose Mac
+    /// has not published its replacement directory binding yet.
+    let forgottenMacRecoveryDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
@@ -1614,7 +1617,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalColdReplayNeedsBarrierUpgradeSurfaceIDs: Set<String>
     var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    /// Delivery epoch for the mounted output stream. Replay barriers rotate
+    /// it so acknowledgements for superseded chunks are ignored.
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
+    /// Registration identity for the mounted output stream. Unlike the
+    /// delivery epoch above it never rotates, so a stream's termination can
+    /// always tear down its own registration (and never a replacement's).
+    private var terminalOutputRegistrationTokensBySurfaceID: [String: UUID]
     /// Owner generation for the mounted UI consumer. The stream token tracks
     /// delivery acknowledgements; this identity lets an older coordinator
     /// distinguish intentional replacement from a failed stream.
@@ -1920,6 +1929,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
+        self.forgottenMacRecoveryDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
@@ -2035,6 +2045,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
+        self.terminalOutputRegistrationTokensBySurfaceID = [:]
         self.terminalOutputConsumerOwnerIDsBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         if runtime?.terminalLaneProvider != nil
@@ -3676,10 +3687,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored private var pairedMacLoadCompletedRefreshGeneration: [
         PairedMacLoadKey: UInt64
     ] = [:]
+    struct ForgottenMacRecoveryRerun: Sendable {
+        let scope: MobileShellScopeSnapshot
+        let refreshDirectory: Bool
+    }
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    @ObservationIgnored var forgottenMacRecoveryInFlightScope: MobileShellScopeSnapshot?
+    @ObservationIgnored var forgottenMacRecoveryRerun: ForgottenMacRecoveryRerun?
+    @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: [String: Set<String>] = [:]
     /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.
@@ -3985,6 +4003,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 directoryObservationTask = Task { @MainActor [weak self] in
                     for await _ in discovery.directoryUpdates() {
                         guard let self, !Task.isCancelled, self.isSignedIn else { return }
+                        if let scope = await self.currentScopeSnapshot() {
+                            await self.recoverForgottenMacsFromDirectory(
+                                scope: scope,
+                                refreshDirectory: false
+                            )
+                        }
                         await self.loadRegistryDevices()
                         if self.connectionState == .connected {
                             self.scheduleSecondaryAggregation(discoverLivePeers: true)
@@ -6606,6 +6630,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             foregroundIDSet = []
         }
         var foregroundIrohEndpointIDs = Set<String>()
+        // Before the foreground adopts a Mac identity, an in-flight Iroh dial
+        // with no authenticated tag could be reaching any saved build on that
+        // endpoint, so every row sharing it stays out of the secondary pool.
+        var unadoptedForegroundIrohEndpointID: String?
         if case let .peer(identity, _)? = activeRoute?.endpoint {
             foregroundIrohEndpointIDs.insert(
                 Self.scopedIrohEndpointID(
@@ -6613,6 +6641,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: activeMacInstanceTag
                 )
             )
+            if foregroundMacDeviceID == nil, activeMacInstanceTag == nil {
+                unadoptedForegroundIrohEndpointID = identity.endpointID
+            }
         }
         let activeTag = exclusionTag
         if let exclusionMacDeviceID {
@@ -6673,6 +6704,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // must not disqualify an individual pre-Iroh pairing.
                 return true
             }
+            if endpointID == unadoptedForegroundIrohEndpointID { return false }
             return !foregroundIrohEndpointIDs.contains(
                 Self.scopedIrohEndpointID(
                     endpointID: endpointID,
@@ -14883,9 +14915,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             cancelTerminalReplayBarrierWatchdog(surfaceID: surfaceID)
         }
-        let streamToken = UUID()
+        let registrationToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
-        terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
+        terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalOutputConsumerOwnerIDsBySurfaceID[surfaceID] = ownerID
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -14932,15 +14965,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         ensureTerminalLane(surfaceID: surfaceID)
-        return streamToken
+        return registrationToken
     }
 
     private func unregisterTerminalOutput(
         surfaceID: String,
-        streamToken: UUID,
+        registrationToken: UUID,
         releaseViewport: Bool
     ) {
-        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+        // Compare the registration identity, not the delivery epoch: replay
+        // barriers (including the cold attach one armed during registration),
+        // ack-reset retries, and disconnects all rotate the epoch, so an epoch
+        // check would leave the stream registered (and its viewport pinned)
+        // after its consumer went away.
+        guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else { return }
         terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
@@ -14951,6 +14989,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -15048,7 +15087,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         releaseViewportOnTermination: Bool
     ) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            let streamToken = registerTerminalOutput(
+            let registrationToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 continuation: continuation,
                 ownerID: ownerID
@@ -15057,7 +15096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 Task { @MainActor in
                     self?.unregisterTerminalOutput(
                         surfaceID: surfaceID,
-                        streamToken: streamToken,
+                        registrationToken: registrationToken,
                         releaseViewport: releaseViewportOnTermination
                     )
                 }

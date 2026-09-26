@@ -436,6 +436,10 @@ final class SidebarRowChecklistSection: NSView {
         let generation = popoverPresentationGeneration
         popoverPresenter.onExternalDismiss = { [weak self] in
             guard let self else { return }
+            guard self.popoverPresentationGeneration == generation else { return }
+            // Block stale configure/layout passes until this close is
+            // classified on the next main-actor turn.
+            self.awaitingPopoverDismissAck = true
 
             if self.popoverAnchorDetachedWhilePresented {
                 // Replacing/reparenting AppKit row roots can temporarily detach
@@ -443,7 +447,7 @@ final class SidebarRowChecklistSection: NSView {
                 // reattach a chance to land before treating that close as user
                 // intent. A row that stayed detached still performs the
                 // normal presentation write-back below.
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     // Reuse and unmount already wrote this session back
                     // and reset the section for whoever owns it now.
                     guard let self, self.popoverPresentationGeneration == generation else { return }
@@ -458,7 +462,6 @@ final class SidebarRowChecklistSection: NSView {
                         self.layoutSubtreeIfNeeded()
                         return
                     }
-                    self.awaitingPopoverDismissAck = true
                     presentedChange(false)
                     consumeToken()
                     self.activePopoverDismissContext = nil
@@ -469,10 +472,12 @@ final class SidebarRowChecklistSection: NSView {
             // AppKit closed us (click-away / deactivation): latch until the
             // container acknowledges, and consume any pending add request
             // like the legacy presented-binding write-back does.
-            self.awaitingPopoverDismissAck = true
-            presentedChange(false)
-            consumeToken()
-            self.activePopoverDismissContext = nil
+            Task { @MainActor [weak self] in
+                guard let self, self.popoverPresentationGeneration == generation else { return }
+                presentedChange(false)
+                consumeToken()
+                self.activePopoverDismissContext = nil
+            }
         }
         // Legacy anchor: the section's top-trailing corner, opening to the
         // right (`preferredEdge: .maxX`, min width 320, max 520).
@@ -485,7 +490,7 @@ final class SidebarRowChecklistSection: NSView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil, popoverPresenter.isShown {
+        if newWindow == nil, activePopoverDismissContext != nil {
             popoverAnchorDetachedWhilePresented = true
         }
         super.viewWillMove(toWindow: newWindow)
@@ -493,7 +498,7 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, popoverPresenter.isShown {
+        if window != nil, popoverPresenter.isShown, !popoverPresenter.isClosing {
             // The popover survived the reparent, so a later close is a real
             // click-away rather than a detach side effect.
             popoverAnchorDetachedWhilePresented = false

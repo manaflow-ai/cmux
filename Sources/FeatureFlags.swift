@@ -410,6 +410,14 @@ final class CmuxFeatureFlags {
 
     private var localOverridesByKey: [String: Bool] = [:]
     private var remoteValuesByKey: [String: Bool] = [:]
+    /// A remote value outranks a local override, so a UI-test launch pins flags
+    /// to their local values: otherwise a cached or freshly fetched rollout value
+    /// swaps the surface under a test that deliberately selected the other one.
+    private let pinsFlagsToLocalValues: Bool
+
+    nonisolated static var pinsFlagsToLocalValuesForCurrentLaunch: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1"
+    }
     private var resolutionsByKey: [String: CmuxFeatureFlagResolution] = [:]
 
     init(
@@ -418,11 +426,13 @@ final class CmuxFeatureFlags {
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
-        publishesOffMainSnapshot: Bool = false
+        publishesOffMainSnapshot: Bool = false,
+        pinsFlagsToLocalValues: Bool = CmuxFeatureFlags.pinsFlagsToLocalValuesForCurrentLaunch
     ) {
         self.defaults = defaults
         self.overrideCapability = overrideCapability
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
+        self.pinsFlagsToLocalValues = pinsFlagsToLocalValues
         self.remoteFlagValueProvider = remoteFlagValueProvider
         // Reload's marker travels with the signed artifact, including an HQ
         // restore on a fresh Mac. Seed both gates before publishing any flag
@@ -460,14 +470,16 @@ final class CmuxFeatureFlags {
                 values[definition.key] = value
             }
         }
-        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
-            if let value = Self.storedBoolValue(
-                forKey: Self.remoteCacheKey(for: definition.key),
-                defaults: defaults
-            ) {
-                values[definition.key] = value
+        remoteValuesByKey = pinsFlagsToLocalValues
+            ? [:]
+            : Self.allFlags.reduce(into: [:]) { values, definition in
+                if let value = Self.storedBoolValue(
+                    forKey: Self.remoteCacheKey(for: definition.key),
+                    defaults: defaults
+                ) {
+                    values[definition.key] = value
+                }
             }
-        }
         recomputeEffectiveValues()
     }
 
@@ -484,6 +496,7 @@ final class CmuxFeatureFlags {
     }
 
     private func refreshRemoteFlags() {
+        guard !pinsFlagsToLocalValues else { return }
         guard refreshTask == nil else { return }
         let loader = remoteFlagLoader
         refreshTask = Task { @MainActor [weak self] in
