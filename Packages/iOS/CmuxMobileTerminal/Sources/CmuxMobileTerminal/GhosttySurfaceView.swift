@@ -18,7 +18,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
-    private weak var runtime: GhosttyRuntime?
+    /// Strong: freeing libghostty's app tears down every surface created
+    /// from it, so the runtime must outlive this view's surface. See
+    /// ``enqueueSurfaceFree(_:generation:on:completion:)`` for the free
+    /// that runs after the view is gone.
+    private let runtime: GhosttyRuntime
     /// Renderer-effective colors used by this surface and its UIKit chrome.
     public var terminalTheme: TerminalTheme = .monokai {
         didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
@@ -3671,7 +3675,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             appliedTerminalConfigTheme == theme ? nil : theme
         }
         let preparedConfigBits = configThemeToApply
-            .flatMap { runtime?.makeThemeConfig($0) }
+            .flatMap { runtime.makeThemeConfig($0) }
             .map { Int(bitPattern: $0) }
         // Optimistic: rolled back on a fence failure below, or the surface
         // would permanently skip re-applying this theme after the replay.
@@ -4223,19 +4227,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func simulateTextInputForTesting(_ text: String) {
         setFocus(true)
         sendText(text)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func simulatePasteInputForTesting(_ text: String) {
         setFocus(true)
         sendPaste(text)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func simulateInputProxyTextChangeForTesting(_ text: String, isComposing: Bool) {
         setFocus(true)
         inputProxy.simulateTextChangeForTesting(text, isComposing: isComposing)
-        runtime?.tick()
+        runtime.tick()
     }
 
     func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
@@ -4411,11 +4415,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
+        // The free can run after this view is gone, so it holds the runtime
+        // itself: the app has to outlive the surface. The retain is released
+        // on the main actor so the runtime's deinit, which frees the app,
+        // never runs on the output queue. A full queue refuses the free; the
+        // surface then leaks, and so does this retain, which keeps the app
+        // alive under the surface's queued work.
+        let retainedRuntime = Unmanaged.passRetained(runtime)
         queue.async { [weak self] in
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            Task { @MainActor in
+                self?.surfaceFreeDrainWatchdog.cancel(generation: generation)
+                completion?()
+                retainedRuntime.release()
+            }
         }
     }
 
@@ -4448,7 +4463,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func initializeSurface() {
-        guard let app = runtime?.app else { return }
+        guard let app = runtime.app else { return }
         surface = makeSurface(app: app)
         if let surface {
             GhosttySurfaceView.register(surface: surface, for: self)
@@ -5209,7 +5224,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard force || appliedTerminalConfigTheme != configTheme else { return }
         appliedTerminalConfigTheme = configTheme
         refreshThemeColors()
-        runtime?.applyTheme(configTheme, to: self)
+        runtime.applyTheme(configTheme, to: self)
     }
 
     func setFocus(_ focused: Bool) {
