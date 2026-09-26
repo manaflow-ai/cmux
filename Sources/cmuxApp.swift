@@ -106,7 +106,8 @@ struct cmuxApp: App {
         self.browserDataImportCoordinator = browserDataImportCoordinator
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
-        // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
+        // bundled CLI from Contents/Helpers (or the development Resources/bin
+        // fallback). The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
         // (which happens for any shell descended from this process), bare `cmux`
         // resolves here instead of the CLI. See

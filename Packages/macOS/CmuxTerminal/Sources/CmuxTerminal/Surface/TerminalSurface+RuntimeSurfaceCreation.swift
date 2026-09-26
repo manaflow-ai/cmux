@@ -136,8 +136,12 @@ extension TerminalSurface {
            !inheritedClaudeConfigDir.isEmpty {
             env["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(inheritedClaudeConfigDir)
         }
-        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
-           runtimeFilesystem.isExecutableFile(bundledCLIURL.path) {
+        let bundledCLIURL = [
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cmux", isDirectory: false),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false),
+            Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+        ].compactMap { $0 }.first { runtimeFilesystem.isExecutableFile($0.path) }
+        if let bundledCLIURL {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
         }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
@@ -198,12 +202,16 @@ extension TerminalSurface {
             spawnPolicy.computerUseEnabled ? "1" : "0"
         )
 
-        if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
+        let helperBinURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers", isDirectory: true)
+        let resourceBinURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin", isDirectory: true)
+        let cliBinURLs = [helperBinURL, resourceBinURL, Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)].compactMap { $0 }
+        if let ghosttyCLIPath = cliBinURLs
+            .map({ $0.appendingPathComponent("ghostty").path })
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
+        }
+        for cliBinURL in cliBinURLs.reversed() where FileManager.default.fileExists(atPath: cliBinURL.path) {
             let cliBinPath = cliBinURL.path
-            let ghosttyCLIPath = cliBinURL.appendingPathComponent("ghostty").path
-            if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
-                setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
-            }
             let currentPath = currentManagedPath()
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 setManagedEnvironmentValue(

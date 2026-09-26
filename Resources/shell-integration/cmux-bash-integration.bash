@@ -1985,7 +1985,8 @@ _cmux_install_prompt_command() {
     fi
 }
 
-# Ensure Resources/bin is at the front of PATH, and remove the app's
+# Ensure Contents/Helpers and Resources/bin are at the front of PATH (in that
+# order), and remove the app's
 # Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
 # Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
@@ -1994,9 +1995,13 @@ _cmux_fix_path() {
     if [[ "$integration_dir" == */Resources/shell-integration ]]; then
         local resources_dir="${integration_dir%/shell-integration}"
         local gui_dir="${resources_dir%/Resources}/MacOS"
+        local helpers_dir="${resources_dir%/Resources}/Helpers"
         local bin_dir="$resources_dir/bin"
         if [[ -d "$bin_dir" ]]; then
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
+        fi
+        if [[ -d "$helpers_dir" ]]; then
+            PATH="$(_cmux_path_prepend_unique_directory "$helpers_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
 }

@@ -495,7 +495,8 @@ snapshot to address an attach failure:
 bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
 ```
 
-For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+For a Mac app, use its `Contents/Helpers/cmux-tui` binary (or the development
+bundle's `Contents/Resources/bin/cmux-tui` fallback). The probe
 first requires the client's `wireguard-hub` capability; an older client must
 be updated before a private-network image can be assessed. Rebuilding a guest
 image cannot add that missing capability to an installed Mac app.

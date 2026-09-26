@@ -23,7 +23,7 @@
 #                              stapling so the submitted helper CDHash survives.
 #
 # Signs in the Apple-documented inside-out order:
-#   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
+#   1. Helpers under Contents/Helpers/* and legacy libexec/bin resources with minimal
 #      hardened-runtime entitlements (no application-identifier).
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
@@ -77,6 +77,11 @@ case "$SIGN_MODE" in
     ;;
 esac
 
+# Release bundles must keep executable Mach-O helpers in the standard nested
+# code location. Development bundles remain in Resources/bin; this relocation
+# happens only at the release signing boundary and is idempotent for retries.
+"$SCRIPT_DIR/relocate-macho-helpers.sh" "$APP_PATH"
+
 if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
   TS_FLAG=(--timestamp=none)
 else
@@ -128,10 +133,11 @@ if [[ "$TUNNEL_SUPPORTED" != "1" && -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
 fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
-  # 1. CLI and private helpers
-  for helper_dir in bin libexec; do
+  # 1. CLI and private helpers. Mach-O helpers are relocated to Contents/Helpers;
+  # scripts and compatibility symlinks remain sealed resources in bin.
+  for helper_dir in ../Helpers libexec bin; do
     for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
-      [[ -f "$helper" && -x "$helper" ]] || continue
+      [[ -f "$helper" && -x "$helper" && ! -L "$helper" ]] || continue
       # Scripts are sealed by the bundle signature. Code-signing them directly
       # stores the signature in an extended attribute, which Sparkle's
       # BinaryDelta refuses to diff, so it would block delta updates.
@@ -210,8 +216,12 @@ fi
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
+DIFF_SIDECAR="$APP_PATH/Contents/Helpers/cmux-diff-sidecar"
+if [[ ! -x "$DIFF_SIDECAR" ]]; then
+  DIFF_SIDECAR="$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
+fi
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
-  "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+  "$DIFF_SIDECAR" \
   --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
   --require-signed
 

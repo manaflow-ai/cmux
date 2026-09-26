@@ -62,8 +62,11 @@ extension CMUXCLI {
         // Tagged builds carry their tested core. All CodeRouter command names
         // then use the same version, including interactive provider setup.
         if let bundle = CLIExecutableLocator.enclosingAppBundle() {
-            let binary = bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/coderouter")
-            if FileManager.default.isExecutableFile(atPath: binary.path) {
+            let candidates = [
+                bundle.bundleURL.appendingPathComponent("Contents/Helpers/coderouter", isDirectory: false),
+                bundle.bundleURL.appendingPathComponent("Contents/Resources/bin/coderouter", isDirectory: false)
+            ]
+            if let binary = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
                 return binary.path
             }
         }

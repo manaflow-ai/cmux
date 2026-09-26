@@ -171,7 +171,8 @@ tag-scoped cmux helper are present.
 
 Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
 pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
+MCP proxy as `Contents/Helpers/cmux-cua` in signed releases (development
+bundles stage it under `Contents/Resources/bin`). The same
 engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
 Monitor and permission UI show the product name instead of an implementation
 name. This requires a Rust
