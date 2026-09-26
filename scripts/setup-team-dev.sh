@@ -6,6 +6,9 @@
 # scripts/dev-setup.sh --tag <x> auto-signs-in as THEM and auto-attaches to
 # THEIR Mac, with zero manual steps. DEBUG-only and per-user: the file lives
 # outside the repo and is never committed.
+# Relay limiter access is team-based on the hosted DEV backend. There is no
+# per-user relay registration: membership in the configured Stack team is the
+# authorization source, and release namespaces never qualify.
 #
 # This script:
 #   1. If ~/.secrets/cmuxterm-dev.env already has a complete dogfood pair, prints
@@ -51,6 +54,10 @@ next_steps() {
     ${email}, enables the iOS pairing host, mints an attach
     ticket, and launches the iOS dev build auto-attached to your Mac.
     Mac-only: scripts/dev-setup.sh --tag <x> --surface mac
+
+    When the hosted DEV deployment's bypass is enabled, relay limits are
+    granted automatically to members of the cmux internal team. No user-id
+    registration is required.
 EOF
 }
 
