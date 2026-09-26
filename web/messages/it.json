@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
+          "density": "Livello predefinito di dettaglio degli spazi di lavoro nella barra laterale. full mostra tutti i dettagli; compact nasconde l’ultima riga di log e limita le anteprime delle notifiche a due righe; quiet mostra solo la riga del titolo e gli indicatori di non letto e di attività degli agenti. Le impostazioni di dettaglio impostate esplicitamente, come sidebar.showPorts, prevalgono sulla densità. hideAllDetails nasconde comunque tutto.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {

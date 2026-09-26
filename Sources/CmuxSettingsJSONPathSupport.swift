@@ -70,11 +70,11 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(for: SidebarCatalogSection().showPullRequests)
     }
 
     static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
-        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
+        UserDefaultsSettingsClient(defaults: defaults).sidebarDetailValue(for: SidebarCatalogSection().showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {

@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
+          "density": "Zadani nivo detalja radnih prostora u bočnoj traci. full prikazuje sve detalje; compact skriva posljednju liniju zapisnika i ograničava preglede obavještenja na dvije linije; quiet prikazuje samo red naslova i indikatore nepročitanog i aktivnosti agenata. Postavke detalja koje eksplicitno postavite, poput sidebar.showPorts, imaju prednost nad gustinom. hideAllDetails i dalje skriva sve.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },
         "fileExplorer": {

@@ -2,6 +2,9 @@ import CmuxSettings
 import Foundation
 
 /// Catalog-backed workspace-detail preferences shared by both sidebar row models.
+///
+/// Detail toggles resolve through `sidebar.density`, so an unset toggle follows
+/// the density preset and an explicitly set toggle keeps its own value.
 struct SidebarWorkspaceDetailSettings: Equatable {
     let showBranchDirectory: Bool
     let showPullRequests: Bool
@@ -16,14 +19,14 @@ struct SidebarWorkspaceDetailSettings: Equatable {
     init(defaults: UserDefaults) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()
-        showBranchDirectory = settings.value(for: sidebar.showBranchDirectory)
-        showPullRequests = settings.value(for: sidebar.showPullRequests)
+        showBranchDirectory = settings.sidebarDetailValue(for: sidebar.showBranchDirectory)
+        showPullRequests = settings.sidebarDetailValue(for: sidebar.showPullRequests)
         watchGitStatus = settings.value(for: sidebar.watchGitStatus)
         showSSH = settings.value(for: sidebar.showSSH)
-        showPorts = settings.value(for: sidebar.showPorts)
-        showLog = settings.value(for: sidebar.showLog)
-        showProgress = settings.value(for: sidebar.showProgress)
+        showPorts = settings.sidebarDetailValue(for: sidebar.showPorts)
+        showLog = settings.sidebarDetailValue(for: sidebar.showLog)
+        showProgress = settings.sidebarDetailValue(for: sidebar.showProgress)
         showAgentActivity = settings.value(for: sidebar.showAgentActivity)
-        showCustomMetadata = settings.value(for: sidebar.showCustomMetadata)
+        showCustomMetadata = settings.sidebarDetailValue(for: sidebar.showCustomMetadata)
     }
 }

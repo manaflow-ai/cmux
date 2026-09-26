@@ -24,6 +24,22 @@ extension CmuxSettingsFileStore {
         )
     }
 
+    /// Parses `sidebar.density`, which supplies defaults for the sidebar detail
+    /// toggles that are not set explicitly.
+    func parseSidebarDensitySetting(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard section.keys.contains("density") else { return }
+        guard let raw = jsonString(section["density"]),
+              let value = SidebarDensity.decodeFromJSON(raw) else {
+            logInvalid("sidebar.density", sourcePath: sourcePath)
+            return
+        }
+        snapshot.managedUserDefaults[SidebarCatalogSection().density.userDefaultsKey] = .string(value.rawValue)
+    }
+
     private func parseSidebarIndicatorPositionSetting(
         _ section: [String: Any],
         jsonKey: String,

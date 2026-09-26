@@ -7750,6 +7750,7 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteSettingsToggleCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteSidebarDensityCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8938,6 +8939,7 @@ struct ContentView: View {
             BrowserAvailabilitySettings.setDisabled(false)
         }
         registerSettingsToggleCommandHandlers(&registry)
+        registerSidebarDensityCommandHandlers(&registry)
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()

@@ -1348,6 +1348,7 @@
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
+          "density": "Standardnivå for arbeidsområdedetaljer i sidepanelet. full viser alle detaljer; compact skjuler den siste logglinjen og begrenser varselforhåndsvisninger til to linjer; quiet viser bare tittellinjen og indikatorer for ulest og agentaktivitet. Detaljinnstillinger du angir eksplisitt, for eksempel sidebar.showPorts, går foran tettheten. hideAllDetails skjuler fortsatt alt.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
         "fileExplorer": {

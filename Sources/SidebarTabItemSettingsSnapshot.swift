@@ -62,8 +62,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         hidesAllDetails = settings.value(for: sidebar.hideAllDetails)
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
-            showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
-            showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
+            showWorkspaceDescription: settings.sidebarDetailValue(for: sidebar.showWorkspaceDescription),
+            showNotificationMessage: settings.sidebarDetailValue(for: sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
         showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
@@ -71,7 +71,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         showsNotificationMessage = detailVisibility.showsNotificationMessage
         notificationMessageLineLimit = min(
             max(
-                settings.value(for: sidebar.notificationMessageLineLimit),
+                settings.sidebarNotificationMessageLineLimit(),
                 SidebarCatalogSection.notificationMessageLineLimitRange.lowerBound
             ),
             SidebarCatalogSection.notificationMessageLineLimitRange.upperBound
