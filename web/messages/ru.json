@@ -1782,6 +1782,7 @@
       "metaTitle": "Журнал изменений",
       "versionTitle": "cmux {version} · Журнал изменений",
       "releaseNavLabel": "Версии рядом с cmux {version}",
+      "tryIt": "Попробуйте",
       "sections": {
         "added": "Добавлено",
         "changed": "Изменено",
