@@ -88,7 +88,8 @@ HOT_MIN_SHARE = 0.6
 # A changed line that changes what an importer of the package sees.
 INTERFACE_LINE = re.compile(
     r"^[+-](?![+-])\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|open|package)\b|@inlinable\b|@usableFromInline\b|@_exported\b)")
-SWIFT_COMPILE = re.compile(r"^SwiftCompile \S+ \S+ Compiling (.*?) \(in target '([^']*)'")
+# xcodebuild escapes the space after "Compiling" ("Compiling\\ A.swift /abs/A.swift (in target 'cmux' ...)").
+SWIFT_COMPILE = re.compile(r"^SwiftCompile \S+ \S+ Compiling\\? (.*?) \(in target '([^']*)'")
 TIERS = ("near", "far", "rebuild")
 # Paths kept per record: enough for any near start, bounded for a far one.
 MAX_PATHS = 400

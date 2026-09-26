@@ -83,7 +83,8 @@ class Features(unittest.TestCase):
             log = Path(tmp, "cmux-build.log")
             log.write_text(
                 "SwiftCompile normal arm64 Compiling A.swift, B.swift /s/A.swift /s/B.swift (in target 'cmux' from project 'cmux')\n"
-                "SwiftCompile normal arm64 Compiling C.swift /s/C.swift (in target 'cmux' from project 'cmux')\n"
+                "SwiftCompile normal arm64 Compiling\\ C.swift /s/C.swift (in target 'cmux' from project 'cmux')\n"
+                "SwiftCompile normal arm64 /s/C.swift (in target 'cmux' from project 'cmux')\n"
                 "SwiftCompile normal arm64 Compiling P.swift /p/P.swift (in target 'CmuxKit' from project 'CmuxKit')\n"
                 "SwiftDriver cmux normal arm64 (in target 'cmux')\n")
             self.assertEqual(wd.swift_units(log), {"cmux": 3, "CmuxKit": 1})
