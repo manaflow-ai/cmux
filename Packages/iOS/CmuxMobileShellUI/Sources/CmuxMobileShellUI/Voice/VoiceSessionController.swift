@@ -167,6 +167,9 @@ public final class VoiceSessionController {
         sendQueueTask = nil
         sendQueue = nil
         isAssistantSpeaking = false
+        // An approval card must not outlive its session: a tap after
+        // teardown would act on a conversation that no longer exists.
+        pendingApprovals = []
     }
 
     private func run() async {
@@ -243,11 +246,14 @@ public final class VoiceSessionController {
         client: VoiceLiveSessionClient,
         onReady: @escaping @Sendable (Bool) -> Void
     ) {
+        // Capture chunks yield straight into the send queue's continuation
+        // (Sendable, thread-safe) from the serial audio queue. One detached
+        // Task per chunk would race and reorder the audio.
+        let queue = sendQueue
         audio.start(
-            onCapturedAudio: { [weak self] chunk in
-                // Realtime-adjacent callback: enqueue without touching state.
-                Task { [weak self] in
-                    await self?.forwardCapturedAudio(chunk)
+            onCapturedAudio: { chunk in
+                queue?.yield { client in
+                    try await client.send(.inputAudioAppend(chunk))
                 }
             },
             onPlaybackActivity: { [weak self] active in
@@ -257,12 +263,6 @@ public final class VoiceSessionController {
             },
             onReady: onReady
         )
-    }
-
-    private func forwardCapturedAudio(_ chunk: Data) {
-        enqueueSend { client in
-            try await client.send(.inputAudioAppend(chunk))
-        }
     }
 
     /// All client sends are serialized through one queue so audio chunks stay
@@ -388,9 +388,10 @@ public final class VoiceSessionController {
             ? "The user has enabled Bypass All Permissions: execute tools immediately, destructive ones included, without waiting for approval."
             : """
             Acting tools need the user's spoken confirmation first. \
-            Destructive tools (close_workspace) additionally show the user an \
-            on-screen approval card: after calling one, tell the user to \
-            approve or deny on screen and wait for the tool result.
+            Destructive tools (close_workspace, type_in_terminal) \
+            additionally show the user an on-screen approval card: after \
+            calling one, tell the user to approve or deny on screen and wait \
+            for the tool result.
             """
         return """
         You act on the user's cmux app through the provided tools: read \
@@ -469,12 +470,18 @@ public final class VoiceSessionController {
         let permission = VoiceToolCatalog.permission(forTool: name)
         if permission == .destructive, !settings.orchestratorBypassPermissions {
             let executor = VoiceOrchestratorToolExecutor(store: store, memory: settings.voiceMemory)
+            // Pin the target NOW: the card and the eventual execution must
+            // act on the same object even if the workspace list shifts while
+            // the card is up (spoken names re-resolve; pinned ids do not).
+            let pinned = executor.pinnedApprovalArguments(
+                forTool: name, argumentsJSON: argumentsJSON
+            )
             let approval = PendingToolApproval(
                 id: UUID(),
                 callID: callID,
                 toolName: name,
-                argumentsJSON: argumentsJSON,
-                target: executor.approvalTarget(forTool: name, argumentsJSON: argumentsJSON)
+                argumentsJSON: pinned.argumentsJSON,
+                target: pinned.target
             )
             pendingApprovals.append(approval)
             enqueueThinking(
@@ -509,6 +516,9 @@ public final class VoiceSessionController {
         let approval = pendingApprovals.remove(at: index)
         Task { [weak self] in
             guard let self else { return }
+            // A stop() between the tap and this task must win: never execute
+            // an approved destructive call against a torn-down session.
+            guard self.phase == .live else { return }
             if approved {
                 await self.executeFunctionCall(
                     callID: approval.callID,
@@ -562,12 +572,20 @@ public final class VoiceSessionController {
             usesTerminalFallback = true
             return
         }
-        let preferred = terminalID.flatMap { terminal in
-            sessions.first { $0.terminalID == terminal.rawValue && $0.state != .ended }
+        // With an explicitly selected terminal, only ITS session qualifies:
+        // falling back to another terminal's agent would route speech to an
+        // unrelated conversation. The any-session fallback is reserved for
+        // the no-selection case; otherwise speech types into the selected
+        // terminal itself.
+        let session: ChatSessionDescriptor?
+        if let terminalID {
+            session = sessions.first {
+                $0.terminalID == terminalID.rawValue && $0.state != .ended
+            }
+        } else {
+            session = ChatSessionDescriptor.openable(sessions).first
         }
-        guard let session = preferred ?? ChatSessionDescriptor.openable(sessions).first,
-              session.state != .ended
-        else {
+        guard let session, session.state != .ended else {
             usesTerminalFallback = true
             return
         }

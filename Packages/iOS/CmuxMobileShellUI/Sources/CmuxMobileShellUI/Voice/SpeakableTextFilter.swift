@@ -61,7 +61,7 @@ public enum SpeakableTextFilter {
         options: SpeakableTextOptions
     ) -> [String] {
         var output: [String] = []
-        var fenceDelimiter: String?
+        var fence: (character: Character, length: Int)?
         var fenceLanguage = ""
         var fenceLines: [String] = []
         var tableRowRun = 0
@@ -74,7 +74,7 @@ public enum SpeakableTextFilter {
 
         func closeFence() {
             defer {
-                fenceDelimiter = nil
+                fence = nil
                 fenceLanguage = ""
                 fenceLines = []
             }
@@ -93,8 +93,12 @@ public enum SpeakableTextFilter {
 
         for rawLine in markdown.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if let delimiter = fenceDelimiter {
-                if line.hasPrefix(delimiter) {
+            if let openFence = fence {
+                // CommonMark: a closing fence uses the SAME character as the
+                // opener, at least as long, with nothing else on the line —
+                // ``` inside a ~~~ block is content, not a close.
+                let run = line.prefix { $0 == openFence.character }
+                if run.count >= openFence.length, line.dropFirst(run.count).isEmpty {
                     closeFence()
                 } else {
                     fenceLines.append(rawLine)
@@ -103,9 +107,11 @@ public enum SpeakableTextFilter {
             }
             if line.hasPrefix("```") || line.hasPrefix("~~~") {
                 closeTableRun()
-                fenceDelimiter = String(line.prefix(3))
+                let character = line.first!
+                let run = line.prefix { $0 == character }
+                fence = (character: character, length: run.count)
                 fenceLanguage = line
-                    .dropFirst(3)
+                    .dropFirst(run.count)
                     .trimmingCharacters(in: .whitespaces)
                     .lowercased()
                 continue
@@ -121,7 +127,7 @@ public enum SpeakableTextFilter {
         }
         // An unterminated fence at end-of-message (mid-stream truncation)
         // still summarizes rather than leaking raw code into speech.
-        if fenceDelimiter != nil { closeFence() }
+        if fence != nil { closeFence() }
         closeTableRun()
         return output
     }

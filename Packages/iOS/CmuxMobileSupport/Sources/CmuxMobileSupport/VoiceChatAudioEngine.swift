@@ -85,6 +85,16 @@ public final class VoiceChatAudioEngine: @unchecked Sendable {
                 isActive = true
 
                 let inputNode = engine.inputNode
+                // The `.voiceChat` session mode alone does not arm the
+                // voice-processing unit on an AVAudioEngine input; without it
+                // the mic re-captures the assistant's own speech from the
+                // speaker (it interrupts and answers itself). Must be set
+                // while the engine is stopped and BEFORE reading the input
+                // format, which voice processing changes. A failure degrades
+                // to echo-prone audio rather than refusing to start.
+                if !inputNode.isVoiceProcessingEnabled {
+                    try? inputNode.setVoiceProcessingEnabled(true)
+                }
                 let inputFormat = inputNode.outputFormat(forBus: 0)
                 guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
                     teardownLocked()

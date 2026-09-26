@@ -88,8 +88,11 @@ public struct CMUXMobileRootScene: View {
     /// `\.mobileWebAppSession`.
     private let webAppSession: MobileWebAppSessionBroker
     /// Voice-mode preferences (speech filtering, voice, the user's own
-    /// OpenAI key), shared by the voice entrypoints and Settings.
-    private let voiceSettings: MobileVoiceSettings
+    /// OpenAI key), shared by the voice entrypoints and Settings. `@State`
+    /// like the other root-hosted stores: a `View` init runs on every parent
+    /// re-render, and a plain `let` would rebuild the store (keychain read,
+    /// memory-file load) each time and churn its observable identity.
+    @State private var voiceSettings: MobileVoiceSettings
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -199,7 +202,7 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
-        voiceSettings = MobileVoiceSettings()
+        _voiceSettings = State(initialValue: MobileVoiceSettings())
     }
     #else
     /// Creates the root scene (non-iOS: no push).

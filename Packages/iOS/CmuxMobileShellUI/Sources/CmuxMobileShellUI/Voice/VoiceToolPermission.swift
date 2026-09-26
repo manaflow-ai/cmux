@@ -24,7 +24,12 @@ public enum VoiceToolCatalog {
              "read_notifications", "list_computers", "read_workspace_changes",
              "list_memories":
             return .read
-        case "close_workspace":
+        // type_in_terminal is destructive alongside close_workspace: raw
+        // text plus Return into a shell is arbitrary command execution, the
+        // sharpest prompt-injection edge the orchestrator has. Agent-directed
+        // tools (send_prompt, create_task) stay .act because coding agents
+        // run their own permission systems.
+        case "close_workspace", "type_in_terminal":
             return .destructive
         default:
             // Unknown names execute as .act: the executor answers them with
@@ -32,21 +37,5 @@ public enum VoiceToolCatalog {
             // misclassified as act only costs a verbal confirmation.
             return .act
         }
-    }
-
-    /// Short human-readable description of a destructive call for the
-    /// approval card. `nil` falls back to the generic template.
-    public static func approvalSummary(
-        forTool name: String,
-        argumentsJSON: String
-    ) -> String? {
-        guard name == "close_workspace" else { return nil }
-        let arguments = (try? JSONSerialization.jsonObject(
-            with: Data(argumentsJSON.utf8)
-        )) as? [String: Any]
-        guard let workspace = arguments?["workspace"] as? String, !workspace.isEmpty else {
-            return nil
-        }
-        return workspace
     }
 }

@@ -74,6 +74,22 @@ struct SpeakableTextFilterTests {
         #expect(!output.contains("let old"))
     }
 
+    @Test("a backtick fence inside a tilde block stays content")
+    func mixedFences() {
+        let input = """
+        Patch:
+        ~~~
+        ```
+        let hidden = true
+        ~~~
+        Done.
+        """
+        let output = SpeakableTextFilter.speakableText(from: input)
+        #expect(output.contains("a code block of 2 lines"))
+        #expect(!output.contains("hidden"))
+        #expect(output.contains("Done."))
+    }
+
     @Test("unterminated fences from truncated streams still summarize")
     func unterminatedFence() {
         let input = "Working on it:\n```swift\nfunc a() {}\nfunc b() {}"

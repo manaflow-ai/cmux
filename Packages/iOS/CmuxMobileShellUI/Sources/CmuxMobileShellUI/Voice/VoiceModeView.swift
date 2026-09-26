@@ -109,6 +109,16 @@ private struct VoiceModeContentView: View {
             Text(Self.approvalText(approval))
                 .font(.callout)
                 .multilineTextAlignment(.center)
+            // For non-close tools the pinned target carries what will run
+            // (e.g. "workspace: text to type"); the user must see the exact
+            // payload they are approving.
+            if approval.toolName != "close_workspace", let target = approval.target {
+                Text(target)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .multilineTextAlignment(.center)
+            }
             HStack(spacing: 12) {
                 Button(role: .cancel) {
                     controller.resolvePendingApproval(approval.id, approved: false)

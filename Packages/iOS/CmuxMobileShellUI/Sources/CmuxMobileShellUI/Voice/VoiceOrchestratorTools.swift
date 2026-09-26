@@ -862,14 +862,13 @@ public struct VoiceOrchestratorToolExecutor {
         }
         let trimmed = color.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let resolved: String?
+        let bareHex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
         if trimmed.isEmpty {
             resolved = nil
         } else if let named = Self.spokenColors[trimmed] {
             resolved = named
-        } else if trimmed.hasPrefix("#") || trimmed.range(
-            of: "^[0-9a-f]{6}$", options: .regularExpression
-        ) != nil {
-            resolved = trimmed.hasPrefix("#") ? trimmed : "#\(trimmed)"
+        } else if bareHex.range(of: "^[0-9a-f]{6}$", options: .regularExpression) != nil {
+            resolved = "#\(bareHex)"
         } else {
             let names = Self.spokenColors.keys.sorted().joined(separator: ", ")
             return "Unknown color \"\(color)\". Use one of: \(names), or a hex value."
@@ -971,8 +970,9 @@ public struct VoiceOrchestratorToolExecutor {
 
     // MARK: - Helpers
 
-    /// Resolve a spoken workspace reference: exact id, then exact name, then
-    /// unique substring match (all case-insensitive).
+    /// Resolve a spoken workspace reference: exact id, then unique exact
+    /// name, then unique substring match (all case-insensitive). Ambiguity
+    /// fails closed: acting on "the first one named X" is a guess.
     static func resolveWorkspace(
         _ query: String,
         in workspaces: [MobileWorkspacePreview]
@@ -982,20 +982,36 @@ public struct VoiceOrchestratorToolExecutor {
         if let byID = workspaces.first(where: { $0.id.rawValue.lowercased() == needle }) {
             return byID
         }
-        if let byName = workspaces.first(where: { $0.name.lowercased() == needle }) {
+        if let byName = uniqueMatch(workspaces, where: { $0.name.lowercased() == needle }) {
             return byName
         }
-        let contains = workspaces.filter { $0.name.lowercased().contains(needle) }
-        return contains.count == 1 ? contains.first : nil
+        return uniqueMatch(workspaces, where: { $0.name.lowercased().contains(needle) })
     }
 
-    /// Human-readable target for the destructive-approval card: the resolved
-    /// workspace name when the arguments name one, else nil.
-    func approvalTarget(forTool name: String, argumentsJSON: String) -> String? {
-        guard let raw = VoiceToolCatalog.approvalSummary(
-            forTool: name, argumentsJSON: argumentsJSON
-        ) else { return nil }
-        return Self.resolveWorkspace(raw, in: store.workspaces)?.name ?? raw
+    /// Freeze a destructive call at approval time: spoken workspace
+    /// references are resolved to their stable id so the card and the later
+    /// execution act on the same object even if the list shifts while the
+    /// card is up. Returns the (possibly rewritten) arguments plus the
+    /// human-readable target for the card.
+    func pinnedApprovalArguments(
+        forTool name: String, argumentsJSON: String
+    ) -> (argumentsJSON: String, target: String?) {
+        guard var arguments = (try? JSONSerialization.jsonObject(
+            with: Data(argumentsJSON.utf8)
+        )) as? [String: Any] else { return (argumentsJSON, nil) }
+        let query = arguments["workspace"] as? String ?? ""
+        guard let workspace = Self.resolveWorkspace(query, in: store.workspaces) else {
+            // Execution will answer with the unknown-workspace message.
+            return (argumentsJSON, query.isEmpty ? nil : query)
+        }
+        arguments["workspace"] = workspace.id.rawValue
+        let pinnedJSON = (try? JSONSerialization.data(withJSONObject: arguments))
+            .map { String(decoding: $0, as: UTF8.self) } ?? argumentsJSON
+        var target = workspace.name
+        if name == "type_in_terminal", let text = arguments["text"] as? String {
+            target = "\(workspace.name): \(String(text.prefix(120)))"
+        }
+        return (pinnedJSON, target)
     }
 
     /// The trimmed string when it has content, else nil.

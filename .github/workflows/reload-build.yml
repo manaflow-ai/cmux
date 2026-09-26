@@ -133,7 +133,13 @@ jobs:
           # hosted images now also carry the Xcode 27 RC, whose SDK main's
           # iOS SwiftUI does not compile under (toolbarMinimizeBehavior).
           pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
-          CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
+          # An empty pin would silently lift the cap and let the selector
+          # pick the incompatible newer SDK; fail loudly instead.
+          if [ -z "$pin_major" ]; then
+            echo "::error::.xcode-version missing or unreadable on this ref; refusing to select an uncapped Xcode" >&2
+            exit 1
+          fi
+          CMUX_CI_MAX_MACOS_SDK_MAJOR="$pin_major" ./scripts/select-ci-xcode.sh
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
