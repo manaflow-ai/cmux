@@ -1,7 +1,8 @@
 # cmux Events
 
 cmux exposes a reconnectable event stream for local tools that need to observe
-workspace, pane, surface, notification, browser, Feed, and agent-hook activity.
+workspace, pane, surface, notification, diff-comment, browser, Feed, and
+agent-hook activity.
 
 The same events are appended to `~/.cmuxterm/events.jsonl` as newline-delimited
 JSON. The live stream is delivered over the existing cmux socket. Clients call
@@ -349,6 +350,30 @@ Notifications:
 | `notification.read` | Notification was marked read. |
 | `notification.removed` | One notification was removed. |
 | `notification.cleared` | Notifications were cleared in bulk. |
+
+Diff review comments:
+
+| Name | Trigger |
+| --- | --- |
+| `comment.created` | A new line comment was saved in the diff viewer. |
+| `comment.updated` | An existing line comment was edited in the diff viewer. |
+| `comment.deleted` | A line comment was deleted from the diff viewer. |
+| `comment.consumed` | A pending line comment was delivered through TextBox or dismissed from its pending chip. |
+
+Comment events use category `comment` and source `diff-comments`. Their payload
+includes `repo_root`, `comment_id`, `file_path`, `side`, `start_line`, and
+`end_line`. The message is redacted and represented by `message: null`,
+`message_length`, and `redacted_fields: ["message"]`.
+`end_side` is included when the comment has a cross-side selection. Anchor text
+and submission text are omitted. `message_length` counts Swift `String`
+characters. Reads, repeated consumption, missing-ID deletions, and unchanged
+upserts emit no events.
+
+Subscribe with `cmux events --category comment`, then fetch full comment content
+with `cmux comments list --repo <repo_root> --json` or `comments export`.
+Subscribe before taking the snapshot to avoid missing edits between the read
+and subscription. After a resume gap, take a new snapshot. These repo-scoped
+events have no workspace or surface attribution.
 
 Feed and agent hooks:
 

@@ -114,6 +114,74 @@ final class DiffCommentStoreTests: XCTestCase {
         store.upsert(comment, repoRoot: "/tmp/repo-a")
         XCTAssertEqual(store.comments(repoRoot: "/tmp/repo-a").count, 1)
     }
+
+    func testLifecycleEventsPublishRedactedCommentMetadata() throws {
+        let bus = CmuxEventBus()
+        let store = DiffCommentStore(directoryURL: nil, eventBus: bus)
+
+        let repoRoot = "/tmp/example-repo"
+        let comment = makeComment(message: "secret review text")
+        store.upsert(comment, repoRoot: repoRoot)
+
+        var edited = comment
+        edited.message = "edited secret review text"
+        store.upsert(edited, repoRoot: repoRoot)
+        store.markConsumed(ids: [comment.id], repoRoot: repoRoot, at: Date(timeIntervalSince1970: 2_000))
+        XCTAssertTrue(store.delete(id: comment.id, repoRoot: repoRoot))
+
+        let events = bus.retainedSnapshot()
+        XCTAssertEqual(
+            events.compactMap { $0["name"] as? String },
+            ["comment.created", "comment.updated", "comment.consumed", "comment.deleted"]
+        )
+        for event in events {
+            let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+            XCTAssertEqual(payload["repo_root"] as? String, DiffCommentStore.canonicalRepoRoot(repoRoot))
+            XCTAssertEqual(event["category"] as? String, "comment")
+            XCTAssertEqual(payload["comment_id"] as? String, comment.id.uuidString)
+            XCTAssertEqual(payload["file_path"] as? String, comment.filePath)
+            XCTAssertEqual(payload["start_line"] as? Int, comment.startLine)
+            XCTAssertEqual(payload["end_line"] as? Int, comment.endLine)
+            XCTAssertTrue(payload["message"] is NSNull)
+            XCTAssertEqual(payload["message_length"] as? Int, event["name"] as? String == "comment.created" ? 18 : 25)
+            XCTAssertEqual(payload["redacted_fields"] as? [String], ["message"])
+            let encoded = try XCTUnwrap(CmuxEventBus.encodeLine(event))
+            XCTAssertFalse(encoded.contains("secret review text"))
+        }
+    }
+
+    func testReadAndNoOpMutationsDoNotPublishEvents() {
+        let bus = CmuxEventBus()
+        let store = DiffCommentStore(directoryURL: nil, eventBus: bus)
+        let repoRoot = "/tmp/example-repo"
+        let comment = makeComment()
+        store.upsert(comment, repoRoot: repoRoot)
+        store.upsert(comment, repoRoot: repoRoot)
+        store.markConsumed(ids: [comment.id, comment.id], repoRoot: repoRoot, at: Date(timeIntervalSince1970: 2_000))
+        store.markConsumed(ids: [comment.id], repoRoot: repoRoot, at: Date(timeIntervalSince1970: 3_000))
+        store.markConsumed(ids: [UUID()], repoRoot: repoRoot)
+        store.markConsumed(ids: [], repoRoot: repoRoot)
+        XCTAssertFalse(store.delete(id: UUID(), repoRoot: repoRoot))
+        XCTAssertEqual(store.comments(repoRoot: repoRoot).first?.consumedAt, Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(bus.retainedSnapshot().compactMap { $0["name"] as? String }, ["comment.created", "comment.consumed"])
+    }
+
+    func testEventsReachSubscribersAndReplayWithoutPublishingReads() throws {
+        let bus = CmuxEventBus()
+        let store = DiffCommentStore(directoryURL: nil, eventBus: bus)
+        let subscriber = bus.subscribe(afterSequence: nil, names: [], categories: ["comment"])
+        defer { bus.unsubscribe(subscriber.subscription) }
+        let comment = makeComment()
+        store.upsert(comment, repoRoot: "/tmp/repo-a")
+        let event = try XCTUnwrap(subscriber.subscription.next(timeout: 0))
+        XCTAssertEqual(event["name"] as? String, "comment.created")
+        XCTAssertEqual(store.comments(repoRoot: "/tmp/repo-a").first?.id, comment.id)
+        XCTAssertTrue(store.comments(repoRoot: "/tmp/repo-b").isEmpty)
+        let replay = bus.subscribe(afterSequence: 0, names: ["comment.created"], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+        XCTAssertEqual(replay.replay.count, 1)
+        XCTAssertNil(subscriber.subscription.next(timeout: 0))
+    }
 }
 
 

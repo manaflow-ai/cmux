@@ -254,6 +254,7 @@ extension CMUXCLI {
         list-windows
         current-window
         comments list [--repo <path>] [--all] [--json]
+        comments export [--repo <path>] [--format json|markdown]
         review list [--repo <path>] [--json]
         review show [<id|latest>] [--repo <path>] [--json]
         review findings [<id|latest>] [--repo <path>] [--all] [--json]

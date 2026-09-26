@@ -19,6 +19,8 @@ extension CMUXCLI {
             containing the current directory). Lists pending comments only;
             --all includes comments already delivered to an agent through a
             TextBox submission.
+          export [--repo <path>] [--format json|markdown]
+            Export all review comments in a stable JSON or Markdown format.
         """
     )
 
@@ -901,7 +903,7 @@ extension CMUXCLI {
         }
     }
 
-    /// Runs `cmux comments <subcommand>`; `list` is the only subcommand today.
+    /// Runs `cmux comments <subcommand>` for listing or exporting review comments.
     /// Rejects anything unrecognized before it resolves a repository or calls the socket.
     func runCommentsNamespace(
         commandArgs: [String],
@@ -951,6 +953,45 @@ extension CMUXCLI {
             }
             let payload = try client.sendV2(method: "comments.list", params: params)
             printCommentsListPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "export":
+            let (repoOption, rem0) = parseOption(rest, name: "--repo")
+            let (formatOption, remainder) = parseOption(rem0, name: "--format")
+            if let repoOption, repoOption.hasPrefix("--") {
+                throw CLIError(message: CMUXDiffViewerLocalization.string(
+                    "cli.comments.error.repoRequiresPath",
+                    defaultValue: "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+                ))
+            }
+            if let unexpected = remainder.first {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    CMUXDiffViewerLocalization.string(
+                        "cli.comments.export.error.unexpectedArgument",
+                        defaultValue: "Unexpected argument '%@' for cmux comments export. Supported: --repo <path>, --format json|markdown"
+                    ),
+                    unexpected
+                ))
+            }
+            let format = (formatOption ?? "json").lowercased()
+            guard format == "json" || format == "markdown" else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    CMUXDiffViewerLocalization.string(
+                        "cli.comments.error.invalidFormat",
+                        defaultValue: "Unsupported comments export format '%@'. Use json or markdown."
+                    ),
+                    format
+                ))
+            }
+            let startPath = repoOption ?? FileManager.default.currentDirectoryPath
+            let params: [String: Any] = [
+                "repo_root": try commentsGitRepoRoot(startingAt: startPath),
+                "include_consumed": true
+            ]
+            let payload = try client.sendV2(method: "comments.list", params: params)
+            if format == "json" {
+                print(jsonString(payload))
+            } else {
+                print(commentsMarkdown(payload))
+            }
         default:
             throw CLIError(message: String.localizedStringWithFormat(
                 CMUXDiffViewerLocalization.string(
@@ -960,6 +1001,51 @@ extension CMUXCLI {
                 sub
             ))
         }
+    }
+
+    /// Exports anchors as fenced code and messages as block quotes so multiline
+    /// review text cannot accidentally become the next comment's heading.
+    private func commentsMarkdown(_ payload: [String: Any]) -> String {
+        let comments = payload["comments"] as? [[String: Any]] ?? []
+        return comments.map { comment in
+            let filePath = (comment["filePath"] as? String ?? "")
+                .replacingOccurrences(of: "\r", with: "\\r")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            let startLine = intFromAny(comment["startLine"]) ?? 0
+            let endLine = intFromAny(comment["endLine"]) ?? startLine
+            let side = comment["side"] as? String ?? "additions"
+            let state = comment["consumedAt"] == nil
+                ? CMUXDiffViewerLocalization.string("cli.comments.list.statePending", defaultValue: "pending")
+                : CMUXDiffViewerLocalization.string("cli.comments.list.stateConsumed", defaultValue: "consumed")
+            let pathDelimiter = commentsCodeDelimiter(filePath, minimum: 1)
+            let anchor = comment["lineText"] as? String ?? ""
+            let anchorDelimiter = commentsCodeDelimiter(anchor, minimum: 3)
+            let message = (comment["message"] as? String ?? "")
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .components(separatedBy: "\n").map { "> \($0)" }.joined(separator: "\n")
+            return """
+            ### \(pathDelimiter) \(filePath) \(pathDelimiter):\(startLine)-\(endLine) (\(side), \(state))
+
+            <!-- cmux-comment: \(comment["id"] as? String ?? "") -->
+
+            \(anchorDelimiter)
+            \(anchor)
+            \(anchorDelimiter)
+
+            \(message)
+            """
+        }.joined(separator: "\n\n")
+    }
+
+    private func commentsCodeDelimiter(_ text: String, minimum: Int) -> String {
+        var longest = 0
+        var current = 0
+        for character in text {
+            current = character == "`" ? current + 1 : 0
+            longest = max(longest, current)
+        }
+        return String(repeating: "`", count: max(minimum, longest + 1))
     }
 
     /// Resolves the git top level for `--repo` (or the current directory), so the
