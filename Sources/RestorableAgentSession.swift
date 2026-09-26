@@ -601,6 +601,13 @@ enum AgentResumeCommandBuilder {
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
+        // The managed-wrapper merge above records the absolute Codex executable
+        // for wrapper routing, but a plain resume command already names that
+        // executable directly. Only a path the launch itself captured (a routed
+        // Subrouter restore keeps the real binary behind the wrapper) is replayed.
+        if launchCommand?.environment?["CMUX_CUSTOM_CODEX_PATH"] == nil {
+            selectedEnvironment.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
         let piFamilyUsesCapturedPath = kind == .pi
             || kind.customAgentID == "pi"
             || kind.customAgentID == "omp"
