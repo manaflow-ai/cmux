@@ -4,6 +4,7 @@ import CmuxMobileRPC
 import CmuxMobileHost
 import Foundation
 @preconcurrency import Network
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -306,6 +307,33 @@ extension MobileHostAuthorizationTests {
 
         await session.close(reason: "test cleanup")
         #expect(await transport.observedCloseCount() == 1)
+    }
+
+    /// Closing a connection ends its event drain even when the transport's
+    /// close leaves the drain's in-flight write parked; otherwise the drain
+    /// task outlives the connection that started it.
+    @Test func testCloseCancelsEventDrainParkedInWrite() async throws {
+        let transport = CloseIgnoringStalledSendTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        defer { transport.releaseStalledSends() }
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-drain-close", "full": true, "state_seq": 1]
+        ))
+        await transport.waitUntilSendStalled()
+
+        await session.close(reason: "test cleanup")
+
+        #expect(transport.cancelledSendCount() == 1)
+        #expect(transport.stalledSendCount() == 0)
     }
 
     /// Ordered events must survive congestion without forcing a reconnect.
@@ -1053,5 +1081,76 @@ actor StalledSendMobileHostByteTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(throwing: StalledSendError.closed)
         }
+    }
+}
+
+/// A byte transport whose `close()` does not fail a parked `send`: only
+/// cancelling the sending task, or the test's own release, ends it. The
+/// cancellation count is recorded synchronously by the cancellation handler.
+final class CloseIgnoringStalledSendTransport: CmxByteTransport {
+    private struct State {
+        var sendWaiters: [CheckedContinuation<Void, any Error>] = []
+        var stalledWaiters: [CheckedContinuation<Void, Never>] = []
+        var cancelledSends = 0
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? { nil }
+
+    func send(_: Data) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                // Checked under the lock the handler takes, so a cancellation
+                // either finds this send parked or is seen here first.
+                let stalled = state.withLock { state -> [CheckedContinuation<Void, Never>]? in
+                    guard !Task.isCancelled else { return nil }
+                    state.sendWaiters.append(continuation)
+                    defer { state.stalledWaiters.removeAll() }
+                    return state.stalledWaiters
+                }
+                guard let stalled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                stalled.forEach { $0.resume() }
+            }
+        } onCancel: {
+            let waiters = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
+                state.cancelledSends += 1
+                defer { state.sendWaiters.removeAll() }
+                return state.sendWaiters
+            }
+            waiters.forEach { $0.resume(throwing: CancellationError()) }
+        }
+    }
+
+    func close() async {}
+
+    /// Waits until a send has parked.
+    func waitUntilSendStalled() async {
+        await withCheckedContinuation { continuation in
+            let parked = state.withLock { state -> Bool in
+                guard state.sendWaiters.isEmpty else { return true }
+                state.stalledWaiters.append(continuation)
+                return false
+            }
+            if parked { continuation.resume() }
+        }
+    }
+
+    func cancelledSendCount() -> Int { state.withLock { $0.cancelledSends } }
+
+    func stalledSendCount() -> Int { state.withLock { $0.sendWaiters.count } }
+
+    /// Fails any send still parked so no task is stranded past the test.
+    func releaseStalledSends() {
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
+            defer { state.sendWaiters.removeAll() }
+            return state.sendWaiters
+        }
+        waiters.forEach { $0.resume(throwing: CancellationError()) }
     }
 }
