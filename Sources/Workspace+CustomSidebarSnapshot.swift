@@ -140,6 +140,11 @@ extension Workspace {
                     ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
                     : panelId
                 let git = reportedPanelGitBranch(panelId: panelId)
+                // A remote tmux window tab is a mirror container that
+                // `surface.focus` rejects; hand out its projected pane instead.
+                let focusSurfaceId = activeRemoteTmuxControlSurfaceProjection(
+                    containerPanelID: panelId
+                )?.surfaceID ?? tab.id.uuid
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,

@@ -379,6 +379,32 @@ import Testing
     }
 }
 
+extension RemoteTmuxMirrorLayoutIdentityTests {
+    @Test("custom sidebar tabs of a remote tmux window expose the focusable projected surface")
+    func customSidebarTabsExposeProjectedSurface() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let projectedPanel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let snapshot = harness.workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: harness.workspace.id,
+            unreadCount: 0
+        )
+        let tab = try #require(snapshot.surfaces.first {
+            harness.workspace.isRemoteTmuxControlContainer($0.panelId)
+        })
+        let surfaceId = try #require(tab.surfaceId)
+
+        #expect(surfaceId == projectedPanel.id)
+        #expect(tab.panelId != projectedPanel.id)
+        guard case .pane = harness.workspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceId) else {
+            Issue.record("sidebar surfaceId must resolve to a projected tmux pane")
+            return
+        }
+    }
+}
+
 private typealias Harness = RemoteTmuxSessionMirrorLayoutHarness
 
 @MainActor
