@@ -8,7 +8,7 @@ import Testing
         let nested = fixture.root.appendingPathComponent("Sources/App", isDirectory: true)
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path)
+        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path, timeout: .seconds(60))
 
         #expect(root == fixture.root.standardizedFileURL.path)
     }
@@ -28,7 +28,7 @@ import Testing
             encoding: .utf8
         )
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path)
+        let root = await GitMetadataService().workTreeRoot(forDirectory: nested.path, timeout: .seconds(60))
 
         #expect(root == worktree.standardizedFileURL.path)
     }
@@ -39,7 +39,7 @@ import Testing
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let root = await GitMetadataService().workTreeRoot(forDirectory: base.path)
+        let root = await GitMetadataService().workTreeRoot(forDirectory: base.path, timeout: .seconds(60))
 
         #expect(root == nil)
     }

@@ -13,8 +13,9 @@ extension GitMetadataService {
     /// rather than resolving symlinks, and it does not special-case paths
     /// inside a `.git` directory.
     ///
-    /// The walk runs off the cooperative executor and gives up at `timeout`,
-    /// so a stalled network mount cannot hold the caller indefinitely.
+    /// The walk runs on a user-initiated global queue, off the cooperative
+    /// executor, and stops once `timeout` has elapsed so a stalled network
+    /// mount cannot hold the caller indefinitely.
     ///
     /// - Parameters:
     ///   - directory: An absolute path to start from. A path to a file is
@@ -24,15 +25,23 @@ extension GitMetadataService {
     ///   a git repository or the walk timed out.
     public nonisolated func workTreeRoot(
         forDirectory directory: String,
-        timeout: Duration = .milliseconds(1_500)
+        timeout: Duration = .seconds(5)
     ) async -> String? {
         let components = timeout.components
         let nanoseconds = Double(components.seconds) * 1_000_000_000
             + Double(components.attoseconds) / 1_000_000_000
         let boundedNanoseconds = Int(min(max(0, nanoseconds), Double(Int32.max) * 1_000))
-        return await resolveGitRepositoryBlocking(
-            containing: directory,
-            deadline: .now() + .nanoseconds(boundedNanoseconds)
-        )?.workTreeRoot
+        let deadline = DispatchTime.now() + .nanoseconds(boundedNanoseconds)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard deadline > DispatchTime.now() else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(
+                    returning: Self.resolveGitRepository(containing: directory, deadline: deadline)?.workTreeRoot
+                )
+            }
+        }
     }
 }
