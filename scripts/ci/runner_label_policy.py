@@ -155,6 +155,31 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+TRUSTED_POOL_VARIABLE = "CI_SEED_TRUSTED_POOL"
+TRUSTED_POOL_PREFIX = "glaeda-trusted-"
+
+
+def trusted_pool_reason(label: str) -> str | None:
+    """Why CI_SEED_TRUSTED_POOL is not allowed, or None when it is fine.
+
+    seed-derived-data.yml seeds on this pool and nightly.yml's app build reads
+    it as its attempt-1 runs-on, both with the ci-cache-writer R2 keys, and the
+    app build's product is signed and shipped. So it may name only the trusted
+    owned pool, glaeda-trusted-<class>-xcode-<version>: minis with no pull
+    request runners, whose hook admits only main's push and schedule jobs.
+    A pull request pool label (glaeda-std-...) would put those credentials and
+    that build on machines that run pull request code. Empty is fine (off).
+    """
+    if not label:
+        return None
+    if label.startswith(TRUSTED_POOL_PREFIX) and _owned_pattern().fullmatch(
+        "glaeda-" + label[len(TRUSTED_POOL_PREFIX):]
+    ):
+        return None
+    return (f"`{label}` is not a trusted owned pool label "
+            f"({TRUSTED_POOL_PREFIX}<class>-xcode-<version>)")
+
+
 def forbidden_reason(label: str) -> str | None:
     """Why this runner label is not allowed, or None when it is fine.
 
@@ -196,6 +221,8 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name == SIDE_LANE_VARIABLE:
             reason = side_lane_reason(value.strip())
+        elif name == TRUSTED_POOL_VARIABLE:
+            reason = trusted_pool_reason(value.strip())
         elif "RUNNER" not in name:
             continue
         else:

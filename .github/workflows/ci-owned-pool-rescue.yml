@@ -37,6 +37,10 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 #   terminal-hang-diagnostics) have no picker: while vars.CI_SIDE_LANE_RUNNER
 #   names a glaeda-side-* label, every same-repository attempt-1 pull request
 #   run of theirs is on the fleet, so a dispatch would save no run.
+# - nightly.yml: build-nightly-app has no picker either. While
+#   vars.CI_SEED_TRUSTED_POOL names a glaeda-trusted-* pool, attempt 1 of
+#   every push or schedule run on main asks for it, so every such run is
+#   watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
 # It needs actions: write, and its code comes from main. It runs whenever
 # owned pools are on (CI_PR_POOL_OWNED is 1), because a run on an owned pool
 # has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. The switch
@@ -58,6 +62,9 @@ on:
       - IROH v2
       - Relay TLS system trust
       - Terminal hang diagnostics
+      # nightly.yml: its app build takes the trusted owned pool on attempt 1
+      # of main's push and schedule runs (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
+      - Nightly macOS build
     types: [requested]
   workflow_dispatch:
     inputs:
@@ -89,6 +96,7 @@ env:
     .github/workflows/cloud-machine-tests.yml .github/workflows/cloud-task-local-tests.yml
     .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
     .github/workflows/terminal-hang-diagnostics.yml
+    .github/workflows/nightly.yml
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
@@ -98,7 +106,7 @@ concurrency:
 jobs:
   rescue:
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'pull_request' && startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-')) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # A sweeper adopts runs for 300 minutes and gives a rescue 25 more to
     # settle (SWEEP_SECONDS, RESCUE_GRACE_SECONDS). A single run's watch is
