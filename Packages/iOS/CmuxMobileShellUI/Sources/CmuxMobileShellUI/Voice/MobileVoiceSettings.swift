@@ -156,7 +156,10 @@ public final class MobileVoiceSettings {
 }
 
 /// Storage seam for the user's OpenAI API key. `nil` means no key.
-public protocol MobileVoiceAPIKeyStoring: Sendable {
+/// Main-actor by design: its only caller is the main-actor settings store,
+/// and the constraint keeps implementations free of ad-hoc locking.
+@MainActor
+public protocol MobileVoiceAPIKeyStoring {
     func load() -> String?
     func store(_ key: String?)
 }
@@ -210,8 +213,8 @@ public struct MobileVoiceKeychainAPIKeyStore: MobileVoiceAPIKeyStoring {
 }
 
 /// In-memory key storage for tests and previews.
-public final class MobileVoiceInMemoryAPIKeyStore: MobileVoiceAPIKeyStoring, @unchecked Sendable {
-    private let lock = NSLock()
+@MainActor
+public final class MobileVoiceInMemoryAPIKeyStore: MobileVoiceAPIKeyStoring {
     private var key: String?
 
     public init(key: String? = nil) {
@@ -219,10 +222,10 @@ public final class MobileVoiceInMemoryAPIKeyStore: MobileVoiceAPIKeyStoring, @un
     }
 
     public func load() -> String? {
-        lock.withLock { key }
+        key
     }
 
     public func store(_ key: String?) {
-        lock.withLock { self.key = key }
+        self.key = key
     }
 }

@@ -2,7 +2,7 @@ import Testing
 
 @testable import CmuxMobileShellUI
 
-@Suite("VoiceToolCatalog")
+@Suite("VoiceToolPermission")
 struct VoiceToolPermissionTests {
     @Test("read tools classify as read")
     func readTools() {
@@ -11,7 +11,7 @@ struct VoiceToolPermissionTests {
             "read_notifications", "list_computers", "read_workspace_changes",
             "list_memories",
         ] {
-            #expect(VoiceToolCatalog.permission(forTool: name) == .read)
+            #expect(VoiceToolPermission(toolNamed: name) == .read)
         }
     }
 
@@ -26,14 +26,14 @@ struct VoiceToolPermissionTests {
             "mark_notification_read", "open_notification",
             "remember", "forget_memory",
         ] {
-            #expect(VoiceToolCatalog.permission(forTool: name) == .act)
+            #expect(VoiceToolPermission(toolNamed: name) == .act)
         }
     }
 
     @Test("terminal typing and workspace closing are destructive; unknown tools default to act")
     func destructiveAndUnknown() {
-        #expect(VoiceToolCatalog.permission(forTool: "close_workspace") == .destructive)
-        #expect(VoiceToolCatalog.permission(forTool: "type_in_terminal") == .destructive)
-        #expect(VoiceToolCatalog.permission(forTool: "future_tool") == .act)
+        #expect(VoiceToolPermission(toolNamed: "close_workspace") == .destructive)
+        #expect(VoiceToolPermission(toolNamed: "type_in_terminal") == .destructive)
+        #expect(VoiceToolPermission(toolNamed: "future_tool") == .act)
     }
 }

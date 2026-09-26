@@ -29,18 +29,21 @@ public struct SpeakableTextOptions: Sendable, Equatable {
 /// the conversation language.
 ///
 /// Pure and total: never throws, empty input yields empty output.
-public enum SpeakableTextFilter {
+public struct SpeakableTextFilter {
     /// A fenced code block only qualifies for verbatim reading below this
     /// many lines, and only when the caller opted in.
     public static let maximumSpokenCodeBlockLines = 6
     /// Inline code longer than this is summarized instead of spoken.
     public static let maximumSpokenInlineCodeLength = 48
 
-    public static func speakableText(
-        from markdown: String,
-        options: SpeakableTextOptions = SpeakableTextOptions()
-    ) -> String {
-        let collapsed = collapseBlocks(in: markdown, options: options)
+    public var options: SpeakableTextOptions
+
+    public init(options: SpeakableTextOptions = SpeakableTextOptions()) {
+        self.options = options
+    }
+
+    public func speakableText(from markdown: String) -> String {
+        let collapsed = collapseBlocks(in: markdown)
         let flattened = collapsed
             .map { Self.flattenInline($0) }
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -51,15 +54,12 @@ public enum SpeakableTextFilter {
                 options: .regularExpression
             )
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return capped(flattened, at: max(options.maximumCharacters, 80))
+        return Self.capped(flattened, at: max(options.maximumCharacters, 80))
     }
 
     /// First pass, line-oriented: fold fenced code blocks and table runs into
     /// single summary lines, keeping everything else in order.
-    private static func collapseBlocks(
-        in markdown: String,
-        options: SpeakableTextOptions
-    ) -> [String] {
+    private func collapseBlocks(in markdown: String) -> [String] {
         var output: [String] = []
         var fence: (character: Character, length: Int)?
         var fenceLanguage = ""
@@ -79,11 +79,11 @@ public enum SpeakableTextFilter {
                 fenceLines = []
             }
             let lines = fenceLines
-            if isDiff(language: fenceLanguage, lines: lines) {
-                output.append("(a diff changing \(diffChangeCount(in: lines)) lines.)")
+            if Self.isDiff(language: fenceLanguage, lines: lines) {
+                output.append("(a diff changing \(Self.diffChangeCount(in: lines)) lines.)")
                 return
             }
-            if options.speakCodeBlocks, lines.count <= maximumSpokenCodeBlockLines {
+            if options.speakCodeBlocks, lines.count <= Self.maximumSpokenCodeBlockLines {
                 output.append(contentsOf: lines)
                 return
             }

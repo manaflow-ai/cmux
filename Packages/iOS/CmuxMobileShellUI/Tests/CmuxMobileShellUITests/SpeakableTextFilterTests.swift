@@ -13,7 +13,7 @@ struct SpeakableTextFilterTests {
         - The cache is now invalidated.
         - Tests pass.
         """
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output == "Done I fixed the bug in the parser. The cache is now invalidated. Tests pass.")
     }
 
@@ -29,7 +29,7 @@ struct SpeakableTextFilterTests {
         ```
         Let me know.
         """
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("a swift block of 4 lines"))
         #expect(!output.contains("print"))
         #expect(output.contains("Let me know."))
@@ -44,7 +44,7 @@ struct SpeakableTextFilterTests {
         ```
         """
         let options = SpeakableTextOptions(speakCodeBlocks: true)
-        let output = SpeakableTextFilter.speakableText(from: input, options: options)
+        let output = SpeakableTextFilter(options: options).speakableText(from: input)
         #expect(output.contains("swift build"))
     }
 
@@ -53,7 +53,7 @@ struct SpeakableTextFilterTests {
         let body = Array(repeating: "let x = 1", count: 30).joined(separator: "\n")
         let input = "Result:\n```swift\n\(body)\n```"
         let options = SpeakableTextOptions(speakCodeBlocks: true)
-        let output = SpeakableTextFilter.speakableText(from: input, options: options)
+        let output = SpeakableTextFilter(options: options).speakableText(from: input)
         #expect(output.contains("a swift block of 30 lines"))
         #expect(!output.contains("let x = 1"))
     }
@@ -69,7 +69,7 @@ struct SpeakableTextFilterTests {
         +let extra = 1
         ```
         """
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("a diff changing 3 lines"))
         #expect(!output.contains("let old"))
     }
@@ -84,7 +84,7 @@ struct SpeakableTextFilterTests {
         ~~~
         Done.
         """
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("a code block of 2 lines"))
         #expect(!output.contains("hidden"))
         #expect(output.contains("Done."))
@@ -93,7 +93,7 @@ struct SpeakableTextFilterTests {
     @Test("unterminated fences from truncated streams still summarize")
     func unterminatedFence() {
         let input = "Working on it:\n```swift\nfunc a() {}\nfunc b() {}"
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("a swift block of 2 lines"))
         #expect(!output.contains("func a"))
     }
@@ -108,7 +108,7 @@ struct SpeakableTextFilterTests {
         | b    | 2     |
         Done.
         """
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("a table with 3 rows"))
         #expect(!output.contains("|"))
     }
@@ -116,7 +116,7 @@ struct SpeakableTextFilterTests {
     @Test("links speak their label and bare URLs their host")
     func linksAndURLs() {
         let input = "See [the PR](https://github.com/manaflow-ai/cmux/pull/1) and https://example.com/a/b?q=1"
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("the PR"))
         #expect(!output.contains("github.com/manaflow-ai"))
         #expect(output.contains("the link at example.com"))
@@ -126,7 +126,7 @@ struct SpeakableTextFilterTests {
     func inlineCode() {
         let long = String(repeating: "x", count: 80)
         let input = "Set `CMUX_PORT` from `\(long)` first."
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("CMUX_PORT"))
         #expect(output.contains("an inline code snippet"))
         #expect(!output.contains(long))
@@ -135,7 +135,7 @@ struct SpeakableTextFilterTests {
     @Test("deep file paths reduce to their basename")
     func deepPaths() {
         let input = "Edited /Users/dev/project/Sources/App/Main.swift today."
-        let output = SpeakableTextFilter.speakableText(from: input)
+        let output = SpeakableTextFilter().speakableText(from: input)
         #expect(output.contains("the file Main.swift"))
         #expect(!output.contains("/Users/dev"))
     }
@@ -145,14 +145,14 @@ struct SpeakableTextFilterTests {
         let sentence = "This sentence is precisely long enough to matter here. "
         let input = String(repeating: sentence, count: 30)
         let options = SpeakableTextOptions(maximumCharacters: 200)
-        let output = SpeakableTextFilter.speakableText(from: input, options: options)
+        let output = SpeakableTextFilter(options: options).speakableText(from: input)
         #expect(output.count <= 200)
         #expect(output.hasSuffix("."))
     }
 
     @Test("empty and whitespace input yield empty output")
     func emptyInput() {
-        #expect(SpeakableTextFilter.speakableText(from: "") == "")
-        #expect(SpeakableTextFilter.speakableText(from: "  \n\n  ") == "")
+        #expect(SpeakableTextFilter().speakableText(from: "") == "")
+        #expect(SpeakableTextFilter().speakableText(from: "  \n\n  ") == "")
     }
 }

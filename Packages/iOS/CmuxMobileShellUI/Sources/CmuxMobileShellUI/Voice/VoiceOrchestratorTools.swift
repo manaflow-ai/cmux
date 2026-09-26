@@ -10,7 +10,7 @@ import Foundation
 /// prompts, answers, and history, the workspace-action mutations behind the
 /// list rows' context menu, the notification feed store — so voice can do
 /// what any on-device surface can, and nothing more. Permission tiers live in
-/// ``VoiceToolCatalog``; the session controller gates `destructive` calls on
+/// ``VoiceToolPermission``; the session controller gates `destructive` calls on
 /// an on-screen approval unless Bypass All Permissions is on.
 @MainActor
 public struct VoiceOrchestratorToolExecutor {
@@ -466,14 +466,12 @@ public struct VoiceOrchestratorToolExecutor {
         ) else {
             return "Could not load the conversation for \(workspace.name)."
         }
-        let filterOptions = SpeakableTextOptions(speakCodeBlocks: false, maximumCharacters: 320)
+        let filter = SpeakableTextFilter(options: SpeakableTextOptions(speakCodeBlocks: false, maximumCharacters: 320))
         let rows = page.messages.map { message -> [String: Any] in
             var row: [String: Any] = ["from": message.role == .user ? "user" : "agent"]
             switch message.kind {
             case .prose(let prose):
-                row["text"] = SpeakableTextFilter.speakableText(
-                    from: prose.text, options: filterOptions
-                )
+                row["text"] = filter.speakableText(from: prose.text)
             case .thought:
                 row["text"] = "(internal reasoning)"
             case .toolUse(let tool):

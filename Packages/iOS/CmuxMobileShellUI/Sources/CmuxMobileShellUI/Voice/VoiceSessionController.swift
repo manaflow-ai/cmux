@@ -467,7 +467,7 @@ public final class VoiceSessionController {
     private func handleFunctionCall(
         callID: String, name: String, argumentsJSON: String
     ) async {
-        let permission = VoiceToolCatalog.permission(forTool: name)
+        let permission = VoiceToolPermission(toolNamed: name)
         if permission == .destructive, !settings.orchestratorBypassPermissions {
             let executor = VoiceOrchestratorToolExecutor(store: store, memory: settings.voiceMemory)
             // Pin the target NOW: the card and the eventual execution must
@@ -622,17 +622,13 @@ public final class VoiceSessionController {
         guard settings.speakAgentReplies else { return }
         switch message.kind {
         case .prose(let prose):
-            let speakable = SpeakableTextFilter.speakableText(
-                from: prose.text,
-                options: settings.speakableTextOptions
-            )
+            let speakable = SpeakableTextFilter(options: settings.speakableTextOptions)
+                .speakableText(from: prose.text)
             guard !speakable.isEmpty else { return }
             enqueueCommentary("The coding agent replied: \(speakable)")
         case .question(let question):
-            var prompt = SpeakableTextFilter.speakableText(
-                from: question.prompt,
-                options: settings.speakableTextOptions
-            )
+            var prompt = SpeakableTextFilter(options: settings.speakableTextOptions)
+                .speakableText(from: question.prompt)
             if !question.options.isEmpty {
                 let labels = question.options.map(\.label).joined(separator: ", ")
                 prompt += " The options are: \(labels)."
