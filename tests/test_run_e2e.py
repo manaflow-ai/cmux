@@ -300,8 +300,8 @@ class FocusedLauncherTests(unittest.TestCase):
         cases = {
             "fork": {"run": {**self.PR_CI, "head_repository": {"full_name": "someone/cmux"}}},
             "macos 15": {"jobs": [{"name": "macos / macOS compile admission", "labels": [OLD]}]},
-            "light mac": {"jobs": [{"name": "macos / macOS compile admission",
-                                    "labels": ["glaeda-root-light-xcode-26.6"]}]},
+            "owned xcode without a choice": {"jobs": [{"name": "macos / macOS compile admission",
+                                                        "labels": ["glaeda-root-std-xcode-27.0"]}]},
             "no products": {"artifacts": []},
             "no recorded merge": {"run": {**self.PR_CI, "referenced_workflows": []}},
         }
@@ -1740,11 +1740,13 @@ class CIProductReuseTests(unittest.TestCase):
             self.assertIsNone(self.reuse())
         self.find_run.assert_not_called()
 
-    def test_an_owned_ui_run_keeps_the_producers_mac_class(self):
-        owned_class = self.dispatch.owned_class
-        self.assertEqual(owned_class("glaeda-root-std-xcode-26.6"), owned_class("glaeda-std-xcode-26.6"))
-        self.assertNotEqual(owned_class("glaeda-root-light-xcode-26.6"), owned_class("glaeda-root-std-xcode-26.6"))
-        self.assertIsNone(owned_class(SMALL))
+    def test_any_owned_class_maps_to_the_owned_choice_test_e2e_offers(self):
+        for label in ("glaeda-root-std-xcode-26.6", "glaeda-root-light-xcode-26.6", "glaeda-xl-xcode-26.6"):
+            with self.subTest(label):
+                self.dispatch.rerun.gh_api.side_effect = lambda path, label=label: {
+                    "jobs": [{"name": "macos / macOS compile admission", "labels": [label]}]}
+                self.assertEqual(self.dispatch.product_family({"id": 5}), MINI)
+        self.assertIsNone(self.dispatch.owned_class(SMALL))
 
     def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
         with mock.patch.object(self.dispatch, "planned_products") as plan:

@@ -720,9 +720,10 @@ def same_product_inputs(first: str, second: str) -> bool:
 # share, so a product only ever moves within one of these families: on
 # 2026-09-25 every adoption of a ci.yml product went Blacksmith to Blacksmith
 # (either size) or owned Mac to owned Mac, and a 12vcpu dispatch of an owned
-# Mac's product missed (run 36209020703). Owned Macs of another class differ
-# too: a light Mac missed a std Mac's product (run 36212302297). The UI run
-# is pinned to the family, and on owned Macs to the producer's class.
+# Mac's product missed (run 36209020703). The UI run is pinned to the family;
+# owned classes share one toolchain (a light and a std Mac computed one key,
+# runs 36212302297 and 36213457297), so the owned choice test-e2e.yml offers
+# serves every class.
 FAMILY_RUNNERS = {"blacksmith": "blacksmith-6vcpu-macos-26"}
 OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(xl|std|light)-xcode-([0-9.]+)")
 
@@ -733,10 +734,10 @@ def owned_class(label: str | None) -> tuple[str, str] | None:
 
 
 def product_family(source: dict) -> str | None:
-    """The owned runner choice test-e2e.yml offers for the class of Mac a CI
-    run's compile admission ran on, or "blacksmith" for Blacksmith macOS 26;
-    "" before it has a runner; None for anything else (macOS 15, another
-    owned class)."""
+    """The owned runner choice test-e2e.yml offers when a CI run's compile
+    admission ran on an owned Mac, or "blacksmith" for Blacksmith macOS 26;
+    "" before it has a runner; None for anything else (macOS 15, an Xcode
+    test-e2e.yml offers no owned choice for)."""
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{source['id']}/jobs?filter=latest&per_page=100")
     for job in listing.get("jobs", []):
         if not job.get("name", "").endswith(rerun.ADMISSION_JOB):
@@ -744,10 +745,8 @@ def product_family(source: dict) -> str | None:
         labels = job.get("labels") or []
         owned = [label for label in labels if owned_class(label)]
         if owned:
-            # test-e2e.yml's runner input offers one owned class; a product
-            # of another class has nowhere this run can be sent to adopt it.
-            cls, version = owned_class(owned[0])
-            dispatchable = f"glaeda-{cls}-xcode-{version}"
+            # test-e2e.yml's runner input offers one owned choice per Xcode.
+            dispatchable = f"glaeda-std-xcode-{owned_class(owned[0])[1]}"
             return dispatchable if dispatchable in RUNNERS else None
         if any(re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", label) for label in labels):
             return "blacksmith"
@@ -1077,9 +1076,7 @@ def main() -> int:
         if family == "blacksmith":
             if not runner or pool.pr_runner_pool.persistent(runner) or "macos-26" not in runner:
                 runner = FAMILY_RUNNERS["blacksmith"]
-        else:
-            # The owned label test-e2e.yml offers, never the pool's own
-            # choice, which may be another class (run 36212302297).
+        elif not (runner and pool.pr_runner_pool.persistent(runner) and runner in OVERFLOW_POOLS):
             runner = family
         print(f"Runner: {runner}, the pool family that compiled {commit}'s products", flush=True)
     dispatch_id = uuid.uuid4().hex
