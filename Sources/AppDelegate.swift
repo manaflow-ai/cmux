@@ -17970,10 +17970,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            switch SingleInstanceConflictPolicy.action(
+            switch SingleInstanceConflictPolicy(environment: environment).action(
                 currentBundleURL: Bundle.main.bundleURL,
-                existingBundleURL: app.bundleURL,
-                environment: environment
+                existingBundleURL: app.bundleURL
             ) {
             case .yieldToExisting:
                 // Another bundle sharing this id (a local Release build, a
@@ -18056,10 +18055,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // A relaunch of this same bundle is meant to replace us (its
             // enforceSingleInstance asks us to quit gracefully); let it live.
             if let launchedBundleURL = app.bundleURL,
-               SingleInstanceConflictPolicy.action(
+               SingleInstanceConflictPolicy(environment: [:]).action(
                    currentBundleURL: launchedBundleURL,
-                   existingBundleURL: Bundle.main.bundleURL,
-                   environment: [:]
+                   existingBundleURL: Bundle.main.bundleURL
                ) == .replaceExisting {
                 StartupBreadcrumbLog.append(
                     "singleInstance.observe.sameBundleRelaunch",

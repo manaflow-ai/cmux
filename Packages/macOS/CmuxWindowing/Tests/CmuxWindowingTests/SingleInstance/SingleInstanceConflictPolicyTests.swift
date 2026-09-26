@@ -13,18 +13,14 @@ struct SingleInstanceConflictPolicyTests {
     @Test("a different bundle with the stable id leaves the running app alone")
     func otherBundleYields() {
         #expect(
-            SingleInstanceConflictPolicy.action(
-                currentBundleURL: localRelease,
-                existingBundleURL: stable,
-                environment: [:]
-            ) == .yieldToExisting
+            SingleInstanceConflictPolicy(environment: [:]).action(currentBundleURL: localRelease, existingBundleURL: stable) == .yieldToExisting
         )
     }
 
     @Test("an unknown running bundle path is never replaced")
     func unknownPathYields() {
         #expect(
-            SingleInstanceConflictPolicy.action(currentBundleURL: stable, existingBundleURL: nil, environment: [:])
+            SingleInstanceConflictPolicy(environment: [:]).action(currentBundleURL: stable, existingBundleURL: nil)
                 == .yieldToExisting
         )
     }
@@ -33,7 +29,7 @@ struct SingleInstanceConflictPolicyTests {
     func sameBundleReplaces() {
         let sameWithSlash = URL(fileURLWithPath: "/Applications/./cmux.app/", isDirectory: true)
         #expect(
-            SingleInstanceConflictPolicy.action(currentBundleURL: stable, existingBundleURL: sameWithSlash, environment: [:])
+            SingleInstanceConflictPolicy(environment: [:]).action(currentBundleURL: stable, existingBundleURL: sameWithSlash)
                 == .replaceExisting
         )
     }
@@ -41,11 +37,7 @@ struct SingleInstanceConflictPolicyTests {
     @Test("the explicit override restores replace-anything")
     func overrideReplaces() {
         #expect(
-            SingleInstanceConflictPolicy.action(
-                currentBundleURL: localRelease,
-                existingBundleURL: stable,
-                environment: [SingleInstanceConflictPolicy.allowReplacingEnvironmentKey: "1"]
-            ) == .replaceExisting
+            SingleInstanceConflictPolicy(environment: [SingleInstanceConflictPolicy.allowReplacingEnvironmentKey: "1"]).action(currentBundleURL: localRelease, existingBundleURL: stable) == .replaceExisting
         )
     }
 }

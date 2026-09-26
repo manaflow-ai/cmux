@@ -8,7 +8,7 @@ public import Foundation
 /// killed the user's running app and its live agent sessions without a final
 /// session save (incident 2026-09-26). Now only a relaunch of the same bundle
 /// replaces the running one; any other bundle yields to it.
-public enum SingleInstanceConflictPolicy {
+public struct SingleInstanceConflictPolicy: Sendable {
     public enum Action: Equatable, Sendable {
         /// The same bundle relaunched itself: ask the older instance to quit.
         case replaceExisting
@@ -24,14 +24,17 @@ public enum SingleInstanceConflictPolicy {
     /// before it is force-terminated.
     public static let gracefulTerminationTimeout: TimeInterval = 10
 
-    public static func action(
-        currentBundleURL: URL,
-        existingBundleURL: URL?,
-        environment: [String: String]
-    ) -> Action {
-        if environment[allowReplacingEnvironmentKey] == "1" { return .replaceExisting }
+    /// The launching process's environment (only the override key is read).
+    public let environment: [String: String]
+
+    public init(environment: [String: String]) {
+        self.environment = environment
+    }
+
+    public func action(currentBundleURL: URL, existingBundleURL: URL?) -> Action {
+        if environment[Self.allowReplacingEnvironmentKey] == "1" { return .replaceExisting }
         guard let existingBundleURL else { return .yieldToExisting }
-        return canonical(currentBundleURL) == canonical(existingBundleURL) ? .replaceExisting : .yieldToExisting
+        return Self.canonical(currentBundleURL) == Self.canonical(existingBundleURL) ? .replaceExisting : .yieldToExisting
     }
 
     private static func canonical(_ url: URL) -> String {
