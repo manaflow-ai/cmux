@@ -202,6 +202,10 @@ def main() -> int:
     for job in ("refresh-compilation-cache", "refresh-test-compilation-cache"):
         if "inputs.seed_only" not in nightly["jobs"][job]["if"]:
             failures.append(f"{job} must allow manual cache seeding")
+        # Owned pools serve pull requests, so the scheduled Blacksmith warmers
+        # would only burn paid macOS minutes (nightly.yml explains the readers).
+        if "vars.CI_PR_POOL_OWNED != '1'" not in nightly["jobs"][job]["if"]:
+            failures.append(f"{job} must skip its schedule while owned pools serve pull requests")
 
     for failure in failures:
         print(f"FAIL: {failure}")
