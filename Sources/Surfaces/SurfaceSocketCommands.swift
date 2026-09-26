@@ -226,7 +226,7 @@ extension TerminalController {
                 guard try await Self.surfaceProvider(for: resource.machine, catalog: SurfaceCatalog.shared) != nil else {
                     throw SurfaceCatalogError.noProvider(resource.machine)
                 }
-                let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: false)
+                let opened = try await SurfaceCatalog.shared.project(resource, into: destination, focus: focus, reuseExisting: true)
                 var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
                 let url = await SurfaceCatalog.shared.resources[resource]?.url ?? ""
                 payload["url"] = url
