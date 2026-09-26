@@ -808,6 +808,13 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
         )
     }
 
+    func testToggleTerminalCopyModeCommandRestoresSurfaceAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.toggleTerminalCopyMode"),
+            .terminal(.surface)
+        )
+    }
+
     func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
         XCTAssertNil(
             ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
