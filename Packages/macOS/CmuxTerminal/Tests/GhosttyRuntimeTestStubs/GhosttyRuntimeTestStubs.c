@@ -35,6 +35,48 @@ static float cmux_test_font_runtime_points = 0;
 static float cmux_test_font_configured_runtime_points = 0;
 static bool cmux_test_font_adjusted = false;
 static bool cmux_test_font_binding_succeeds = true;
+static uint32_t cmux_test_surface_refresh_call_count = 0;
+
+typedef struct {
+    void* surface;
+    ghostty_runtime_test_surface_size_s size;
+} GhosttyRuntimeTestSurfaceSize;
+
+static GhosttyRuntimeTestSurfaceSize cmux_test_surface_sizes[32];
+
+static GhosttyRuntimeTestSurfaceSize* cmux_test_surface_size_for(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_surface_sizes) / sizeof(cmux_test_surface_sizes[0]); index++) {
+        if (cmux_test_surface_sizes[index].surface == surface) {
+            return &cmux_test_surface_sizes[index];
+        }
+    }
+    for (size_t index = 0; index < sizeof(cmux_test_surface_sizes) / sizeof(cmux_test_surface_sizes[0]); index++) {
+        if (cmux_test_surface_sizes[index].surface == NULL) {
+            cmux_test_surface_sizes[index] = (GhosttyRuntimeTestSurfaceSize){
+                .surface = surface,
+                .size = {
+                    .columns = 80,
+                    .rows = 24,
+                    .width_px = 800,
+                    .height_px = 480,
+                    .cell_width_px = 10,
+                    .cell_height_px = 20,
+                },
+            };
+            return &cmux_test_surface_sizes[index];
+        }
+    }
+    return NULL;
+}
+
+static void cmux_test_surface_size_clear(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_surface_sizes) / sizeof(cmux_test_surface_sizes[0]); index++) {
+        if (cmux_test_surface_sizes[index].surface == surface) {
+            memset(&cmux_test_surface_sizes[index], 0, sizeof(cmux_test_surface_sizes[index]));
+            return;
+        }
+    }
+}
 static void* cmux_test_font_callback_surface = NULL;
 static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
 static void* cmux_test_font_callback_userdata = NULL;
@@ -102,6 +144,8 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
     cmux_test_tty_name_call_count = 0;
+    cmux_test_surface_refresh_call_count = 0;
+    memset(cmux_test_surface_sizes, 0, sizeof(cmux_test_surface_sizes));
 }
 
 void cmux_test_ghostty_surface_free_blocking_begin(void *surface) {
@@ -495,6 +539,7 @@ void ghostty_surface_free(void *surface) {
         cmux_test_font_callback_userdata = NULL;
     }
     cmux_test_render_callbacks_clear(surface);
+    cmux_test_surface_size_clear(surface);
 }
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {
@@ -550,7 +595,9 @@ void ghostty_surface_process_output(void *surface, const char *data, uintptr_t l
 void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
-void ghostty_surface_refresh(void) {}
+void ghostty_surface_refresh(void *surface) {
+    if (surface != NULL) cmux_test_surface_refresh_call_count++;
+}
 bool ghostty_surface_set_render_presented_callback(
     void *surface,
     void (*callback)(void *, uint64_t),
@@ -643,8 +690,19 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
     cmux_test_renderer_rebuild_call_count++;
     return cmux_test_renderer_realized_result;
 }
-void ghostty_surface_set_size(void) {}
-void ghostty_surface_size(void) {}
+void ghostty_surface_set_size(void *surface, uint32_t width, uint32_t height) {
+    GhosttyRuntimeTestSurfaceSize* size = cmux_test_surface_size_for(surface);
+    if (size == NULL) return;
+    size->size.width_px = width;
+    size->size.height_px = height;
+    size->size.columns = (uint16_t)(width / size->size.cell_width_px);
+    size->size.rows = (uint16_t)(height / size->size.cell_height_px);
+}
+ghostty_runtime_test_surface_size_s ghostty_surface_size(void *surface) {
+    GhosttyRuntimeTestSurfaceSize* size = cmux_test_surface_size_for(surface);
+    if (size == NULL) return (ghostty_runtime_test_surface_size_s){0};
+    return size->size;
+}
 void ghostty_surface_text(void) {}
 void ghostty_surface_text_input(void) {}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
@@ -666,6 +724,14 @@ uint32_t cmux_test_ghostty_tty_name_call_count(void) {
 
 bool cmux_test_ghostty_surface_was_updated(void *surface) {
     return surface == cmux_test_last_updated_surface;
+}
+
+void cmux_test_ghostty_surface_refresh_reset(void) {
+    cmux_test_surface_refresh_call_count = 0;
+}
+
+uint32_t cmux_test_ghostty_surface_refresh_call_count(void) {
+    return cmux_test_surface_refresh_call_count;
 }
 
 void cmux_test_ghostty_font_state_begin(
