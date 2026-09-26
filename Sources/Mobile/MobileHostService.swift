@@ -1979,6 +1979,13 @@ actor MobileHostConnection {
             } else {
                 selectedTransport = .control
             }
+            // Lane negotiation suspends, and the connection can close meanwhile
+            // (a queue overflow closes it mid-probe). Close already released
+            // this connection's subscriptions, so registering one now would
+            // leak a process-wide topic count that nothing releases.
+            guard !isClosed else {
+                return .failure(MobileHostRPCError(code: "unavailable", message: "connection closed"))
+            }
             await subscribe(
                 streamID: streamID,
                 topics: topics,
