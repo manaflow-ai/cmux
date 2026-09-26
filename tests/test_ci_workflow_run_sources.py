@@ -71,12 +71,6 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-screenshots.yml",
         "runner",
     ),
-    # The warm labeler labels the runner that ran compile admission.
-    (
-        "scripts/ci/owned_warm_labels.py",
-        ".github/workflows/ci-macos.yml",
-        "macos-compile-admission",
-    ),
 )
 
 # The fail-fast watcher is started by a display name but must not act on one.

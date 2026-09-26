@@ -118,6 +118,22 @@ import Testing
         #expect(Workspace.titlePrefixedWithDirectoryName("app: shell", directory: "/tmp/app") == "app: shell")
         #expect(Workspace.titlePrefixedWithDirectoryName("~/src/app", directory: "/tmp/app") == "~/src/app")
         #expect(Workspace.titlePrefixedWithDirectoryName("✳ app / Claude Code", directory: "/tmp/app") == "✳ app / Claude Code")
+
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        #expect(workspace.updatePanelTitle(
+            panelId: panelID, title: "⠋ Claude Code", stableTitle: "Claude Code"
+        ))
+        #expect(workspace.bonsplitController.tab(tabID)?.title == "⠋ app / Claude Code")
+        #expect(workspace.panelTitle(panelId: panelID) == "app / Claude Code")
+        #expect(workspace.title == "app / Claude Code")
+
+        // Spinner frames repaint the tab without republishing workspace state.
+        #expect(!workspace.updatePanelTitle(
+            panelId: panelID, title: "⠙ Claude Code", stableTitle: "Claude Code"
+        ))
+        #expect(workspace.bonsplitController.tab(tabID)?.title == "⠙ app / Claude Code")
+        #expect(workspace.panelTitle(panelId: panelID) == "app / Claude Code")
+        #expect(workspace.title == "app / Claude Code")
     }
 
     @Test func panelProvenanceMirrorsWorkspaceRules() throws {
