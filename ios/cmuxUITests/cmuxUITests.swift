@@ -33,6 +33,25 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeedRowTapOpensItsDestination() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let row = app.descendants(matching: .any)["MobileAgentFeedRow-short-text-preview"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        // Tap the author line, not a button, link, or See more.
+        let author = row.staticTexts.matching(NSPredicate(format: "label == %@", "Codex")).firstMatch
+        XCTAssertTrue(author.exists)
+        author.tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 5))
+        let opened = XCTAttachment(screenshot: app.screenshot())
+        opened.name = "feed-row-tap-opened-destination"
+        opened.lifetime = .keepAlways
+        add(opened)
+    }
+
+    @MainActor
     func testFeedFullTextReadingAndRetry() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
