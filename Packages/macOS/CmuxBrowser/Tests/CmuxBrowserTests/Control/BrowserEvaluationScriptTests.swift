@@ -91,6 +91,38 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
         #expect(rect["y"] == 12)
     }
 
+    @Test(arguments: [0, 16])
+    func finderSelectorsRoundTripNestedShadowControls(depth: Int) async throws {
+        try await loadPage()
+        let finder = service.findScript(finderBody: "return globalThis.targetControl;")
+        let script = """
+        const host = document.createElement('section');
+        host.id = 'shadow-host';
+        document.body.appendChild(host);
+        const root = host.attachShadow({mode: 'open'});
+        root.innerHTML = '<div><button>decoy</button></div><div><button>target</button></div>';
+        const target = root.children[1].firstElementChild;
+        let ancestor = root.children[1];
+        for (let index = 0; index < \(depth); index += 1) {
+          const wrapper = document.createElement('div');
+          ancestor.replaceWith(wrapper);
+          wrapper.appendChild(ancestor);
+          ancestor = wrapper;
+        }
+        globalThis.targetControl = target;
+        const found = \(finder);
+        \(service.elementQueryPrelude)
+        return {ok: found.ok, matchesTarget: __cmuxQuery(found.selector) === target,
+          count: __cmuxQueryAll(found.selector).length};
+        """
+        let result = try #require(try await webView.callAsyncJavaScript(
+            script, arguments: [:], in: nil, contentWorld: .page
+        ) as? [String: Any])
+        #expect(result["ok"] as? Bool == true)
+        #expect(result["matchesTarget"] as? Bool == true)
+        #expect(result["count"] as? Int == 1)
+    }
+
     private func evaluate(
         _ script: String,
         useEval: Bool = true,
