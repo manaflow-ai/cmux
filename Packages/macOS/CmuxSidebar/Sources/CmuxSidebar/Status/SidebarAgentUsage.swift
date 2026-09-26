@@ -15,11 +15,20 @@ public struct SidebarAgentUsage: Equatable, Sendable {
     /// Estimated pay-as-you-go cost in US dollars, or `nil` when the model
     /// has no known list price.
     public let estimatedCostUSD: Double?
+    /// `true` when part of the usage could not be priced, so the real cost
+    /// is higher than ``estimatedCostUSD``.
+    public let costIsLowerBound: Bool
 
     /// Creates a usage value.
-    public init(modelName: String, contextFraction: Double?, estimatedCostUSD: Double?) {
+    public init(
+        modelName: String,
+        contextFraction: Double?,
+        estimatedCostUSD: Double?,
+        costIsLowerBound: Bool = false
+    ) {
         self.modelName = modelName
         self.contextFraction = contextFraction
         self.estimatedCostUSD = estimatedCostUSD
+        self.costIsLowerBound = costIsLowerBound
     }
 }

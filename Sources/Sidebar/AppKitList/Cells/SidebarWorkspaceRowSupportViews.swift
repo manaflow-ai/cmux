@@ -332,9 +332,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             metadataButton.isHidden = true
             textView.isHidden = false
-            textView.stringValue = entry.sidebarDisplayText
-            textView.font = font
-            textView.textColor = color
+            textView.configurePlainText(entry.sidebarDisplayText, font: font, color: color, toolTip: entry.helpText)
         }
         needsLayout = true
     }

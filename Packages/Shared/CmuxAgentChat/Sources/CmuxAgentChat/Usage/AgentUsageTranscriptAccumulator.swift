@@ -1,52 +1,50 @@
 import Foundation
 
 /// Folds transcript JSONL lines, in order, into running usage totals for one
-/// agent session.
+/// transcript file.
 ///
 /// The accumulator is incremental: feed it each complete line exactly once
-/// (``ingest(line:)``), then read ``snapshot(catalog:)`` at any point. Lines
-/// that carry no usage are rejected by a cheap byte search before any JSON
-/// parsing.
+/// (``ingest(line:)``), then read ``snapshot()`` or ``cost()`` at any point.
+/// Lines that carry no usage are rejected by a cheap byte search before any
+/// JSON parsing.
 ///
-/// - Claude Code writes one `assistant` line per content block, repeating the
-///   same `message.id` and `message.usage` (the final line carries the final
-///   output count). Usage is therefore counted once per message id, using the
-///   last line seen for it. Context size is the prompt size of the latest
-///   main-chain request: `input_tokens + cache_creation_input_tokens +
-///   cache_read_input_tokens`. Sidechain (subagent) lines count toward cost
-///   but not the main context.
-/// - Codex `token_count` events already carry cumulative totals
-///   (`info.total_token_usage`), the latest request (`info.last_token_usage`),
-///   and the window (`info.model_context_window`); the latest event wins. The
-///   model comes from `turn_context`.
+/// - Claude Code writes one `assistant` line per content block, repeating
+///   the same `message.id` and `message.usage` (the last line carries the
+///   final output count). Each message id is priced from the last line seen
+///   for it, even when lines of different ids interleave. Context is the
+///   prompt size of the latest main-chain request: `input_tokens +
+///   cache_creation_input_tokens + cache_read_input_tokens`. Sidechain
+///   (subagent) lines count toward cost but not the context or model.
+/// - Codex `event_msg` `token_count` lines carry the latest request
+///   (`info.last_token_usage`) and the window (`info.model_context_window`);
+///   the latest event wins. Context excludes reasoning output tokens, which
+///   Codex does not keep in the window. The model comes from `turn_context`.
+///   Codex sessions are not priced.
 public struct AgentUsageTranscriptAccumulator: Sendable {
     /// Which transcript format this accumulator parses.
     public let source: AgentUsageSource
 
-    private var modelID: String?
-
-    // Claude state.
-    private var committedMessageIDs: Set<String> = []
-    private var committedCostUSD: Double = 0
-    private var hasUnpricedUsage = false
-    private var pendingMessageID: String?
-    private var pendingModelID: String?
-    private var pendingUsage: AgentUsageTokenCounts = .zero
-    private var claudeContextTokens: Int?
-
-    // Codex state.
-    private var codexTotals: AgentUsageTokenCounts?
-    private var codexContextTokens: Int?
-    private var codexContextWindow: Int?
-
     private let catalog: AgentModelCatalog
+    private var modelID: String?
+    private var contextTokens: Int?
+    private var contextWindow: Int?
+
+    // Claude cost bookkeeping, per message id.
+    private var messageCosts: [String: Double?] = [:]
+    private var pricedTotal: Double = 0
+    private var unpricedMessages = 0
+    private var anonymousMessages = 0
+    private var latestMainMessageID: String?
+    private var seenMainMessageIDs: Set<String> = []
+    private var historyIncomplete = false
+    private var droppedLines = false
 
     /// Creates an empty accumulator.
     ///
     /// - Parameters:
     ///   - source: The transcript format.
-    ///   - catalog: Model table used to price Claude messages as they are
-    ///     committed (a session can switch models mid-way).
+    ///   - catalog: Model table used to price Claude messages (a session can
+    ///     switch models mid-way, so each message is priced by its own model).
     public init(source: AgentUsageSource, catalog: AgentModelCatalog = AgentModelCatalog()) {
         self.source = source
         self.catalog = catalog
@@ -58,8 +56,8 @@ public struct AgentUsageTranscriptAccumulator: Sendable {
 
     /// Folds one complete JSONL line (without its trailing newline).
     ///
-    /// - Parameter line: The raw line bytes. Malformed or irrelevant lines
-    ///   are ignored.
+    /// - Parameter line: The raw line bytes (a slice is fine; it is not
+    ///   copied). Malformed or irrelevant lines are ignored.
     public mutating func ingest(line: Data) {
         switch source {
         case .claude:
@@ -79,14 +77,54 @@ public struct AgentUsageTranscriptAccumulator: Sendable {
         ingest(line: Data(line.utf8))
     }
 
-    /// The usage summary so far, or `nil` before any model or usage is known.
+    /// Records that reading started mid-file (the head was skipped to bound
+    /// the work), so the total cost is unknown. Model and context still
+    /// come from the lines that were read.
+    public mutating func markHistoryIncomplete() {
+        historyIncomplete = true
+    }
+
+    /// Records that a line was skipped (too large to buffer), so the cost is
+    /// only a lower bound.
+    public mutating func markLineDropped() {
+        droppedLines = true
+    }
+
+    /// The estimated cost of every line read so far, or `nil` when it is
+    /// unknowable (Codex, or the head of the file was skipped). Messages of
+    /// unknown models make the result a lower bound rather than hiding it.
+    public func cost() -> AgentUsageCost? {
+        guard source == .claude, !historyIncomplete else { return nil }
+        return AgentUsageCost(
+            usd: pricedTotal,
+            isLowerBound: unpricedMessages > 0 || droppedLines,
+            hasPricedUsage: messageCosts.count > unpricedMessages
+        )
+    }
+
+    /// The usage summary so far, or `nil` before any main-thread model is
+    /// known.
     ///
     /// - Returns: A snapshot combining model, context, and estimated cost.
     public func snapshot() -> AgentUsageSnapshot? {
-        switch source {
-        case .claude: return claudeSnapshot()
-        case .codex: return codexSnapshot()
+        guard let modelID,
+              let info = catalog.info(forModelID: modelID, reportedContextWindow: contextWindow) else {
+            return nil
         }
+        let tokens = contextTokens ?? 0
+        var window = info.contextWindow
+        // A Claude request larger than the table's window proves a 1M window
+        // (for example a `[1m]` session whose model id carries no suffix).
+        if source == .claude, let current = window, tokens > current {
+            window = AgentModelCatalog.oneMillionContextWindow
+        }
+        return AgentUsageSnapshot(
+            modelID: modelID,
+            modelDisplayName: info.displayName,
+            contextTokens: tokens,
+            contextWindow: window,
+            estimatedCost: cost()?.displayable
+        )
     }
 
     // MARK: Claude
@@ -99,70 +137,34 @@ public struct AgentUsageTranscriptAccumulator: Sendable {
         let model = (message["model"] as? String).flatMap { Self.meaningfulModelID($0) }
         let counts = Self.claudeCounts(usage)
         let isSidechain = object["isSidechain"] as? Bool ?? false
-        let messageID = message["id"] as? String
-
-        if let messageID, committedMessageIDs.contains(messageID) { return }
-        if messageID == nil || messageID != pendingMessageID {
-            commitPendingClaudeMessage()
-            pendingMessageID = messageID
-        }
-        pendingUsage = counts
-        pendingModelID = model ?? pendingModelID
-        if messageID == nil {
-            // No id to de-duplicate on: count this line on its own.
-            commitPendingClaudeMessage()
-        }
-        guard !isSidechain else { return }
-        if let model { modelID = model }
-        if counts.totalInput > 0 { claudeContextTokens = counts.totalInput }
-    }
-
-    private mutating func commitPendingClaudeMessage() {
-        defer {
-            pendingMessageID = nil
-            pendingModelID = nil
-            pendingUsage = .zero
-        }
-        guard pendingUsage != .zero else { return }
-        if let pendingMessageID { committedMessageIDs.insert(pendingMessageID) }
-        if let messageCost = cost(of: pendingUsage, modelID: pendingModelID ?? modelID) {
-            committedCostUSD += messageCost
+        let messageID: String
+        if let id = message["id"] as? String, !id.isEmpty {
+            messageID = id
         } else {
-            hasUnpricedUsage = true
+            anonymousMessages += 1
+            messageID = "\u{0}anonymous-\(anonymousMessages)"
         }
+        if counts != .zero {
+            let newCost = price(counts, modelID: model ?? modelID)
+            if let previous = messageCosts[messageID] {
+                if let previous { pricedTotal -= previous } else { unpricedMessages -= 1 }
+            }
+            messageCosts[messageID] = .some(newCost)
+            if let newCost { pricedTotal += newCost } else { unpricedMessages += 1 }
+        }
+
+        guard !isSidechain else { return }
+        // A late line of an older message must not roll the context back.
+        let isNewMessage = seenMainMessageIDs.insert(messageID).inserted
+        guard isNewMessage || messageID == latestMainMessageID else { return }
+        latestMainMessageID = messageID
+        if let model { modelID = model }
+        if counts.totalInput > 0 { contextTokens = counts.totalInput }
     }
 
-    private func cost(of counts: AgentUsageTokenCounts, modelID: String?) -> Double? {
+    private func price(_ counts: AgentUsageTokenCounts, modelID: String?) -> Double? {
         guard let modelID, let pricing = catalog.info(forModelID: modelID)?.pricing else { return nil }
         return pricing.estimatedCostUSD(for: counts)
-    }
-
-    private func claudeSnapshot() -> AgentUsageSnapshot? {
-        guard let modelID, let info = catalog.info(forModelID: modelID) else { return nil }
-        let contextTokens = claudeContextTokens ?? 0
-        var window = info.contextWindow
-        // A request larger than the table's window proves a 1M window
-        // (for example a `[1m]` model whose id carries no suffix).
-        if let current = window, contextTokens > current {
-            window = AgentModelCatalog.oneMillionContextWindow
-        }
-        var cost: Double? = committedCostUSD
-        var unpriced = hasUnpricedUsage
-        if pendingUsage != .zero {
-            if let pendingCost = self.cost(of: pendingUsage, modelID: pendingModelID ?? modelID) {
-                cost = committedCostUSD + pendingCost
-            } else {
-                unpriced = true
-            }
-        }
-        if unpriced { cost = nil }
-        return AgentUsageSnapshot(
-            modelID: modelID,
-            modelDisplayName: info.displayName,
-            contextTokens: contextTokens,
-            contextWindow: window,
-            estimatedCostUSD: cost
-        )
     }
 
     private static func claudeCounts(_ usage: [String: Any]) -> AgentUsageTokenCounts {
@@ -199,50 +201,16 @@ public struct AgentUsageTranscriptAccumulator: Sendable {
         case "event_msg":
             guard payload["type"] as? String == "token_count",
                   let info = payload["info"] as? [String: Any] else { return }
-            if let total = info["total_token_usage"] as? [String: Any] {
-                codexTotals = Self.codexCounts(total)
-            }
             if let last = info["last_token_usage"] as? [String: Any] {
                 let total = Self.int(last["total_tokens"])
-                codexContextTokens = total > 0
-                    ? total
-                    : Self.int(last["input_tokens"]) + Self.int(last["output_tokens"])
+                let all = total > 0 ? total : Self.int(last["input_tokens"]) + Self.int(last["output_tokens"])
+                contextTokens = max(0, all - Self.int(last["reasoning_output_tokens"]))
             }
             let window = Self.int(info["model_context_window"])
-            if window > 0 { codexContextWindow = window }
+            if window > 0 { contextWindow = window }
         default:
             return
         }
-    }
-
-    private func codexSnapshot() -> AgentUsageSnapshot? {
-        guard let modelID,
-              let info = catalog.info(forModelID: modelID, reportedContextWindow: codexContextWindow) else {
-            return nil
-        }
-        return AgentUsageSnapshot(
-            modelID: modelID,
-            modelDisplayName: info.displayName,
-            contextTokens: codexContextTokens ?? 0,
-            contextWindow: info.contextWindow,
-            estimatedCostUSD: codexTotals.flatMap { totals in
-                info.pricing.map { $0.estimatedCostUSD(for: totals) }
-            }
-        )
-    }
-
-    /// Codex/OpenAI `input_tokens` includes cached input; split it so cached
-    /// tokens are priced at the cached rate only once.
-    private static func codexCounts(_ usage: [String: Any]) -> AgentUsageTokenCounts {
-        let input = int(usage["input_tokens"])
-        let cached = int(usage["cached_input_tokens"])
-        let cacheWrite = int(usage["cache_write_input_tokens"])
-        return AgentUsageTokenCounts(
-            uncachedInput: max(0, input - cached - cacheWrite),
-            cacheWrite5m: cacheWrite,
-            cacheRead: cached,
-            output: int(usage["output_tokens"])
-        )
     }
 
     // MARK: Helpers

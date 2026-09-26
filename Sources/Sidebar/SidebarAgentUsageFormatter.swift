@@ -5,8 +5,9 @@ import Foundation
 /// agent status entry, e.g. `Running · Opus 4.8 · 42% · ~$1.20`.
 ///
 /// The percentage is the share of the model's context window in use; the
-/// dollar figure is an estimate at published API list prices and is always
-/// prefixed with the localized "estimated" marker.
+/// dollar figure is an estimate at published API list prices, prefixed with
+/// the localized "estimated" marker, suffixed with `+` when some usage could
+/// not be priced, and explained in the entry's tooltip.
 struct SidebarAgentUsageFormatter {
     /// Separator between the status text and each usage component.
     static let separator = " · "
@@ -19,6 +20,14 @@ struct SidebarAgentUsageFormatter {
         self.locale = locale
     }
 
+    /// Tooltip for an entry that shows an estimated cost.
+    static var costHelpText: String {
+        String(
+            localized: "sidebar.agentUsage.costHelp",
+            defaultValue: "Cost is an API list-price estimate, not your subscription bill."
+        )
+    }
+
     /// The compact usage summary, e.g. `Opus 4.8 · 42% · ~$1.20`.
     ///
     /// Components that are unknown (context window, price) are omitted.
@@ -29,8 +38,10 @@ struct SidebarAgentUsageFormatter {
         }
         if let cost = usage.estimatedCostUSD {
             let costText = cost.formatted(.currency(code: "USD").precision(.fractionLength(2)).locale(locale))
-            // The tilde marks the figure as an estimate, not a bill.
-            parts.append(String(localized: "sidebar.agentUsage.estimatedCost", defaultValue: "~\(costText)"))
+            // The tilde marks the figure as an estimate, the plus a lower bound.
+            parts.append(usage.costIsLowerBound
+                ? String(localized: "sidebar.agentUsage.estimatedCostAtLeast", defaultValue: "~\(costText)+")
+                : String(localized: "sidebar.agentUsage.estimatedCost", defaultValue: "~\(costText)"))
         }
         return parts.joined(separator: Self.separator)
     }
@@ -57,7 +68,8 @@ struct SidebarAgentUsageFormatter {
                 url: entry.url,
                 priority: entry.priority,
                 format: entry.format,
-                timestamp: entry.timestamp
+                timestamp: entry.timestamp,
+                helpText: usage.estimatedCostUSD == nil ? entry.helpText : Self.costHelpText
             )
         }
     }

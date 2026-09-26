@@ -3,9 +3,11 @@ import Foundation
 /// Published per-million-token list prices for one model, in US dollars.
 ///
 /// These are public API list prices used only to *estimate* what a session
-/// would cost at pay-as-you-go rates. They ignore subscriptions, batch or
-/// priority tiers, regional/partner pricing, and fast mode, so the result is
-/// labelled as an estimate everywhere it is shown.
+/// would cost at pay-as-you-go rates. Not modelled: subscriptions (a Claude
+/// plan is not billed per token), batch and priority tiers, regional and
+/// partner (Bedrock/Vertex/Foundry) pricing, data-residency multipliers,
+/// long-context premiums of older 1M betas, fast mode, and server-tool fees
+/// such as web search. The result is labelled as an estimate wherever shown.
 public struct AgentModelPricing: Sendable, Equatable {
     /// Base input price per million tokens.
     public let inputPerMTok: Double
@@ -42,17 +44,6 @@ public struct AgentModelPricing: Sendable, Equatable {
             cacheWrite5mPerMTok: input * 1.25,
             cacheWrite1hPerMTok: input * 2,
             cacheReadPerMTok: cacheRead
-        )
-    }
-
-    /// OpenAI pricing shape: cache writes are billed as ordinary input.
-    static func openAI(input: Double, output: Double, cachedInput: Double) -> Self {
-        Self(
-            inputPerMTok: input,
-            outputPerMTok: output,
-            cacheWrite5mPerMTok: input,
-            cacheWrite1hPerMTok: input,
-            cacheReadPerMTok: cachedInput
         )
     }
 

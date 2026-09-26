@@ -19,6 +19,9 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     public let format: SidebarMetadataFormat
     /// When the entry was reported.
     public let timestamp: Date
+    /// Optional explanatory tooltip shown alongside the text (for example
+    /// that an agent-usage cost is an estimate).
+    public let helpText: String?
 
     /// Creates a status row (defaults mirror the legacy initializer).
     public init(
@@ -29,7 +32,8 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         url: URL? = nil,
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        helpText: String? = nil
     ) {
         self.key = key
         self.value = value
@@ -39,5 +43,6 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.priority = priority
         self.format = format
         self.timestamp = timestamp
+        self.helpText = helpText
     }
 }

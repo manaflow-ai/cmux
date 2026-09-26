@@ -8,13 +8,15 @@ public struct AgentUsageSnapshot: Sendable, Equatable {
     public let modelID: String
     /// Short model name for display (`Opus 4.8`, `gpt-5-codex`).
     public let modelDisplayName: String
-    /// Tokens occupying the context window as of the latest request.
+    /// Tokens occupying the context window as of the latest main-thread
+    /// request.
     public let contextTokens: Int
     /// The context window size, or `nil` when unknown.
     public let contextWindow: Int?
-    /// Estimated cost of the whole session at published list prices, or
-    /// `nil` when the model has no price row.
-    public let estimatedCostUSD: Double?
+    /// Estimated cost of the whole session (main thread plus subagents), or
+    /// `nil` when it cannot be estimated: the model has no price row, or the
+    /// transcript was too large to read from the start.
+    public let estimatedCost: AgentUsageCost?
 
     /// Creates a snapshot.
     public init(
@@ -22,13 +24,13 @@ public struct AgentUsageSnapshot: Sendable, Equatable {
         modelDisplayName: String,
         contextTokens: Int,
         contextWindow: Int?,
-        estimatedCostUSD: Double?
+        estimatedCost: AgentUsageCost?
     ) {
         self.modelID = modelID
         self.modelDisplayName = modelDisplayName
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
-        self.estimatedCostUSD = estimatedCostUSD
+        self.estimatedCost = estimatedCost
     }
 
     /// Fraction of the context window in use, clamped to `0...1`, or `nil`
@@ -36,5 +38,16 @@ public struct AgentUsageSnapshot: Sendable, Equatable {
     public var contextFraction: Double? {
         guard let contextWindow, contextWindow > 0 else { return nil }
         return min(max(Double(contextTokens) / Double(contextWindow), 0), 1)
+    }
+
+    /// A copy with a different cost (used to fold in subagent transcripts).
+    public func withEstimatedCost(_ cost: AgentUsageCost?) -> Self {
+        Self(
+            modelID: modelID,
+            modelDisplayName: modelDisplayName,
+            contextTokens: contextTokens,
+            contextWindow: contextWindow,
+            estimatedCost: cost
+        )
     }
 }

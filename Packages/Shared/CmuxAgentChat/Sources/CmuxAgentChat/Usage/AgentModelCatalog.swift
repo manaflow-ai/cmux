@@ -4,9 +4,8 @@ import Foundation
 /// window, and published list prices.
 ///
 /// The price table is deliberately small and explicit: a model that is not
-/// listed gets no cost estimate instead of a guessed one. Prices are USD per
-/// million tokens from the providers' public API price lists (Anthropic
-/// prices as of 2026-06; OpenAI GPT-5 family list prices).
+/// listed gets no cost estimate instead of a guessed one. Only Anthropic
+/// models are priced; Codex/OpenAI models show model and context only.
 ///
 /// ```swift
 /// let info = AgentModelCatalog().info(forModelID: "claude-opus-4-8")
@@ -26,7 +25,11 @@ public struct AgentModelCatalog: Sendable {
         "sonnet-5", "sonnet-4-6",
     ]
 
-    /// Anthropic list prices keyed by normalized family.
+    /// Anthropic first-party API list prices in USD per million tokens,
+    /// keyed by normalized family. Source: Anthropic model/pricing tables as
+    /// of 2026-06-24 (input, output, cache read; 5-minute and 1-hour cache
+    /// writes are 1.25x and 2x input). Update this table and its date
+    /// together.
     static let claudePrices: [String: AgentModelPricing] = [
         "fable-5-1": .anthropic(input: 10, output: 50, cacheRead: 0.25),
         "mythos-5-1": .anthropic(input: 10, output: 50, cacheRead: 0.25),
@@ -47,24 +50,14 @@ public struct AgentModelCatalog: Sendable {
         "haiku-4-5": .anthropic(input: 1, output: 5, cacheRead: 0.1),
     ]
 
-    /// OpenAI list prices keyed by exact model id.
-    static let openAIPrices: [String: AgentModelPricing] = [
-        "gpt-5": .openAI(input: 1.25, output: 10, cachedInput: 0.125),
-        "gpt-5-codex": .openAI(input: 1.25, output: 10, cachedInput: 0.125),
-        "gpt-5.1": .openAI(input: 1.25, output: 10, cachedInput: 0.125),
-        "gpt-5.1-codex": .openAI(input: 1.25, output: 10, cachedInput: 0.125),
-        "gpt-5.1-codex-max": .openAI(input: 1.25, output: 10, cachedInput: 0.125),
-        "gpt-5-mini": .openAI(input: 0.25, output: 2, cachedInput: 0.025),
-        "gpt-5.1-codex-mini": .openAI(input: 0.25, output: 2, cachedInput: 0.025),
-    ]
-
     /// Creates a catalog over the built-in tables.
     public init() {}
 
     /// Describes a model id as written in a transcript.
     ///
     /// Claude ids may carry a provider prefix (`us.anthropic.`), a date
-    /// suffix (`-20251001`), or a `[1m]` suffix; all are normalized before
+    /// suffix (`-20251001`), a Vertex version (`@20251001`), a Bedrock
+    /// version (`-v1:0`), or a `[1m]` suffix; all are normalized before
     /// lookup. `[1m]` forces a 1M context window.
     ///
     /// - Parameters:
@@ -87,21 +80,17 @@ public struct AgentModelCatalog: Sendable {
                 pricing: Self.claudePrices[family]
             )
         }
-        return AgentModelInfo(
-            displayName: trimmed,
-            contextWindow: reportedContextWindow,
-            pricing: Self.openAIPrices[lowered]
-        )
+        return AgentModelInfo(displayName: trimmed, contextWindow: reportedContextWindow, pricing: nil)
     }
 
     /// Extracts the normalized Claude family (`opus-4-8`) from an id such as
-    /// `us.anthropic.claude-opus-4-8-20260101-v1:0[1m]`, or `nil` when the id
-    /// is not a Claude id.
+    /// `us.anthropic.claude-opus-4-8-20260101-v1:0[1m]` or
+    /// `claude-haiku-4-5@20251001`, or `nil` when the id is not a Claude id.
     static func claudeFamily(fromModelID lowered: String) -> String? {
         guard let range = lowered.range(of: "claude-") else { return nil }
         var rest = String(lowered[range.upperBound...])
-        if let bracket = rest.firstIndex(of: "[") {
-            rest = String(rest[..<bracket])
+        if let cut = rest.firstIndex(where: { $0 == "[" || $0 == "@" || $0 == ":" }) {
+            rest = String(rest[..<cut])
         }
         var parts: [String] = []
         for part in rest.split(separator: "-") {

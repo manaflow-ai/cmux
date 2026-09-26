@@ -68,6 +68,7 @@ struct AgentUsageFixtures {
         totalCached: Int,
         totalOutput: Int,
         lastTotal: Int,
+        lastReasoning: Int = 0,
         window: Int
     ) -> String {
         json([
@@ -88,6 +89,7 @@ struct AgentUsageFixtures {
                         "input_tokens": lastTotal - 100,
                         "cached_input_tokens": 0,
                         "output_tokens": 100,
+                        "reasoning_output_tokens": lastReasoning,
                         "total_tokens": lastTotal,
                     ],
                     "model_context_window": window,

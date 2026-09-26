@@ -6,4 +6,10 @@ extension SidebarStatusEntry {
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? key : trimmedValue
     }
+
+    /// Tooltip text: the display text, followed by ``helpText`` when set.
+    public var sidebarHelpText: String {
+        guard let helpText, !helpText.isEmpty else { return sidebarDisplayText }
+        return sidebarDisplayText + "\n" + helpText
+    }
 }

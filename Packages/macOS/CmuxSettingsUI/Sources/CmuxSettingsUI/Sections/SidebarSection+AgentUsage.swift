@@ -9,7 +9,7 @@ extension SidebarSection {
         SettingsCardRow(
             configurationReview: .json("sidebar.showAgentUsage"),
             String(localized: "settings.app.showAgentUsage", defaultValue: "Show Agent Usage in Sidebar"),
-            subtitle: String(localized: "settings.app.showAgentUsage.subtitle", defaultValue: "Append the model, context window used, and estimated API cost to Claude Code and Codex status entries. Cost is an estimate from published API prices, not a bill.")
+            subtitle: String(localized: "settings.app.showAgentUsage.subtitle", defaultValue: "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill.")
         ) {
             Toggle("", isOn: Binding(get: { showAgentUsage.current }, set: { showAgentUsage.set($0) }))
                 .labelsHidden()
