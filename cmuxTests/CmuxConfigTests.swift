@@ -51,7 +51,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     func testDecodeFilePatternsOnCommandAction() throws {
-        let json = """
+        let json = #"""
         {
           "actions": {
             "excalidraw.preview": {
@@ -61,7 +61,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
             }
           }
         }
-        """
+        """#
 
         let config = try decode(json)
         let definition = try XCTUnwrap(config.actions["excalidraw.preview"])
@@ -73,6 +73,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
                 sourcePath: "/tmp/cmux.json"
             )
         )
+        XCTAssertEqual(action.terminalCommand, "cmux-excalidraw \"{file}\"")
         XCTAssertEqual(action.filePatterns, ["*.excalidraw", "*.drawio"])
     }
 
