@@ -105,7 +105,9 @@ struct cmuxApp: App {
             simulatorStreamLaneProvider: { request, panelID in
                 guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
-            }
+            },
+            // irx.serverEventByteStream merges every per-surface event lane.
+            independentEventsMergeSurfaceLanes: true
         )
 
         return AppCompositionRoot(

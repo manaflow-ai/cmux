@@ -72,7 +72,9 @@ class Fake:
         self.now += seconds
 
     def wait(self, run_id: str = "100", runner: str = SMALL, budget: float = 1200) -> bool:
-        return sibling.wait(run_id, SHA, runner, budget, poll=30, get=self.get, sleep=self.sleep, clock=lambda: self.now)
+        # The build-job states above are for the wait; the pool comes from the title.
+        return sibling.wait(run_id, SHA, runner, budget, poll=30, get=self.get, sleep=self.sleep,
+                            clock=lambda: self.now, pool=sibling.title_pool)
 
 
 class SiblingWaitTests(unittest.TestCase):
@@ -173,6 +175,42 @@ class SiblingWaitTests(unittest.TestCase):
         self.assertIsNone(sibling.earlier_sibling([run(90, runner=SMALL)], THIS, SHA, OWNED))
         self.assertEqual(sibling.earlier_sibling([run(90, runner=OWNED)], THIS, SHA, OWNED)["id"], 90)
 
+    def test_a_routed_run_is_matched_on_the_pool_it_builds_on(self) -> None:
+        # Dispatches ask for Blacksmith and the runner job routes them to an
+        # owned Mac: runs 36175110586, 36175263632 and 36176202852 each
+        # compiled 2a40caa there because their titles never matched.
+        routed = {90: OWNED, 91: SMALL}
+        pool = lambda r: routed.get(r["id"]) or sibling.title_pool(r)
+        self.assertEqual(sibling.earlier_sibling([run(90, runner=SMALL)], THIS, SHA, OWNED, pool)["id"], 90)
+        # A run asking for the owned pool but routed to Blacksmith compiles a
+        # product the owned run may not adopt.
+        self.assertIsNone(sibling.earlier_sibling([run(91, runner=OWNED)], THIS, SHA, OWNED, pool))
+
+    def test_the_routed_pool_is_the_build_jobs_label(self) -> None:
+        def jobs(*listed: dict):
+            return lambda path: {"jobs": list(listed)}
+        routed = jobs({"name": "runner", "labels": ["blacksmith-4vcpu-ubuntu-2404"]},
+                      {"name": "build", "labels": [OWNED]})
+        self.assertEqual(sibling.routed_pool(routed, run(90)), OWNED)
+        # Before the build job exists, or without labels, the title is the guess.
+        self.assertEqual(sibling.routed_pool(jobs({"name": "runner"}), run(90)), SMALL)
+        self.assertEqual(sibling.routed_pool(jobs({"name": "build", "labels": []}), run(90)), SMALL)
+
+    def test_the_wait_asks_each_candidate_where_it_builds(self) -> None:
+        asked = []
+
+        def get(path: str) -> dict:
+            if path == sibling.RUNNING:
+                return {"workflow_runs": [run(90, runner=SMALL), run(91, revision=OTHER), run(92, status="completed")]}
+            if path.endswith("/jobs?filter=latest&per_page=100"):
+                asked.append(path)
+                return {"jobs": [{"name": "build", "status": "completed", "conclusion": "success", "labels": [OWNED]}]}
+            return {"id": 100, "status": "in_progress", "run_started_at": started(100)}
+
+        self.assertTrue(sibling.wait("100", SHA, OWNED, 1200, get=get, sleep=lambda s: None, clock=lambda: 0.0))
+        # Only the run of this revision is asked, once for its pool and once for its state.
+        self.assertEqual(asked, ["actions/runs/90/jobs?filter=latest&per_page=100"] * 2)
+
     def test_the_listing_asks_for_running_runs(self) -> None:
         # event=workflow_dispatch alone returned a stale page (run 36020090083
         # compiled beside running sibling 36020076746).
@@ -226,6 +264,15 @@ class WorkflowTests(unittest.TestCase):
         reuse = next(step for step in self.jobs["build"]["steps"] if step.get("id") == "reuse")
         self.assertEqual(reuse["run"].strip(), 'python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"')
 
+
+    def test_only_an_owned_mac_moves_to_another_root_and_publishes_under_its_key(self) -> None:
+        reuse = next(step for step in self.jobs["build"]["steps"] if step.get("id") == "reuse")
+        self.assertEqual(reuse["env"]["CMUX_REUSE_SWITCH_ROOTS"],
+                         "${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}")
+        # A product taken from another root is sealed and published at that root.
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertNotIn("${{ steps.product-key.outputs.key }}", text)
+        self.assertEqual(text.count("steps.reuse.outputs.product_key || steps.product-key.outputs.key"), 4)
 
 if __name__ == "__main__":
     unittest.main()

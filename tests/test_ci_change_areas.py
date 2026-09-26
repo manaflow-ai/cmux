@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import yaml
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
@@ -4584,17 +4585,20 @@ def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
-    return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
+    return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 
 
 PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])
-# Attempt 1 of compile admission may take the warm labels pr_admission_runner
-# carries (pr_runner_pool.py, warm affinity), a JSON array; CMUX_PRODUCT_RUNNER
-# restates the first, the root label, which the consumers take.
-WARM_ADMISSION = "github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)"
+# Attempt 1 of compile admission may take the pinned labels admission-placement
+# outputs (scripts/ci/admission_placement.py, spread-first) or
+# pr_admission_runner carries (pr_runner_pool.py, warm affinity), a JSON array
+# whose first label is always pr_root_runner; CMUX_PRODUCT_RUNNER restates it,
+# the root label, which the consumers take.
+PINNED_ADMISSION = "(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
+WARM_ADMISSION = f"github.run_attempt == 1 && {PINNED_ADMISSION} && fromJSON{PINNED_ADMISSION}"
 
 
 def admission_route(runs_on: str) -> str:
@@ -5920,8 +5924,10 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
         for job in yaml.safe_load(workflow)["jobs"]
         if "inputs.full_suite == 'true'" in workflow_job_block(job, MACOS_WORKFLOW)
     }
+    # admission-placement restates compile admission's condition, so it runs
+    # only when admission does.
     assert gated_jobs == full_suite_only | {
-        "swift-package-tests", "macos-compile-admission", "cli-product-tests"
+        "swift-package-tests", "macos-compile-admission", "admission-placement", "cli-product-tests"
     }, gated_jobs
     # Package routing must not independently request the targeted CLI lane.
     cli_condition = next(
@@ -6132,7 +6138,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
         "github.event.pull_request.head.repo.full_name == github.repository && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && "
         "(github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && "
-        "github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
+        "(inputs.pr_side_runner || inputs.pr_refused_retry_runner)) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
     ) in package_block
     assert (
@@ -6756,7 +6762,9 @@ def _main() -> int:
         print(f"CMUX_TEST_WORKERS must be a whole number, got {requested!r}", file=sys.stderr)
         return 2
     workers = int(requested) if requested else len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-    if workers <= 1 or sys.platform != "linux":
+    # Off Linux only an explicit CMUX_TEST_WORKERS forks (scripts/ci/run_ci_guards.py
+    # sets it on macOS, where the serial run takes about two minutes).
+    if workers <= 1 or (sys.platform != "linux" and not requested):
         for name in names:
             globals()[name]()
         return 0
