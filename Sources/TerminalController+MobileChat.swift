@@ -334,7 +334,7 @@ extension TerminalController {
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text
-        return v2MobileTerminalPaste(params: pasteParams)
+        return await v2MobileTerminalPaste(params: pasteParams)
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of

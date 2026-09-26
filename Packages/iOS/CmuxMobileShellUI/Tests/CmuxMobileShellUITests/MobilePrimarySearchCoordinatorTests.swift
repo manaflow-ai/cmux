@@ -3,6 +3,19 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func feedSearchBelongsToFeedAndKeepsOtherQueriesSeparate() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.notifications = "alerts"
+        coordinator.synchronizeSelection(.feed)
+        #expect(coordinator.scope.primaryTab == .feed)
+        coordinator.setPresentation(true)
+        coordinator.updateNativeSearchText("agent response", for: coordinator.scope,
+                                           activationGeneration: coordinator.activationGeneration)
+        #expect(coordinator.commitSubmit() == .feed)
+        #expect(coordinator.notifications == "alerts")
+        #expect(coordinator.searchDestinationText(for: coordinator.scope) == "agent response")
+    }
+
     @Test func beginSearchSelectsRequestedScopeBeforePresenting() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
         coordinator.notifications = "alerts"

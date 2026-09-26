@@ -2183,6 +2183,18 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
 
 
+def test_feed_completion_preserves_full_text(cli_path: str, root: Path) -> None:
+    message = ("A full paragraph with Unicode 👩🏽‍💻.\n\n" * 300) + "FINAL PARAGRAPH"
+    for source in ("codex", "claude", "opencode", "pi", "cursor", "grok", "gemini"):
+        _, frame = run_feed_hook(cli_path, root / f"full-{source}.sock", {
+            "session_id": f"full-{source}",
+            "hook_event_name": "Stop",
+            "last_assistant_message": message,
+        }, None, source=source)
+        if frame["params"]["event"].get("tool_input", {}).get("reason") != message:
+            raise AssertionError(f"{source} lost the full completion text or line breaks")
+
+
 def test_computer_use_pretool_preserves_surface_scope(cli_path: str, root: Path) -> None:
     # Exercise the built CLI's wire event, rather than constructing a Swift
     # WorkstreamEvent which silently fills in the field the real hook omitted.
@@ -4019,6 +4031,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
+            test_feed_completion_preserves_full_text(cli_path, root)
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
             test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path, root)
             test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path, root)

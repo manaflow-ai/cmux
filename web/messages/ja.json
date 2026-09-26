@@ -5790,6 +5790,22 @@
     "personalAccount": "個人アカウント",
     "switchAccountButton": "別のアカウントを使用"
   },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "さらに表示"
+      },
+      "search": {
+        "placeholder": "フィードを検索"
+      },
+      "openWorkspace": "ワークスペースを開く",
+      "openTab": "タブを開く",
+      "openFailed": {
+        "title": "イベントを開けませんでした",
+        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
+      }
+    }
+  },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",
     "releaseLabel": "1.0.6 · 2026年9月",

@@ -81,6 +81,20 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    /// Combines the two durable inputs to the mobile Feed into one monotonic
+    /// revision. The high and low 32-bit lanes preserve independent changes,
+    /// so a notification update cannot be hidden behind a larger workstream
+    /// revision (or vice versa).
+    static func combinedMobileFeedRevision(
+        workstream: Int,
+        notifications: Int
+    ) -> Int {
+        guard notifications > 0 else { return max(0, workstream) }
+        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        return Int(truncatingIfNeeded: (high << 32) | low)
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
@@ -95,6 +109,22 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
+        // Mirror of the notification feed's `notification.feed.changed`
+        // contract: a revision-only invalidation tells subscribed phones to
+        // re-list the workstream feed (`feed.list`). Emission is a no-op
+        // without subscribers.
+        store.onRevisionChange = { revision in
+            MobileHostService.emitEvent(
+                topic: "feed.changed",
+                payload: [
+                    "revision": Self.combinedMobileFeedRevision(
+                        workstream: revision,
+                        notifications: TerminalNotificationStore.shared
+                            .notificationFeedHistory.revision
+                    )
+                ]
+            )
+        }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is

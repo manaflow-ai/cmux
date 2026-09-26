@@ -7,14 +7,19 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
+    Feed: View,
     Notifications: View,
     Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let feedNeedsInputCount: Int
+    /// False when the Feed replaces the Notifications tab (CMUX Labs).
+    let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
+    let feed: Feed
     let notifications: Notifications
     let search: Search
 
@@ -22,16 +27,22 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        feedNeedsInputCount: Int = 0,
+        showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
+        @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.feedNeedsInputCount = feedNeedsInputCount
+        self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
+        self.feed = feed()
         self.notifications = notifications()
         self.search = search()
     }
@@ -42,11 +53,13 @@ struct MobilePrimaryTabScaffold<
                 TabView(selection: tabSelection) {
                     primaryTabs
 
-                    Tab(value: MobilePrimaryTab.search, role: .search) {
-                        search
-                            .environment(\.mobilePrimarySearchDestination, true)
+                    if selection == .search || selection.searchScope != nil {
+                        Tab(value: MobilePrimaryTab.search, role: .search) {
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                        }
+                        .accessibilityIdentifier("MobilePrimaryTabSearch")
                     }
-                    .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
                 .tabViewSearchActivation(.searchTabSelection)
                 .accessibilityIdentifier("MobilePrimaryTabs")
@@ -82,10 +95,16 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                notifications
-                    .tabItem { notificationsLabel }
-                    .tag(MobilePrimaryTab.notifications)
-                    .badge(notificationUnreadCount)
+                feed
+                    .tabItem { feedLabel }
+                    .tag(MobilePrimaryTab.feed)
+                    .badge(feedNeedsInputCount)
+                if showsNotificationsTab {
+                    notifications
+                        .tabItem { notificationsLabel }
+                        .tag(MobilePrimaryTab.notifications)
+                        .badge(notificationUnreadCount)
+                }
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
@@ -129,12 +148,29 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        Tab(value: MobilePrimaryTab.notifications) {
-            notifications
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
         } label: {
-            notificationsLabel
+            feedLabel
         }
-        .badge(notificationUnreadCount)
+        .badge(feedNeedsInputCount)
+
+        if showsNotificationsTab {
+            Tab(value: MobilePrimaryTab.notifications) {
+                notifications
+            } label: {
+                notificationsLabel
+            }
+            .badge(notificationUnreadCount)
+        }
+    }
+
+    private var feedLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+            systemImage: "waveform"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabFeed")
     }
 
     private var workspacesLabel: some View {

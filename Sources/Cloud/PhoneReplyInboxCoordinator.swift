@@ -38,7 +38,7 @@ final class PhoneReplyInboxCoordinator {
     /// ``TerminalController/v2MobileTerminalPaste(params:)`` at composition.
     /// The retarget policy is carried separately so a confined notification
     /// can never be mistaken for a retargetable one after it is parked.
-    var injectTerminalInput: (@MainActor ([String: Any], Bool) -> InjectionOutcome)?
+    var injectTerminalInput: (@MainActor ([String: Any], Bool) async -> InjectionOutcome)?
 
     private var client: PhoneReplyInboxClient?
     private var sweepTask: Task<Void, Never>?
@@ -184,7 +184,7 @@ final class PhoneReplyInboxCoordinator {
             if let workspaceId = decrypted.workspaceId, !workspaceId.isEmpty {
                 params["workspace_id"] = workspaceId
             }
-            let outcome = inject(params, decrypted.retargetsToLiveSurfaceOwner)
+            let outcome = await inject(params, decrypted.retargetsToLiveSurfaceOwner)
             #if DEBUG
             cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(decrypted.surfaceId.prefix(8))")
             #endif

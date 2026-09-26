@@ -41,6 +41,9 @@ actor RoutingHostRouter {
     struct PasteRecord: Sendable {
         var surfaceID: String
         var text: String
+        var workspaceID: String? = nil
+        var submitKey: String? = nil
+        var feedEventID: String? = nil
     }
     struct AttachmentUploadRecord: Sendable {
         var fileName: String
@@ -58,6 +61,17 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private var feedPasteSubmitted = true
+    private var feedTextPages: [(text: String, version: Double, nextOffset: Int?)] = []
+    private(set) var feedTextRequests: [(itemID: String?, offset: Int?, version: Double?)] = []
+
+    func setFeedTextPages(_ pages: [(text: String, version: Double, nextOffset: Int?)]) {
+        feedTextPages = pages
+    }
+
+    func setFeedPasteSubmitted(_ submitted: Bool) {
+        feedPasteSubmitted = submitted
+    }
     private(set) var attachmentUploads: [AttachmentUploadRecord] = []
     private var rejectAttachmentUpload = false
     let terminalInputRecorder = RoutingTerminalInputRecorder()
@@ -249,12 +263,26 @@ actor RoutingHostRouter {
         var uploadOffset: Int?
         var uploadLast: Bool?
         var uploadTotalBytes: Int?
+        var workspaceID: String?
+        var submitKey: String?
+        var feedEventID: String?
+        var itemID: String?
+        var feedTextVersion: Double?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
         let method = info.method
         let id = info.id
         switch method {
+        case "feed.text":
+            feedTextRequests.append((info.itemID, info.directoryOffset, info.feedTextVersion))
+            guard !feedTextPages.isEmpty else {
+                return try? Self.resultFrame(id: id, result: ["text": "", "version": 1.0])
+            }
+            let page = feedTextPages.removeFirst()
+            var result: [String: Any] = ["text": page.text, "version": page.version]
+            if let next = page.nextOffset { result["next_offset"] = next }
+            return try? Self.resultFrame(id: id, result: result)
         case "workspace.list", "mobile.workspace.list":
             return try? workspaceListFrame(id: id)
         case "terminal.create":
@@ -439,11 +467,18 @@ actor RoutingHostRouter {
                 return try? Self.errorFrame(id: id, message: "paste_image rejected")
             }
             return try? Self.resultFrame(id: id, result: [:])
-        case "terminal.paste":
+        case "terminal.paste", "mobile.terminal.paste":
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
-            pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
-            return try? Self.resultFrame(id: id, result: [:])
+            pastes.append(PasteRecord(
+                surfaceID: surfaceID, text: text,
+                workspaceID: info.workspaceID, submitKey: info.submitKey,
+                feedEventID: info.feedEventID
+            ))
+            return try? Self.resultFrame(
+                id: id,
+                result: method == "mobile.terminal.paste" ? ["submitted": feedPasteSubmitted] : [:]
+            )
         case "mobile.task.attachment.upload":
             let fileName = info.fileName ?? ""
             let last = info.uploadLast ?? false
@@ -615,7 +650,12 @@ private actor RoutingTransport: CmxByteTransport {
                 fileName: params?["file_name"] as? String,
                 uploadOffset: params?["offset"] as? Int,
                 uploadLast: params?["last"] as? Bool,
-                uploadTotalBytes: params?["total_bytes"] as? Int
+                uploadTotalBytes: params?["total_bytes"] as? Int,
+                workspaceID: params?["workspace_id"] as? String,
+                submitKey: params?["submit_key"] as? String,
+                feedEventID: params?["feed_event_id"] as? String,
+                itemID: params?["item_id"] as? String,
+                feedTextVersion: params?["version"] as? Double
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
