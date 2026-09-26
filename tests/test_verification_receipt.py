@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import importlib.util
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 REPO = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("verification_receipt", REPO / "scripts/verification_receipt.py")
