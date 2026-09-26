@@ -12,8 +12,17 @@ extension AppSessionSnapshot {
         if copy.windows.isEmpty {
             copy.windows = [Self.fallbackWindowSnapshot(for: pipSurfaces)]
         }
+        var workspaceLocations: [UUID: (windowIndex: Int, workspaceIndex: Int)] = [:]
+        for windowIndex in copy.windows.indices {
+            for workspaceIndex in copy.windows[windowIndex].tabManager.workspaces.indices {
+                workspaceLocations[copy.windows[windowIndex].tabManager.workspaces[workspaceIndex].workspaceId] = (windowIndex, workspaceIndex)
+            }
+        }
         for pipSurface in pipSurfaces {
-            if !copy.insertPipSurfaceAsWorkspaceTab(pipSurface) {
+            if let location = workspaceLocations[pipSurface.homeWorkspaceId] {
+                copy.windows[location.windowIndex].tabManager.workspaces[location.workspaceIndex]
+                    .appendPipSurfaceIfNeeded(pipSurface.panel)
+            } else {
                 copy.insertPipSurfaceIntoSelectedWorkspace(pipSurface)
             }
         }
@@ -47,27 +56,21 @@ extension AppSessionSnapshot {
         )
     }
 
-    private mutating func insertPipSurfaceAsWorkspaceTab(_ pipSurface: SessionPipSurfaceSnapshot) -> Bool {
-        for windowIndex in windows.indices {
-            for workspaceIndex in windows[windowIndex].tabManager.workspaces.indices {
-                guard windows[windowIndex].tabManager.workspaces[workspaceIndex].workspaceId == pipSurface.homeWorkspaceId else {
-                    continue
-                }
-                windows[windowIndex].tabManager.workspaces[workspaceIndex].appendPipSurfaceIfNeeded(pipSurface.panel)
-                return true
-            }
-        }
-        return false
-    }
-
     private mutating func insertPipSurfaceIntoSelectedWorkspace(_ pipSurface: SessionPipSurfaceSnapshot) {
-        guard let windowIndex = windows.indices.first,
-              let workspaceIndex = windows[windowIndex].tabManager.selectedWorkspaceIndex.flatMap({
-                  windows[windowIndex].tabManager.workspaces.indices.contains($0) ? $0 : nil
-              }) ?? windows[windowIndex].tabManager.workspaces.indices.first else {
+        guard let windowIndex = windows.indices.first(where: { !$0.tabManager.workspaces.isEmpty })
+            ?? windows.indices.first else { return }
+        let workspaceIndex = windows[windowIndex].tabManager.selectedWorkspaceIndex.flatMap {
+            windows[windowIndex].tabManager.workspaces.indices.contains($0) ? $0 : nil
+        } ?? windows[windowIndex].tabManager.workspaces.indices.first
+        if let workspaceIndex {
+            windows[windowIndex].tabManager.workspaces[workspaceIndex].appendPipSurfaceIfNeeded(pipSurface.panel)
             return
         }
-        windows[windowIndex].tabManager.workspaces[workspaceIndex].appendPipSurfaceIfNeeded(pipSurface.panel)
+
+        let fallback = Self.fallbackWindowSnapshot(for: [pipSurface]).tabManager.workspaces[0]
+        windows[windowIndex].tabManager.selectedWorkspaceIndex = 0
+        windows[windowIndex].tabManager.workspaces = [fallback]
+        windows[windowIndex].tabManager.workspaces[0].appendPipSurfaceIfNeeded(pipSurface.panel)
     }
 }
 

@@ -9393,10 +9393,12 @@ struct CMUXCLI {
 
         // Let the socket's shared resolver choose the focused surface or the
         // routed PiP floater when no explicit surface context is supplied.
-        let surfaceRaw = surfaceArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        let hasExplicitWindow = windowArg != nil || windowOverride != nil
+        let environment = ProcessInfo.processInfo.environment
+        let surfaceRaw = surfaceArg ?? (hasExplicitWindow ? nil : environment["CMUX_SURFACE_ID"])
         if surfaceArg != nil || surfaceRaw != nil {
             let workspaceID = try normalizeWorkspaceHandle(
-                ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                hasExplicitWindow ? nil : environment["CMUX_WORKSPACE_ID"],
                 client: client,
                 windowHandle: windowID
             )

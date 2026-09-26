@@ -5112,7 +5112,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             freezeWindowlessRoutes: includeScrollback
         )
         guard !preflightRoutes.isEmpty || !pipSurfaces.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        if let suppliedRestorableAgentIndex {
+            restorableAgentIndex = suppliedRestorableAgentIndex
+        } else if preflightRoutes.isEmpty {
+            // PiP-only snapshots do not contain live workspace routes. Use the
+            // already-maintained index when available rather than synchronously
+            // loading the agent history on the main actor for detached panels.
+            restorableAgentIndex = SharedLiveAgentIndex.shared.index ?? .empty
+        } else {
+            restorableAgentIndex = RestorableAgentSessionIndex.load()
+        }
         let routes = suppliedRestorableAgentIndex == nil
             ? orderedSessionRouteSnapshots(
                 restorableAgentIndex: restorableAgentIndex,

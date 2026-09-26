@@ -38,20 +38,24 @@ extension AppDelegate {
     @discardableResult
     func toggleSurfacePipForCurrentContext(event: NSEvent? = nil) -> Bool {
         let routedTabManager = event.flatMap { preferredMainWindowContextForShortcutRouting(event: $0)?.tabManager }
-        return surfacePipController.toggleForCurrentContext(
+        guard case .success = performSurfacePipAction(
+            panelId: nil,
+            action: .toggle,
             tabManager: routedTabManager ?? focusedSurfacePipTabManager()
-        )
+        ) else { return false }
+        return true
     }
 
     @discardableResult
     func popOutSurfacePip(panelId: UUID) -> Bool {
-        guard let source = workspaceContainingPanel(panelId: panelId) else { return false }
-        return surfacePipController.popOut(panelId: panelId, from: source.workspace)
+        guard case .success = performSurfacePipAction(panelId: panelId, action: .pop) else { return false }
+        return true
     }
 
     @discardableResult
     func returnSurfacePip(panelId: UUID) -> Bool {
-        surfacePipController.returnSurface(panelId: panelId)
+        guard case .success = performSurfacePipAction(panelId: panelId, action: .return) else { return false }
+        return true
     }
 
     func performSurfacePipAction(
@@ -67,7 +71,7 @@ extension AppDelegate {
         switch action {
         case .pop:
             let resolvedPanelId = panelId
-                ?? surfacePipController.panelId(for: NSApp.keyWindow)
+                ?? (routedTabManager == nil ? surfacePipController.panelId(for: NSApp.keyWindow) : nil)
                 ?? focusedSurfacePipPanelId(tabManager: routedTabManager)
             guard let resolvedPanelId else { return .failure(.surfaceNotFound) }
             return popSurfacePipAction(panelId: resolvedPanelId)
@@ -112,10 +116,17 @@ extension AppDelegate {
 
     @discardableResult
     func returnFocusedSurfacePipForCloseCommand(window: NSWindow?) -> Bool {
-        guard let panelId = surfacePipController.panelId(for: window ?? NSApp.keyWindow ?? NSApp.mainWindow) else {
+        let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let panelId = surfacePipController.panelId(for: targetWindow) else {
             return false
         }
-        return surfacePipController.returnSurface(panelId: panelId)
+        let routedTabManager = targetWindow.flatMap { contextForMainTerminalWindow($0)?.tabManager }
+        guard case .success = performSurfacePipAction(
+            panelId: panelId,
+            action: .return,
+            tabManager: routedTabManager
+        ) else { return false }
+        return true
     }
 
     func sessionPipSurfaceSnapshots(includeScrollback: Bool) -> [SessionPipSurfaceSnapshot] {

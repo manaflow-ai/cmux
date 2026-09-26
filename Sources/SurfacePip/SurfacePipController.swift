@@ -142,23 +142,6 @@ final class SurfacePipController {
     }
 
     @discardableResult
-    func toggleForCurrentContext(tabManager: TabManager?) -> Bool {
-        if let pipPanelId = panelId(for: NSApp.keyWindow ?? NSApp.mainWindow) {
-            return returnSurface(panelId: pipPanelId)
-        }
-        if let workspace = tabManager?.selectedWorkspace,
-           let panelId = workspace.focusedPanelId,
-           let panel = workspace.panels[panelId],
-           canPopOut(panel: panel) {
-            return popOut(panelId: panelId, from: workspace)
-        }
-        if let pipPanelId = mostRecentActivePanelId {
-            return returnSurface(panelId: pipPanelId)
-        }
-        return false
-    }
-
-    @discardableResult
     func popOut(panelId: UUID, from workspace: Workspace) -> Bool {
         guard recordsByPanelId[panelId] == nil,
               let panel = workspace.panels[panelId],
