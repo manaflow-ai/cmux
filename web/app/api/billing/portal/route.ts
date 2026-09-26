@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import type * as StackLib from "../../../lib/stack";
+import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
 
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
@@ -14,12 +15,16 @@ import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
+import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type GetStackServerApp = typeof StackLib.getStackServerApp;
 
+// oxlint-disable-next-line complexity -- Portal routing keeps auth, App Store policy, team scope, recovery, and plan-switch decisions in one billing boundary.
 export async function GET(request: NextRequest) {
   if (
     isAppStoreDistributionMode({
@@ -27,7 +32,10 @@ export async function GET(request: NextRequest) {
       cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
     })
   ) {
-    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl), 302);
+    return NextResponse.redirect(
+      appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl),
+      302,
+    );
   }
 
   // Keep Stack deferred until after the App Store distribution gate. lib/stack
@@ -42,7 +50,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await currentStackUser(getStackServerApp);
     if (!user) {
-      return NextResponse.redirect(new URL("/pricing", request.url), 302);
+      return NextResponse.redirect(new URL("/pricing", requestOrigin(request)), 302);
     }
     stackUserId = user.id;
 
@@ -66,13 +74,18 @@ export async function GET(request: NextRequest) {
       return pricingRedirect(request, "unavailable");
     }
 
-    const session = await stripe().billingPortal.sessions.create({
-      customer: customerId,
-      return_url: new URL(
-        team ? "/dashboard/billing" : "/pricing",
-        request.nextUrl.origin,
-      ).toString(),
-    });
+    const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
+    const target = request.nextUrl.searchParams.get("plan");
+    const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
+    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
+      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
+    }
+    const session = wantsSwitch
+      ? await personalPortalSession({
+          userId: user.id, origin: requestOrigin(request), target,
+          attribution: checkoutAttributionFromRequest({ searchParams: request.nextUrl.searchParams, referer: request.headers.get("referer") }),
+        })
+      : await stripe().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
     if (!session.url) {
       throw new Error("Stripe Billing Portal Session did not include a URL");
     }
@@ -123,7 +136,7 @@ function billingPortalScope(raw: string | null): "user" | "team" {
 }
 
 function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
-  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
+  return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, requestOrigin(request)), 302);
 }
 
 function isStripePortalConfigurationError(error: unknown): boolean {

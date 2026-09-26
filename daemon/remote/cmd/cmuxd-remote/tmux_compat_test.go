@@ -79,9 +79,15 @@ func TestParseTmuxArgsClusteredValueFlag(t *testing.T) {
 
 func TestTmuxRenderFormat(t *testing.T) {
 	ctx := map[string]string{
-		"pane_id":    "%abc123",
-		"pane_width": "80",
-		"window_id":  "@ws1",
+		"session_name": "cmux",
+		"pane_id":      "%abc123",
+		"pane_index":   "2",
+		"pane_title":   "leader #{unknown}",
+		"pane_width":   "80",
+		"window_flags": "*",
+		"window_id":    "@ws1",
+		"window_index": "4",
+		"window_name":  "editor",
 	}
 
 	tests := []struct {
@@ -91,6 +97,12 @@ func TestTmuxRenderFormat(t *testing.T) {
 	}{
 		{"#{pane_id}", "fallback", "%abc123"},
 		{"#{pane_id}:#{pane_width}", "", "%abc123:80"},
+		{"#S:#I.#P #W", "", "cmux:4.2 editor"},
+		{"#F #D #T", "", "* %abc123 leader"},
+		{"##S #S", "", "#S cmux"},
+		{"#T", "", "leader"},
+		{"##{unknown_var}", "", "#{unknown_var}"},
+		{"#{unclosed", "", "#{unclosed"},
 		{"#{unknown_var}", "fallback", "fallback"},
 		{"", "fallback", "fallback"},
 		{"#{pane_id} #{pane_width} #{window_id}", "", "%abc123 80 @ws1"},
@@ -100,6 +112,23 @@ func TestTmuxRenderFormat(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("tmuxRenderFormat(%q) = %q, want %q", tt.format, got, tt.want)
 		}
+	}
+}
+
+func TestTmuxShowOptions(t *testing.T) {
+	output := captureStdout(t, func() {
+		if err := tmuxShowOptions([]string{"-sv", "extended-keys"}); err != nil {
+			t.Fatalf("show-options extended-keys: %v", err)
+		}
+	})
+	if strings.TrimSpace(output) != "on" {
+		t.Fatalf("show-options extended-keys output = %q, want on", output)
+	}
+	if err := tmuxShowOptions([]string{"-q", "display-time"}); err != nil {
+		t.Fatalf("quiet unknown show-options should succeed: %v", err)
+	}
+	if err := tmuxShowOptions([]string{"display-time"}); err == nil {
+		t.Fatal("unknown show-options without -q should fail")
 	}
 }
 
@@ -145,8 +174,12 @@ func TestTmuxShellCommandText(t *testing.T) {
 }
 
 func TestTmuxWaitForSignalPath(t *testing.T) {
-	path := tmuxWaitForSignalPath("test-signal")
-	if !strings.HasPrefix(path, "/tmp/cmux-wait-for-") {
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath("test-signal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(path) != filepath.Join(os.Getenv("HOME"), ".cmux", "wait-for") {
 		t.Errorf("unexpected path prefix: %s", path)
 	}
 	if !strings.HasSuffix(path, ".sig") {
@@ -851,7 +884,11 @@ func TestMergeNodeOptions(t *testing.T) {
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
-	path := tmuxWaitForSignalPath(name)
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.Remove(path)
 
 	// Signal creates the file
@@ -861,7 +898,7 @@ func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	}
 
 	// Wait consumes the file
-	err := dispatchTmuxCommand(nil, "wait-for", []string{name})
+	err = dispatchTmuxCommand(nil, "wait-for", []string{name})
 	if err != nil {
 		t.Fatalf("wait-for should succeed: %v", err)
 	}

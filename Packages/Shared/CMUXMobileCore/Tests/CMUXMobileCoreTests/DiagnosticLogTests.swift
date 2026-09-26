@@ -157,6 +157,91 @@ import os
         #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
     }
 
+    @Test func selectedPathSnapshotsKeepDifferentPeersAndSessions() async {
+        let log = DiagnosticLog(capacity: 16)
+        for (surface, session) in [(UInt32(1), 1), (1, 2), (2, 2), (2, 2)] {
+            log.record(DiagnosticEvent(
+                .selectedPathChanged, surface: surface,
+                a: DiagnosticPathKind.relay.rawValue, c: session
+            ))
+        }
+        await waitForProcessed(log, 4)
+        let events = await log.snapshot().events
+        #expect(events.map(\.surface) == [1, 1, 2])
+        #expect(events.map(\.c) == [1, 2, 2])
+    }
+
+    @Test func transportPathLifecycleKeepsDistinctOperationsOnOnePathClass() async {
+        let log = DiagnosticLog(capacity: 16)
+        let events = [
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 1_000,
+                a: 1,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 2_000,
+                a: 3,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 3_000,
+                a: 1,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 4_000,
+                a: 3,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+        ]
+        for event in events {
+            log.record(event)
+        }
+        await waitForProcessed(log, events.count)
+
+        let report = await log.snapshot()
+        #expect(report.events == events)
+    }
+
+    @Test func interleavedSessionsDeduplicateTheirOwnSelectedPathSnapshots() async {
+        let log = DiagnosticLog(capacity: 16)
+        let selections: [(Int, DiagnosticPathKind)] = [
+            (1, .relay), (2, .relay), (1, .relay), (2, .relay),
+            (1, .privateNetwork), (2, .relay), (1, .privateNetwork), (2, .direct),
+        ]
+        for (session, path) in selections {
+            log.record(DiagnosticEvent(.selectedPathChanged, surface: 8, a: path.rawValue, c: session))
+        }
+        await waitForProcessed(log, selections.count)
+        let events = await log.snapshot().events
+        #expect(events.map(\.c) == [1, 2, 1, 2])
+        #expect(events.compactMap(\.diagnosticPathKind) == [.relay, .relay, .privateNetwork, .direct])
+    }
+
+    @Test func selectedPathDeduplicationExpiresWithItsRetainedSnapshot() async {
+        let log = DiagnosticLog(capacity: 2)
+        let events = [
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 1, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .connect, tNanos: 2),
+            DiagnosticEvent(code: .connect, tNanos: 3),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 4, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 5, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+        ]
+        for (index, event) in events.enumerated() {
+            await recordAndDrain(log, event, processedAfter: index + 1)
+        }
+        #expect(await log.snapshot().events.map(\.tNanos) == [3, 4])
+    }
+
     @Test func ringEvictionDropsOldest() async {
         let log = DiagnosticLog(capacity: 3)
         // Drain each event before recording the next so eviction is governed
@@ -883,5 +968,23 @@ import os
         log.record(DiagnosticEvent(code: .pairFail, tNanos: 3))
         await waitForProcessed(log, 3)
         #expect(received.withLock { $0 } == [live])
+    }
+
+    @Test func terminalTraceAdmissionIsRateLimitedAndCarriesOpaqueID() async {
+        let log = DiagnosticLog(capacity: 256)
+        let traceID = DiagnosticTerminalTraceID(rawValue: 0x1234)!
+        for _ in 0..<121 {
+            log.recordTerminalTrace(
+                operation: .replay,
+                phase: .requestSent,
+                traceID: traceID
+            )
+        }
+        await waitForProcessed(log, 120)
+        let report = await log.snapshot()
+        #expect(report.events.count == 120)
+        #expect(report.events.allSatisfy { $0.code == .terminalTrace })
+        #expect(report.events.allSatisfy { $0.traceID == traceID.rawValue })
+        #expect(DiagnosticEventPresentation(locale: englishLocale).summary(report.events[0]).contains("0000000000001234"))
     }
 }

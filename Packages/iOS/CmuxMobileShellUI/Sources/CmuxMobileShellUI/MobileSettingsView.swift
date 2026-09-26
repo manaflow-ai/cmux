@@ -1,12 +1,14 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
+import UIKit
 
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
@@ -18,6 +20,7 @@ struct MobileSettingsView: View {
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
@@ -32,6 +35,11 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Re-evaluates the scanner entrypoint after the replay picker changes the
+    /// connection method. Unlike ``startPairingScanner``, this callback is
+    /// intentionally not capability-gated at construction time, because the
+    /// selected method can make pairing available while the replay is open.
+    var startTailscalePairing: (() -> Void)? = nil
     /// Opens the Computers screen (the host dismisses or swaps this sheet
     /// first). `nil` hides the Connection section's All Computers row.
     var showComputers: (() -> Void)? = nil
@@ -49,11 +57,19 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
+    @State private var teamSelectionFailed = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var didCopySupportInformation = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -68,6 +84,10 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        #if DEBUG
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
+        let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        #endif
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -117,10 +137,20 @@ struct MobileSettingsView: View {
                             systemImage: "person.2"
                         )
                     } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.teamFooter",
+                                defaultValue: "Switches which cmux team's computers and devices this app shows."
+                            ))
+                            if teamSelectionFailed {
+                                Text(L10n.string(
+                                    "mobile.settings.teamSwitchFailed",
+                                    defaultValue: "Could not switch teams. Try again."
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobileSettingsTeamSwitchError")
+                            }
+                        }
                     }
                 }
 
@@ -236,6 +266,22 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
 
+                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing",
+                                defaultValue: "Use Full Terminal Height"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyTerminalSizing.description",
+                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
+
                     Button {
                         showingShortcuts = true
                     } label: {
@@ -266,6 +312,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -336,6 +391,23 @@ struct MobileSettingsView: View {
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
                 )) {
+                    Toggle(isOn: $displaySettings.taskComposerFullLiquidGlass) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.taskComposerFullLiquidGlass",
+                                defaultValue: "Task Composer Liquid Glass"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.taskComposerFullLiquidGlassCaption",
+                                defaultValue:
+                                    "Use Liquid Glass controls and a transparent bar in New Task."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
@@ -420,7 +492,8 @@ struct MobileSettingsView: View {
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true
+                            macAccountMismatch: store?.connectionRequiresReauth == true,
+                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
                         ),
                         phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
@@ -457,6 +530,11 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
+                    if store?.phonePushKeyExchangeFailed == true {
+                        MobilePushSecuritySetupFailureView(
+                            onRetry: retrySecurePushSetup
+                        )
+                    }
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
                         applyEnabledIntent: setPhonePushEnabledIntent
@@ -493,6 +571,8 @@ struct MobileSettingsView: View {
 
                 MobileSettingsLegalSupportSection()
 
+                MobileSettingsResetSection()
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -505,6 +585,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
+
+                    Button {
+                        copySupportInformation()
+                    } label: {
+                        Label(
+                            didCopySupportInformation
+                                ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                                : L10n.string(
+                                    "mobile.settings.about.copySupportInfo",
+                                    defaultValue: "Copy Support Information"
+                                ),
+                            systemImage: didCopySupportInformation ? "checkmark" : "doc.on.clipboard"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsCopySupportInformation")
                 }
             }
             .task {
@@ -545,7 +640,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -555,30 +650,19 @@ struct MobileSettingsView: View {
                     onRetryConnection: retryAutomaticConnection,
                     onStartTailscalePairing: {
                         showingOnboarding = false
-                        startPairingScanner?()
+                        (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
-                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                        await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
+                // Re-enterable setup help as a plain reference. Settings can be
+                // opened before pairing, but it does not own the active connection
+                // gate, so there is no current blocker to mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
-            }
-        }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
@@ -586,6 +670,7 @@ struct MobileSettingsView: View {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -594,6 +679,37 @@ struct MobileSettingsView: View {
                 .crashReportingConsentChanged,
                 count: value ? 1 : 0
             )
+        }
+    }
+
+    @MainActor
+    private func copySupportInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            accountID: authManager.currentUser?.id,
+            installID: analyticsClientID,
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appChannel: MobileBuildType.current().token,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            connectionState: store.map { state in
+                switch state.connectionState {
+                case .connected: "connected"
+                case .disconnected: "disconnected"
+                }
+            },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopySupportInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopySupportInformation = false
         }
     }
 
@@ -606,7 +722,7 @@ struct MobileSettingsView: View {
         if let whatsNewCenter {
             return !whatsNewCenter.archivePages.isEmpty
         }
-        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
+        return !MobileWhatsNewCatalog().channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -735,6 +851,8 @@ struct MobileSettingsView: View {
             return await store?.updatePhonePushSettings(
                 forwardingEnabled: true
             ) == true
+        case .retrySecurePushSetup:
+            return store?.retryPhonePushKeyExchange() == true
         case .waitForDeviceToken, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .rebuildMatchingApps:
             return false
@@ -775,6 +893,11 @@ struct MobileSettingsView: View {
         return stage
     }
 
+    @MainActor
+    private func retrySecurePushSetup() async -> Bool {
+        store?.retryPhonePushKeyExchange() == true
+    }
+
     private static var crashReportingEnabled: Bool {
         switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
         case let enabled as Bool:
@@ -794,10 +917,8 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    /// Settings is a reference entry point from both connected and pre-pairing
+    /// workspace shells. It does not identify which connection gate is active.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
@@ -809,22 +930,45 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the setup and introduction entries apply. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store,
-    /// so they are hidden.
+    /// hosted by the workspace shell, the host's Computers action keeps these
+    /// entries useful even before a Mac has connected. Previews without a
+    /// shell action still omit the section.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil
+        !connectedHostName.isEmpty || store != nil || showComputers != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    authManager.selectedTeamID = newValue
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                teamSelectionTask?.cancel()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                teamSelectionFailed = false
+                teamSelectionTask = Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                        teamSelectionFailed = true
+                        return
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )
@@ -866,8 +1010,12 @@ struct MobileSettingsView: View {
 private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
-    @State private var appLogURLs: [URL] = []
-    @State private var networkLogURLs: [URL] = []
+    @Environment(\.mobileAppLog) private var appLog
+    @State private var isPreparingExport = false
+    @State private var logExportTask: Task<Void, Never>?
+    @State private var logExportTaskID: UUID?
+    @State private var presentationHost: UIViewController?
+    @State private var exportErrorMessage: String?
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -876,33 +1024,20 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            if !appLogURLs.isEmpty {
-                ShareLink(items: appLogURLs) {
+            if appLog != nil {
+                Button {
+                    startLogExport()
+                } label: {
                     Label(
                         L10n.string(
-                            "mobile.settings.diagnostics.shareAppLog",
-                            defaultValue: "Share App Log"
+                            "mobile.settings.diagnostics.export",
+                            defaultValue: "Export Logs"
                         ),
-                        systemImage: "doc.text"
+                        systemImage: "square.and.arrow.up"
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .accessibilityIdentifier("MobileSettingsShareAppLog")
-            }
-            if !networkLogURLs.isEmpty {
-                ShareLink(items: networkLogURLs) {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.diagnostics.shareNetworkLog",
-                            defaultValue: "Share Network Log"
-                        ),
-                        systemImage: "network"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+                .disabled(isPreparingExport)
+                .accessibilityIdentifier("MobileSettingsExportLogs")
             }
             if let model = irohSettingsModel {
                 Toggle(isOn: Binding(
@@ -923,73 +1058,71 @@ private struct MobileSettingsDiagnosticsSection: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                if let verboseLogShareURL = model.verboseLogShareURL {
-                    ShareLink(item: verboseLogShareURL) {
-                        Label(
-                            L10n.string(
-                                "mobile.iroh.diagnostics.shareVerboseLog",
-                                defaultValue: "Share Verbose Log"
-                            ),
-                            systemImage: "doc.text"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileIrohShareVerboseLog")
-                    .simultaneousGesture(TapGesture().onEnded {
-                        diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
-                    })
-                }
-                ShareLink(item: model.diagnosticExportText) {
-                    Label(
-                        L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-                .disabled(model.diagnosticExportText.isEmpty)
-                .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
-                })
                 Button(role: .destructive) {
                     showsClearConfirmation = true
                 } label: {
                     Label(
-                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"),
                         systemImage: "trash"
                     )
                 }
-                .disabled(model.diagnosticReport.events.isEmpty)
-                .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+                .accessibilityIdentifier("MobileSettingsClearLogs")
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
         } footer: {
             Text(L10n.string(
                 "mobile.settings.diagnostics.footer",
-                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+                defaultValue: "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
             ))
         }
+        .background {
+            MobileSettingsPresentationAnchor { host in
+                presentationHost = host
+            }
+            .frame(width: 0, height: 0)
+        }
         .confirmationDialog(
-            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear all diagnostic logs?"),
             isPresented: $showsClearConfirmation,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
-                Task { await irohSettingsModel?.clearDiagnosticReport() }
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"), role: .destructive) {
+                Task {
+                    // Stop and drain the string sink first. Its synchronous
+                    // observer mirrors each accepted line into AppLog, so the
+                    // AppLog barrier below includes every pre-clear line.
+                    let verboseLogWasEnabled = irohSettingsModel?.verboseLogEnabled == true
+                    let didClearVerboseLog = await MobileDebugLog.shared.clearPersistedLog()
+                    if !didClearVerboseLog {
+                        if verboseLogWasEnabled {
+                            await irohSettingsModel?.setVerboseLog(false)
+                        }
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t clear the verbose connection logs. Check available storage and try again."
+                        )
+                    }
+                    await irohSettingsModel?.clearDiagnosticReport()
+                    await diagnosticLog?.clear()
+                    let didClearAppLog = await appLog?.clear() ?? true
+                    if !didClearAppLog {
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t clear every log generation. Check available storage and try again."
+                        )
+                    }
+                }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(L10n.string(
                 "mobile.iroh.diagnostics.clear.message",
-                defaultValue: "This permanently removes the connection timeline stored on this device."
+                defaultValue: "This permanently removes the app, networking, verbose, and connection logs stored on this device."
             ))
         }
         .task {
-            let urls = await Task.detached(priority: .utility) {
-                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
-            }.value
             guard !Task.isCancelled else { return }
-            appLogURLs = urls.0
-            networkLogURLs = urls.1
             guard let irohSettingsController else { return }
             // Reuse the model but restart observation on every appearance;
             // the previous observe loop died with the previous task.
@@ -1000,7 +1133,139 @@ private struct MobileSettingsDiagnosticsSection: View {
             irohSettingsModel = model
             await model.observe(recordingScreenEvents: false)
         }
-        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onDisappear {
+            logExportTask?.cancel()
+            logExportTask = nil
+            logExportTaskID = nil
+            irohSettingsModel?.cancelOperations()
+        }
+        .alert(
+            L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"),
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented { exportErrorMessage = nil }
+                }
+            )
+        ) {
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                exportErrorMessage = nil
+            }
+        } message: {
+            Text(exportErrorMessage ?? L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            ))
+        }
+    }
+
+    @MainActor
+    private func startLogExport() {
+        guard logExportTask == nil else { return }
+        let taskID = UUID()
+        logExportTaskID = taskID
+        logExportTask = Task { @MainActor in
+            defer {
+                if logExportTaskID == taskID {
+                    logExportTask = nil
+                    logExportTaskID = nil
+                }
+            }
+            await prepareLogExport()
+        }
+    }
+
+    @MainActor
+    private func prepareLogExport() async {
+        guard !isPreparingExport, let appLog else { return }
+        isPreparingExport = true
+        defer { isPreparingExport = false }
+        guard let url = await appLog.exportLogs() else {
+            guard !Task.isCancelled else { return }
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
+            return
+        }
+        guard !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        presentLogExport(url)
+    }
+
+    @MainActor
+    private func presentLogExport(_ url: URL) {
+        let controller = UIActivityViewController(
+            activityItems: [url],
+            applicationActivities: nil
+        )
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: url)
+        }
+        guard let host = presentationHost,
+              let window = host.viewIfLoaded?.window,
+              let root = window.rootViewController else {
+            try? FileManager.default.removeItem(at: url)
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
+            return
+        }
+        let presenter = Self.topViewController(from: root)
+        controller.popoverPresentationController?.sourceView = presenter.view
+        controller.popoverPresentationController?.sourceRect = CGRect(
+            x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY,
+            width: 1,
+            height: 1
+        )
+        presenter.present(controller, animated: true)
+    }
+
+    private static func topViewController(from controller: UIViewController) -> UIViewController {
+        if let presented = controller.presentedViewController {
+            return topViewController(from: presented)
+        }
+        if let navigation = controller as? UINavigationController,
+           let visible = navigation.visibleViewController {
+            return topViewController(from: visible)
+        }
+        if let tab = controller as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topViewController(from: selected)
+        }
+        return controller
+    }
+}
+
+@MainActor
+private struct MobileSettingsPresentationAnchor: UIViewControllerRepresentable {
+    let onReady: (UIViewController) -> Void
+
+    func makeUIViewController(context: Context) -> MobileSettingsPresentationAnchorViewController {
+        let controller = MobileSettingsPresentationAnchorViewController()
+        controller.onReady = onReady
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: MobileSettingsPresentationAnchorViewController,
+        context: Context
+    ) {
+        uiViewController.onReady = onReady
+    }
+}
+
+@MainActor
+private final class MobileSettingsPresentationAnchorViewController: UIViewController {
+    var onReady: ((UIViewController) -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        onReady?(self)
     }
 }
 #endif

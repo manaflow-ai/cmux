@@ -2984,6 +2984,37 @@ impl Terminal {
         check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
     }
 
+    /// Move a screen selection point from a wide grapheme continuation cell
+    /// to the grapheme's lead cell. Ghostty represents a wide grapheme that
+    /// wraps at the right edge as a spacer head on one row and a wide lead on
+    /// the next row. The spacer head has no text of its own, so semantic
+    /// selection must address the lead cell.
+    pub fn normalize_selection_point_screen(
+        &self,
+        point: SelectionPoint,
+    ) -> Option<SelectionPoint> {
+        let width = self.cell_width_screen(point)?;
+        match width {
+            CellWidth::SpacerTail if point.column > 0 => {
+                let leading = SelectionPoint { column: point.column - 1, ..point };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            CellWidth::SpacerHead => {
+                let leading = SelectionPoint { column: 0, row: point.row.checked_add(1)? };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            _ => Some(point),
+        }
+    }
+
+    fn cell_width_screen(&self, point: SelectionPoint) -> Option<CellWidth> {
+        let grid_ref =
+            self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))?;
+        let mut raw = sys::GhosttyCell::default();
+        check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+        Some(crate::render::cell_width(raw))
+    }
+
     /// Select the word containing an absolute screen coordinate using
     /// Ghostty's configured word-boundary rules.
     pub fn select_word_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
@@ -3543,19 +3574,29 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
-
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
+        // A replay with retained scrollback can contain exactly one viewport
+        // of rows while still carrying a sparse history prefix in Ghostty's
+        // screen coordinate space. Keep every row boundary in that case so
+        // the target cannot retain stale history above the active TUI.
+        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands and history-bearing
+        // ranges depend on physical row cursor positions, so retain the
+        // row-delimited form for those cases.
+        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
@@ -3566,16 +3607,24 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                Self::vt_replay_segment_options(
+                    &selection,
+                    first,
+                    last,
+                    include_palette,
+                    preserve_soft_wrap,
+                ),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            if !preserve_soft_wrap {
+                emitted_breaks = emitted_breaks
+                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            }
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
+            if !preserve_soft_wrap && history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
                 while emitted_breaks < expected_breaks {
@@ -3592,19 +3641,17 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
+                if !preserve_soft_wrap {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
                 }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
+        if !preserve_soft_wrap && history_bearing {
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
@@ -3721,8 +3768,10 @@ impl Terminal {
         first: bool,
         last: bool,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        let mut options =
+            Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
@@ -3741,11 +3790,12 @@ impl Terminal {
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            unwrap: unwrap_soft_wrap,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
@@ -5187,6 +5237,29 @@ mod tests {
         target.vt_write(&replay);
 
         assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
+    fn vt_replay_preserves_blank_tail_after_history() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(b"\x1b[2J\x1b[HHEADER\x1b[5;1H> Ask Codex\x1b[6;1HSTATUS\x1b[5;3H");
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+        assert_eq!(restored.cursor_position(), source.cursor_position());
+
+        // A TUI continues with absolute-cell diffs after attaching. Its header,
+        // composer and cursor must still agree on the same physical rows.
+        let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
     }
 
     #[test]

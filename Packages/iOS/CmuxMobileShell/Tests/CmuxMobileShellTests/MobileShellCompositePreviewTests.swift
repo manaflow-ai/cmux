@@ -339,8 +339,11 @@ import Testing
 
         store.recoverMobileConnection(trigger: .networkChange)
 
+        // A no-store client only resyncs on a network change. Restarting the
+        // event stream re-runs the subscription readiness check, which must not
+        // demote an already-connected session to `reconnecting` (57ec73a9).
         #expect(store.connectionState == .connected)
-        #expect(store.macConnectionStatus == .reconnecting)
+        #expect(store.macConnectionStatus == .connected)
         #expect(!store.connectionRecoveryFailed)
     }
 
@@ -410,6 +413,32 @@ import Testing
 
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
+    }
+
+    @Test func staleSameScopeRegistryLoadCannotReplaceNewerSnapshot() async throws {
+        let registry = SequencedDeviceRegistry(
+            outcomes: [
+                .ok([Self.registryDevice(id: "old-device")]),
+                .ok([Self.registryDevice(id: "new-device")]),
+            ]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        let oldLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(1)
+        let newLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(2)
+
+        await registry.releaseFirstCall()
+        await oldLoad.value
+        await newLoad.value
+
+        #expect(store.registryDevices.map(\.deviceId) == ["new-device"])
     }
 
     @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
@@ -503,7 +532,11 @@ import Testing
             platform: "mac",
             displayName: id,
             lastSeenAt: Date(timeIntervalSince1970: 2),
-            instances: []
+            instances: [RegistryAppInstance(
+                tag: "default",
+                routes: [],
+                lastSeenAt: Date(timeIntervalSince1970: 2)
+            )]
         )
     }
 
@@ -1286,6 +1319,7 @@ import Testing
         #expect(route?.0 == "100.71.210.41")
         #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
     }
+
 }
 
 private func hostPortRoute(
