@@ -46,6 +46,9 @@ struct AutoNamingSessionSnapshot: Sendable {
     var lastLineCount: Int?
     var lastNamedAt: TimeInterval?
     var inFlightAt: TimeInterval?
+    /// True after the agent's native title command (for example Claude's
+    /// `/rename`) establishes user ownership of the session title.
+    var userOwned: Bool
     /// Last attempt time, success or failure (see the record field of the same
     /// purpose). Drives the failure cooldown in ``throttleDecision``.
     var lastAttemptAt: TimeInterval?
@@ -55,13 +58,15 @@ struct AutoNamingSessionSnapshot: Sendable {
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
-        lastAttemptAt: TimeInterval? = nil
+        lastAttemptAt: TimeInterval? = nil,
+        userOwned: Bool = false
     ) {
         self.lastTitle = lastTitle
         self.lastLineCount = lastLineCount
         self.lastNamedAt = lastNamedAt
         self.inFlightAt = inFlightAt
         self.lastAttemptAt = lastAttemptAt
+        self.userOwned = userOwned
     }
 }
 
@@ -73,6 +78,8 @@ enum AutoNamingThrottleDecision: Equatable, Sendable {
     /// baseline without naming so future growth measures from it.
     case reseedBaseline(to: Int)
     case skipShortTranscript
+    /// The agent or user explicitly owns the title, so summarization must stop.
+    case skipUserOwned
     case skipInFlight
     case skipTooSoon
     case skipInsufficientGrowth
@@ -179,6 +186,9 @@ struct AutoNamingEngine: Sendable {
         transcriptLineCount: Int,
         now: Date
     ) -> AutoNamingThrottleDecision {
+        guard !snapshot.userOwned else {
+            return .skipUserOwned
+        }
         guard transcriptLineCount >= config.minTranscriptLines else {
             return .skipShortTranscript
         }
@@ -242,6 +252,33 @@ struct AutoNamingEngine: Sendable {
             messages.append(AutoNamingTranscriptMessage(role: role, text: trimmed))
         }
         return messages
+    }
+
+    /// Returns whether a Claude transcript contains a non-empty native title
+    /// record written by `/rename`.
+    func containsClaudeCustomTitle(inTranscriptLines lines: [String]) -> Bool {
+        lines.contains { line in
+            guard let data = line.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["type"] as? String == "custom-title" else {
+                return false
+            }
+            return (object["customTitle"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty == false
+        }
+    }
+
+    /// Returns whether a Claude UserPromptSubmit payload starts with the
+    /// native `/rename` command.
+    func isClaudeRenamePrompt(_ prompt: String?) -> Bool {
+        guard let prompt else { return false }
+        let normalized = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count >= "/rename".count else { return false }
+        let command = normalized.prefix("/rename".count).lowercased()
+        guard command == "/rename" else { return false }
+        return normalized.count == "/rename".count
+            || normalized.dropFirst("/rename".count).first.map { $0.isWhitespace } == true
     }
 
     /// Builds the summarization context: the first user messages anchor the
