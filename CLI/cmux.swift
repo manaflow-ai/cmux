@@ -5253,6 +5253,28 @@ struct CMUXCLI {
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
         }
+        if command == "schedule", scheduleCommandDoesNotNeedSocket(commandArgs) {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
+        }
+        if command == "schedule",
+           commandArgs.first?.lowercased() == "run",
+           commandArgs.count != 2 {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
+        }
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
@@ -5360,6 +5382,16 @@ struct CMUXCLI {
                     throw continuationSocketStartupError(command: command, error: error)
                 }
             } else {
+                if command == "schedule", commandArgs.first?.lowercased() == "run" {
+                    try runScheduleCommand(
+                        commandArgs: commandArgs,
+                        client: nil,
+                        jsonOutput: jsonOutput,
+                        explicitPassword: socketPasswordArg,
+                        socketPath: resolvedSocketPath
+                    )
+                    return
+                }
                 throw error
             }
         }
@@ -5378,6 +5410,16 @@ struct CMUXCLI {
                 responseTimeout: cursorHookSocketTimeout,
                 deadline: cursorHookDeadline
             )
+        }
+        if command == "schedule" {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
         }
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Default JSON output is a scripting boundary: keep stable UUIDs beside
@@ -8283,6 +8325,11 @@ struct CMUXCLI {
             // `feed tui` is the socket-backed exception; help, clear, and
             // malformed subcommands are all local argument/config paths.
             return commandArgs.first?.lowercased() != "tui"
+        case "schedule":
+            // Local schedule actions and launchd's run entry point must reach
+            // their own parser so they can report product-level errors.
+            return scheduleCommandDoesNotNeedSocket(commandArgs)
+                || commandArgs.first?.lowercased() == "run"
         case "disable-browser", "enable-browser", "browser-status":
             return true
         case "browser":
