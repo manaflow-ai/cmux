@@ -36,13 +36,14 @@ extension CMUXCLI {
                 readsStandardInput = true
             default:
                 // Everything here lands in an agent prompt, so a mistyped flag
-                // or an option missing its value must fail rather than be
-                // pasted. Text that starts with "--" goes after the terminator.
-                if arg.hasPrefix("--") {
+                // (`--sumbit`, `-s`) or an option missing its value must fail
+                // rather than be pasted. Text that starts with "-" goes after
+                // the `--` terminator.
+                if arg.hasPrefix("-") {
                     throw CLIError(message: String(
                         format: String(
                             localized: "cli.paste.error.unknownFlag",
-                            defaultValue: "paste: unknown flag or missing value: %@ (put text that starts with -- after a -- separator)"
+                            defaultValue: "paste: unknown flag or missing value: %@ (put text that starts with - after a -- separator)"
                         ),
                         arg
                     ))
@@ -60,13 +61,19 @@ extension CMUXCLI {
         return parsed
     }
 
-    /// `cmux paste`: deliver text to a terminal as one bracketed paste.
+    /// `cmux paste`: deliver text through the terminal's paste path.
     ///
-    /// Unlike `cmux send`, the text is passed through byte for byte: newlines
-    /// stay inside the paste instead of pressing Enter, `\n`-style escapes are
-    /// not interpreted, and the terminal receives it through the same paste path
-    /// as Cmd+V (`terminal.paste`), so TUIs such as Claude Code and Codex see a
-    /// single paste rather than a stream of keystrokes.
+    /// Unlike `cmux send`, which types the text as keystrokes (every newline
+    /// is Enter, `\n`-style escapes are rewritten), the text goes to
+    /// `terminal.paste`, the same path as Cmd+V. Ghostty then encodes it like
+    /// any paste: when the program has enabled bracketed paste (mode 2004) it
+    /// arrives as one paste with newlines kept; otherwise newlines become `\r`.
+    /// In both cases unsafe control bytes (ESC, NUL, BS, DEL, ^C, ^U, ^W, ^Z
+    /// and similar) are replaced with spaces. The CLI itself passes the text
+    /// through unchanged.
+    ///
+    /// Stdin, when used, is drained before the socket connects (see
+    /// ``prepareStandardInputBeforeSocket(command:commandArgs:)``).
     func runPasteCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -79,14 +86,12 @@ extension CMUXCLI {
         if let positional = parsed.text {
             text = positional
         } else {
-            text = try readPasteTextFromStandardInput()
+            text = try pasteTextFromStandardInput()
         }
         guard !text.isEmpty else {
-            throw CLIError(message: String(
-                localized: "cli.paste.error.missingText",
-                defaultValue: "paste requires text as an argument or on stdin"
-            ))
+            throw CLIError(message: Self.pasteMissingTextMessage)
         }
+        try Self.ensureTextFitsSocketRequest(text, command: "paste")
 
         let windowRaw = parsed.window ?? windowOverride
         let workspaceArg = parsed.workspace
@@ -141,30 +146,111 @@ extension CMUXCLI {
         return "\(summary) \(suffix)"
     }
 
-    private func readPasteTextFromStandardInput() throws -> String {
-        // An interactive stdin with no text argument is almost always a
-        // mistake; fail instead of silently waiting for EOF.
-        if isatty(STDIN_FILENO) == 1 {
-            throw CLIError(message: String(
-                localized: "cli.paste.error.missingText",
-                defaultValue: "paste requires text as an argument or on stdin"
-            ))
-        }
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard let text = String(data: data, encoding: .utf8) else {
+    private static var pasteMissingTextMessage: String {
+        String(
+            localized: "cli.paste.error.missingText",
+            defaultValue: "paste requires text as an argument or on stdin"
+        )
+    }
+
+    private func pasteTextFromStandardInput() throws -> String {
+        switch CLIStandardInputText.shared.read() {
+        case .success(let text):
+            return text
+        case .failure(.interactive):
+            // An interactive stdin with no text argument is almost always a
+            // mistake; fail instead of silently waiting for EOF.
+            throw CLIError(message: Self.pasteMissingTextMessage)
+        case .failure(.invalidUTF8):
             throw CLIError(message: String(
                 localized: "cli.paste.error.invalidUTF8",
                 defaultValue: "paste: stdin is not valid UTF-8 text"
             ))
+        case .failure(.tooLarge):
+            throw Self.textTooLargeError(command: "paste")
         }
-        return text
+    }
+
+    /// Text for `set-buffer` read from stdin, with set-buffer's own errors.
+    func setBufferTextFromStandardInput() throws -> String {
+        switch CLIStandardInputText.shared.read() {
+        case .success(let text):
+            return text
+        case .failure(.interactive):
+            throw CLIError(message: "set-buffer requires text")
+        case .failure(.invalidUTF8):
+            throw CLIError(message: String(
+                localized: "cli.setBuffer.error.invalidUTF8",
+                defaultValue: "set-buffer: stdin is not valid UTF-8 text"
+            ))
+        case .failure(.tooLarge):
+            throw Self.textTooLargeError(command: "set-buffer")
+        }
+    }
+
+    /// The text arguments of `set-buffer` after `--name` and a leading `--`,
+    /// and whether they ask for stdin (none, or a lone `-`).
+    func setBufferTextArguments(_ commandArgs: [String]) -> (name: String, textArgs: [String], readsStandardInput: Bool) {
+        let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
+        let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
+        let textArgs = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
+        return (name, textArgs, textArgs.isEmpty || textArgs == ["-"])
+    }
+
+    /// Drains stdin for commands that take piped text, before the CLI opens
+    /// and authenticates its socket. A slow producer (`slow-cmd | cmux paste`)
+    /// would otherwise hold an idle connection open and can run past the
+    /// socket's pre-authentication deadline. The text is cached for the
+    /// command body. Argument errors surface here too, before any connection.
+    func prepareStandardInputBeforeSocket(command: String, commandArgs: [String]) throws {
+        switch command {
+        case "paste":
+            let parsed = try parsePasteCommandArguments(commandArgs)
+            if parsed.text == nil {
+                _ = try pasteTextFromStandardInput()
+            }
+        case "set-buffer":
+            if setBufferTextArguments(commandArgs).readsStandardInput {
+                _ = try setBufferTextFromStandardInput()
+            }
+        default:
+            break
+        }
+    }
+
+    /// The control socket buffers at most 16 MiB per request line
+    /// (`ControlClientAsyncTransport.maximumBufferedBytes`). Keep the encoded
+    /// text under 15 MiB so the rest of the request always fits.
+    static let maximumEncodedTextBytes = 15 * 1024 * 1024
+
+    /// Fails with a clear error when `text` would not fit in one socket
+    /// request once JSON-escaped (control characters can grow sixfold).
+    static func ensureTextFitsSocketRequest(_ text: String, command: String) throws {
+        let rawBytes = text.utf8.count
+        if rawBytes <= maximumEncodedTextBytes / 6 { return }
+        guard rawBytes <= maximumEncodedTextBytes,
+              let encoded = try? JSONSerialization.data(withJSONObject: [text], options: []),
+              encoded.count <= maximumEncodedTextBytes else {
+            throw textTooLargeError(command: command)
+        }
+    }
+
+    static func textTooLargeError(command: String) -> CLIError {
+        CLIError(message: String(
+            format: String(
+                localized: "cli.paste.error.tooLarge",
+                defaultValue: "%@: text is too large; the limit is %@ MiB after JSON escaping"
+            ),
+            command,
+            String(maximumEncodedTextBytes / (1024 * 1024))
+        ))
     }
 
     static var pasteHelp: String {
         String(localized: "cli.help.paste", defaultValue: """
         Usage: cmux paste [flags] [--] [text | -]
 
-        Paste text into a terminal surface as a single bracketed paste, the same way Cmd+V does. Text is sent exactly as given: newlines stay inside the paste instead of pressing Enter, and escape sequences such as \\n are not interpreted. With no text argument, or with -, the text is read from stdin.
+        Paste text into a terminal surface through the same paste path as Cmd+V. If the running program has turned on bracketed paste, the text arrives as one paste and newlines stay inside it; otherwise each newline is sent as Enter. As with Cmd+V, control characters such as Esc, Backspace, Ctrl-C and Ctrl-U are replaced with spaces. Escape sequences such as \\n are not interpreted. With no text argument, or with - before --, the text is read from stdin. Text over 15 MiB after JSON escaping is rejected.
 
         Flags:
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -177,5 +263,49 @@ extension CMUXCLI {
           cmux read-screen --surface surface:1 --lines 40 | cmux paste --surface surface:2
           cmux paste --surface surface:2 --submit "Review this change"
         """)
+    }
+}
+
+/// Standard input read once per CLI process and cached, so a command can drain
+/// it before connecting to the socket and use the same text afterwards.
+final class CLIStandardInputText: @unchecked Sendable {
+    enum Failure: Error, Equatable {
+        /// Stdin is a terminal, so there is no piped text to read.
+        case interactive
+        case invalidUTF8
+        case tooLarge
+    }
+
+    static let shared = CLIStandardInputText()
+
+    private let lock = NSLock()
+    private var cached: Result<String, Failure>?
+
+    func read() -> Result<String, Failure> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached { return cached }
+        let result = Self.readStandardInput()
+        cached = result
+        return result
+    }
+
+    private static func readStandardInput() -> Result<String, Failure> {
+        if isatty(STDIN_FILENO) == 1 { return .failure(.interactive) }
+        // Stop reading past the socket limit instead of buffering an
+        // unbounded producer; the command fails either way.
+        let limit = CMUXCLI.maximumEncodedTextBytes
+        var data = Data()
+        let handle = FileHandle.standardInput
+        while true {
+            let chunk = handle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            if data.count > limit { return .failure(.tooLarge) }
+        }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return .failure(.invalidUTF8)
+        }
+        return .success(text)
     }
 }

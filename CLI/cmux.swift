@@ -5302,6 +5302,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -27431,29 +27432,16 @@ struct CMUXCLI {
             throw CLIError(message: "\(command) is not supported yet in cmux CLI parity mode")
 
         case "set-buffer":
-            let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
-            let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
-            // Store the text exactly as given, like tmux: trailing newlines and
+            // Store the text exactly as given: trailing newlines and
             // indentation are part of what paste-buffer should deliver. With no
-            // text argument, or a lone "-", read the text from stdin so output
-            // can be piped in (`cmd | cmux set-buffer`).
-            let textArgs = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
-            let content: String
-            if textArgs.isEmpty || textArgs == ["-"] {
-                guard isatty(STDIN_FILENO) != 1 else {
-                    throw CLIError(message: "set-buffer requires text")
-                }
-                let data = FileHandle.standardInput.readDataToEndOfFile()
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: String(
-                        localized: "cli.setBuffer.error.invalidUTF8",
-                        defaultValue: "set-buffer: stdin is not valid UTF-8 text"
-                    ))
-                }
-                content = text
-            } else {
-                content = textArgs.joined(separator: " ")
-            }
+            // text argument, or a lone "-", take the text from stdin so output
+            // can be piped in (`cmd | cmux set-buffer`), the way tmux's
+            // `load-buffer -` does. Stdin was already drained before the socket
+            // connected (prepareStandardInputBeforeSocket).
+            let (name, textArgs, readsStandardInput) = setBufferTextArguments(commandArgs)
+            let content = try readsStandardInput
+                ? setBufferTextFromStandardInput()
+                : textArgs.joined(separator: " ")
             guard !content.isEmpty else {
                 throw CLIError(message: "set-buffer requires text")
             }
@@ -27487,6 +27475,7 @@ struct CMUXCLI {
             // --bracketed delivers the buffer as one paste (like Cmd+V) instead
             // of keystrokes, so newlines stay in the text and vim-mode prompts
             // do not eat the first character.
+            try Self.ensureTextFitsSocketRequest(buffer, command: "paste-buffer")
             let bracketed = hasFlag(commandArgs, name: "--bracketed")
             var params: [String: Any] = ["text": buffer]
             if bracketed { params["submit_key"] = "none" }

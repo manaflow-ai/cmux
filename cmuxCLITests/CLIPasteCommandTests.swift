@@ -3,8 +3,10 @@ import Foundation
 import Testing
 
 /// `cmux paste` and `cmux paste-buffer --bracketed` must hand the text to the
-/// terminal's paste path (`terminal.paste`) byte for byte, instead of the
+/// terminal's paste path (`terminal.paste`) unchanged, instead of the
 /// keystroke path (`surface.send_text`) that turns newlines into Enter.
+/// Ghostty's paste encoding (bracketing, control-byte stripping) happens in
+/// the app and is outside these CLI tests.
 @Suite(.serialized)
 struct CLIPasteCommandTests {
     private static let callerWorkspaceID = "11111111-1111-1111-1111-111111111111"
@@ -74,12 +76,25 @@ struct CLIPasteCommandTests {
         for arguments in [
             ["paste", "--surface", Self.targetSurfaceRef, "--sumbit", "hello"],
             ["paste", "hello", "--surface"],
+            ["paste", "-s", Self.targetSurfaceRef, "hi"],
         ] {
             let run = try runCLI(arguments: arguments)
 
             #expect(run.result.status != 0, Comment(rawValue: arguments.joined(separator: " ")))
             #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
         }
+    }
+
+    @Test func pasteRejectsTextTooLargeForOneSocketRequest() throws {
+        let oversized = String(repeating: "a", count: 15 * 1024 * 1024 + 1)
+        let run = try runCLI(
+            arguments: ["paste", "--surface", Self.targetSurfaceRef],
+            standardInput: oversized
+        )
+
+        #expect(run.result.status != 0)
+        #expect(run.result.stderr.contains("MiB"), Comment(rawValue: run.result.stderr))
+        #expect(run.requests.compactMap { $0["method"] as? String }.contains("terminal.paste") == false)
     }
 
     @Test func pasteTreatsTextAfterTheSeparatorLiterally() throws {
