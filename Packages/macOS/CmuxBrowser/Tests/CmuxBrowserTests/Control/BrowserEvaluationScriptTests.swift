@@ -123,6 +123,30 @@ final class BrowserEvaluationScriptTests: NSObject, WKNavigationDelegate {
         #expect(result["count"] as? Int == 1)
     }
 
+    @Test func namedRoleFinderUsesTheControlsShadowRoot() async throws {
+        try await loadPage()
+        let finder = service.findScript(finderBody: service.findRoleFinderBody(
+            role: "textbox", name: "account", exact: true
+        ))
+        let script = """
+        const outsideLabel = document.createElement('span');
+        outsideLabel.id = 'account-label';
+        outsideLabel.textContent = 'Wrong label';
+        document.body.appendChild(outsideLabel);
+        const host = document.createElement('section');
+        document.body.appendChild(host);
+        const root = host.attachShadow({mode: 'open'});
+        root.innerHTML = '<span id="account-label">Account</span><input aria-labelledby="account-label">';
+        const found = \(finder);
+        \(service.elementQueryPrelude)
+        return found.ok && __cmuxQuery(found.selector) === root.querySelector('input');
+        """
+        let result = try await webView.callAsyncJavaScript(
+            script, arguments: [:], in: nil, contentWorld: .page
+        )
+        #expect(result as? Bool == true)
+    }
+
     private func evaluate(
         _ script: String,
         useEval: Bool = true,
