@@ -530,18 +530,21 @@ class GitHub:
         return self.request("GET", f"/pulls/{number}")
 
     def newer_unfinished_runs(self, path: str, run_id: int, branch: str) -> list[int]:
-        """Ids of `path`'s push runs on `branch` newer than `run_id` that have not finished (one request).
+        """Ids of `path`'s runs on `branch` newer than `run_id` that wait behind it (one request).
 
-        Push runs only: those build the app. A schedule run may be the
-        six-hourly cache seed, and a dispatch a seed-only or fast one, which
-        build no app, and the API does not tell them apart, so none of them
-        counts as replacing this run's build.
+        Pending runs only: nightly.yml's `full` group never cancels in
+        progress, so a newer push, daily-schedule or full dispatch run waits
+        there as `pending` while this run holds the group, and a re-run of this
+        run would cancel it. The six-hourly cache seed runs in its own
+        cancel-in-progress group and is never pending, so it does not count.
+        (A seed-only or fast dispatch pending in its own group behind another
+        of its kind still counts: a missed rescue, not a cancelled build.)
         """
         workflow = path.rsplit("/", 1)[-1]
         data = self.request("GET", f"/actions/workflows/{workflow}/runs?branch={branch}&per_page=20")
         return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
-                      and run.get("status") != "completed" and run.get("event") == "push")
+                      and run.get("status") == "pending")
 
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
@@ -851,6 +854,8 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # start until it finishes: cancel it, and its completion dispatches
         # the new HEAD.
         run = read(lambda: api.run(target.run_id), sleep, log)
+        if not run:
+            return f"not rescued: the run could not be read ({moved})"
         if int(run.get("run_attempt") or 0) != target.attempt:
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":

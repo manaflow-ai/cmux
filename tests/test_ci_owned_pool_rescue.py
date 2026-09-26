@@ -1077,17 +1077,19 @@ class Nightly(unittest.TestCase):
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         seen = []
-        runs = [{"id": RUN_ID + 2, "status": "queued", "event": "push"},
+        runs = [{"id": RUN_ID + 2, "status": "pending", "event": "push"},
                 {"id": RUN_ID + 1, "status": "completed", "event": "push"},
                 {"id": RUN_ID, "status": "in_progress", "event": "push"},
-                {"id": RUN_ID - 1, "status": "in_progress", "event": "push"},
-                {"id": RUN_ID + 3, "status": "in_progress", "event": "push"},
-                # The six-hourly cache seed and a dispatch build no app: neither replaces this run's build.
+                {"id": RUN_ID - 1, "status": "pending", "event": "push"},
+                # The daily build and a full dispatch wait in the same `full` group.
+                {"id": RUN_ID + 3, "status": "pending", "event": "schedule"},
+                {"id": RUN_ID + 6, "status": "pending", "event": "workflow_dispatch"},
+                # The six-hourly cache seed runs in its own group, never pending behind this run.
                 {"id": RUN_ID + 4, "status": "in_progress", "event": "schedule"},
                 {"id": RUN_ID + 5, "status": "queued", "event": "workflow_dispatch"}]
         api.request = lambda method, path, **_: seen.append((method, path)) or {"workflow_runs": runs}
         self.assertEqual(api.newer_unfinished_runs(rescue.NIGHTLY_WORKFLOW_PATH, RUN_ID, "main"),
-                         [RUN_ID + 2, RUN_ID + 3])
+                         [RUN_ID + 2, RUN_ID + 3, RUN_ID + 6])
         self.assertEqual(seen, [("GET", "/actions/workflows/nightly.yml/runs?branch=main&per_page=20")])
 
     def test_a_run_with_no_trusted_job_stops_when_it_finishes(self):
@@ -1331,6 +1333,16 @@ class MainDispatch(unittest.TestCase):
         target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha=HEAD, pr_number=0, main=True)
         result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
         self.assertEqual(result, "not rescued: someone else already re-ran the run")
+        self.assertNotIn("cancel", api.calls)
+
+    def test_an_unreadable_moved_main_run_is_neither_cancelled_nor_blamed_on_a_re_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[BLACKSMITH])])
+        api.run = lambda run_id: {}
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertTrue(result.startswith("not rescued: the run could not be read"), result)
         self.assertNotIn("cancel", api.calls)
 
 
