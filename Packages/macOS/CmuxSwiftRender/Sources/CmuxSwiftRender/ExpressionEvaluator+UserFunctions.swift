@@ -90,17 +90,8 @@ extension ExpressionEvaluator {
     private func conditionsPass(_ conditions: ConditionElementListSyntax, _ scope: EvalEnvironment) -> Bool {
         for element in conditions {
             if let binding = element.condition.as(OptionalBindingConditionSyntax.self) {
-                let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
-                let resolved: SwiftValue?
-                if let initializer = binding.initializer?.value {
-                    resolved = eval(initializer, scope)
-                } else if let name {
-                    resolved = scope.lookup(name)
-                } else {
-                    resolved = nil
-                }
-                guard let value = resolved else { return false }
-                if let name { scope.define(name, value) }
+                guard let resolved = resolveOptionalBinding(binding, scope) else { return false }
+                if let name = resolved.name { scope.define(name, resolved.value) }
             } else if let expr = element.condition.as(ExprSyntax.self) {
                 if !(eval(expr, scope)?.isTruthy ?? false) { return false }
             } else {
