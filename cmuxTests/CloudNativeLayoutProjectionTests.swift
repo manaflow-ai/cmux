@@ -359,13 +359,18 @@ struct CloudNativeLayoutProjectionTests {
             let mirrored = try #require(fixture.projectedPanels[created.id])
             #expect(mirrored != reservation.panelID)
 
-            // Reconnect replays the create and gets the terminal already shown.
+            // Reconnect, pressed in the reserved pane, replays the create and
+            // gets the terminal already shown.
+            viewer.focusPanel(reservation.panelID)
+            #expect(viewer.focusedPanelId == reservation.panelID)
             #expect(viewer.retryReservedCloudTerminalPane(surfaceId: reservation.panelID))
             try await settled { viewer.cloudPendingCreations[reservation.panelID] == nil && !store.hasActiveRequests }
             #expect(attempts == 2)
             #expect(fixture.provider.adoptions.filter { $0.resource == created.id }.count == 1)
             #expect(fixture.catalog.projections(of: created.id).filter { $0.workspaceID == viewer.id }.map(\.panelID) == [mirrored])
             #expect(viewer.panels[reservation.panelID] == nil)
+            // Focus follows the terminal the user asked for, not a neighbor.
+            #expect(viewer.focusedPanelId == mirrored)
 
             // The owner's next arrangement still applies to the one pane.
             coordinator.accept(fixture.snapshot(.split(direction: .vertical, ratio: 0.4,
