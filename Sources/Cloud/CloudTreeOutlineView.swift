@@ -599,8 +599,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
+        /// Machines can sit under a section row (`.cloudMachinesSection`), so search the whole tree.
         func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in nodes {
+            for node in CloudTreeNodeBuilder.flattened(nodes) {
                 if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
             }
             return nil

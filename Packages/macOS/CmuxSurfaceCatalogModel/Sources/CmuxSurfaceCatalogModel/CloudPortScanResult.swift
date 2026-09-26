@@ -23,19 +23,25 @@ public struct CloudPortScanResult: Equatable, Sendable {
             .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0.port) }
         var reachable = Set<Int>()
         var wildcard = Set<Int>()
-        let all = Set(bindings.map(\.port))
+        var other = Set<Int>()
         for binding in bindings {
-            let address = binding.address.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+            // `ss` suffixes device-bound listeners with a zone, e.g. `127.0.0.53%lo`.
+            let bracketless = binding.address.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+            let address = bracketless.split(separator: "%", maxSplits: 1).first.map(String.init) ?? bracketless
             if ["0.0.0.0", "*", "::", "::ffff:0.0.0.0"].contains(address) {
                 reachable.insert(binding.port)
                 wildcard.insert(binding.port)
             } else if ["127.0.0.1", "::ffff:127.0.0.1", "localhost"].contains(address) {
                 reachable.insert(binding.port)
+            } else if !address.hasPrefix("127."), !address.hasPrefix("::ffff:127.") {
+                // Other 127/8 aliases are system stubs (systemd-resolved on 127.0.0.53/54),
+                // not user services the route could reach by rebinding.
+                other.insert(binding.port)
             }
         }
         ports = reachable.sorted()
         loopbackOnlyPorts = reachable.subtracting(wildcard).sorted()
-        otherBindingPorts = all.subtracting(reachable).sorted()
+        otherBindingPorts = other.subtracting(reachable).sorted()
     }
 
     public var state: CloudPortDiscoveryState {
