@@ -28,7 +28,7 @@ import Testing
             buildType: .beta
         )
         #expect(team.stableVersion == "0.64.20")
-        #expect(team.nightlyVersion == nil)
+        #expect(team.nightlyVersion == "0.64.22-nightly.3345650013202")
     }
 
     @Test func whatsNewMacUpdateDetailUsesTheResolvedFloor() {
