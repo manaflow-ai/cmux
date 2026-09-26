@@ -27,4 +27,47 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.consumeOverflow())
         #expect(!queue.consumeOverflow())
     }
+
+    @Test("A replacement grid that cannot fit records overflow and claims the drain")
+    func replacementOverflowClaimsDrain() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 4, maximumByteCount: 4)
+        queue.updateSubscribedTopics(["device.terminal.grid"])
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).startDrain)
+        #expect(queue.dequeue() != nil)
+        #expect(!queue.finishDrain())
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).startDrain)
+        let result = queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data(count: 5))
+        #expect(result.overflowed)
+        #expect(!result.admitted)
+        // The drain that the first enqueue claimed is still running, so this
+        // overflow must reach it through the queue's pending flag.
+        #expect(!result.startDrain)
+        #expect(queue.consumeOverflow())
+    }
+
+    @Test("A replacement overflow with no active drain starts one")
+    func replacementOverflowStartsIdleDrain() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 4, maximumByteCount: 4)
+        queue.updateSubscribedTopics(["device.terminal.grid"])
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).startDrain)
+        queue.abandonDrain()
+        let result = queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data(count: 5))
+        #expect(result.overflowed)
+        #expect(result.startDrain)
+        #expect(queue.consumeOverflow())
+    }
+
+    @Test("A running drain cannot finish over a pending overflow")
+    func finishDrainKeepsPendingOverflow() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 4)
+        queue.updateSubscribedTopics(["device.terminal.grid"])
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "a", isFullRenderGridFrame: false, frame: Data([1])).startDrain)
+        #expect(queue.enqueue(topic: "device.terminal.grid", coalesceKey: "b", isFullRenderGridFrame: false, frame: Data([2])).overflowed)
+        #expect(queue.dequeue() != nil)
+        #expect(queue.dequeue() == nil)
+        // The queue is empty, but the drain owns the overflow it has not consumed yet.
+        #expect(queue.finishDrain())
+        #expect(queue.consumeOverflow())
+        #expect(!queue.finishDrain())
+    }
 }
