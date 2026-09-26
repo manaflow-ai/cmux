@@ -113,6 +113,7 @@ public final class WorkspaceSidebarMetadataModel {
     /// changed, so Observation (the Todo pane's inferred status) and the
     /// sidebar snapshot pulse fire for real changes and not for every
     /// watcher poll that reconciles to the same value.
+    @discardableResult
     private func updateManualPullRequest(
         _ transition: (inout SidebarManualPullRequestStore) -> Bool
     ) -> Bool {
