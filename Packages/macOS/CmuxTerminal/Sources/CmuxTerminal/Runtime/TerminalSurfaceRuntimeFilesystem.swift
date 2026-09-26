@@ -15,6 +15,11 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
             _ enabledCommands: Set<TerminalSurfaceAgentCommand>
         ) async -> TerminalSurfaceAgentCommandShimSet?
 
+    /// Writes an oversized startup command to a private launcher and returns
+    /// the short command that invokes that launcher.
+    public let writeLongStartupCommand:
+        @Sendable (_ command: String, _ workingDirectory: String?) -> String?
+
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
@@ -28,10 +33,13 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ temporaryDirectory: URL,
                 _ enabledCommands: Set<TerminalSurfaceAgentCommand>
             ) async -> TerminalSurfaceAgentCommandShimSet?,
+        writeLongStartupCommand:
+            @escaping @Sendable (_ command: String, _ workingDirectory: String?) -> String? = { _, _ in nil },
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
         self.installAgentCommandShims = installAgentCommandShims
+        self.writeLongStartupCommand = writeLongStartupCommand
         self.isExecutableFile = isExecutableFile
     }
 
@@ -45,6 +53,8 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                 _ surfaceId: UUID,
                 _ temporaryDirectory: URL
             ) async -> TerminalSurfaceAgentCommandShimSet?,
+        writeLongStartupCommand:
+            @escaping @Sendable (_ command: String, _ workingDirectory: String?) -> String? = { _, _ in nil },
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.init(
@@ -56,6 +66,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
                     temporaryDirectory
                 )
             },
+            writeLongStartupCommand: writeLongStartupCommand,
             isExecutableFile: isExecutableFile
         )
     }

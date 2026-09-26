@@ -2349,6 +2349,50 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    /// Oversized terminal startup commands retain Ghostty's `/bin/sh -c`
+    /// semantics when they move into a launcher file. In particular, the
+    /// external launcher must not load a user's `.zshenv` before running the
+    /// POSIX payload.
+    func testOneShotDirectStartupLauncherPreservesPosixShell() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-direct-launcher-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let output = root.appendingPathComponent("output.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "exit 42\n".write(
+            to: home.appendingPathComponent(".zshenv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let startupCommand = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: root
+        ).writeDirectStartupCommand(
+            command: "printf 'ok\\n' > \(shellQuotedForTest(output.path))",
+            workingDirectory: root.appendingPathComponent("stale-working-directory").path
+        ))
+        XCTAssertTrue(startupCommand.hasPrefix("/bin/sh "), startupCommand)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "exec \(startupCommand)"]
+        process.environment = [
+            "HOME": home.path,
+            "ZDOTDIR": home.path,
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/zsh",
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try runWithBoundedWait(process, shellDescription: startupCommand)
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(try String(contentsOf: output, encoding: .utf8), "ok\n")
+    }
+
     /// Regression for the stale-shim fallback: `CMUX_CLAUDE_WRAPPER_SHIM` can outlive
     /// its file (macOS reaps idle temporary-directory contents after ~3 days), and bare
     /// `${VAR:-claude}` parameter expansion would exec the dead path and hard-fail
