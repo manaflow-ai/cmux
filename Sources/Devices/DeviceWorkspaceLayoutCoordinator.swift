@@ -195,9 +195,13 @@ final class DeviceWorkspaceLayoutCoordinator {
               delivery.panels.contains(projection.panelID), delivery.sourceIDs.contains(projection.resource.key) else { return }
         // A once-synchronized workspace can acquire local or unrelated panes.
         // Its old delivery must not turn closing a preview into a source deletion.
+        // A pending or failed creation for the same workspace is not such a pane.
         let remaining = catalog.projections.filter { $0.workspaceID == projection.workspaceID }
+        let reserved = native.cloudPendingCreations.values.filter {
+            $0.machine == machine && $0.remoteWorkspaceID == remoteID
+        }.map(\.panelID)
         guard remaining.allSatisfy({ $0.resource.machine == machine && $0.remoteWorkspaceID == remoteID }),
-              Set(remaining.map(\.panelID)) == Set(native.panels.keys).subtracting([projection.panelID]) else { return }
+              Set(remaining.map(\.panelID)) == Set(native.panels.keys).subtracting([projection.panelID]).subtracting(reserved) else { return }
         let operation = enqueueClose(surfaceID: projection.resource.key, remoteID: remoteID, workspaceID: projection.workspaceID)
         Task { @MainActor [weak self] in
             do {
@@ -305,9 +309,11 @@ final class DeviceWorkspaceLayoutCoordinator {
 
     /// Consumes native layout events, never terminal bytes or typing updates.
     func nativeLayoutChanged(workspaceID: UUID, capturedLayout: DeviceWorkspaceLayoutNode? = nil, isExternal: Bool = false) {
+        // A reserved pane has no terminal on the owner yet, so it stays local.
         guard !isExternal, !stopped, let target = target(for: workspaceID),
               let native = capturedLayout ?? workspace(workspaceID)?.deviceWorkspaceLayoutSnapshot(),
-              let mapped = try? native.remappingSurfaceIDs(target.mapping),
+              let mapped = try? native.removingSurfaceIDs(Set(target.reserved.map(\.uuidString)))?
+                  .remappingSurfaceIDs(target.mapping),
               let ids = try? mapped.validatedSurfaceIDs() else { return }
         guard suspended.isEmpty else { deferredNativeChanges.insert(workspaceID); return }
         if let accepted = snapshots[target.remoteID],
@@ -382,7 +388,9 @@ final class DeviceWorkspaceLayoutCoordinator {
         accept(snapshot)
     }
 
-    private func target(for id: UUID) -> (remoteID: String, mapping: [String: String], projections: [SurfaceProjection])? {
+    private func target(for id: UUID) -> (
+        remoteID: String, mapping: [String: String], projections: [SurfaceProjection], reserved: Set<UUID>
+    )? {
         guard let catalog, let native = workspace(id) else { return nil }
         let projections = catalog.projections.filter { $0.workspaceID == id && $0.resource.machine == machine }
         guard !projections.isEmpty else { return nil }
@@ -399,7 +407,7 @@ final class DeviceWorkspaceLayoutCoordinator {
         guard remoteIDs.count == 1, let remoteID = remoteIDs.first,
               projections.allSatisfy({ $0.remoteWorkspaceID == remoteID }) else { return nil }
         let mapping = Dictionary(projections.map { ($0.panelID.uuidString, $0.resource.key) }, uniquingKeysWith: { first, _ in first })
-        return (remoteID, mapping, Array(projections))
+        return (remoteID, mapping, Array(projections), nativePanelIDs.subtracting(projectedPanelIDs))
     }
 
     /// Establishes the exact terminal identity before its authoritative layout
@@ -461,6 +469,9 @@ final class DeviceWorkspaceLayoutCoordinator {
                 let present = Set(target.projections.map(\.resource))
                 let locations = DeviceWorkspaceProjection(machine: machine, isLive: true)
                     .layoutLocations(snapshot.layout)
+                // Reserved panes keep their place beside the terminals already
+                // arranged here, not beside one this pass projects at a fallback.
+                let arranged = native.deviceWorkspaceLayoutSnapshot()
                 var localPanesByRemotePane: [String: UUID] = [:]
                 for (panelID, remoteSurfaceID) in target.mapping {
                     guard let location = locations[remoteSurfaceID],
@@ -495,7 +506,10 @@ final class DeviceWorkspaceLayoutCoordinator {
                 }
                 guard let current = self.target(for: id) else { continue }
                 let reverse = Dictionary(current.mapping.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
-                let translated = try snapshot.layout.remappingSurfaceIDs(reverse)
+                var translated = try snapshot.layout.remappingSurfaceIDs(reverse)
+                if !current.reserved.isEmpty, let arranged {
+                    translated = translated.grafting(Set(current.reserved.map(\.uuidString)), from: arranged)
+                }
                 try native.applyDeviceWorkspaceLayout(translated)
                 deliveries[id] = Delivery(revision: snapshot.revision, panels: Set(native.panels.keys), sourceIDs: Set(sourceIDs))
             } catch {
@@ -512,5 +526,115 @@ final class DeviceWorkspaceLayoutCoordinator {
             await reconcileTask?.value
             for task in current { await task.value }
         }
+    }
+}
+
+extension DeviceWorkspaceLayoutNode {
+    /// The panel IDs in pane and tab order, without validation.
+    fileprivate var orderedSurfaceIDs: [String] {
+        switch self {
+        case .pane(_, let surfaces, _): return surfaces
+        case .split(_, _, let first, let second): return first.orderedSurfaceIDs + second.orderedSurfaceIDs
+        }
+    }
+
+    /// Drops panels the owning Mac does not know. An emptied pane yields its
+    /// space to its sibling.
+    fileprivate func removingSurfaceIDs(_ removed: Set<String>) -> DeviceWorkspaceLayoutNode? {
+        guard !removed.isEmpty else { return self }
+        switch self {
+        case .pane(let id, let surfaces, let selected):
+            let kept = surfaces.filter { !removed.contains($0) }
+            guard !kept.isEmpty else { return nil }
+            return .pane(id: id, surfaceIDs: kept, selectedSurfaceID: selected.flatMap { kept.contains($0) ? $0 : nil })
+        case .split(let direction, let ratio, let first, let second):
+            switch (first.removingSurfaceIDs(removed), second.removingSurfaceIDs(removed)) {
+            case (let first?, let second?): return .split(direction: direction, ratio: ratio, first: first, second: second)
+            case (let only?, nil), (nil, let only?): return only
+            case (nil, nil): return nil
+            }
+        }
+    }
+
+    /// Restores `kept` panels, which the owning Mac does not know, where
+    /// `local` shows them: a tab beside its neighbor in the same pane, and a
+    /// split beside the terminals it divided.
+    fileprivate func grafting(_ kept: Set<String>, from local: DeviceWorkspaceLayoutNode) -> DeviceWorkspaceLayoutNode {
+        var result = self
+        local.graft(kept, into: &result)
+        // A panel whose neighbors all left still needs a place.
+        let present = Set(result.orderedSurfaceIDs)
+        let stranded = local.orderedSurfaceIDs.filter { kept.contains($0) && !present.contains($0) }
+        if let anchor = result.orderedSurfaceIDs.last {
+            for surface in stranded.reversed() {
+                result = result.inserting(surface, beside: anchor, after: true)
+            }
+        }
+        return result
+    }
+
+    private func graft(_ kept: Set<String>, into result: inout DeviceWorkspaceLayoutNode) {
+        switch self {
+        case .pane(_, let surfaces, _):
+            var present = Set(result.orderedSurfaceIDs)
+            for (index, surface) in surfaces.enumerated() where kept.contains(surface) && !present.contains(surface) {
+                if let anchor = surfaces[..<index].last(where: { present.contains($0) }) {
+                    result = result.inserting(surface, beside: anchor, after: true)
+                } else if let anchor = surfaces[(index + 1)...].first(where: { present.contains($0) }) {
+                    result = result.inserting(surface, beside: anchor, after: false)
+                } else {
+                    continue
+                }
+                present.insert(surface)
+            }
+        case .split(let direction, let ratio, let first, let second):
+            let firstIsKept = first.orderedSurfaceIDs.allSatisfy(kept.contains)
+            let secondIsKept = second.orderedSurfaceIDs.allSatisfy(kept.contains)
+            guard firstIsKept != secondIsKept else {
+                first.graft(kept, into: &result)
+                second.graft(kept, into: &result)
+                return
+            }
+            let (branch, sibling) = firstIsKept ? (first, second) : (second, first)
+            let present = Set(result.orderedSurfaceIDs)
+            let anchors = Set(sibling.orderedSurfaceIDs.filter { present.contains($0) })
+            if !anchors.isEmpty {
+                result = result.wrapping(anchors, with: branch, direction: direction, ratio: ratio, branchFirst: firstIsKept)
+            }
+            sibling.graft(kept, into: &result)
+        }
+    }
+
+    private func inserting(_ surface: String, beside anchor: String, after: Bool) -> DeviceWorkspaceLayoutNode {
+        switch self {
+        case .pane(let id, var surfaces, let selected):
+            guard let index = surfaces.firstIndex(of: anchor) else { return self }
+            surfaces.insert(surface, at: after ? index + 1 : index)
+            return .pane(id: id, surfaceIDs: surfaces, selectedSurfaceID: selected)
+        case .split(let direction, let ratio, let first, let second):
+            return .split(direction: direction, ratio: ratio,
+                first: first.inserting(surface, beside: anchor, after: after),
+                second: second.inserting(surface, beside: anchor, after: after))
+        }
+    }
+
+    /// Splits the smallest subtree holding every anchor, restoring `branch` on
+    /// the side `local` placed it.
+    private func wrapping(_ anchors: Set<String>, with branch: DeviceWorkspaceLayoutNode,
+                          direction: Direction, ratio: Double, branchFirst: Bool) -> DeviceWorkspaceLayoutNode {
+        if case .split(let ownDirection, let ownRatio, let first, let second) = self {
+            if anchors.isSubset(of: first.orderedSurfaceIDs) {
+                return .split(direction: ownDirection, ratio: ownRatio,
+                    first: first.wrapping(anchors, with: branch, direction: direction, ratio: ratio, branchFirst: branchFirst),
+                    second: second)
+            }
+            if anchors.isSubset(of: second.orderedSurfaceIDs) {
+                return .split(direction: ownDirection, ratio: ownRatio, first: first,
+                    second: second.wrapping(anchors, with: branch, direction: direction, ratio: ratio, branchFirst: branchFirst))
+            }
+        }
+        return branchFirst
+            ? .split(direction: direction, ratio: ratio, first: branch, second: self)
+            : .split(direction: direction, ratio: ratio, first: self, second: branch)
     }
 }
