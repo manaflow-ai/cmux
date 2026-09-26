@@ -156,6 +156,24 @@ class DecideTests(Case):
         self.assertEqual(set(git(self.work, "diff", "--name-only", h1, "HEAD").split()),
                          {"web/w.txt", "docs/d.txt"})
 
+    def test_main_only_ui_tests_keep_the_pull_request_diff(self) -> None:
+        # The delta would make suite-coverage demand UI execution for a test
+        # already on main, even though no PR job can execute that extra test.
+        h1 = self.pr_head()
+        self.origin.commit("main", {"cmuxUITests/MainTests.swift": "main test\n"})
+        self.origin.merge_main_into_pr()
+        self.assertIn("main-only UI tests", self.skip_reason({h1: "success"}))
+        self.assertEqual(git(self.work, "diff", "--name-only", "HEAD^1", "HEAD"), "app/a.txt")
+
+    def test_main_only_ui_tests_do_not_hide_the_pull_requests_own_ui_tests(self) -> None:
+        h1 = self.origin.commit("pr", {"cmuxUITests/FeatureTests.swift": "feature test\n"})
+        self.origin.commit("main", {"cmuxUITests/MainTests.swift": "main test\n"})
+        self.origin.merge_main_into_pr()
+        self.assertIn("main-only UI tests", self.skip_reason({h1: "success"}))
+        # Falling back keeps the actual PR test visible to suite-coverage.
+        self.assertEqual(git(self.work, "diff", "--name-only", "HEAD^1", "HEAD"),
+                         "cmuxUITests/FeatureTests.swift")
+
     def test_normal_new_commit_does_not_apply(self) -> None:
         h1 = self.pr_head()
         self.origin.commit("pr", {"app/a.txt": "a-pr-2\n"}, "more work")
