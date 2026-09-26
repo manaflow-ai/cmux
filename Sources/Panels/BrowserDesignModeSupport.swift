@@ -11,6 +11,16 @@ enum BrowserDesignModeSupport {
         return try JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data)
     }
 
+    static func decodeAnnotationCaptureRequest(
+        _ value: Any?
+    ) throws -> BrowserDesignModeAnnotationCaptureRequest {
+        guard let value, JSONSerialization.isValidJSONObject(value) else {
+            throw BrowserDesignModeError.invalidRuntimeResponse
+        }
+        let data = try JSONSerialization.data(withJSONObject: value)
+        return try JSONDecoder().decode(BrowserDesignModeAnnotationCaptureRequest.self, from: data)
+    }
+
     static func captureMatches(
         before: BrowserDesignModeSnapshot,
         after: BrowserDesignModeSnapshot,

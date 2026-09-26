@@ -16,28 +16,26 @@ struct SidebarWorkspaceSnapshotFactory {
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
 
+    /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? =
-            (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-                ? workspace.sidebarOrderedPanelIds()
-                : nil
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
             guard detailVisibility.showsBranchDirectory,
-                  !settings.usesVerticalBranchLayout,
-                  settings.showsGitBranch,
-                  let orderedPanelIds else {
+                  settings.branchDirectory.branchLayout == .inline,
+                  settings.showsGitBranch else {
                 return nil
             }
             return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
         }()
         let compactDirectoryCandidates: [String] = {
             guard detailVisibility.showsBranchDirectory,
-                  !settings.usesVerticalBranchLayout,
-                  let orderedPanelIds else {
+                  settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
@@ -45,19 +43,19 @@ struct SidebarWorkspaceSnapshotFactory {
         )
         let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
             guard detailVisibility.showsBranchDirectory,
-                  settings.usesVerticalBranchLayout,
-                  let orderedPanelIds else {
+                  settings.branchDirectory.branchLayout == .vertical else {
                 return []
             }
+            if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
+            guard detailVisibility.showsPullRequests else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? workspace.inferredTaskStatus : nil
+        let inferredTaskStatus = workspaceStatusVisible ? taskStatusInput.inferred : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
                 override: workspace.todoState.statusOverride,
@@ -74,13 +72,14 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
+            isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
+            cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -117,7 +116,9 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistItems: workspace.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
+            taskStatusInput: taskStatusInput,
+            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
         )
     }
 
@@ -131,7 +132,7 @@ struct SidebarWorkspaceSnapshotFactory {
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
-            usesVerticalBranchLayout: settings.usesVerticalBranchLayout,
+            usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,

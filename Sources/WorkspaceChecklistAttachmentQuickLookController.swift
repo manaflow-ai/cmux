@@ -32,7 +32,7 @@ final class WorkspaceChecklistAttachmentQuickLookController: NSObject, QLPreview
 
         guard let panel = QLPreviewPanel.shared() else { return }
         objc_setAssociatedObject(
-            panel,
+            panel as Any,
             &workspaceChecklistAttachmentQuickLookControllerAssociationKey,
             self,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC

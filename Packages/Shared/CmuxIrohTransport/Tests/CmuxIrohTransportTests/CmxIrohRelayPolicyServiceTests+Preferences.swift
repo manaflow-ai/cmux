@@ -5,6 +5,99 @@ import Testing
 
 extension CmxIrohRelayPolicyServiceTests {
     @Test
+    func accountMetadataAndDeviceCredentialsStaySeparatedByAccountAndURL() async throws {
+        let secureStore = TestSecureCredentialStore()
+        let credentialStore = CmxIrohCustomRelayCredentialStore(secureStore: secureStore)
+        let relay = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .staticToken
+        )
+        let configuration = try CmxIrohAccountRelayConfiguration.custom([relay])
+        let token = "device-only-token"
+
+        try await credentialStore.setStaticToken(
+            token,
+            relayID: relay.id,
+            relayURL: relay.url,
+            accountID: "account-a"
+        )
+
+        let accountMetadata = try JSONEncoder().encode(configuration)
+        #expect(String(decoding: accountMetadata, as: UTF8.self).contains(token) == false)
+        #expect(
+            try await credentialStore.staticTokens(
+                for: [relay],
+                accountID: "account-a"
+            )[relay.id] == token
+        )
+        #expect(
+            try await credentialStore.staticTokens(
+                for: [relay],
+                accountID: "account-b"
+            ).isEmpty
+        )
+        let movedRelay = try CmxIrohCustomRelayDefinition(
+            id: relay.id,
+            url: "https://replacement.example.net/",
+            provider: relay.provider,
+            region: relay.region,
+            authMode: relay.authMode
+        )
+        #expect(
+            try await credentialStore.staticTokens(
+                for: [movedRelay],
+                accountID: "account-a"
+            ).isEmpty
+        )
+        #expect(
+            await secureStore.observedAccessibilities()
+                == [.afterFirstUnlockThisDeviceOnly]
+        )
+    }
+
+    @Test
+    func missingStaticTokenDisablesWholeCustomProfileWithoutManagedFallback() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let stores = makeStores()
+        let openRelay = try CmxIrohCustomRelayDefinition(
+            id: "open-relay",
+            url: "https://open.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .none
+        )
+        let authenticatedRelay = try CmxIrohCustomRelayDefinition(
+            id: "authenticated-relay",
+            url: "https://authenticated.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .staticToken
+        )
+
+        let effective = try await stores.service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: .custom([openRelay, authenticatedRelay]),
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+
+        #expect(effective.source == .customUnavailable)
+        #expect(effective.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(effective.endpointRelayProfile.activeRelays.isEmpty)
+        #expect(effective.relayBootstrap == nil)
+        #expect(effective.missingCredentialRelayIDs == [authenticatedRelay.id])
+        #expect(await stores.service.diagnosticsSnapshot().failure == .missingCustomCredential)
+    }
+
+    @Test
     func dormantSelectionsAndCustomDefinitionsSurviveEveryActiveMode() async throws {
         let fixture = RelayPolicyServiceTestFixture()
         let stores = makeStores()

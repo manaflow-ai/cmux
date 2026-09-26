@@ -385,6 +385,7 @@ struct RemoteRelaySlotTeardownTests {
                 persistentDaemonSlot: "ssh-test-slot"
             ),
             proxyBroker: RemoteProxyBroker(tunnelProvider: IntentionalCleanupTestTunnelProvider()),
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -394,11 +395,17 @@ struct RemoteRelaySlotTeardownTests {
             buildInfo: IntentionalCleanupBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

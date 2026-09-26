@@ -1,0 +1,25 @@
+# cmux-tui agent instructions
+
+Maintainers do not run `cargo`, `rustc`, or Zig on their local Mac and do not use a local build as a fallback. Commit and push the exact branch head to manaflow-ai/cmux, then use the hosted entry point from the repository root:
+
+```bash
+./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
+./scripts/verify-cmux-tui-hosted.sh --full
+```
+
+Use `--filter` during focused development. It accepts one Rust test-name substring and verifies that the filter selects at least one test on hosted Linux and macOS. The reserved `chatmux_relay` (or `chatmux-relay`) selector runs the complete `chatmux-relay` package because Cargo test names do not include package names. Use `--full` for the merge gate. Full mode runs the complete Linux and macOS suites, package builds, and a Windows-hosted binary execution check.
+
+The script rejects dirty or unpushed work, verifies the exact commit in every hosted job, waits for completion, prints failed logs, and downloads the macOS arm64 TUI and userland agent detector to `cmux-tui/target/hosted/<commit>/cmux-tui` and `cmux-tui/target/hosted/<commit>/cmux-agent-screen-detection`. Running those downloaded binaries on the Mac is allowed.
+
+`rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
+
+## Blacksmith Testbox
+
+Blacksmith Testbox gives maintainers with Blacksmith access a remote Linux box for cmux-tui Rust
+and Zig builds: warm your own box before the build, and never compile cmux-tui on the Mac. The
+workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards live here. Quickest
+path: `./scripts/blacksmith-testbox-demo.sh`.
+
+Outside contributors cannot dispatch the hosted verification from a fork. Run focused `cargo test`
+inside `cmux-tui/` locally (needs Zig 0.16.0 and `git submodule update --init`; see
+`cmux-tui/README.md`) and say so in the PR; a maintainer runs the hosted verification on it.

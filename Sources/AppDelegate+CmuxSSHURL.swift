@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 import CmuxSettings
@@ -207,7 +208,12 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         }
 
         self.fileURL = standardizedURL
-        self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
+        // `path(percentEncoded:)` keeps a directory URL's trailing slash, so the parent of
+        // "/tmp/scripts/run.command" came back as "/tmp/scripts/". That string becomes the
+        // workspace's working directory, which the window title renders via {activeDirectory}
+        // and which directory comparisons match on, so the stray slash is user visible. `path`
+        // reports the same decoded path without it and still reports "/" for a file at the root.
+        self.workingDirectory = standardizedURL.deletingLastPathComponent().path
         self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
     }
 
@@ -586,6 +592,23 @@ extension AppDelegate {
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
+        // `DisableRemoteConnections` (MDM): refuse before the trust dialog and
+        // the window bootstrap. The CLI would fail closed downstream, but only
+        // with a generic exit-status alert.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("sshURL.blocked_managed_policy")
+#endif
+            let alert = NSAlert()
+            alert.messageText = ManagedRemoteConnectionsPolicy.disabledMessage
+            alert.informativeText = String(
+                localized: "managedPolicy.remoteConnections.sshURLRefused",
+                defaultValue: "cmux cannot open SSH links while remote connections are disabled by your organization's device policy."
+            )
+            alert.alertStyle = .informational
+            alert.runModal()
+            return
+        }
 
         deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {

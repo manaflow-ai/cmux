@@ -21,6 +21,7 @@ extension CmxIrohHostRuntimeTests {
         )
         let endpoint = TestIrohEndpoint(
             identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:50909", "[::]:54750"],
             pathHintsAfterRelayReplacement: [relayHint]
         )
         let broker = TestIrohHostBroker(
@@ -65,9 +66,21 @@ extension CmxIrohHostRuntimeTests {
         let refreshedHints = try registrationPathHints(registrations[1])
         #expect(initialHints.isEmpty)
         #expect(refreshedHints == [relayHint])
+        let expectedDirectPorts = try CmxIrohDirectPorts(
+            ipv4: 50_909,
+            ipv6: 54_750
+        )
+        let initialDirectPorts = try registrationDirectPorts(registrations[0])
+        let refreshedDirectPorts = try registrationDirectPorts(registrations[1])
+        #expect(initialDirectPorts == expectedDirectPorts)
+        #expect(refreshedDirectPorts == expectedDirectPorts)
 
-        let published = await publications.values()
+        let published = await publications.waitForCount(2)
         #expect(published.count == 2)
+        guard published.count == 2 else {
+            await runtime.stop()
+            return
+        }
         #expect(published[0].registration.pathHints.isEmpty)
         #expect(published[0].discovered.pathHints.isEmpty)
         #expect(published[1].registration.pathHints == [relayHint])
@@ -157,13 +170,12 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         await runtime.stop()
         await gate.open()
-        await refresh?.value
+        await refresh.value
 
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
@@ -187,13 +199,12 @@ extension CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.requestRegistrationRefresh() }
         await broker.waitForRegistrationCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         let preparation = await runtime.deactivateForSignOut()
         await gate.open()
-        await refresh?.value
+        await refresh.value
 
         #expect(preparation.wasPersisted)
         #expect(await runtime.snapshot().state == .inactive)
@@ -208,6 +219,7 @@ private struct HostRuntimeBindingPublication: Equatable, Sendable {
 
 private actor HostRuntimeBindingPublicationRecorder {
     private var recorded: [HostRuntimeBindingPublication] = []
+    private var waiters: [UUID: (minimum: Int, continuation: CheckedContinuation<[HostRuntimeBindingPublication], Never>)] = [:]
 
     func record(
         registration: CmxIrohBrokerBinding,
@@ -222,9 +234,21 @@ private actor HostRuntimeBindingPublicationRecorder {
                 discovered: discovered
             )
         )
+        let ready = waiters.filter { recorded.count >= $0.value.minimum }
+        for (id, waiter) in ready {
+            waiters.removeValue(forKey: id)
+            waiter.continuation.resume(returning: recorded)
+        }
     }
 
     func values() -> [HostRuntimeBindingPublication] { recorded }
+
+    func waitForCount(_ minimum: Int) async -> [HostRuntimeBindingPublication] {
+        if recorded.count >= minimum { return recorded }
+        return await withCheckedContinuation { continuation in
+            waiters[UUID()] = (minimum, continuation)
+        }
+    }
 }
 
 private func registrationPathHints(
@@ -243,6 +267,24 @@ private func registrationPathHints(
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     return try decoder.decode([CmxIrohPathHint].self, from: encodedHints)
+}
+
+func registrationDirectPorts(
+    _ prepared: CmxIrohPreparedRegistration
+) throws -> CmxIrohDirectPorts? {
+    let value = prepared.encodedPayload
+        .replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    let padded = value + String(repeating: "=", count: (4 - value.count % 4) % 4)
+    let payload = try #require(Data(base64Encoded: padded))
+    let object = try #require(
+        JSONSerialization.jsonObject(with: payload) as? [String: Any]
+    )
+    guard let directPorts = object["directPorts"] else { return nil }
+    return try JSONDecoder().decode(
+        CmxIrohDirectPorts.self,
+        from: JSONSerialization.data(withJSONObject: directPorts)
+    )
 }
 
 private actor HostRuntimeSuspensionGate {

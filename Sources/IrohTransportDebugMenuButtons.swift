@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import SwiftUI
 
@@ -12,11 +13,12 @@ struct IrohAndAgentSessionDebugMenuButtons: View {
             openReact: openReact,
             openSolid: openSolid
         )
+        NotificationDebugMenuButtons()
     }
 }
 
 struct IrohTransportDebugMenuButtons: View {
-    @AppStorage(CmxIrohTransportVerificationMode.debugDefaultsKey)
+    @AppStorage(MobileHostIrxRuntime.pathModeDefaultsKey)
     private var transportModeRaw = CmxIrohTransportVerificationMode.automatic.rawValue
 
     var body: some View {
@@ -57,7 +59,7 @@ struct IrohTransportDebugMenuButtons: View {
     ) -> some View {
         Button {
             Task { @MainActor in
-                await MobileHostIrohRuntime.shared.setIrohDebugTransportVerificationMode(mode)
+                await MobileHostIrxRuntime.shared.setIrohDebugTransportVerificationMode(mode)
             }
         } label: {
             if transportMode == mode {
@@ -69,7 +71,11 @@ struct IrohTransportDebugMenuButtons: View {
     }
 
     private var transportMode: CmxIrohTransportVerificationMode {
-        CmxIrohTransportVerificationMode(rawValue: transportModeRaw) ?? .automatic
+        switch transportModeRaw {
+        case "relay-only": .relayOnly
+        case "direct-only": .directOnly
+        default: .automatic
+        }
     }
 }
 #endif

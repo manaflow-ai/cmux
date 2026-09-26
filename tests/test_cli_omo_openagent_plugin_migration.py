@@ -86,8 +86,10 @@ mkdir -p "node_modules/$package"
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_SOCKET_PATH"] = str(root / "missing.sock")
 
+        # Plugin migration runs for every OMO invocation. Use a documented
+        # non-session command so this no-socket regression needs no live surface.
         run = subprocess.run(
-            [cli_path, "omo", "--model", "test"],
+            [cli_path, "omo", "models"],
             capture_output=True,
             text=True,
             check=False,

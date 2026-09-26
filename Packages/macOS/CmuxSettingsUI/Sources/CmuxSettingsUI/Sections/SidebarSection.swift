@@ -4,15 +4,17 @@ import SwiftUI
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions
+    let hostActions: SettingsHostActions
+    @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
+    @State private var workspaceDescriptionHex: DefaultsValueModel<String>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
@@ -37,11 +39,13 @@ public struct SidebarSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
+        _rightSidebarTabs = State(initialValue: hostActions.rightSidebarTabs())
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
+        _workspaceDescriptionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceDescriptionColorHex))
         _branchVerticalLayout = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.branchVerticalLayout))
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
@@ -69,8 +73,14 @@ public struct SidebarSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
+            rightSidebarTabsCard
         }
         .task { startObservingSettings() }
+        .task {
+            for await tabs in hostActions.rightSidebarTabsUpdates() {
+                rightSidebarTabs = tabs
+            }
+        }
     }
 
     private func startObservingSettings() {
@@ -79,6 +89,7 @@ public struct SidebarSection: View {
             hideAll,
             wrapTitles,
             showDesc,
+            workspaceDescriptionHex,
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
@@ -104,8 +115,7 @@ public struct SidebarSection: View {
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSidebarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
@@ -287,6 +297,39 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("sidebar.workspaceDescriptionColor"),
+                String(localized: "settings.app.workspaceDescriptionColor", defaultValue: "Workspace Description Color"),
+                subtitle: String(localized: "settings.app.workspaceDescriptionColor.subtitle", defaultValue: "Text color used for workspace descriptions. Default follows the current theme.")
+            ) {
+                HStack(spacing: 8) {
+                    if !workspaceDescriptionHex.current.isEmpty {
+                        Button(String(localized: "settings.app.workspaceDescriptionColor.reset", defaultValue: "Reset")) {
+                            workspaceDescriptionHex.reset()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    HexColorPicker(
+                        storedHex: workspaceDescriptionHex.current,
+                        fallback: Color.secondary,
+                        reconcileRevision: workspaceDescriptionHex.revision
+                    ) { hex in
+                        workspaceDescriptionHex.set(hex)
+                    }
+                    Text(
+                        workspaceDescriptionHex.current.isEmpty
+                            ? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default")
+                            : workspaceDescriptionHex.current
+                    )
+                    .cmuxFont(size: 12, weight: .medium, design: .monospaced)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 76, alignment: .trailing)
+                }
+            }
+            .disabled(hideAll.current || !showDesc.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
                 configurationReview: .json("sidebar.branchLayout"),
                 String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                 subtitle: branchVerticalLayout.current
@@ -307,15 +350,15 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: stackBranchDir.current
+                subtitle: SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current)
                     ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
                     : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
             ) {
-                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            .disabled(hideAll.current || branchVerticalLayout.current)
             SettingsCardDivider()
 
             SettingsCardRow(
@@ -350,7 +393,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
-                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
+                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display git branches, Cloud machine info, and working directories.")
             ) {
                 Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) }))
                     .labelsHidden()

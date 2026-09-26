@@ -91,6 +91,7 @@ struct CMUXAuthStateTests {
             "CMUX_UITEST_AUTH_USER_ID": "fixture-user",
             "CMUX_UITEST_AUTH_EMAIL": "fixture@example.com",
             "CMUX_UITEST_AUTH_NAME": "Fixture User",
+            "CMUX_UITEST_AUTH_PROFILE_IMAGE_URL": "https://example.com/fixture-avatar.png",
         ]
 
         #expect(
@@ -101,7 +102,8 @@ struct CMUXAuthStateTests {
             ) == CMUXAuthUser(
                 id: "fixture-user",
                 primaryEmail: "fixture@example.com",
-                displayName: "Fixture User"
+                displayName: "Fixture User",
+                profileImageURL: "https://example.com/fixture-avatar.png"
             )
         )
         #expect(
@@ -122,7 +124,12 @@ struct CMUXAuthStateTests {
 
     @Test("Primed cached user remains restoring while validating tokens")
     func primedCachedUserRemainsRestoringWhileValidatingTokens() {
-        let user = CMUXAuthUser(id: "user_123", primaryEmail: "user@example.com", displayName: "Test User")
+        let user = CMUXAuthUser(
+            id: "user_123",
+            primaryEmail: "user@example.com",
+            displayName: "Test User",
+            profileImageURL: "https://example.com/avatar.png"
+        )
         let state = CMUXAuthState.primed(
             clearAuthRequested: false,
             mockDataEnabled: false,

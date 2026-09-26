@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileShell",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -13,11 +13,18 @@ let package = Package(
             name: "CmuxMobileShell",
             targets: ["CmuxMobileShell"]
         ),
+        .library(
+            name: "CmuxMobileShellReleaseGateSupport",
+            targets: ["CmuxMobileShellReleaseGateSupport"]
+        ),
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxWorkspacePresence"),
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../CmuxMobileChanges"),
         .package(path: "../CmuxMobileDiagnostics"),
+        .package(path: "../CmuxMobileBrowserStream"),
         .package(path: "../CmuxMobilePairedMac"),
         .package(path: "../CmuxMobileRPC"),
         .package(path: "../CmuxMobileShellModel"),
@@ -29,8 +36,11 @@ let package = Package(
             name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxWorkspacePresence",
                 "CmuxAgentChat",
+                "CmuxMobileChanges",
                 "CmuxMobileDiagnostics",
+                "CmuxMobileBrowserStream",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
@@ -43,12 +53,31 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
-        .testTarget(
-            name: "CmuxMobileShellTests",
+        .target(
+            name: "CmuxMobileShellReleaseGateSupport",
             dependencies: [
                 "CmuxMobileShell",
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileRPC",
+                "CmuxMobileShellModel",
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .testTarget(
+            name: "CmuxMobileShellTests",
+            dependencies: [
+                "CmuxMobileShell",
+                "CmuxMobileShellReleaseGateSupport",
+                "CMUXMobileCore",
+                "CmuxWorkspacePresence",
+                "CmuxAgentChat",
+                "CmuxMobileBrowserStream",
+                "CmuxMobileChanges",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
