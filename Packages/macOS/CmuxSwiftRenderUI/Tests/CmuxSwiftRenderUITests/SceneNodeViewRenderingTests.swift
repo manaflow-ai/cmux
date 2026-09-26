@@ -3,18 +3,38 @@ import AppKit
 import SwiftUI
 import Testing
 
-/// Renders scene nodes through the real host view so a node type the JS
-/// runtime emits but the host has no case for (and silently draws as
-/// nothing) shows up as a failure.
+/// Opens a scene row's context menu through the real host view, the same
+/// AppKit path a right-click takes, so menu items the host fails to render
+/// show up as missing entries.
 @MainActor
 struct SceneNodeViewRenderingTests {
-    private func renderedSize(of nodeId: String, in runtime: SidebarJSRuntime) -> NSSize {
+    private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
+        let rootId = try #require(runtime.store.rootId)
         let host = NSHostingView(
-            rootView: SceneNodeView(nodeId: nodeId)
+            rootView: SceneNodeView(nodeId: rootId)
                 .environment(\.sceneStore, runtime.store)
         )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
         host.layoutSubtreeIfNeeded()
-        return host.fittingSize
+        let center = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: host.convert(center, to: nil),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        return try #require(host.menu(for: event))
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/14662: a `Menu` inside
@@ -31,21 +51,12 @@ struct SceneNodeViewRenderingTests {
           ])
         )
         """)
-        let rootId = try #require(runtime.store.rootId)
-        let root = try #require(runtime.store.node(rootId))
-        let menuId = try #require(root.children.first)
-        let menu = try #require(runtime.store.node(menuId))
-        let buttonId = try #require(menu.children.first)
-        let submenuId = try #require(menu.children.last)
-        let submenu = try #require(runtime.store.node(submenuId))
-        #expect(submenu.type == "menu")
-        #expect(submenu.children.compactMap { runtime.store.node($0)?.type } == ["button", "button"])
+        let menu = try contextMenu(ofRoot: runtime)
 
-        // The sibling button is the control: if it renders, the harness works.
-        let buttonSize = renderedSize(of: buttonId, in: runtime)
-        #expect(buttonSize.width > 0 && buttonSize.height > 0)
-
-        let submenuSize = renderedSize(of: submenuId, in: runtime)
-        #expect(submenuSize.width > 0 && submenuSize.height > 0)
+        #expect(menu.items.first?.title == "Open chat")
+        #expect(menu.items.contains { $0.isSeparatorItem })
+        let submenuItem = try #require(menu.items.first { $0.title == "Move to project" })
+        let submenu = try #require(submenuItem.submenu)
+        #expect(submenu.items.map(\.title) == ["fun", "Landing"])
     }
 }
