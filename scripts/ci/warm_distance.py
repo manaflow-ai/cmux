@@ -545,8 +545,10 @@ def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto
                 if key and isinstance(entry, Mapping) and key in (entry.get("keys") or [])}
 
     _deadline[0] = time.monotonic() + PICKER_BUDGET_SECONDS
-    own = pull_request_files(workspace, (merged_onto or "").strip().lower(), fetch=False) if merged_onto else None
-    _deadline[0] = float("inf")
+    try:
+        own = pull_request_files(workspace, (merged_onto or "").strip().lower(), fetch=False) if merged_onto else None
+    finally:
+        _deadline[0] = float("inf")
     job_tier = tier(features(own[0], own[1], model.get("hot_files") or DEFAULT_HOT_FILES), model) if own else ""
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
     name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=holding(pr_key),

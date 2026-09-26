@@ -170,8 +170,8 @@ snapshot's `running`) plus the compile predicted for its start: a kept build
 of this run's merge base (MERGED_ONTO, the merge commit's first parent), of
 this pull request (`pr-<PR_NUMBER>`, a re-push), or neither, by the pull
 request's own distance tier (scripts/ci/warm-distance-model.json). The root
-label costs the cold compile, plus a wait when Choice.root_budget leaves no
-root runner free. When a warm runner is cheapest by ROUTE_MARGIN_SECONDS it
+label costs the cold compile, plus a wait when every online root runner is
+busy. When a warm runner is cheapest by ROUTE_MARGIN_SECONDS it
 writes `admission_runner`, the JSON array `["<root label>",
 "glaeda-runner-<name>"]`, which admission's attempt 1 takes as its runs-on;
 a busy one only within the wait CI_PR_POOL_QUEUE_ROUNDS lets the rescue
