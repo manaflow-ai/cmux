@@ -1726,6 +1726,16 @@ jobs:
             ./scripts/smoke-launch-macos-app.sh \
             "$CHANNEL_APP_PATH"
 
+      - name: Smoke bundled CLI against the signed app
+        run: |
+          set -euo pipefail
+          # Launch-only smoke proves the process lives; this drives the shipped
+          # app through the CLI inside the same bundle (version, help, SSH
+          # daemon manifest, ping, capabilities, workspace create/list/close).
+          # A thin x86_64 variant skips when the runner has no Rosetta.
+          ./scripts/smoke-signed-app-cli.sh \
+            "$CHANNEL_APP_PATH"
+
       - name: Notarize app ticket through final DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}

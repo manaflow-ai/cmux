@@ -410,6 +410,21 @@ if ! awk '
   exit 1
 fi
 
+# The launch smoke only proves the process stays alive. Both signing jobs must
+# also drive the signed app through its bundled CLI before notarization.
+for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+  if ! awk '
+    /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+    /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
+    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
+    END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
+  ' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must run the bundled CLI smoke on the signed app after the launch smoke and before notarization"
+    exit 1
+  fi
+done
+
 # PR release builds restore the cache nightly warms from main by this prefix.
 # Renaming it on either side, or on a key but not its restore-keys, silently
 # turns every PR release build or every nightly restore cold.
