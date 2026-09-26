@@ -349,16 +349,19 @@ def record(source: Path, derived: Path, distance_out: str = "") -> dict[str, str
     if manifest.is_file() or manifest.is_symlink():
         manifest.unlink()
     recorded = seed.warm.record(source)
-    if distance_out:
-        with contextlib.suppress(OSError, ValueError, TypeError):
-            import warm_distance  # noqa: PLC0415 - only owned admissions record a distance
-            changed = changed_paths(recorded, start) if isinstance(start, dict) else None
-            warm_distance.start_distance(recorded, start if isinstance(start, dict) else None, changed,
-                                         Path(distance_out))
     derived.mkdir(parents=True, exist_ok=True)
     incoming = derived / f".{RECORD}.incoming"
     incoming.write_text(json.dumps(recorded, sort_keys=True))
     incoming.rename(manifest)
+    if distance_out:
+        # After the record is in place: nothing here may cost the next job its replay.
+        try:
+            import warm_distance  # noqa: PLC0415 - only owned admissions record a distance
+            changed = changed_paths(recorded, start) if isinstance(start, dict) else None
+            warm_distance.start_distance(recorded, start if isinstance(start, dict) else None, changed,
+                                         Path(distance_out))
+        except Exception as error:  # noqa: BLE001 - a distance is best effort
+            print(f"warm distance: not written ({type(error).__name__}: {error})"[:200])
     return {"recorded": "true", "inputs": str(len(recorded))}
 
 
@@ -382,6 +385,9 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     stamp.pop("fingerprint", None)
     stamp.pop("merged_onto", None)
     stamp.pop("pr", None)
+    # The previous build's own diff (warm_distance.py stamp_pull_request): this build's is added after.
+    for field in ("pr_app_swift_files", "pr_app_swift_total", "pr_package_interface", "pr_hot_files"):
+        stamp.pop(field, None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)

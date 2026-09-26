@@ -67,6 +67,7 @@ import re
 import statistics
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MODEL_PATH = Path(__file__).resolve().with_name("warm-distance-model.json")
@@ -168,17 +169,31 @@ def start_distance(current: Mapping[str, list], start: Mapping[str, list] | None
     if start is None or changed is None:
         document: dict[str, Any] = {"start": "cold"}
     else:
-        swift = sorted(path for path in changed if path.endswith(".swift"))
+        swift = sorted(path for path in changed if app_swift(path))
+        # Package paths first, so a cap never hides a package change.
+        kept = sorted(swift, key=lambda path: not package_swift(path))[:MAX_PATHS]
         document = {"start": "warm", "changed_inputs": len(changed),
-                    "swift_paths": swift[:MAX_PATHS], "swift_paths_total": len(swift)}
+                    "swift_paths": sorted(kept), "swift_paths_total": len(swift)}
     out.parent.mkdir(parents=True, exist_ok=True)
     incoming = out.with_name(f".{out.name}.{os.getpid()}")
     incoming.write_text(json.dumps(document, sort_keys=True))
     incoming.rename(out)
 
 
-def git(workspace: Path, *args: str, timeout: int = 30) -> str | None:
+# Every git call of one admission record or picker decision shares this deadline (time.monotonic()), so
+# the step never approaches its timeout; a call past it answers None (unknown), never an error.
+_deadline: list[float] = [float("inf")]
+GIT_TIMEOUT_SECONDS = 10
+FETCH_TIMEOUT_SECONDS = 20
+RECORD_BUDGET_SECONDS = 60
+PICKER_BUDGET_SECONDS = 8
+
+
+def git(workspace: Path, *args: str, timeout: float = GIT_TIMEOUT_SECONDS) -> str | None:
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    timeout = min(timeout, _deadline[0] - time.monotonic())
+    if timeout <= 0:
+        return None
     try:
         result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True,
                                 timeout=timeout, env=env)
@@ -197,7 +212,8 @@ def ensure_commit(workspace: Path, sha: str) -> bool:
         return False
     if have_commit(workspace, sha):
         return True
-    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "origin", sha, timeout=60)
+    git(workspace, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "origin", sha,
+        timeout=FETCH_TIMEOUT_SECONDS)
     return have_commit(workspace, sha)
 
 
@@ -205,7 +221,7 @@ def diff_interface(workspace: Path, old: str, new: str, paths: Sequence[str]) ->
     """Whether the package PATHS changed an interface between two commits; None when git cannot say."""
     if not paths:
         return False
-    text = git(workspace, "diff", "-U0", "--no-color", "--no-ext-diff", old, new, "--", *paths, timeout=60)
+    text = git(workspace, "diff", "-U0", "--no-color", "--no-ext-diff", old, new, "--", *paths)
     return None if text is None else interface_change(text)
 
 
@@ -294,6 +310,7 @@ def stamp_pull_request(store: Path, files: Sequence[str], interface: bool | None
 
 
 def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callable[[], dt.datetime]) -> dict[str, Any]:
+    _deadline[0] = time.monotonic() + RECORD_BUDGET_SECONDS
     model = load_model()
     hot_files = model.get("hot_files") or DEFAULT_HOT_FILES
     base = (env.get("MERGED_ONTO") or "").strip().lower()
@@ -327,7 +344,8 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
                 interface = diff_interface(workspace, str(old), "HEAD", packages)
                 # A kept build's own package change is undone here, and main's diff does not show it.
                 undone = set(packages) & set(start_stamp.get("pr_app_swift_files") or [])
-                if interface is False and undone and start_stamp.get("pr_package_interface") is not False:
+                if (start["kind"] == "kept" and interface is False and undone
+                        and start_stamp.get("pr_package_interface") is not False):
                     interface = start_stamp.get("pr_package_interface")
         distance = features(paths, interface, hot_files)
         distance["paths"] = sorted(path for path in paths if app_swift(path))[:MAX_PATHS]
@@ -358,8 +376,7 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
         "head_sha": env.get("HEAD_SHA") or None, "sha": env.get("GITHUB_SHA"), "merged_onto": base or None,
         "runner": env.get("RUNNER_NAME"), "root": env.get("CMUX_CI_CANONICAL_ROOT") or "/private/tmp/cmux-ci",
         "start": start, "distance": distance or None,
-        "own": {"app_swift_files": len(own[0]), "package_interface": own[1],
-                **features(own[0], own[1], hot_files)} if own else None,
+        "own": {**features(own[0], own[1], hot_files), "paths": own[0][:MAX_PATHS]} if own else None,
         "swift_units": units, "swift_units_total": sum(units.values()),
         "app_rebuilt": units.get("cmux", 0) >= APP_REBUILD_UNITS if units else None,
         "compile_outcome": env.get("COMPILE_OUTCOME"),
@@ -373,6 +390,7 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
             "hook": env.get("GLAEDA_WARM_ROUTE") or None,
         },
     }
+    _deadline[0] = float("inf")
     append_line(store / LOG_NAME, record)
     share_model(store)
     if own is not None and env.get("KEPT") == "true":
@@ -418,11 +436,12 @@ def job_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any], now: dt.datetime) -> float:
+def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any], now: dt.datetime) -> float | None:
     """How long a busy runner's current job still runs: its class's p50 less the time it has run (the
-    p90 once it passed the p50), at least a minute. Unknown job: UNKNOWN_JOB_SECONDS."""
+    p90 once it passed the p50), at least a minute. None when unknown: no entry, a job the model has no
+    length for, or one past its p90 (it may hang)."""
     if not isinstance(entry, Mapping):
-        return UNKNOWN_JOB_SECONDS
+        return None
     lengths = (model.get("job_seconds") or {}).get(job_key(str(entry.get("job") or ""))) or {}
     p50, p90 = lengths.get("p50"), lengths.get("p90")
     try:
@@ -430,10 +449,10 @@ def remaining_seconds(entry: Mapping[str, Any] | None, model: Mapping[str, Any],
     except ValueError:
         started = None
     if not isinstance(p50, (int, float)) or started is None:
-        return UNKNOWN_JOB_SECONDS
+        return None
     ran = max(0.0, (now - started).total_seconds())
     left = p50 - ran if ran < p50 else (p90 if isinstance(p90, (int, float)) else p50) - ran
-    return max(60.0, left)
+    return max(60.0, left) if left > 0 else None
 
 
 def routed_wait_limit(queue_rounds: int | None) -> int:
@@ -444,21 +463,19 @@ def routed_wait_limit(queue_rounds: int | None) -> int:
 def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_warm: Iterable[str],
                     pr_warm: Iterable[str], running: Mapping[str, Any], job_tier: str,
                     model: Mapping[str, Any], now: dt.datetime, max_wait: float,
-                    runner_label: Callable[[str], str], root_free: int | None = None) -> tuple[str, dict[str, Any]]:
+                    runner_label: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
     """The root runner whose expected wait plus predicted compile is lowest, if it beats the unpinned root label.
 
-    A candidate's cost is its expected wait (0 when idle, else what its
-    current job has left, remaining_seconds()) plus the compile predicted for
-    its start class: a kept build of this run's merge base (`base_warm`), of
-    this pull request (`pr_warm`), or neither ('none'), by this pull
-    request's own tier (start_class_seconds()). The unpinned root label goes
-    to any idle root runner, cost 'none', or waits for the first to finish.
-    `root_free` is the picker's live count of root runners free for this run
-    (pr_runner_pool.py Choice.root_budget: idle runners less what busy
-    runners, the janitor's queue and the last LIVE_WINDOW_MINUTES of runs
-    hold); 0 means the root label waits too. A pin to a busy runner is taken
-    only within `max_wait`. Returns the runner name ("" to leave the root
-    label) and the costs, for the log.
+    A candidate is an online `root` runner carrying its own label, warm for
+    this run: its keys hold the merge base (`base_warm`) or this pull request
+    (`pr_warm`). Its cost is its expected wait (0 when idle, else what its
+    current job has left, remaining_seconds(); a busy one whose wait is
+    unknown or not under `max_wait` is skipped) plus the compile predicted for
+    its start class, by this pull request's own tier (start_class_seconds()).
+    The unpinned root label goes to any idle root runner at the 'none' cost,
+    or, when every online root runner is busy, also waits for the first to
+    finish (UNKNOWN_JOB_SECONDS when none is known). Returns the runner name
+    ("" to leave the root label) and the costs, for the log.
     """
     base_warm, pr_warm = set(base_warm), set(pr_warm)
     cold = start_class_seconds("none", job_tier, model)
@@ -466,35 +483,39 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
     if cold is None:
         decision["why"] = "no model"
         return "", decision
-    online = []
+    waits: list[float | None] = []
+    pinnable: list[tuple[str, float | None]] = []
     for runner in runners:
         name = str(runner.get("name") or "")
         labels = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
-        if runner.get("status") == "online" and name and root in labels and runner_label(name) in labels:
-            wait = 0.0 if not runner.get("busy") else remaining_seconds(running.get(name), model, now)
-            online.append((name, wait))
-    if not online:
-        decision["why"] = "no online root runner with its own label"
+        if runner.get("status") != "online" or not name or root not in labels:
+            continue
+        wait = 0.0 if not runner.get("busy") else remaining_seconds(running.get(name), model, now)
+        waits.append(wait)
+        if runner_label(name) in labels:
+            pinnable.append((name, wait))
+    if not waits:
+        decision["why"] = "no online root runner"
         return "", decision
-    busy_waits = [wait for _, wait in online if wait > 0]
-    idle = root_free > 0 if root_free is not None else len(busy_waits) < len(online)
-    baseline = cold + (0.0 if idle else min(busy_waits, default=UNKNOWN_JOB_SECONDS))
+    if 0.0 in waits:
+        baseline = cold
+    else:
+        baseline = cold + min((wait for wait in waits if wait is not None), default=UNKNOWN_JOB_SECONDS)
     decision["baseline_seconds"] = round(baseline, 1)
     best: tuple[float, str] | None = None
-    for name, wait in online:
+    for name, wait in pinnable:
         start = "base" if name in base_warm else "pr" if name in pr_warm else ""
-        if not start:
-            continue
-        compile_seconds = start_class_seconds(start, job_tier, model)
+        compile_seconds = start_class_seconds(start, job_tier, model) if start else None
         if compile_seconds is None:
             continue
-        cost = wait + compile_seconds
-        decision["candidates"].append({"runner": name, "start": start, "wait": round(wait, 1),
-                                       "compile": compile_seconds, "cost": round(cost, 1)})
-        if wait <= max_wait and (best is None or cost < best[0]):
+        cost = None if wait is None else wait + compile_seconds
+        decision["candidates"].append({"runner": name, "start": start, "wait": wait,
+                                       "compile": compile_seconds, "cost": cost})
+        if wait is not None and (wait == 0 or wait < max_wait) and cost is not None \
+                and (best is None or cost < best[0]):
             best = (cost, name)
     if best is None:
-        decision["why"] = "no warm runner within the wait limit"
+        decision["why"] = "no warm runner idle or with a known wait within the limit"
         return "", decision
     if best[0] + ROUTE_MARGIN_SECONDS > baseline:
         decision["why"] = f"the best warm runner ({best[0]:.0f} s) does not beat the root label ({baseline:.0f} s)"
@@ -506,8 +527,7 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
 def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto: str | None,
                  pr_number: str | None, snapshot: Mapping[str, Any], workspace: Path, queue_rounds: int | None,
                  now: dt.datetime, warm_key: Callable[[str | None], str],
-                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None,
-                 root_free: int | None = None) -> tuple[str, dict[str, Any]]:
+                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     """pr_runner_pool.py's admission pin: route_admission() over the snapshot's `warm` and `running`.
 
     The pull request's own tier comes from the checkout (the merge commit and
@@ -524,13 +544,14 @@ def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto
         return {str(name) for name, entry in kept.items()
                 if key and isinstance(entry, Mapping) and key in (entry.get("keys") or [])}
 
+    _deadline[0] = time.monotonic() + PICKER_BUDGET_SECONDS
     own = pull_request_files(workspace, (merged_onto or "").strip().lower(), fetch=False) if merged_onto else None
+    _deadline[0] = float("inf")
     job_tier = tier(features(own[0], own[1], model.get("hot_files") or DEFAULT_HOT_FILES), model) if own else ""
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
     name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=holding(pr_key),
                                      running=running, job_tier=job_tier, model=model, now=now,
-                                     max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label,
-                                     root_free=root_free)
+                                     max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label)
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
 
 
@@ -546,7 +567,8 @@ def quantile(values: Sequence[float], q: float) -> float | None:
 
 
 def cell(values: Sequence[float], rebuilt: Sequence[bool] = ()) -> dict[str, Any]:
-    entry: dict[str, Any] = {"n": len(values), "p50": quantile(values, 0.5), "p90": quantile(values, 0.9)}
+    entry: dict[str, Any] = {"n": len(values), "p50": quantile(values, 0.5), "p90": quantile(values, 0.9),
+                             "mean": round(statistics.fmean(values), 1) if values else None}
     if rebuilt:
         entry["rebuilt"] = sum(1 for flag in rebuilt if flag)
     return entry
@@ -620,31 +642,39 @@ def tree_features(repo: Path, old: str, new: str, hot_files: Iterable[str]) -> d
     return features(files, diff_interface(repo, old, new, packages), hot_files)
 
 
+def with_hot(feature: Mapping[str, Any], model: Mapping[str, Any]) -> dict[str, Any]:
+    """FEATURE with its hot files recomputed from its paths under the model's list (a row keeps the list
+    of the model it was recorded under)."""
+    paths = feature.get("paths")
+    if paths is None:
+        return dict(feature)
+    return {**feature, "hot_files": sorted(set(paths) & set(model.get("hot_files") or ()))}
+
+
 def start_classes(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
                   repo: Path | None) -> dict[str, dict[str, Any]]:
     """The predicted compile of each start class the picker can see, by the job's own tier (expected seconds).
 
-    'none' is each admission's actual start when it was neither of the others.
-    'base' and 'pr' are counterfactual: with REPO, the tier cost (tiers' p50)
-    of the distance from the newest earlier admission's build on the same
-    merge base, or of the same pull request (within COUNTERFACTUAL_HOURS), to
-    this build: what routing to that kept build would have compiled. Without
-    REPO only the admissions that actually started there count. A cell needs
-    MIN_CLASS_ROWS.
+    An admission that started from one of them counts its actual compile
+    there ('none' is every other start). 'base' and 'pr' also count
+    counterfactuals: with REPO, the tier mean of the distance from the newest
+    earlier admission's build on the same merge base, or of the same pull
+    request (within COUNTERFACTUAL_HOURS), to this build: what routing to that
+    kept build would have compiled on average. A cell needs MIN_CLASS_ROWS.
     """
     hot = model.get("hot_files") or ()
     costs: dict[str, list[tuple[str, float]]] = {"base": [], "pr": [], "none": []}
 
     def cost(feature: Mapping[str, Any]) -> float | None:
-        return predict(feature, model)[1]
+        entry = (model.get("tiers") or {}).get(tier(feature, model)) or {}
+        value = entry.get("mean", entry.get("p50"))
+        return float(value) if isinstance(value, (int, float)) else None
 
     ordered = sorted((row for row in rows if parse_at(row)), key=lambda row: parse_at(row))
     for index, row in enumerate(ordered):
-        own = tier(row["own"], model) if row.get("own") else ""
+        own = tier(with_hot(row["own"], model), model) if row.get("own") else ""
         actual = start_class(row)
-        observed = cost({**row["distance"], "hot_files": sorted(set(row["distance"].get("paths") or []) & set(hot))})
-        if observed is not None:
-            costs[actual].append((own, observed))
+        costs[actual].append((own, float(row["compile_seconds"])))
         if repo is None or not row.get("sha"):
             continue
         since = parse_at(row) - dt.timedelta(hours=COUNTERFACTUAL_HOURS)
@@ -733,7 +763,7 @@ def evaluate(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> str
     saved = []
     for row in routed:
         own = row.get("own")
-        otherwise = start_class_seconds("none", tier(own, model), model) if own else None
+        otherwise = start_class_seconds("none", tier(with_hot(own, model), model), model) if own else None
         if otherwise is not None:
             saved.append(otherwise - row["compile_seconds"])
     lines.append("")

@@ -2109,12 +2109,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             from pathlib import Path  # noqa: PLC0415
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import warm_distance  # noqa: PLC0415
-            admission_runner, route = warm_distance.picker_route(
-                live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
-                pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
-                queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
-                warm_key=warm_key, runner_label=runner_label, root_free=choice.root_budget)
-            print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
+            try:
+                admission_runner, route = warm_distance.picker_route(
+                    live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                    pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
+                    queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                    warm_key=warm_key, runner_label=runner_label)
+                print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
+            except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
+                admission_runner = ""
+                print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,

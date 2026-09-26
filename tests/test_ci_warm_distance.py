@@ -109,6 +109,18 @@ class StartDistance(unittest.TestCase):
             # The owned record now describes this compile; the next start compares against it.
             self.assertTrue((derived / state.RECORD).is_file())
 
+    def test_the_path_cap_keeps_package_changes_and_leaves_out_tests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp, "start.json")
+            changed = {f"Sources/F{i:04}.swift" for i in range(wd.MAX_PATHS + 50)}
+            changed |= {"vendor/bonsplit/Sources/B.swift", "cmuxTests/T.swift"}
+            wd.start_distance({}, {}, changed, out)
+            document = json.loads(out.read_text())
+            self.assertIn("vendor/bonsplit/Sources/B.swift", document["swift_paths"])
+            self.assertNotIn("cmuxTests/T.swift", document["swift_paths"])
+            self.assertEqual((len(document["swift_paths"]), document["swift_paths_total"]),
+                             (wd.MAX_PATHS, wd.MAX_PATHS + 51))
+
     def test_a_cold_start_says_so(self):
         with tempfile.TemporaryDirectory() as tmp:
             source, derived, out = Path(tmp, "src"), Path(tmp, "dd"), Path(tmp, "start.json")
@@ -121,6 +133,32 @@ class StartDistance(unittest.TestCase):
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+class Keep(unittest.TestCase):
+    def test_keep_drops_the_previous_builds_own_diff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, derived = Path(tmp, "store"), Path(tmp, "dd")
+            derived.mkdir()
+            store.mkdir()
+            (store / "stamp.json").write_text(json.dumps({"fingerprint": "x", "pr": 3, "pr_app_swift_files": ["A.swift"],
+                                                          "pr_package_interface": True, "pr_app_swift_total": 1}))
+            with unittest.mock.patch("owned_build_state.subprocess.run") as run:
+                run.return_value.returncode = 1
+                state.keep(store, derived, "fp", "a" * 40, "9")
+            stamp = json.loads((store / "stamp.json").read_text())
+            self.assertEqual(stamp["pr"], 9)
+            self.assertFalse({"pr_app_swift_files", "pr_package_interface", "pr_app_swift_total"} & set(stamp))
+
+    def test_a_failed_distance_never_costs_the_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, derived = Path(tmp, "src"), Path(tmp, "dd")
+            source.mkdir()
+            (source / "A.swift").write_text("a")
+            with unittest.mock.patch("sys.stdout", io.StringIO()), \
+                    unittest.mock.patch.object(wd, "start_distance", side_effect=KeyError("boom")):
+                self.assertEqual(state.record(source, derived, str(Path(tmp, "out.json")))["recorded"], "true")
+            self.assertTrue((derived / state.RECORD).is_file())
 
 
 class Admission(unittest.TestCase):
@@ -185,10 +223,9 @@ class Admission(unittest.TestCase):
 
 
 class Routing(unittest.TestCase):
-    def route(self, runners, *, running=None, job_tier="near", max_wait=600.0, root_free=None, base=(), pr=()):
+    def route(self, runners, *, running=None, job_tier="near", max_wait=600.0, base=(), pr=()):
         return wd.route_admission(runners, ROOT_LABEL, base_warm=base, pr_warm=pr, running=running or {},
-                                  job_tier=job_tier, model=MODEL, now=NOW, max_wait=max_wait, runner_label=label,
-                                  root_free=root_free)
+                                  job_tier=job_tier, model=MODEL, now=NOW, max_wait=max_wait, runner_label=label)
 
     def test_an_idle_warm_runner_wins_by_its_predicted_compile(self):
         name, decision = self.route([runner("a"), runner("b")], base={"b"})
@@ -211,9 +248,11 @@ class Routing(unittest.TestCase):
         almost = {"b": {"job": "macOS / macOS compile admission",
                         "started_at": (NOW - dt.timedelta(seconds=400)).strftime("%Y-%m-%dT%H:%M:%SZ")}}
         self.assertEqual(self.route([runner("a"), runner("b", busy=True)], base={"b"}, running=almost)[0], "b")
-        # Past the rescue-covered wait, or with nothing known about its job, it is not taken.
+        # Past the rescue-covered wait, with nothing known about its job, or past its p90, it is not taken.
         self.assertEqual(self.route([runner("a"), runner("b", busy=True)], base={"b"}, running=almost, max_wait=30)[0], "")
         self.assertEqual(self.route([runner("a"), runner("b", busy=True)], base={"b"})[0], "")
+        hung = {"b": {**almost["b"], "started_at": (NOW - dt.timedelta(seconds=900)).strftime("%Y-%m-%dT%H:%M:%SZ")}}
+        self.assertEqual(self.route([runner("a"), runner("b", busy=True)], base={"b"}, running=hung)[0], "")
 
     def test_when_every_root_runner_is_busy_the_root_label_waits_too(self):
         started = (NOW - dt.timedelta(seconds=100)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -221,8 +260,10 @@ class Routing(unittest.TestCase):
         name, decision = self.route([runner("a", busy=True), runner("b", busy=True)], pr={"b"}, running=running)
         # Both finish in 320 s: the root label costs 320 + 350, the pin 320 + 200.
         self.assertEqual((name, decision["baseline_seconds"]), ("b", 670.0))
-        # The picker's live count says a root runner is free for this run: the root label does not wait.
-        self.assertEqual(self.route([runner("a"), runner("b")], pr={"b"}, root_free=1)[1]["baseline_seconds"], 350.0)
+        # An idle root runner without its own label still takes the root label at once.
+        bare = {"name": "c", "status": "online", "busy": False, "labels": [{"name": ROOT_LABEL}]}
+        self.assertEqual(self.route([runner("a", busy=True), runner("b", busy=True), bare], pr={"b"},
+                                    running=running)[1]["baseline_seconds"], 350.0)
 
     def test_no_model_no_route(self):
         name, decision = wd.route_admission([runner("a")], ROOT_LABEL, base_warm={"a"}, pr_warm=(), running={},
@@ -235,8 +276,9 @@ class Routing(unittest.TestCase):
         self.assertEqual(wd.remaining_seconds(entry(20), MODEL, NOW), 400.0)
         self.assertEqual(wd.remaining_seconds(entry(500), MODEL, NOW), 300.0)  # past the p50: the p90 less its run
         self.assertEqual(wd.remaining_seconds(entry(790), MODEL, NOW), 60.0)
-        self.assertEqual(wd.remaining_seconds(entry(10, "app-host unit tests (3)"), MODEL, NOW), wd.UNKNOWN_JOB_SECONDS)
-        self.assertEqual(wd.remaining_seconds(None, MODEL, NOW), wd.UNKNOWN_JOB_SECONDS)
+        self.assertIsNone(wd.remaining_seconds(entry(810), MODEL, NOW))  # past its p90: it may hang
+        self.assertIsNone(wd.remaining_seconds(entry(10, "app-host unit tests (3)"), MODEL, NOW))
+        self.assertIsNone(wd.remaining_seconds(None, MODEL, NOW))
         self.assertEqual(wd.job_key("macOS / app-host unit tests (3)"), "app-host-unit-tests")
 
     def test_the_wait_limit_follows_the_queue_rounds(self):
