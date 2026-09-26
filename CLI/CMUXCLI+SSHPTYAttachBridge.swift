@@ -193,19 +193,19 @@ extension CMUXCLI {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedWithoutProgress",
                     defaultValue: "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running",
-                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    bundle: CMUXCLILocalization.bundle
                 )
             } else if sshPTYAttachWrapperWillRetry(sessionRunningExitCode) {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedSessionRunningReconnecting",
                     defaultValue: "The SSH terminal connection ended while the remote session is still running; cmux is reconnecting.",
-                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    bundle: CMUXCLILocalization.bundle
                 )
             } else {
                 message = String(
                     localized: "cli.sshPtyAttach.bridgeClosedSessionRunning",
                     defaultValue: "The SSH terminal connection ended; the remote session may still be running.",
-                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+                    bundle: CMUXCLILocalization.bundle
                 )
             }
             throw CLIError(
@@ -326,7 +326,7 @@ extension CMUXCLI {
         let message = String(
             localized: "cli.sshPtyAttach.reconciliationUnavailableReattach",
             defaultValue: "The SSH terminal connection ended before the remote session state could be confirmed; preserving the remote session for reconnection.",
-            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            bundle: CMUXCLILocalization.bundle
         )
         guard let detail = detail?.trimmingCharacters(in: .whitespacesAndNewlines),
               !detail.isEmpty else {
