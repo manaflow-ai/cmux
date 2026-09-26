@@ -852,12 +852,18 @@ exec_real_claude_passthrough() {
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # The restore preload must outlive the Claude session: every Node child
+    # loads it via NODE_OPTIONS, and macOS purges $TMPDIR under long-lived
+    # sessions (https://github.com/manaflow-ai/cmux/issues/12022). Keep it
+    # next to the other CLI shims in ~/.cmuxterm.
+    [[ -n "${HOME:-}" && "$HOME" == /* ]] || return 1
+    local guard_dir="${HOME%/}/.cmuxterm/cmux-claude-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
+    [[ ! -L "$guard_dir" && ! -L "$guard_path" ]] || return 1
     mkdir -p "$guard_dir" || return 1
+    chmod 0700 "$guard_dir" || return 1
     local temp_path
-    temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
+    temp_path="$(mktemp "$guard_dir/.restore-node-options.cjs.XXXXXX")" || return 1
     cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
 if (hadOriginalNodeOptions) {
@@ -883,9 +889,20 @@ EOF
     printf '%s' "$guard_path"
 }
 
+node_options_require_flag() {
+    local path="$1"
+    # NODE_OPTIONS splits on whitespace; quote the path when $HOME has spaces.
+    if [[ "$path" == *[[:space:]]* ]]; then
+        printf '%s' "--require=\"$path\""
+    else
+        printf '%s' "--require=$path"
+    fi
+}
+
 merge_node_options() {
     local guard_path="$1"
-    local require_flag="--require=$guard_path"
+    local require_flag
+    require_flag="$(node_options_require_flag "$guard_path")"
     local memory_flag="--max-old-space-size=4096"
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()
@@ -953,7 +970,7 @@ normalize_node_options_for_restore() {
 install_cmux_node_options() {
     local guard_path
     if guard_path="$(ensure_node_options_restore_module)"; then
-        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"$(node_options_require_flag "$guard_path")"* ]]; then
             return 0
         fi
         if [[ ${NODE_OPTIONS+x} ]]; then
