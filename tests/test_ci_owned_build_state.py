@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_build_state as state  # noqa: E402
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 OWNED = "startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')"
 
@@ -297,21 +298,38 @@ class WarmKeys(Fixture):
         second = self.store / "cmux-ci-2"
         self.kept(pr="7")
         self.kept(fingerprint="fp2", merged_onto=B, pr="8", store=second)
-        self.seed(C)
-        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12, "pr-8", "c" * 12])
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12, "pr-8"])
         with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": ""}):
             from_second = state.warm_keys(second, "r", "p", "fp2")["keys"]
         self.assertEqual(from_second, ["b" * 12, "pr-8", "a" * 12, "pr-7"])
         # Another root counts only with a kept DerivedData of this STATE_VERSION.
         stamp = json.loads((second / "stamp.json").read_text())
         (second / "stamp.json").write_text(json.dumps({**stamp, "fingerprint": "fp2-owned-rec0"}))
-        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "c" * 12])
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
         (second / "stamp.json").write_text(json.dumps(stamp))
         state.clear(second / "derived-data")
-        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "c" * 12])
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
         # Not a root store: never read.
         (self.store / "cmux-ci-x").mkdir()
         self.assertEqual(state.other_root_stores(self.store), [second])
+
+    def test_a_mini_with_a_second_root_lists_no_seeds(self):
+        # glaeda routes a warm admission by stamps only, so it may start at a
+        # root whose store lacks the seed (and whose fingerprint rules it out).
+        # Only stamp keys, which the hook follows to their root, are listed.
+        self.kept(pr="7")
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7", "b" * 12])
+        second = self.store / "cmux-ci-2"
+        second.mkdir()
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "pr-7"])
+        # From the second root, its own seeds are left out too.
+        second_seeds = second / "seeds"
+        name = self.seed(C, fingerprint="fp2").name
+        second_seeds.mkdir()
+        (self.seeds / name).rename(second_seeds / name)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(second_seeds)}):
+            self.assertEqual(state.warm_keys(second, "r", "p", "fp2")["keys"], ["a" * 12, "pr-7"])
 
     def test_seeds_count_only_when_prefer_may_clone_them(self):
         self.kept()
