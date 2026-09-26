@@ -4,7 +4,8 @@ import Foundation
 extension TerminalController {
     /// Reconciles and inserts one authoritative batch, then publishes it off the main-actor hop.
     nonisolated func v2IngestAcknowledgedFeedEvents(
-        _ events: [WorkstreamEvent]
+        _ events: [WorkstreamEvent],
+        automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
         guard !events.isEmpty else {
             return .err(
@@ -38,10 +39,10 @@ extension TerminalController {
                     itemIds.reserveCapacity(authoritativeEvents.count)
                     for event in authoritativeEvents {
                         self.v2ApplyIMessageModeSideEffects(for: event)
-                        guard let itemId = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
+                        guard let item = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
                             continue
                         }
-                        itemIds.append(itemId)
+                        itemIds.append(item.id)
                     }
                     if itemIds.count != authoritativeEvents.count {
                         return .unavailable
@@ -50,7 +51,7 @@ extension TerminalController {
                 }
                 if let committed,
                    case .accepted(let authoritativeEvents, _) = committed {
-                    self.v2NoteCoalescedFeedTranscriptEvents(authoritativeEvents)
+                    self.v2NoteAcceptedFeedEvents(authoritativeEvents)
                 }
                 return committed
             }
@@ -58,13 +59,15 @@ extension TerminalController {
             if let ingestion,
                case .accepted(let authoritativeEvents, let authoritativeItemIds) = ingestion {
                 for (event, itemId) in zip(authoritativeEvents, authoritativeItemIds) {
-                    CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
-                    let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
-                    CmuxEventBus.shared.publishWorkstreamEvent(
-                        event,
-                        phase: "completed",
-                        result: FeedSocketEncoding.payload(for: result)
-                    )
+                    CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+                        let result = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: itemId)
+                        CmuxEventBus.shared.publishWorkstreamEvent(
+                            event,
+                            phase: "completed",
+                            result: FeedSocketEncoding.payload(for: result)
+                        )
+                    }
                 }
             }
         }
@@ -100,7 +103,10 @@ extension TerminalController {
     }
 
     @MainActor
-    private func v2NoteCoalescedFeedTranscriptEvents(_ events: [WorkstreamEvent]) {
+    private func v2NoteAcceptedFeedEvents(_ events: [WorkstreamEvent]) {
+        for event in events {
+            NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
+        }
         guard let agentChatTranscriptService else { return }
 
         var pendingPiPostToolEvent: WorkstreamEvent?
@@ -131,7 +137,8 @@ extension TerminalController {
     /// Publishes and inserts one Feed event from one authoritative live-target snapshot.
     nonisolated func v2IngestFeedEvent(
         _ event: WorkstreamEvent,
-        waitTimeout: TimeInterval
+        waitTimeout: TimeInterval,
+        automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
         let waitsForDecision = waitTimeout > 0 && event.requestId != nil
         let outcome = FeedCoordinator.shared.ingestBlockingWithOutcome(
@@ -139,19 +146,19 @@ extension TerminalController {
             waitTimeout: waitTimeout,
             onAcceptedOnMainActor: { authoritativeEvent in
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
+                self.v2NoteAcceptedFeedEvents([authoritativeEvent])
             },
             onAccepted: { authoritativeEvent in
-                self.v2MainSync {
-                    self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
-                }
-                CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
-                if !waitsForDecision {
-                    let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
-                    CmuxEventBus.shared.publishWorkstreamEvent(
-                        authoritativeEvent,
-                        phase: "completed",
-                        result: FeedSocketEncoding.payload(for: acknowledgment)
-                    )
+                CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    CmuxEventBus.shared.publishWorkstreamEvent(authoritativeEvent, phase: "received")
+                    if !waitsForDecision {
+                        let acknowledgment = FeedCoordinator.IngestBlockingResult.acknowledged(itemId: nil)
+                        CmuxEventBus.shared.publishWorkstreamEvent(
+                            authoritativeEvent,
+                            phase: "completed",
+                            result: FeedSocketEncoding.payload(for: acknowledgment)
+                        )
+                    }
                 }
             }
         )
@@ -170,11 +177,13 @@ extension TerminalController {
         guard let acceptedEvent = outcome.authoritativeEvent else {
             return v2FeedTargetUnavailable()
         }
-        CmuxEventBus.shared.publishWorkstreamEvent(
-            acceptedEvent,
-            phase: "completed",
-            result: FeedSocketEncoding.payload(for: result)
-        )
+        CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+            CmuxEventBus.shared.publishWorkstreamEvent(
+                acceptedEvent,
+                phase: "completed",
+                result: FeedSocketEncoding.payload(for: result)
+            )
+        }
         var payload = FeedSocketEncoding.payload(for: result)
         v2AppendFeedTarget(from: acceptedEvent, to: &payload)
         return .ok(payload)

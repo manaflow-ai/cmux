@@ -2,15 +2,16 @@ extension ShortcutAction {
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
-        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
+        case .openSettings, .openTeamPicker, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
+             .markAllNotificationsRead, .clearAllNotifications,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash, .reopenClosedWorkspace:
+             .switchRightSidebarToDock, .switchRightSidebarToMachines, .triggerFlash, .reopenClosedWorkspace:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
@@ -20,7 +21,7 @@ extension ShortcutAction {
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
-             .focusHistoryBack, .focusHistoryForward, .selectWorkspaceByNumber,
+             .focusHistoryBack, .focusHistoryForward, .focusHistoryLast, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,
              .closeTab, .closeOtherTabsInPane, .closeWorkspace,
@@ -34,7 +35,8 @@ extension ShortcutAction {
              .focusPreviousPane, .focusNextPane, .splitRight, .splitDown,
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
-             .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+             .equalizeSplits, .resizePaneLeft, .resizePaneRight,
+             .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
@@ -44,7 +46,7 @@ extension ShortcutAction {
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
              .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
             return .panes
-        case .openDiffViewer, .saveFilePreview, .openBrowser, .focusBrowserAddressBar,
+        case .openDiffViewer, .saveFilePreview, .toggleFileEditorWordWrap, .openBrowser, .focusBrowserAddressBar,
              .browserBack, .browserForward, .browserReload, .browserHardReload,
              .browserZoomIn, .browserZoomOut, .browserZoomReset,
              .markdownZoomIn, .markdownZoomOut, .markdownZoomReset,

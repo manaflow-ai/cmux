@@ -1,10 +1,14 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
+import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
 import {
+  MAX_CHECKOUT_URL,
+  GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
+  withCheckoutSource,
   withCheckoutInterval,
 } from "@/app/lib/billing";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -16,27 +20,29 @@ import {
 } from "@/app/components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "@/app/components/pricing-interval-selector";
+  PricingView,
+} from "@/app/components/pricing-checkout";
 import { cloudDb } from "@/db/client";
 import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
+  isPaidPlanId,
+  manualVmPlanOverride,
   resolveProPlanStatus,
 } from "@/services/billing/pro";
 import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
 import {
-  LEGACY_PRO_YEARLY_LOOKUP_KEY,
+  MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  proBillingInterval,
 } from "@/services/billing/plans";
 import { isVaultEnabled } from "@/services/vault/config";
+import { isGoPlanEnabled } from "@/services/billing/goPlanFlag";
 import { AccountPlanBadge } from "../components/account-plan-badge";
 
 
@@ -47,6 +53,7 @@ type SearchParams = {
 
 type StripeSubscriptionRow = {
   id: string;
+  plan?: string;
   status: string;
   priceId: string | null;
   seats: number | null;
@@ -82,24 +89,26 @@ export default async function DashboardBillingPage({
     status,
     billingTeam,
     subscription,
-    hasStripeCustomer,
   ] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.billing" }),
     getTranslations({ locale, namespace: "pricing" }),
     resolveProPlanStatus(user),
     billingTeamPromise,
     latestActiveStripeSubscription(user.id),
-    hasCustomerRow(user.id),
   ]);
-  const [teamSubscription, hasTeamStripeCustomer] = await Promise.all([
-    billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
-    billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
-  ]);
-  const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
-  const interval = proBillingInterval(
-    Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
-  );
-  const isFreePlan = !status.isPro && !teamSubscription;
+  const [teamSubscription, hasTeamStripeCustomer] = await teamBillingDetails(billingTeam?.id);
+  const goPlanEnabled = await isGoPlanEnabled(user.id);
+  const banner = billingBanner(firstBillingParam(query?.billing));
+  // Use the resolver's authoritative recoverability state for the personal
+  // billing action. A customer-only or terminally canceled row must show the
+  // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
+  const canManagePersonalBilling = status.billingManagement === "stripe";
+  const isFreePlan = !status.isPro && !canManagePersonalBilling && !teamSubscription;
+  // Only a paid operator grant (pro, team, founders) is shown as granted Pro;
+  // a "free" or unknown cmuxVmPlan value is not an entitlement.
+  const hasPaidManualGrant = isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata));
+  const personalPaymentPastDue = subscription?.status === "past_due";
+  const teamPaymentPastDue = teamSubscription?.status === "past_due";
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
@@ -118,20 +127,46 @@ export default async function DashboardBillingPage({
         </div>
       ) : null}
 
+      {personalPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
+      {teamPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal?scope=team" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
       {isFreePlan ? (
-        <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} />
+        <FreePlanUpsell t={t} pricingT={pricingT} goPlanEnabled={goPlanEnabled} />
       ) : !status.isPro ? (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       ) : subscription ? (
         <StripePlan
           t={t}
           locale={locale}
           subscription={subscription}
-          canManageBilling={hasStripeCustomer}
+          canManageBilling={canManagePersonalBilling}
         />
+      ) : hasPaidManualGrant ? (
+        <GrantedPlan t={t} />
       ) : (
-        <FreePlan t={t} />
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
+
+      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} canManageBilling={canManagePersonalBilling} t={t} pricingT={pricingT} />
 
       {billingTeam && teamSubscription ? (
         <TeamPlan
@@ -146,10 +181,27 @@ export default async function DashboardBillingPage({
   );
 }
 
+function MaxUpsell({ isFreePlan, planId, canManageBilling, t, pricingT }: {
+  isFreePlan: boolean; planId: string;
+  canManageBilling: boolean;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+}) {
+  if (isFreePlan || !canManageBilling || !["go", "pro"].includes(planId)) return null;
+  return (
+        <section className="mt-3 border border-border p-3">
+          <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
+          <p className="mt-2 text-muted">{t("max.upsell")}</p>
+          <a className="mt-3 inline-block underline" href={withCheckoutSource(planId !== "free" ? "/api/billing/portal?flow=switch_plan&plan=max" : MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
+        </section>
+  );
+}
+
 async function latestActiveStripeSubscription(stackUserId: string): Promise<StripeSubscriptionRow | null> {
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -162,11 +214,11 @@ async function latestActiveStripeSubscription(stackUserId: string): Promise<Stri
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .orderBy(desc(sql`${stripeSubscriptions.plan} = 'max'`), desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -175,6 +227,7 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
   const rows = await cloudDb()
     .select({
       id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
       status: stripeSubscriptions.status,
       priceId: stripeSubscriptions.priceId,
       seats: stripeSubscriptions.seats,
@@ -196,15 +249,6 @@ async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promi
   return rows[0] ?? null;
 }
 
-async function hasCustomerRow(stackUserId: string): Promise<boolean> {
-  const rows = await cloudDb()
-    .select({ id: stripeCustomers.id })
-    .from(stripeCustomers)
-    .where(eq(stripeCustomers.stackUserId, stackUserId))
-    .limit(1);
-  return rows.length > 0;
-}
-
 async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   const rows = await cloudDb()
     .select({ id: stripeCustomers.id })
@@ -214,17 +258,46 @@ async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+function FreePlan({
+  t,
+  showBillingPortal = false,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  showBillingPortal?: boolean;
+}) {
   return (
     <section className="border border-border p-3">
       <h2 className="text-sm font-medium">{t("free.name")}</h2>
       <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
-      <Link
-        href="/pricing"
-        className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-      >
-        {t("actions.viewPricing")}
-      </Link>
+      {showBillingPortal ? (
+        // The portal route creates a Stripe session and needs a full document
+        // navigation rather than a Next.js client transition.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
+        <a
+          href="/api/billing/portal"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.manageBilling")}
+        </a>
+      ) : (
+        <Link
+          href="/pricing"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.viewPricing")}
+        </Link>
+      )}
+    </section>
+  );
+}
+
+// Pro granted by an operator (`cmuxVmPlan`), with no Stripe subscription to
+// manage. Shown so a granted account never reads as Free with an upgrade CTA.
+function GrantedPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("pro.grantedBody")}</p>
     </section>
   );
 }
@@ -232,11 +305,11 @@ function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
 function FreePlanUpsell({
   t,
   pricingT,
-  interval,
+  goPlanEnabled,
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   pricingT: Awaited<ReturnType<typeof getTranslations>>;
-  interval: "month" | "year";
+  goPlanEnabled: boolean;
 }) {
   const proFeatures = visibleProFeatures({
     base: pricingT.raw("pro.features") as string[],
@@ -247,18 +320,19 @@ function FreePlanUpsell({
       hostedNetworking: false,
     },
   });
+  const maxFeatures = pricingT.raw("max.features") as string[];
+  const goFeatures = pricingT.raw("go.features") as string[];
   const teamFeatures = pricingT.raw("team.features") as string[];
-  const proCheckoutHrefs = {
-    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
-  };
-  const teamCheckoutHrefs = {
-    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
-  };
+  const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const goCheckoutHref = withCheckoutSource(GO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
 
   return (
-    <PricingIntervalProvider initialInterval={interval}>
+    <PricingView surface="dashboard_billing">
       <div className="space-y-3">
         <section className="border border-border p-3">
           <h2 className="text-sm font-medium">{t("free.name")}</h2>
@@ -269,34 +343,27 @@ function FreePlanUpsell({
           <div className="mb-2">
             <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
             <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
-            <PricingIntervalSelector
-              billingPeriodLabel={pricingT("billingPeriod")}
-              monthlyLabel={pricingT("monthly")}
-              annualLabel={pricingT("annual")}
-              savingsLabel={pricingT("saveAnnual", {
-                discount: PRO_PRICING_USD.year.discountPercent,
-              })}
-              surface="dashboard_billing"
-            />
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className={`grid gap-3 md:grid-cols-2 ${goPlanEnabled ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+            {goPlanEnabled ? <PlanCard
+              name={pricingT("go.name")}
+              price={`$${GO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton href={goCheckoutHref} location="dashboard_billing" plan="go">
+                {pricingT("go.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("go.featuresLead")}</p>
+              <FeatureList items={goFeatures} />
+            </PlanCard> : null}
+
             <PlanCard
               name={pricingT("pro.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={pricingT("pro.price")}
-                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={pricingT("perMonth")}
-                  annual={pricingT("perMonthBilledYearly")}
-                />
-              }
+              price={`$${PRO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
             >
               <PricingCheckoutButton
-                hrefs={proCheckoutHrefs}
+                href={proCheckoutHref}
                 location="dashboard_billing"
               >
                 {pricingT("pro.cta")}
@@ -306,22 +373,28 @@ function FreePlanUpsell({
             </PlanCard>
 
             <PlanCard
-              name={pricingT("team.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={pricingT("team.price")}
-                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={pricingT("perUserMonth")}
-                  annual={pricingT("perUserMonthBilledYearly")}
-                />
-              }
+              name={pricingT("max.name")}
+              price={`$${MAX_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
             >
               <PricingCheckoutButton
-                hrefs={teamCheckoutHrefs}
+                href={maxCheckoutHref}
+                location="dashboard_billing"
+                plan="max"
+              >
+                {pricingT("max.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("max.featuresLead")}</p>
+              <FeatureList items={maxFeatures} />
+            </PlanCard>
+
+            <PlanCard
+              name={pricingT("team.name")}
+              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perUserMonth")}
+            >
+              <PricingCheckoutButton
+                href={teamCheckoutHref}
                 location="dashboard_billing"
                 plan="team"
               >
@@ -344,7 +417,7 @@ function FreePlanUpsell({
           </Link>
         </section>
       </div>
-    </PricingIntervalProvider>
+    </PricingView>
   );
 }
 
@@ -359,18 +432,19 @@ function StripePlan({
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
-  const price = priceCopy(subscription, t);
+  const plan = subscription.plan === "max" ? "max" : subscription.plan === "go" ? "go" : "pro";
+  const price = priceCopy(subscription, t, plan);
   const periodDate = subscription.currentPeriodEnd
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
 
   return (
     <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <h2 className="text-sm font-medium">{t(`${plan}.name`)}</h2>
       <p className="mt-2 max-w-2xl text-muted">
         {subscription.cancelAtPeriodEnd
-          ? t("pro.pendingBody", { date: periodDate })
-          : t("pro.activeBody", { date: periodDate })}
+          ? t(`${plan}.pendingBody`, { date: periodDate })
+          : t(`${plan}.activeBody`, { date: periodDate })}
       </p>
 
       <div className="mt-4 grid border border-border sm:grid-cols-2">
@@ -451,9 +525,7 @@ function TeamPlan({
     ? formatBillingDate(subscription.currentPeriodEnd, locale)
     : t("dates.unknown");
   const seats = String(subscription.seats ?? 1);
-  const price = isAnnualTeamSubscription(subscription)
-    ? t("team.annualPrice")
-    : t("team.price");
+  const price = priceCopy(subscription, t, "team");
 
   return (
     <section className="mt-3 border border-border p-3">
@@ -470,7 +542,7 @@ function TeamPlan({
           value={periodDate}
         />
         <BillingMetric label={t("details.seats")} value={seats} />
-        <BillingMetric label={t("details.price")} value={price} />
+        {price ? <BillingMetric label={t("details.price")} value={price} /> : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-start gap-2">
@@ -545,21 +617,44 @@ function billingBanner(value: string | undefined) {
     : null;
 }
 
+/**
+ * What this subscription actually charges, read from its Stripe price. Amounts
+ * are immutable per Price, so grandfathered rows ($30/mo, $240/yr, $288/yr,
+ * and the Stack-era prices with no lookup key) render their own figure without
+ * a per-key copy table that has to grow on every price change.
+ */
 function priceCopy(
   subscription: StripeSubscriptionRow,
   t: Awaited<ReturnType<typeof getTranslations>>,
+  plan: "go" | "pro" | "max" | "team",
 ): string | null {
-  const lookupKey = priceLookupKey(subscription) ?? subscription.priceId;
-  if (lookupKey === PRO_PRICING_USD.month.lookupKey) {
-    return t("pro.monthlyPrice");
+  const price = stripePrice(subscription);
+  const unitAmount = price?.unit_amount;
+  const interval = priceRecurringInterval(subscription);
+  // unit_amount is in the currency's minor unit; only USD is formatted here.
+  // A non-USD row (possible only for an operator-managed subscription) shows
+  // no figure rather than a false dollar amount.
+  if (
+    price?.currency !== "usd" ||
+    typeof unitAmount !== "number" ||
+    !Number.isFinite(unitAmount) ||
+    !interval
+  ) {
+    return null;
   }
-  if (lookupKey === LEGACY_PRO_YEARLY_LOOKUP_KEY) {
-    return t("pro.legacyAnnualPrice");
+  const dollars = unitAmount / 100;
+  if (interval === "month") {
+    return t(plan === "pro" ? "pro.monthlyPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.price", {
+      amount: formatUsd(dollars),
+    });
   }
-  if (lookupKey === PRO_PRICING_USD.year.lookupKey) {
-    return t("pro.annualPrice");
-  }
-  return null;
+  return t(plan === "pro" ? "pro.annualPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.annualPrice", {
+    monthly: formatUsd(dollars / 12),
+  });
+}
+
+function formatUsd(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 
 function stripePrice(
@@ -579,11 +674,6 @@ function stripePrice(
     : null;
 }
 
-function priceLookupKey(subscription: StripeSubscriptionRow): string | null {
-  const lookupKey = stripePrice(subscription)?.lookup_key;
-  return typeof lookupKey === "string" ? lookupKey : null;
-}
-
 function priceRecurringInterval(
   subscription: StripeSubscriptionRow,
 ): "month" | "year" | null {
@@ -594,13 +684,15 @@ function priceRecurringInterval(
   return interval === "month" || interval === "year" ? interval : null;
 }
 
-function isAnnualTeamSubscription(subscription: StripeSubscriptionRow): boolean {
-  const lookupKey = priceLookupKey(subscription);
-  if (lookupKey === TEAM_PRICING_USD.year.lookupKey) return true;
-  if (lookupKey === TEAM_PRICING_USD.month.lookupKey) return false;
-  return priceRecurringInterval(subscription) === "year";
-}
-
 function formatBillingDate(date: Date, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+}
+
+async function teamBillingDetails(teamId: string | undefined) {
+  if (!teamId) return [null, false] as const;
+  return Promise.all([latestActiveStripeSubscriptionForTeam(teamId), hasTeamCustomerRow(teamId)]);
+}
+
+function firstBillingParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }

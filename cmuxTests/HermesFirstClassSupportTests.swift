@@ -1,3 +1,4 @@
+@testable import CmuxFoundation
 import AppKit
 import CMUXAgentLaunch
 import Foundation
@@ -903,7 +904,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Quit-time save revalidates a cached Hermes process against the current snapshot")
-    func quitTimeSaveRevalidatesCachedHermesProcess() throws {
+    func quitTimeSaveRevalidatesCachedHermesProcess() async throws {
         let fixture = try makeFixture { [StateRow("cached-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_530
@@ -930,10 +931,11 @@ struct HermesFirstClassSupportTests {
         )
         #expect(cached.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)?.processLiveness == .running)
 
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let resumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
-            cachedRestorableAgentIndex: cached
+            cachedRestorableAgentIndex: cached,
+            processSnapshotService: fixtureProcessSnapshotService()
         )
         let revalidated = try #require(
             resumeIndexes.restorableAgentIndex.entry(
@@ -988,7 +990,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Fresh synchronous lifecycle load discovers a Hermes hook session missing from the cache")
-    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() throws {
+    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() async throws {
         let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_531
@@ -1002,10 +1004,12 @@ struct HermesFirstClassSupportTests {
             arguments: [fixture.hermesExecutable, "--resume", "new-hook-session"]
         )
 
-        let staleResumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let processSnapshotService = fixtureProcessSnapshotService()
+        let staleResumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
-            cachedRestorableAgentIndex: .empty
+            cachedRestorableAgentIndex: .empty,
+            processSnapshotService: processSnapshotService
         )
         #expect(
             staleResumeIndexes.restorableAgentIndex.entry(
@@ -1014,9 +1018,10 @@ struct HermesFirstClassSupportTests {
             ) == nil
         )
 
-        let freshResumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously(
+        let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFreshOnWorker(
             homeDirectory: fixture.root.path,
-            fileManager: .default
+            fileManager: .default,
+            processSnapshotService: processSnapshotService
         )
         let discovered = try #require(
             freshResumeIndexes.restorableAgentIndex.entry(
@@ -1472,7 +1477,7 @@ struct HermesFirstClassSupportTests {
         let approvals = try #require(allowlist["approvals"] as? [[String: Any]])
         let commands = approvals.compactMap { $0["command"] as? String }
         let cmuxCommands = commands.filter {
-            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks hermes-agent ")
+            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks enqueue hermes-agent ") || $0.contains("hooks hermes-agent ")
         }
 
         #expect(commands.count == approvals.count)
@@ -1749,6 +1754,19 @@ struct HermesFirstClassSupportTests {
         )
     }
 
+    /// A complete census in which none of the fixture's recorded agent PIDs
+    /// are live. The real host census reports itself incomplete whenever any
+    /// process on the machine exits mid-scan, which fails these lifecycle loads
+    /// closed on a busy CI runner and has nothing to do with Hermes.
+    private func fixtureProcessSnapshotService()
+        -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
+        let sampler = CmuxTopProcessSampler(reader: HermesFixtureProcessReader())
+        return ProcessSnapshotService(
+            capture: { try sampler.capture() },
+            enrich: { try sampler.enrich($0, fields: $1) }
+        )
+    }
+
     private func loadHookBackedHermesIndex(
         fixture: Fixture,
         processID: Int,
@@ -1869,6 +1887,19 @@ struct HermesFirstClassSupportTests {
 }
 
 private final class HermesFirstClassBundleToken {}
+
+/// Enumerates no processes, completely. No live PID, argv or environment is read.
+private struct HermesFixtureProcessReader: CmuxTopProcessReading {
+    func enumerate() -> DarwinProcessListing {
+        DarwinProcessListing(processes: [], isComplete: true, missingProcessCount: 0)
+    }
+    func taskInfo(for pid: Int) -> proc_taskinfo? { nil }
+    func resourceUsage(for pid: Int) -> rusage_info_v4? { nil }
+    func processName(pid: Int, fallback: String) -> String { fallback }
+    func processPath(pid: Int) -> String? { nil }
+    func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope? { nil }
+    func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool { false }
+}
 
 private enum HermesFirstClassTestError: Error {
     case sqlite(String)

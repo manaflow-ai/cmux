@@ -1,4 +1,85 @@
 {
+  "agentHarness": {
+    "title": "Oppdaget harness-konfigurasjon",
+    "selectionNotice": "Valg av leverandør starter eller aktiverer ikke disse harnessene.",
+    "selectProvider": "Velg {provider}",
+    "foundPath": "Fant {path}",
+    "foundCommand": "Fant kommandoen {command}",
+    "installed": "Leverandøren er installert",
+    "missing": "Leverandøren er ikke installert",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, minne og leverandørruting",
+    "benefitOpenagent": "Parallelle spesialister og gjenoppretting for OpenCode",
+    "benefitClaude": "Team og verifisering for Claude Code",
+    "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
+  },
+  "vmErrors": {
+    "guestInstall": {
+      "title": "Oppsettet av Cloud VM ble ikke fullført",
+      "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",
+      "message": "cmux kunne ikke fullføre oppsettet av Cloud VM.",
+      "action": "Prøv operasjonen på nytt. Kontakt kundestøtte hvis problemet fortsetter."
+    },
+    "createCleanupPending": {
+      "title": "Opprydding av Cloud VM venter",
+      "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
+    "unsupported": {
+      "title": "Cloud VM-operasjon er ikke tilgjengelig",
+      "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
+      "message": {
+        "snapshot": "Denne Cloud VM-en støtter ikke lagret VM-tilstand.",
+        "restore": "Denne Cloud VM-typen støtter ikke gjenoppretting av lagret VM-tilstand.",
+        "fork": "Denne Cloud VM-en støtter ikke kopiering til en ny VM.",
+        "openPort": "Leverandøren til denne Cloud VM-en kan ikke eksponere maskinporter som forhåndsvisnings-URL-er.",
+        "default": "Denne Cloud VM-en støtter ikke den forespurte operasjonen."
+      },
+      "action": {
+        "snapshot": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
+        "restore": "Ikke prøv på nytt. Arbeid på denne maskintypen lagres på det permanente hjem-volumet.",
+        "fork": "Ikke prøv på nytt. Opprett en ny VM med `cmux vm new`.",
+        "openPort": "Ikke prøv på nytt. Nå tjenesten fra maskinen med `cmux vm exec`, eller bruk en maskintype som kan åpne porter.",
+        "default": "Ikke prøv på nytt. Kjør `cmux vm ls`, eller kontakt brukerstøtte hvis du mener dette er feil."
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro kreves",
+      "message": "Cloud VM-er krever en cmux Pro-plan.",
+      "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+    },
+    "displayName": {
+      "title": "Ugyldig maskinnavn",
+      "message": "Maskinnavn må være lesbar tekst på høyst {maxLength} tegn.",
+      "action": "Bruk et kortere navn uten kontrolltegn, eller la det stå tomt for å fjerne det."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "goLimit": {
+      "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go inkluderer én kjørende VM om gangen.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }
+  },
+  "billingRecovery": {
+    "message": "Hvis vi fant en konto, sjekk e-posten din for neste steg"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Fortsett i terminalen",
@@ -27,6 +108,23 @@
     "description": "Gratis og åpen kildekode nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy. Vertikale faner, varselsringer, delte paneler og en socket API.",
     "ogDescription": "Gratis og åpen kildekode macOS-terminal for AI-kodingsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-verktøy."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Bekreft e-posten din for å fortsette",
+    "emailUnverifiedBody": "Logg inn med metoden du brukte opprinnelig, og bekreft deretter e-posten før du bruker denne innloggingsmetoden.",
+    "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
+    "genericTitle": "Innloggingen kunne ikke fullføres",
+    "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
+    "backToSignIn": "Tilbake til innlogging"
+  },
+  "cloudPublicationAccess": {
+    "title": "Du har ikke tilgang",
+    "signIn": "Logg på cmux",
+    "signedInAs": "Logget på som {identity}",
+    "switchAccount": "Bytt konto",
+    "invalidTitle": "Denne tilgangslenken er ugyldig",
+    "invalidBody": "Gå tilbake til nettstedet og prøv på nytt.",
+    "footer": "Tilgang administreres av cmux."
+  },
   "common": {
     "downloadForMac": "Last ned for Mac",
     "viewOnGitHub": "Se på GitHub",
@@ -43,6 +141,7 @@
     "blog": "Blogg",
     "changelog": "Endringslogg",
     "community": "Fellesskap",
+    "jobs": "Ledige stillinger",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +151,10 @@
     "social": "Sosiale medier",
     "blog": "Blogg",
     "community": "Fellesskap",
+    "jobs": "Ledige stillinger",
     "docs": "Dokumentasjon",
     "changelog": "Endringslogg",
+    "support": "Support",
     "privacy": "Personvern",
     "terms": "Vilkår",
     "eula": "EULA",
@@ -68,6 +169,115 @@
     "openSource": "Åpen kildekode",
     "guides": "Veiledninger",
     "compare": "Sammenlign"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer hos cmux",
+    "metaDescription": "Bli Founding Engineer hos cmux og bygg fremtidens programmering med AI på macOS, Windows, Linux, iOS og Cloud.",
+    "section": "Ledige stillinger",
+    "eyebrow": "Vi ansetter",
+    "title": "Founding Engineer",
+    "tagline": "Bygg fremtidens programmering med AI.",
+    "intro": "cmux er en innebygd macOS-terminal bygget på Ghostty, utviklet for å kjøre flere AI-kodeagenter parallelt. Hundretusener av utviklere bruker cmux i agentbaserte kodearbeidsflyter.",
+    "hiring": "Vi ser etter talentfulle ingeniører som vil bygge fremtidens programmering med AI sammen med oss.",
+    "whatYoullDo": "Dette skal du gjøre",
+    "whatYoullDoItems": [
+      "Bygger banebrytende utviklerverktøy på tvers av hele stacken: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux og mer.",
+      "Hjelper med å finne opp det mest nyttige produktet for utviklere som jobber med AI.",
+      "Eier produkter og funksjoner fra start til slutt, inkludert tilbakemeldinger fra brukere.",
+      "Bruker, tester og verifiserer cmux hele tiden; bruker cmux til å bygge cmux."
+    ],
+    "excitedLead": "Vi blir ekstra begeistret hvis du:",
+    "excitedItems": [
+      "Bruker over 10B tokens hver dag.",
+      "Er allsidig og løser problemer kreativt.",
+      "Har god designsans og bryr deg om håndverket.",
+      "Har erfaring med Swift/AppKit, C++, Rust, Go eller Chromium.",
+      "Er open source-maintainer, tidligere gründer eller har levert komplette produkter.",
+      "Sender cmux-PR-er til gjennomgang eller viser egne cmux-plugins og arbeidsflyter."
+    ],
+    "details": "Detaljer",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Kompensasjon",
+    "compensation": "$130k–$170k + 0,5 %–1,5 % eierandel",
+    "benefitsLabel": "Fordeler",
+    "benefits": "Helse-, tann- og synsforsikring",
+    "locationLabel": "Sted",
+    "location": "San Francisco",
+    "applyAriaLabel": "Søk på Founding Engineer-stillingen via e-post",
+    "applyEmailSubject": "Søknad som Founding Engineer hos cmux",
+    "applyCta": "Send e-post",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer hos cmux",
+      "metaDescription": "Bli founding Chromium engineer i cmux: eie vår Chromium-fork og bring cmux til Windows og Linux med C++ og Rust.",
+      "section": "Ledige stillinger",
+      "eyebrow": "Om rollen",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Bring cmux til Windows og Linux.",
+      "intro": "cmux er en innebygd macOS-terminal bygget på Ghostty, utviklet for å kjøre flere AI-kodeagenter parallelt. Hundretusener av utviklere bruker cmux i agentbaserte kodearbeidsflyter.",
+      "hiring": "Vi ansetter en founding engineer som skal eie cmux på Windows (og Linux), bygget på vår egen fork av Chromium.",
+      "whatYoullDo": "Dette skal du gjøre",
+      "whatYoullDoItems": [
+        "Eie vår Chromium-fork: følg upstream, rebase rent og bær cmux-patcher (vindu-/input-/render-integrasjon, terminalflate, agent-UI).",
+        "Eie cmux på Windows og Linux fra ende til ende: C++, installasjonsprogram, auto-oppdatering, krasjrapportering.",
+        "Port den Ghostty-baserte terminalkjernen og agent-orkestreringsfunksjonene (vertikale faner, varslingsringer, splittelser, CLI) til Windows.",
+        "Få ytelsen til å føles native: oppstartstid, GPU-rendering, input-forsinkelse.",
+        "Dogfood, test og verifiser hele tiden."
+      ],
+      "excitedLead": "Vi blir ekstra begeistret hvis du:",
+      "excitedItems": [
+        "Dype C++-kunnskaper og reell Chromium-erfaring - ideelt sett har du vedlikeholdt en fork: båret patcher, rebaset på upstream-milepæler, debugget i content/ eller blink.",
+        "Rust er et stort pluss (TUI-en og nettverksdaemonen vår er skrevet i Rust).",
+        "Du har levert eller vedlikeholdt en ekte Windows-skrivebordsapp.",
+        "Bonus: upstream Chromium-bidrag, nysgjerrighet på Swift/AppKit, open source-vedlikeholder, tidligere gründer."
+      ],
+      "details": "Detaljer",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Kompensasjon",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % eierandel",
+      "benefitsLabel": "Fordeler",
+      "benefits": "Helse-, tann- og synsforsikring",
+      "locationLabel": "Sted",
+      "location": "San Francisco",
+      "applyAriaLabel": "Søk på Founding Chromium Engineer-stillingen via e-post",
+      "applyEmailSubject": "Søknad som Founding Chromium Engineer hos cmux",
+      "applyCta": "Send e-post"
+    },
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer hos cmux",
+      "metaDescription": "Bli Founding Designer hos cmux og design fremtidens programmering med AI på macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com og chatmux.",
+      "section": "Ledige stillinger",
+      "eyebrow": "Om rollen",
+      "title": "Founding Designer",
+      "tagline": "Design fremtidens programmering med AI.",
+      "intro": "cmux er en innebygd macOS-terminal bygget på Ghostty, utviklet for å kjøre flere AI-kodeagenter parallelt. Hundretusener av utviklere bruker cmux i agentbaserte kodearbeidsflyter.",
+      "hiring": "Vi ser etter en talentfull designer som vil designe fremtidens programmering med AI sammen med oss.",
+      "whatYoullDo": "Dette skal du gjøre",
+      "whatYoullDoItems": [
+        "Designer banebrytende utviklerverktøy på tvers av hele stacken: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux og mer.",
+        "Hjelper med å designe det mest nyttige produktet for utviklere som jobber med AI.",
+        "Eier uttrykk, følelse og interaksjonsmodell fra start til slutt, inkludert tilbakemeldinger fra brukere.",
+        "Bruker cmux, lager prototyper og leverer hele tiden."
+      ],
+      "excitedLead": "Vi blir ekstra begeistret hvis du:",
+      "excitedItems": [
+        "Er en levende encyklopedi over designkomponenter fra alle slags apper.",
+        "Folk spør deg stadig om designreferanser.",
+        "Har en lidenskapelig smak for native macOS-apper og utviklerverktøy.",
+        "Prototyper i kode og leverer ekte UI.",
+        "Bryr deg om typografi, bevegelse og systemtenkning, helt ned til hver 1px-detalj og avstand."
+      ],
+      "details": "Detaljer",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Kompensasjon",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % eierandel",
+      "benefitsLabel": "Fordeler",
+      "benefits": "Helse-, tann- og synsforsikring",
+      "locationLabel": "Sted",
+      "location": "San Francisco",
+      "applyAriaLabel": "Søk på Founding Designer-stillingen via e-post",
+      "applyEmailSubject": "Søknad som Founding Designer hos cmux",
+      "applyCta": "Send e-post"
+    }
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
@@ -138,7 +348,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversikt",
-      "team": "team"
+      "team": "team",
+      "mobileDevices": "Mobile enheter"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -152,7 +363,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
       "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging."
+      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "machines": {
+        "title": "Maskiner",
+        "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
+        "machineColumn": "Maskin",
+        "tokensColumn": "Tokens totalt",
+        "apiEquivalentColumn": "API-ekvivalent verdi",
+        "unnamed": "Maskin uten navn",
+        "empty": "Ingen maskiner har brukt coderouter de siste {days} dagene.",
+        "unavailable": "Bruk per maskin er midlertidig utilgjengelig.",
+        "estimateNote": "API-ekvivalent verdi er et estimat basert på offentlige listepriser, ikke faktisk forbruk."
+      }
     },
     "accountMenu": {
       "label": "Kontomeny",
@@ -164,64 +386,6 @@
       "organizationSwitchError": "Kunne ikke bytte organisasjon. Prøv igjen.",
       "signIn": "Logg inn"
     },
-    "aiAccounts": {
-      "metaTitle": "AI-kontoer — cmux",
-      "metaDescription": "Administrer teamets AI-leverandørkontoer for cmux.",
-      "section": "Dashbord",
-      "title": "AI-kontoer",
-      "description": "Administrer leverandørkontoene dette teamet kan bruke med cmux AI.",
-      "personalTeam": "Personlig",
-      "teamSwitcherLabel": "Team",
-      "notConfiguredTitle": "AI-kontoadministrasjon er ikke tilgjengelig ennå",
-      "notConfiguredBody": "Team-AI-kontoer er ikke aktivert for denne installasjonen. Prøv igjen senere, eller kontakt support.",
-      "loadErrorTitle": "Kunne ikke laste kontoer",
-      "loadErrorBody": "Kontotjenesten var ikke tilgjengelig. Prøv igjen om litt.",
-      "accountsTitle": "Tilkoblede kontoer",
-      "accountsCount": "{count, plural, one {# konto} other {# kontoer}}",
-      "emptyTitle": "Ingen kontoer ennå",
-      "emptyBody": "Legg til en leverandørkonto for å gjøre den tilgjengelig for dette teamet.",
-      "providerColumn": "Leverandør",
-      "labelColumn": "Etikett",
-      "createdColumn": "Opprettet",
-      "actionsColumn": "Handlinger",
-      "unlabeledAccount": "Uten etikett",
-      "unknownCreatedAt": "Ukjent",
-      "addAccountsTitle": "Legg til konto",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API-nøkkel",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API-nøkkel",
-      "providerUnknown": "Ukjent leverandør",
-      "labelField": "Etikett",
-      "labelPlaceholder": "Teamstandard",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API-nøkkel",
-      "addClaude": "Legg til Claude",
-      "addAnthropic": "Legg til Anthropic",
-      "addCodex": "Legg til Codex",
-      "addOpenAi": "Legg til OpenAI",
-      "addSuccess": "Konto lagt til.",
-      "addError": "Kontoen kunne ikke lagres.",
-      "deleteError": "Kontoen kunne ikke slettes.",
-      "jsonError": "Lim inn et gyldig JSON-objekt.",
-      "validationError": "Sjekk kontoopplysningene og prøv igjen.",
-      "teamAccessError": "Du har ikke tilgang til dette teamet.",
-      "deletingAction": "Sletter",
-      "deleteAction": "Slett",
-      "deleteConfirmTitle": "Slette denne kontoen?",
-      "deleteConfirmBody": "Leverandørkontoen fjernes for hele teamet. Du trenger de opprinnelige påloggingsopplysningene for å legge den til igjen.",
-      "cancelAction": "Avbryt",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "Ditt personlige abonnement",
@@ -229,6 +393,85 @@
         "pro": "Pro",
         "loading": "Laster…"
       }
+    },
+    "mobileDevices": {
+      "title": "Mobile enheter",
+      "description": "Administrer tilgang til tilkoblede datamaskiner, telefoner og nettbrett.",
+      "team": "Team",
+      "teamSwitchError": "Kunne ikke bytte team. Prøv igjen.",
+      "loading": "Laster inn enheter…",
+      "empty": "Ingen enheter er registrert for dette teamet.",
+      "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden og prøv igjen.",
+      "retry": "Prøv igjen",
+      "mutationError": "Enhetsendringen kunne ikke fullføres.",
+      "revoke": "Tilbakekall tilgang",
+      "deviceId": "Enhet",
+      "revision": "Revisjon",
+      "status": "Status",
+      "active": "Aktiv",
+      "revoked": "Tilbakekalt",
+      "relaySettings": "Relay-innstillinger",
+      "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
+      "saveRelaySettings": "Lagre relay-innstillinger",
+      "eyebrow": "sky / enheter",
+      "scopeActive": "Viser dette teamet",
+      "emptyTitle": "Ingen tilkoblede enheter ennå",
+      "emptyDescription": "Når en cmux-enhet pares med dette teamet, vises den her med plattform, versjon og tilgangskontroller.",
+      "revoking": "Tilbakekaller…",
+      "registeredDevices": "Registrerte enheter",
+      "activeDevices": "Aktive enheter",
+      "directoryRevision": "Katalogrevisjon",
+      "savingRelaySettings": "Lagrer…"
+    },
+    "coderouterAccounts": {
+      "transferAction": "Overfør",
+      "transferringAction": "Overfører…",
+      "transferDialogTitle": "Overfør konto til et annet team",
+      "transferChooseBody": "Velg teamet som skal motta {account}. Den tilhører nå {source}.",
+      "transferDestinationLabel": "Mottakerteam",
+      "continueAction": "Fortsett",
+      "backAction": "Tilbake",
+      "transferConfirmTitle": "Overføre {account}?",
+      "transferConfirmBody": "{account} flyttes fra {source} til {destination}. Skymaskiner og medlemmer i {source} slutter å bruke den med en gang. Den beholder den nåværende delingsinnstillingen i {destination}.",
+      "transferConfirmAction": "Overfør konto",
+      "transferSuccess": "{account} er flyttet til {destination}.",
+      "transferError": "Kunne ikke overføre denne kontoen. Prøv igjen.",
+      "transferForbiddenError": "Du kan ikke lenger flytte kontoer til det teamet.",
+      "transferNotFoundError": "Denne kontoen er ikke lenger i dette teamet. Oppdater for å se hvor den er.",
+      "transferConflictError": "Kontoen endret seg under flyttingen. Oppdater og prøv igjen.",
+      "transferUnavailableError": "Overføringer er midlertidig utilgjengelige, eller kontoen oppdateres. Prøv igjen om et øyeblikk.",
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gjør privat",
+      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
+      "cancelAction": "Avbryt",
+      "apiKeysTitle": "API-nøkler",
+      "apiKeysDescription": "Opprett langvarige nøkler for skript og agenter. Hemmeligheten vises én gang.",
+      "apiKeysCount": "{count, plural, one {# nøkkel} other {# nøkler}}",
+      "apiKeysLoading": "Laster inn API-nøkler…",
+      "apiKeysLoadError": "API-nøklene kunne ikke lastes inn. Prøv igjen snart.",
+      "apiKeysRetry": "Prøv igjen",
+      "apiKeysEmptyBody": "Ingen API-nøkler ennå. Opprett en for å autentisere en CodeRouter-klient.",
+      "apiKeyPrefixColumn": "Nøkkel",
+      "apiKeyStatusColumn": "Tilstand",
+      "apiKeySecretTitle": "Kopier denne nøkkelen nå",
+      "apiKeySecretBody": "Denne hemmeligheten vises ikke igjen.",
+      "apiKeyCopy": "Kopier API-nøkkel",
+      "apiKeyCopied": "Kopiert",
+      "apiKeyCreatedAt": "opprettet {at}",
+      "apiKeyLastUsed": "sist brukt {at}",
+      "apiKeyRevoked": "Tilbakekalt",
+      "apiKeyLabelPlaceholder": "For eksempel CI eller produksjon",
+      "createApiKeyAction": "Opprett API-nøkkel",
+      "creatingApiKeyAction": "Oppretter",
+      "apiKeyCreateError": "API-nøkkelen kunne ikke opprettes.",
+      "revokeApiKeyAction": "Tilbakekall",
+      "revokingApiKeyAction": "Tilbakekaller",
+      "apiKeyRevokeError": "API-nøkkelen kunne ikke tilbakekalles.",
+      "revokeApiKeyConfirmTitle": "Tilbakekall denne API-nøkkelen?",
+      "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
+      "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
+      "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
     }
   },
   "community": {
@@ -803,6 +1046,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: Mac-automatisering med KI-agenter",
+      "metaDescription": "La Claude Code og Codex styre Macen med cmux Computer Use. Automatiser innebygde apper med skjermbilder, tilgjengelighet, klikk, tekst og tastatur.",
+      "docsMetaTitle": "Oppsett og agentverktøy for Computer Use",
+      "docsMetaDescription": "Sett opp cmux Computer Use på macOS: tillatelser, Claude Code- og Codex-verktøy, appvalg, økter, ferdigheter og feilsøking.",
+      "tagline": "La Claude Code og Codex styre Macen din.",
+      "intro": "Gi KI-kodeagenter tilgang til native Mac-apper. Med cmux Computer Use kan de lese grensesnitt, ta skjermbilder, klikke på kontroller og skrive tekst.",
+      "imageAlt": "cmux Computer Use-oppsett med tillatelser til tilgjengelighet og skjermbilder",
+      "caption": "Computer Use-tillatelser håndteres av en egen hjelper, slik at terminaløktene forblir åpne under oppsettet.",
+      "featuresTitle": "Styr native Mac-apper",
+      "featureInspect": "Undersøk appgrensesnitt med tilgjengelighetstrær og skjermbilder.",
+      "featureAct": "Klikk, skriv, rull, dra og bruk hurtigtaster i macOS-apper.",
+      "featureReview": "Følg agentens synlige peker, kontroller resultatet og gå tilbake til terminalen som startet handlingen.",
+      "agentsTitle": "Kodeagentene dine i cmux",
+      "agentsBody": "Kjør {agents} og andre kommandolinjeagenter i cmux.",
+      "supportTitle": "Støttede agenter",
+      "supportBody": "Native Computer Use-verktøy kobles automatisk til Claude Code- og Codex-økter startet i cmux. Andre agenter kan kjøre i terminalen, men får ennå ikke denne automatiske integrasjonen for Mac-styring.",
+      "setupTitle": "Kom i gang",
+      "step1": "Installer og åpne cmux for Mac. Aktiver Computer Use under Innstillinger → Computer Use.",
+      "step2": "Gi cmux Computer Use tilgang til Tilgjengelighet og Skjermopptak via tillatelsesknappene i Systeminnstillinger. Hvis hjelperen mangler i listen, legg til eller dra appruten inn i tillatelsespanelet.",
+      "step3": "Start en ny Claude Code- eller Codex-økt i cmux. Be om Computer Use, og oppgi app og oppgave. Verktøyene kobles automatisk til uten manuelt MCP-oppsett.",
+      "permissionsTitle": "Tillatelser og oppsett",
+      "permissionsBody": "Tilgjengelighet gjør det mulig å lese og betjene appgrensesnitt; Skjermopptak muliggjør skjermbilder. Gi begge tillatelsene til cmux Computer Use. Å åpne cmux eller starte en agent gir ikke tilgang og åpner ikke oppsettet automatisk.",
+      "tahoeBody": "Godkjenn også den ekstra skjermfangstbekreftelsen på macOS Tahoe. Prøv oppgaven igjen først når cmux viser begge tillatelsene som gitt.",
+      "promptTitle": "Prøv med Kalkulator",
+      "prompt": "Bruk cmux Computer Use til å åpne Kalkulator, klikke 100 + 105 og vise meg resultatet.",
+      "workflowBody": "Undersøk målet, bruk kontrollene fra dette øyeblikksbildet og undersøk resultatet på nytt. Elementindekser gjelder bare for det gjeldende øyeblikksbildet; oppdater etter navigering eller layoutendringer. En klikkbekreftelse alene beviser ikke at oppgaven er ferdig.",
+      "toolsTitle": "Agentverktøy",
+      "toolsBody": "cmux-cua er den medfølgende MCP-serveren med strukturerte verktøy for native apper. Dette er verktøynavn, ikke skallkommandoer. Argumentene avhenger av agentprofilen; bruk skjemaene i økten.",
+      "codexBody": "Codex bruker get_app_state med appnavn eller bundle-ID og får skjermbilde og tilgjengelighetstre. Bruk en gjeldende element_index eller bildekoordinater, og kall get_app_state igjen. Verktøy:",
+      "claudeBody": "Claude Code finner mål med list_apps og list_windows og bruker get_window_state med pid og window_id. Foretrekk elementtokener eller ferske indekser. Den native profilen har også perform_actions for handlingsgrupper som ikke ugyldiggjør senere mål.",
+      "controlTitle": "Følg og stopp Computer Use",
+      "controlBody": "Computer Use i menylinjen viser den aktive agenten. Focus Computer Use følger appen som styres; Focus Calling Terminal går tilbake til den opprinnelige terminalen uten å stoppe automatiseringen. Bruk stoppvalget i menyen for å avslutte styringsøkten.",
+      "disableBody": "Slå av Computer Use i Innstillinger. Sett CMUX_COMPUTER_USE_MCP_DISABLED=1 før agentstart for å utelate verktøyene fra en ny økt.",
+      "skillTitle": "Ferdigheter",
+      "skillBody": "Ferdigheten cmux-cua forklarer arbeidsflyten for inspeksjon og handling. Den er valgfri og gir ingen macOS-tillatelser. Bruk agentens ferdighetsinstaller for varig installasjon; cmux installerer ikke globale ferdigheter som standard.",
+      "skillLink": "Les cmux-cua-ferdigheten",
+      "browserTitle": "Native apper og nettleserautomatisering",
+      "browserBody": "Computer Use styrer native Mac-vinduer via skjermbilder og tilgjengelighet. Bruk cmux browser for DOM-øyeblikksbilder, selektorer, skjemaer og JavaScript i cmux-nettleserpaneler. Nettleserflatereferanser er ulike fra native elementindekser.",
+      "browserLink": "Referanse for nettleserautomatisering",
+      "troubleTitle": "Feilsøking",
+      "missingTitle": "Agenten mangler Computer Use-verktøy",
+      "missingBody": "Aktiver Computer Use og start en ny Claude Code- eller Codex-økt i cmux. Eksisterende økter kan beholde de opprinnelige verktøyene. Kontroller at miljøvariabler eller administrerte policyer ikke deaktiverer funksjonen.",
+      "blockedTitle": "Ufullstendig oppsett, mislykkede klikk eller tomme bilder",
+      "blockedBody": "Åpne Innstillinger → Computer Use på nytt og fullfør begge tillatelsene og eventuelle ekstra opptaksbekreftelser. Prøv deretter igjen. Terminalene kan stå åpne om hjelperen må starte på nytt.",
+      "targetTitle": "Feil vindu eller blokkert klikk",
+      "targetBody": "Undersøk appen igjen og velg et gjeldende element. Hvis et annet vindu dekker målet, vis ønsket vindu og undersøk det før du prøver igjen. Ikke gjenbruk gamle koordinater eller indekser.",
+      "productLink": "Oversikt over cmux Computer Use",
+      "copyTitle": "Kopier en Computer Use-ledetekst",
+      "copyPrompt": "Kopier ledetekst",
+      "copiedPrompt": "Kopiert",
+      "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
+    },
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
     },
@@ -839,8 +1136,11 @@
       "verifyItem2": "Ett innledende arbeidsområde allerede åpent",
       "verifyItem3": "Den Ghostty-drevne terminalen klar for inndata",
       "cliSetup": "CLI-oppsett",
-      "cliDesc": "cmux inkluderer et kommandolinjeverktøy for automatisering. I cmux-terminaler fungerer det automatisk. For å bruke CLI utenfor cmux, opprett en symbolsk lenke:",
+      "cliDesc": "cmux inkluderer et kommandolinjeverktøy for automatisering. I cmux-terminaler fungerer det automatisk. For å bruke det fra andre terminaler, åpne kommandopaletten (⌘⇧P) og kjør <strong>Skallkommando: Installer «cmux» i PATH</strong>. Den medfølgende CLI-en lenkes inn i /usr/local/bin, og du blir bedt om et administratorpassord hvis mappen krever det.",
+      "cliManual": "Eller opprett den symbolske lenken selv:",
       "cliThen": "Deretter kan du kjøre kommandoer som:",
+      "defaultTerminal": "Gjør cmux til standardterminalen din",
+      "defaultTerminalDesc": "For å åpne ssh://-lenker og skallskript fra Finder i cmux i stedet for Terminal, velg <strong>cmux > Make cmux the Default Terminal</strong> i menylinjen, eller kjør <strong>Make cmux the Default Terminal</strong> fra kommandopaletten.",
       "autoUpdates": "Automatiske oppdateringer",
       "autoUpdatesDesc": "cmux sjekker automatisk etter oppdateringer via Sparkle. Når en oppdatering er tilgjengelig, ser du en oppdateringsindikator i tittellinjen. Du kan også sjekke manuelt via cmux > Check for Updates i menylinjen.",
       "sessionRestore": "Sesjongjenoppretting (nåværende oppførsel)",
@@ -990,6 +1290,12 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "root": "cmux-konfigurasjon. Den globale cmux.json støtter appinnstillinger, snarveier, handlinger, egendefinerte kommandoer, varslingshooks og arbeidsområdeoppsett. En prosjektlokal .cmux/cmux.json eller cmux.json støtter handlinger, kommandoer, varslingshooks, kobling av UI-handlinger, overstyringer for Agent Chat, vault-agenter, overstyringer for arbeidsområdegrupper samt konfigurasjon av oppstart og knapper for arbeidsområder.",
+        "rightSidebar": "Eldre og utvidelseseid konfigurasjon av høyre sidefelt som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper som lastes før denne konfigurasjonen. Mapper viser til cmux.pack.json. Bruk en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurasjonsfilen med mindre den er absolutt."
+        },
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
@@ -1001,6 +1307,7 @@
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
@@ -1008,6 +1315,7 @@
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
@@ -1016,12 +1324,16 @@
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet."
+          "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet.",
+          "agentIdleReminder": "Varsle når en agent har vært inaktiv og venter på inndata (omtrent 60 sekunder etter at en tur er avsluttet). Varslingen undertrykkes mens bakgrunnsarbeid fra forrige tur fortsatt pågår, slik at en kjørende bygging eller overvåker ikke utløser et falskt ventevarsel.",
+          "soundOverrides": "Sparsomme overstyringer av varslingslyd per agent og varslingstype. Manglende felt bruker notifications.sound.",
+          "soundOverride": "En overstyring av varslingslyden. default bruker notifications.sound, none deaktiverer avspilling, og de øvrige verdiene velger en innebygd eller egendefinert lyd."
         },
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "urlAllowlist": "Verts- eller URL-mønstre som begrenser navigering i den innebygde nettleseren. Innstillinger foreslår lokale utviklingsopprinnelser; lagring av en liste aktiverer den valgfrie begrensningen. Fjern oppføringer for å blokkere dem, eller la brukerverdien være tom uten en administrert policy for å deaktivere begrensningen."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
@@ -1048,6 +1360,14 @@
         "shortcuts": {
           "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
           "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
+        },
+        "fileEditor": {
+          "wordWrap": "Bryt lange linjer ved høyre kant i stedet for å rulle vannrett.",
+          "syntaxHighlighting": "Farglegg kildekodens symboler i den innebygde fileditoren.",
+          "lineNumbers": "Vis et linjenummerfelt i den innebygde fileditoren.",
+          "indentGuides": "Tegn loddrette innrykksguider i den innebygde fileditoren.",
+          "currentLineHighlight": "Uthev linjen med innsettingspunktet når ingenting er merket.",
+          "tabWidth": "Bredden på et tabulatorstopp i kolonner for innrykk og innrykksguider."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1110,7 +1430,7 @@
       "plusButtonScreenshotAlt": "Høyreklikkmenyen for cmux-plussknappen viser Worktree Agents, New Terminal og New Browser",
       "plusButtonScreenshotCaption": "Høyreklikkmenyen følger rekkefølgen fra ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Tilpassede handlinger for plussknappen",
-      "newWorkspaceButtonDesc": "Bruk <action>ui.newWorkspace.action</action> for å overstyre hva plussknappen gjør. Bruk <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) for å definere den ordnede høyreklikkmenyen. Menyoppføringer kan være handlings-ID-er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Bruk <action>ui.newWorkspace.action</action> for å overstyre hva plussknappen gjør. Bruk <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) for å definere den ordnede høyreklikkmenyen. Menyoppføringer kan være handlings-ID-er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angitt, viser menyen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), hver med gjeldende snarvei. Skyvalg vises bare når Cloud Machines er aktivert. New Cloud Workspace bruker maskinen til den sist valgte Cloud-arbeidsflaten, deretter den første maskinen i høyre sidefelt; New Cloud Machine klargjør en maskin med vilje.",
       "newWorkspaceWorktreeNote": "Dette eksempelet gjør at et vanlig plussklikk kjører handlingen <action>worktree-agents</action>. Arbeidsområdekommandoen fra <commands>commands</commands> bruker en synlig oppsettsterminal til først å opprette Git-<worktree>worktree</worktree>. Codex og Claude starter samtidig, venter på den arbeidsområdespesifikke tilstandsfilen og går deretter inn i den opprettede mappen før exec.",
       "simpleCommands": "Enkle kommandoer",
       "simpleCommandsDesc": "En enkel kommando kjører en shell-kommando i den for øyeblikket fokuserte terminalen:",
@@ -1163,6 +1483,7 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
@@ -1470,6 +1791,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Datamaskinstyring",
       "gettingStarted": "Kom i gang",
       "concepts": "Konsepter",
       "workspaceGroups": "Arbeidsområdegrupper",
@@ -3668,6 +3990,52 @@
       "installBody": "Kjør installasjonsprogrammet for brukeren én gang. Det installerer cmux under ~/.local uten root-tilgang og aktiverer signerte oppdateringer i appen. Velg Debian-pakken i stedet hvis du vil at oppdateringene skal administreres av pakkebehandleren."
     }
   },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Få hjelp med cmux. Send oss en melding, så svarer vi på e-post, eller nå oss på Discord og GitHub.",
+    "section": "Support",
+    "title": "Få hjelp med cmux.",
+    "body": "Send oss en melding, så svarer vi på e-post. Fortell hva du gjorde, hva du forventet, og hva som skjedde i stedet, så kan vi hjelpe deg raskere.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentasjon",
+        "description": "Veiledninger for å komme i gang, konfigurasjon og feilsøking."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Spør fellesskapet og teamet i sanntid."
+      },
+      "github": {
+        "label": "GitHub-issues",
+        "description": "Rapporter feil og kom med funksjonsønsker i full åpenhet."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Foretrekker du e-post? Skriv direkte til oss."
+      }
+    },
+    "formAriaLabel": "Kontaktskjema for support",
+    "form": {
+      "name": "Navn",
+      "email": "E-postadresse",
+      "topic": "Emne",
+      "message": "Hva kan vi hjelpe med?",
+      "selectPlaceholder": "Velg ett alternativ",
+      "topicOptions": [
+        "Feilrapport",
+        "Fakturering eller abonnement",
+        "Konto eller pålogging",
+        "Cloud VMs",
+        "Funksjonsønske",
+        "Annet"
+      ],
+      "privacy": "Vi bruker e-postadressen din kun til å svare på supporthenvendelsen din. Vi selger ikke kontaktinformasjon.",
+      "submit": "Send melding",
+      "submitting": "Sender…",
+      "success": "Takk. Vi har mottatt meldingen din og svarer deg på e-post fra founders@manaflow.com.",
+      "error": "Noe gikk galt. Prøv igjen, eller send en e-post til founders@manaflow.com."
+    }
+  },
   "emails": {
     "proWelcome": {
       "subject": "Velkommen til cmux Pro 🎉",
@@ -3698,5 +4066,22 @@
         "action": "Administrer abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-post",
+    "emailUnavailable": "e-post ikke tilgjengelig",
+    "organization": "Organisasjon",
+    "personalAccount": "personlig konto",
+    "switchAccountButton": "Bruk en annen konto"
+  },
+  "MobileRelease106": {
+    "title": "Nytt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Oppdaterte Mac-tilkoblinger",
+    "connectionDetail": "Denne oppdateringen bruker den nye tilkoblingstjenesten og Iroh-transport. Eldre Mac-bygg må oppdateres for å koble til.",
+    "updateTitle": "Oppdater cmux på Macen",
+    "updateDetail": "Krever cmux {stableVersion} eller nyere, eller NIGHTLY {nightlyVersion} eller nyere. Slå på iOS-sammenkobling i Innstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Må du beholde et eldre Mac-bygg?",
+    "rollbackDetail": "Bruk cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere bygg så lenge det er tilgjengelig. Velg akkurat dette bygget, siden senere bygg bruker en nyere tilkoblingstjeneste."
   }
 }

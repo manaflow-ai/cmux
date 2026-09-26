@@ -46,7 +46,7 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_TAG \
         CMUX_TERMINAL_LIFECYCLE_ID \
         CMUX_WORKSPACE_ID
-    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_HISTORY_FILE CMUX_PANEL_ID CMUX_SURFACE_ID
 
     function _cmux_tmux_sync_key_is_managed --argument-names candidate
         contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
@@ -62,11 +62,38 @@ if test "$_cmux_integration_enabled" != 0
         string join \x1f -- $parts
     end
 
+    # A published environment only matters to a running default tmux server;
+    # skip the tmux client spawn on every prompt when none is running. tmux
+    # ignores a TMUX_TMPDIR that does not resolve and falls back to /tmp.
+    function _cmux_tmux_default_server_socket
+        set -q _CMUX_TMUX_UID; or set -g _CMUX_TMUX_UID (id -u)
+        set -l tmpdir /tmp
+        if set -q TMUX_TMPDIR; and test -n "$TMUX_TMPDIR"; and test -e "$TMUX_TMPDIR"
+            set tmpdir (string replace -r '/$' '' -- "$TMUX_TMPDIR")
+        end
+        printf '%s\n' "$tmpdir/tmux-$_CMUX_TMUX_UID/default"
+    end
+
+    function _cmux_tmux_default_server_running
+        test -S (_cmux_tmux_default_server_socket)
+    end
+
     function _cmux_tmux_publish_cmux_environment
         if set -q TMUX; and test -n "$TMUX"
             return 0
         end
         command -sq tmux; or functions -q tmux; or return 0
+        set -l server_socket (_cmux_tmux_default_server_socket)
+        test -S "$server_socket"; or return 0
+        # An exited server can leave its socket behind. When tmux reports nothing
+        # listening there, the marker records that socket as dead; a new server rebinds the socket,
+        # which makes it newer than the marker. test exits 2 when -nt is not
+        # supported, which keeps the old always-try behavior.
+        set -l stale_marker "$server_socket.cmux-unreachable"
+        if test -e "$stale_marker"
+            test "$server_socket" -nt "$stale_marker" 2>/dev/null
+            test $status -eq 1; and return 0
+        end
 
         set -l signature (_cmux_tmux_shell_env_signature)
         test -n "$signature"; or return 0
@@ -75,7 +102,14 @@ if test "$_cmux_integration_enabled" != 0
         for key in $_CMUX_TMUX_SYNC_KEYS
             set -q $key; or continue
             test -n "$$key"; or continue
-            tmux set-environment -g "$key" "$$key" >/dev/null 2>&1; or return 0
+            set -l tmux_error (tmux set-environment -g "$key" "$$key" 2>&1 >/dev/null)
+            if test $status -ne 0
+                # Only a dead socket earns the marker; other failures retry.
+                if string match -qr 'no server running|error connecting|Connection refused' -- "$tmux_error"
+                    printf '' 2>/dev/null >"$stale_marker"
+                end
+                return 0
+            end
         end
         for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
             tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
@@ -152,6 +186,26 @@ if test "$_cmux_integration_enabled" != 0
         printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "$PWD"
     end
     _cmux_restore_scrollback_once
+
+    # First-launch welcome banner. cmux passes the path of a one-shot token file
+    # in CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+    # workspace's shell, so the banner prints during startup and never lands in
+    # shell history. Only the shell whose `rm` of the token succeeds prints it,
+    # and never inside tmux, so children that inherited the variable cannot repeat it.
+    function _cmux_show_welcome_once
+        set -l token "$CMUX_SHOW_WELCOME_FILE"
+        set -e CMUX_SHOW_WELCOME_FILE
+        test -n "$token"; or return 0
+        /bin/rm -- "$token" >/dev/null 2>&1; or return 0
+        test -z "$TMUX"; or return 0
+        set -l cli (string replace -r '/?shell-integration/?$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")/bin/cmux
+        if not test -x "$cli"
+            set cli (command -s cmux)
+        end
+        test -n "$cli"; or return 0
+        "$cli" welcome 2>/dev/null; or true
+    end
+    _cmux_show_welcome_once
 
     function _cmux_now
         if test -n "$EPOCHSECONDS"
@@ -401,6 +455,9 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_wrapper --argument-names command_name wrapper_file
+        if test "$command_name" = claude; and set -q CMUX_CLAUDE_INTEGRATION_DISABLED; and test "$CMUX_CLAUDE_INTEGRATION_DISABLED" = 1
+            return 0
+        end
         test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
         set -l integration_dir (string replace -r '/$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")
         set -l bundle_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")

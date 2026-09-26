@@ -140,6 +140,52 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotDropsPhantomWindowsButKeepsDockOnlyWindows() {
+        let projectDirectory = "/tmp/cmux-project"
+        func window(workspaces: [SessionWorkspaceSnapshot], dock: SessionSplitContainerSnapshot? = nil) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
+                dock: dock
+            )
+        }
+        let dock = SessionSplitContainerSnapshot(
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: []
+        )
+        let mixed = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window(workspaces: []),
+                window(workspaces: [emptyWorkspaceSnapshot(currentDirectory: projectDirectory)]),
+                window(workspaces: [], dock: dock),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: mixed)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 2)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
+        #expect(pruned.snapshot?.windows.last?.dock != nil)
+
+        // An all-phantom session (#6646: three 0-tab windows) is not restorable.
+        let allPhantom = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [window(workspaces: []), window(workspaces: []), window(workspaces: [])]
+        )
+        let prunedAllPhantom = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: allPhantom)
+        // Not crash-diagnostic data: callers must not treat it as such.
+        #expect(!prunedAllPhantom.removedAny)
+        #expect(prunedAllPhantom.snapshot == nil)
+    }
+
+    @Test
     func sessionSnapshotKeepsCrashWorkspaceWithPersistedScrollback() {
         let projectDirectory = "/tmp/cmux-project"
         let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
@@ -378,6 +424,110 @@ struct CrashDiagnosticSessionPolicyTests {
         #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
     }
 
+    /// Session autosave clears this marker on every write. `UserDefaults` posts
+    /// `didChangeNotification` even for no-op writes, which wakes every defaults
+    /// observer in the app (including SwiftUI's `@AppStorage` observer, which
+    /// takes SwiftUI's global update lock). A steady-state write must stay silent.
+    @Test
+    func crashOnlyPrimarySnapshotRemovalMarkerSkipsNoOpDefaultsWrites() throws {
+        let defaultsSuiteName = "CrashDiagnosticSessionPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: defaultsSuiteName)
+        }
+        let counter = DefaultsChangeCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: nil
+        ) { _ in counter.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
+        #expect(counter.value == 0)
+
+        AppDelegate.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
+        #expect(counter.value == 1)
+        AppDelegate.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
+        #expect(counter.value == 1)
+
+        AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
+        #expect(counter.value == 2)
+        AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
+        #expect(counter.value == 2)
+        #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+    }
+
+    @Test
+    func missingPrimaryRecoveryRequiresAnUncleanLaunchSignal() {
+        #expect(
+            !AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: true,
+                crashOnlyPrimarySnapshotRemovalMarker: false
+            )
+        )
+        #expect(
+            AppDelegate.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: false,
+                crashOnlyPrimarySnapshotRemovalMarker: true
+            )
+        )
+    }
+
+    @Test
+    func sessionLaunchSentinelClassifiesAndClearsUncleanRuns() throws {
+        let homeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-launch-state-\(UUID().uuidString)", isDirectory: true)
+        let environment = ["CMUX_BUNDLE_ID": "com.cmux.tests.sentinel"]
+        defer { try? FileManager.default.removeItem(at: homeDirectory) }
+
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+        #expect(
+            GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        // A second process would observe the first process's sentinel as an
+        // unclean prior run. This is the launch classification used by startup
+        // snapshot recovery.
+        #expect(
+            GhosttyCrashBreadcrumb.captureSessionLaunchState(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+
+        GhosttyCrashBreadcrumb.markSessionCleanExit(
+            homeDirectory: homeDirectory,
+            environment: environment
+        )
+        #expect(
+            !GhosttyCrashBreadcrumb.priorSessionLaunchWasUnclean(
+                homeDirectory: homeDirectory,
+                environment: environment
+            )
+        )
+    }
+
     private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Terminal",
@@ -488,5 +638,23 @@ struct CrashDiagnosticSessionPolicyTests {
             ofItemAtPath: url.path
         )
         return url
+    }
+}
+
+/// Counts `UserDefaults.didChangeNotification` deliveries from a synchronous observer.
+private final class DefaultsChangeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }

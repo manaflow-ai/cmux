@@ -79,11 +79,35 @@ public struct UITestConfig {
         #endif
     }
 
-    /// Forces the iOS 27 keyboard-dock compatibility path on an older simulator.
-    /// DEBUG-only so production selection remains tied exclusively to the OS version.
-    public static var forceIOS27KeyboardDockWorkaround: Bool {
+    /// Forces the legacy keyboard-dock path on any simulator. Legacy is the
+    /// shipping default, so this pin exists for explicit-path tests and
+    /// debugging. DEBUG-only.
+    public static var forceLegacyKeyboardDock: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK"] == "1"
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_LEGACY_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the rebuilt (single-constraint) keyboard-dock path on iOS ≤26
+    /// simulators so CI keeps exercising the kill-switch fallback. DEBUG-only;
+    /// iOS 27+ ignores it because the rebuild misreads that OS's keyboard
+    /// frames.
+    public static var forceRebuildKeyboardDock: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Forces the exact iOS 27 keyboard seat (notification authority,
+    /// will-frames only) on any simulator OS, so iOS ≤26 CI runners exercise
+    /// the path iOS 27 devices ship with. DEBUG-only.
+    public static var forceIOS27KeyboardSeat: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT"] == "1"
         #else
         return false
         #endif
@@ -100,6 +124,7 @@ public struct UITestConfig {
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
+            || workspaceDetailDisconnectedPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
         #else
@@ -115,6 +140,18 @@ public struct UITestConfig {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// When `CMUX_UITEST_WHATS_NEW_PREVIEW=1`, the root view renders the
+    /// native What's New sheet content directly, without sign-in or pairing.
+    /// DEBUG-only.
+    public static var whatsNewPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WHATS_NEW_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WHATS_NEW_PREVIEW=1")
         #else
         return false
         #endif
@@ -145,6 +182,16 @@ public struct UITestConfig {
         )
     }
 
+    /// Whether the deterministic push-tab navigation fixture is enabled.
+    /// DEBUG-only so the fixture never becomes a production entry point.
+    public static var pushTabNavigationPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_PUSH_TAB_NAVIGATION_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Resolves the push-readiness preview fixture from explicit process inputs.
     public static func pushReadinessPreviewState(
         from env: [String: String],
@@ -169,6 +216,27 @@ public struct UITestConfig {
             from: ProcessInfo.processInfo.environment,
             arguments: ProcessInfo.processInfo.arguments
         )
+    }
+
+    /// Hides transient workspace-change education from deterministic screenshot
+    /// captures. This is DEBUG-only so production users still see the hint.
+    public static var hideWorkspaceChangesHintForScreenshots: Bool {
+        hideWorkspaceChangesHintForScreenshots(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the screenshot-only workspace-change hint suppression flag.
+    public static func hideWorkspaceChangesHintForScreenshots(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        return (env["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)) == "1"
+        #else
+        return false
+        #endif
     }
 
     /// Resolves a changes preview mode from explicit process inputs.
@@ -214,6 +282,29 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the UI-test harness should auto-open the first workspace.
+    ///
+    /// When `CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`, the root view pushes the
+    /// first loaded workspace once after sign-in, so headless harnesses (for
+    /// example the scripted scroll verification) reach a terminal without GUI
+    /// taps. DEBUG-only.
+    public static var autoOpenFirstWorkspaceEnabled: Bool {
+        autoOpenFirstWorkspaceEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Returns whether an explicit environment enables the auto-open-first-
+    /// workspace hook.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build whose value is `"1"`.
+    public static func autoOpenFirstWorkspaceEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
@@ -242,6 +333,23 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the workspace detail disconnected-terminal layout preview is
+    /// enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED=1`, the root view renders
+    /// a workspace shell whose store is signed in but disconnected
+    /// (`macConnectionStatus == .unavailable`), already opened to a workspace
+    /// with one retained terminal. This is the exact state where the terminal is
+    /// opened while its Mac is unreachable, so the composer dock's keyboard-down
+    /// seat can be screenshotted and asserted without a paired Mac. DEBUG-only.
+    public static var workspaceDetailDisconnectedPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// The selected page of the standalone Mac-surface renderer gallery.
     ///
     /// When `CMUX_UITEST_MAC_SURFACE_GALLERY` names a page (`todo`, `file`,
@@ -257,40 +365,6 @@ public struct UITestConfig {
         #else
         return nil
         #endif
-    }
-
-    /// Whether the standalone streaming-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
-    /// self-playing agent chat that drives the real conversation store with live
-    /// `streamingProse` events, so the incremental streaming preview can be
-    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
-    public static var streamingChatPreviewEnabled: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
-        #else
-        return false
-        #endif
-    }
-
-    /// Whether the standalone agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
-    /// debug chat fixture directly so XCUITest can exercise chat layout without
-    /// sign-in, pairing, or workspace-shell timing. DEBUG-only.
-    public static var agentChatPreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatPreviewEnabled
-    }
-
-    /// Whether the inline workspace-shaped agent-chat preview is enabled.
-    ///
-    /// When `CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW=1`, the root view renders the
-    /// debug chat fixture with the same outer navigation/padding shape as the
-    /// in-place workspace chat pane, without sign-in or Mac pairing. DEBUG-only.
-    public static var agentChatInlinePreviewEnabled: Bool {
-        UITestEnvironmentConfig(environment: ProcessInfo.processInfo.environment)
-            .agentChatInlinePreviewEnabled
     }
 
     /// Whether mock data is enabled for an explicit environment.
