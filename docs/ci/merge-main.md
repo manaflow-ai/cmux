@@ -45,6 +45,40 @@ failure's origin is unknown or the guard run ended without step results.
 | `--no-guards` | Merge only. |
 | `--strict` | Exit 3 when the branch introduced a guard failure; 2 when it cannot tell. |
 
+## Automatic catch-up
+
+Open pull requests are caught up without anyone asking. Each time a push to
+main passes CI fast guards, `.github/workflows/pr-catch-up.yml` runs
+`scripts/ci/auto_catch_up_select.py`, which picks pull requests against main
+whose head is an unprotected branch of this repository (no branch protection
+rule or ruleset), that are not drafts, have no `no-auto-catch-up` label, and
+have a check suite and have not been pushed for 30 minutes (an agent still
+pushing is left alone; heads older than 14 days are skipped too), and that
+either conflict with main or are red only because of main: their CI fast
+guards comment from `guard_attribution.py`, about the current head, marks a
+step "red on main too, not this PR", and the head does not contain the green
+commit yet. It takes at most `CMUX_AUTO_CATCH_UP_MAX` (a repository variable,
+default 15) per run, most recently pushed first, since every catch-up push
+re-runs the pull request's CI. Each selected pull request gets the same merge,
+verification and compare-and-swap push as `/catch-up`, pinned to the head the
+selection judged.
+
+It comments when it pushed, and when a person has to act on that head (a
+conflict outside the generated files, a merge that brings in workflow changes,
+a refused push). That comment has no mentions and carries
+`<!-- cmux-auto-catch-up head=<sha> -->`, and the selector never tries that
+head again, so a stuck conflict is reported once per head. Everything else (a
+branch already up to date, a merge error or a lost runner, a head that moved,
+a merge the push job refused) stays silent. The selector counts its picks per
+head in the `pr-catch-up-auto-ledger` artifact and leaves a head alone after
+two, so a silent outcome that repeats does not take a slot on every green main.
+Without the route App key it selects nothing, since an Actions-token push
+starts no CI.
+
+If your push is rejected because the branch moved, run `git pull --no-rebase`
+and push again. Never force-push over a catch-up merge. `merge-main.sh` stays
+the way to catch up locally, for example before main's newest commit is green.
+
 The `/catch-up` workflow (`.github/workflows/pr-catch-up.yml`) uses the same
 selection for a pull request based on main, in its own step so the token that
 reads the runs never shares an environment with pull request bytes: it merges

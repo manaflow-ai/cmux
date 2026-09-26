@@ -1044,8 +1044,10 @@ jobs:
           set -uo pipefail
           helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
           if [ "$OWNED" = true ] && [ -x "$helper" ]; then
-            "$helper" take-gui --wait 300
-            status=$?
+            # The step shell is bash -e, so capture the status instead of
+            # letting a give-way (exit 3) fail the job before it is read.
+            status=0
+            "$helper" take-gui --wait 300 || status=$?
             case "$status" in
               0|2) ;;
               *)
