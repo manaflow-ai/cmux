@@ -53,32 +53,14 @@ struct SidebarWorkspaceSnapshotFactory {
             guard detailVisibility.showsPullRequests else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
-        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
-        let workspaceStatusVisible = todoControlsEnabled && !workspace.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? taskStatusInput.inferred : nil
-        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
-            WorkspaceTaskStatusOverride.effectiveStatus(
-                override: workspace.todoState.statusOverride,
-                inferred: inferred
-            )
-        }
-        let hasManualTaskStatus = workspaceStatusVisible
-            && workspace.todoState.statusOverride != nil
-            && taskStatusResolution?.shouldClearOverride == false
-        let todoStatusMenuModel = inferredTaskStatus.map { inferred in
-            SidebarWorkspaceCompactStatusMenuModel.resolve(
-                inferred: inferred,
-                override: workspace.todoState.statusOverride
-            )
-        }
-        let checklistProgress = workspace.checklistProgressSummary
+        let summary = makeSummary(inferred: taskStatusInput.inferred)
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
-            title: workspace.title,
-            customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
-            isPinned: workspace.isPinned,
-            isMuted: workspace.isMuted,
-            customColorHex: workspace.customColor,
+            title: summary.title,
+            customDescription: summary.customDescription,
+            isPinned: summary.isPinned,
+            isMuted: summary.isMuted,
+            customColorHex: summary.customColorHex,
             cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
@@ -87,7 +69,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 && (workspace.remoteConnectionState == .suspended
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
-            latestConversationMessage: workspace.latestConversationMessage,
+            latestConversationMessage: summary.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata
                 ? workspace.sidebarStatusEntriesInDisplayOrder()
                 : [],
@@ -96,10 +78,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 : [],
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
+            activeCodingAgentCount: summary.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -110,15 +89,74 @@ struct SidebarWorkspaceSnapshotFactory {
             listeningPorts: detailVisibility.showsPorts ? workspace.listeningPorts : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: workspace),
             mediaActivity: workspace.browserMediaActivity,
-            taskStatus: taskStatusResolution?.effective,
+            taskStatus: summary.taskStatus,
+            todoStatusMenuModel: summary.todoStatusMenuModel,
+            hasManualTaskStatus: summary.hasManualTaskStatus,
+            checklistItems: summary.checklistItems,
+            checklistCompletedCount: summary.checklistCompletedCount,
+            checklistTotalCount: summary.checklistTotalCount,
+            checklistFirstUncheckedText: summary.checklistFirstUncheckedText,
+            taskStatusInput: summary.taskStatusInput,
+            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
+        )
+    }
+
+    /// Updates only fields owned by the immediate sidebar observation stream.
+    /// The cached snapshot supplies branch, directory, pull-request, metadata,
+    /// and Finder fields so title churn never walks structured panel details.
+    func makeSummarySnapshot(
+        from cached: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+        // Settings can change between scheduling a summary refresh and its
+        // delivery. Never mix details built for a different presentation.
+        guard cached.presentationKey == presentationKey else { return makeSnapshot() }
+        return cached.applying(summary: makeSummary(inferred: cached.taskStatusInput.inferred))
+    }
+
+    /// Inference depends on agent runtime and structured details, which have
+    /// their own invalidation streams. Immediate fields reuse that inference
+    /// while resolving the current override and checklist through this shared
+    /// path, without walking panels or pull requests again.
+    private func makeSummary(inferred: WorkspaceTaskStatus) -> SidebarWorkspaceSnapshotBuilder.Summary {
+        let statusHidden = workspace.todoState.statusHidden
+        let statusVisible = WorkspaceTodoFeature.isEnabled && !statusHidden
+        let resolution = WorkspaceTaskStatusOverride.effectiveStatus(
+            override: workspace.todoState.statusOverride,
+            inferred: inferred
+        )
+        let hasManualTaskStatus = statusVisible
+            && workspace.todoState.statusOverride != nil
+            && !resolution.shouldClearOverride
+        let todoStatusMenuModel = statusVisible ? SidebarWorkspaceCompactStatusMenuModel.resolve(
+            inferred: inferred,
+            override: workspace.todoState.statusOverride
+        ) : nil
+        let checklistProgress = workspace.checklistProgressSummary
+        return SidebarWorkspaceSnapshotBuilder.Summary(
+            title: workspace.title,
+            customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
+            isPinned: workspace.isPinned,
+            isMuted: workspace.isMuted,
+            customColorHex: workspace.customColor,
+            latestConversationMessage: workspace.latestConversationMessage,
+            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
+                showsAgentActivity: showsAgentActivity,
+                statesByPanelId: workspace.agentLifecycleStatesByPanelId
+            ),
+            taskStatus: statusVisible ? resolution.effective : nil,
             todoStatusMenuModel: todoStatusMenuModel,
             hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: workspace.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
-            taskStatusInput: taskStatusInput,
-            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
+            taskStatusInput: SidebarWorkspaceTaskStatusSnapshot(
+                inferred: inferred,
+                activeOverride: resolution.shouldClearOverride
+                    ? nil
+                    : workspace.todoState.statusOverride?.status,
+                isHidden: statusHidden
+            )
         )
     }
 

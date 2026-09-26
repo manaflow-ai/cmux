@@ -68,6 +68,128 @@ import Testing
         #expect(changedPoll.workspaces.first?.title == "Pi renamed")
     }
 
+    @Test("summary refresh keeps structured sidebar details cached")
+    @MainActor
+    func summaryRefreshPreservesBranchDirectoryAndPullRequestDetails() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-refresh")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/sidebar-summary-refresh")
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "feature/sidebar", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelID,
+            number: 6546,
+            label: "Fix sidebar refresh",
+            url: try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6546")),
+            status: .open
+        )
+        let suiteName = "sidebar-summary-refresh-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+        let initial = factory.makeSnapshot()
+
+        // The detail publisher has a separate debounce window. A title arriving
+        // during it must keep the published details, rather than sampling these
+        // pending values early through a full rebuild.
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/pending-detail")
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "pending-detail", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelID,
+            number: 6547,
+            label: "Pending detail",
+            url: try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6547")),
+            status: .merged
+        )
+        workspace.applyAutomaticTitle("Renamed by the terminal")
+        let refreshed = factory.makeSummarySnapshot(from: initial)
+
+        #expect(refreshed.title == "Renamed by the terminal")
+        #expect(refreshed.branchDirectoryLines == initial.branchDirectoryLines)
+        #expect(refreshed.compactDirectoryCandidates == initial.compactDirectoryCandidates)
+        #expect(refreshed.pullRequestRows == initial.pullRequestRows)
+        #expect(refreshed.finderDirectoryPath == initial.finderDirectoryPath)
+        #expect(refreshed.taskStatusInput.inferred == initial.taskStatusInput.inferred)
+        let detailRefresh = factory.makeSnapshot()
+        #expect(detailRefresh.branchDirectoryLines != initial.branchDirectoryLines)
+        #expect(detailRefresh.pullRequestRows != initial.pullRequestRows)
+        #expect(detailRefresh.finderDirectoryPath != initial.finderDirectoryPath)
+    }
+
+    @Test @MainActor
+    func summaryRefreshRebuildsDetailsWhenPresentationSettingsChanged() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-settings")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "feature/sidebar", isDirty: false)
+        let suiteName = "sidebar-summary-settings-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let initial = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        ).makeSnapshot()
+        defaults.set(true, forKey: "sidebarHideAllDetails")
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
+    }
+
+    @Test @MainActor
+    func summaryRefreshMatchesFullSnapshotForImmediateFields() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-immediate")
+        let suiteName = "sidebar-summary-immediate-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+        let initial = factory.makeSnapshot()
+        workspace.setCustomTitle("Renamed workspace")
+        workspace.customDescription = "Updated description"
+        workspace.isPinned = true
+        workspace.isMuted = true
+        workspace.customColor = "#123456"
+        workspace.todoState.statusOverride = WorkspaceTaskStatusOverride(
+            status: .done, inferredAtOverride: initial.taskStatusInput.inferred
+        )
+
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
+        workspace.todoState.statusHidden = true
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
+    }
+
+    @Test @MainActor
+    func summaryRolloutDefaultsOffAndFollowsLiveRemoteChanges() throws {
+        let suiteName = "sidebar-summary-flag-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let definition = CmuxFeatureFlags.sidebarSummarySnapshotsFlag
+        var remote: Bool?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { $0 == definition.key ? remote : nil }
+        )
+        #expect(!flags.isSidebarSummarySnapshotsEnabled)
+        flags.setOverride(true, for: definition)
+        #expect(flags.isSidebarSummarySnapshotsEnabled)
+        remote = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isSidebarSummarySnapshotsEnabled)
+        remote = true
+        flags.applyLoadedFlags()
+        #expect(flags.isSidebarSummarySnapshotsEnabled)
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",

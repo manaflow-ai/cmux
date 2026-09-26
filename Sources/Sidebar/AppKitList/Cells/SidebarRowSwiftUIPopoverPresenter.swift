@@ -26,12 +26,19 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     /// `close()` calls. Containers use this to write presentation state back.
     var onExternalDismiss: (() -> Void)?
 
+    /// Whether AppKit is in the middle of closing this popover. During an
+    /// animated transient close, `isShown` can become false before the
+    /// delegate receives `popoverDidClose`, so callers use this to distinguish
+    /// a surviving anchor reparent from a completed dismissal.
+    var isClosing: Bool { closingProgrammatically || popoverClosing }
+
     /// Lazy: cells allocate presenters eagerly, but the hosting machinery
     /// only spins up when a popover actually presents (off the scroll path).
     private lazy var hostingController = NSHostingController(rootView: AnyView(EmptyView()))
     private var popover: NSPopover?
     private var presentationCount = 0
     private var closingProgrammatically = false
+    private var popoverClosing = false
     /// Visible refreshes arrive from the table's configure pass (inside a
     /// representable update turn); defer + coalesce them like
     /// `SidebarWorkspaceTodoPopoverHost` does instead of forcing synchronous
@@ -55,6 +62,7 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         }
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
+        popoverClosing = false
         presentationCount += 1
         applyRootView(root)
         popover.show(relativeTo: rect, of: view, preferredEdge: preferredEdge)
@@ -112,10 +120,18 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
     }
 
+    func popoverWillClose(_ notification: Notification) {
+        // AppKit calls this for both transient and programmatic closes. Keep
+        // the state observable until `popoverDidClose` has delivered the
+        // external dismissal callback.
+        popoverClosing = true
+    }
+
     func popoverDidClose(_ notification: Notification) {
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
         popover = nil
+        popoverClosing = false
         // Release the hosted content: the root view's action closures capture
         // the presented workspace strongly, and this presenter lives on a
         // pooled table cell — keeping the last root would retain a closed
@@ -123,9 +139,10 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         hostingController.rootView = AnyView(EmptyView())
         let external = !closingProgrammatically
         closingProgrammatically = false
-        if external {
-            onExternalDismiss?()
-        }
+        let dismiss = onExternalDismiss
         onExternalDismiss = nil
+        if external {
+            dismiss?()
+        }
     }
 }
