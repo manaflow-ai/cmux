@@ -1588,7 +1588,7 @@ jobs:
           UNIT_SELECTORS: ${{ inputs.unit_selectors }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
-          GUI_RUNNER: ${{ inputs.pr_gui_runner }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
         run: python3 scripts/ci/late_placement.py

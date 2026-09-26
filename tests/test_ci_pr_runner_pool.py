@@ -1759,6 +1759,18 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(fork.root_runner, "")
         self.assertEqual(owned_choice(fleet(busy=40), owned_slots=slots, root_jobs=1).root_runner, "")
 
+    def test_gui_runners_take_the_gui_jobs_off_the_root_budget(self):
+        plan = pool.run_plan(macos="true", full_suite="true", unit_suite=None, unit_in_admission=None,
+                             claude_wrapper=None, cli="true", remote_daemon=None)
+        keys = ("admission", *plan.after)
+        self.assertEqual(pool.root_held(plan, keys), len(plan.after))
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1, "only cli-product holds a root after admission")
+        # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
+        root_only, _ = pool.place(plan, 20, root_budget=3)
+        with_gui, _ = pool.place(plan, 20, root_budget=3, gui_runners=True)
+        self.assertEqual(sum(pool.gui_job(k) for k in root_only), 3)
+        self.assertLessEqual(set(keys), set(with_gui))
+
     def test_main_writes_the_root_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot = Path(tmp, "snap.json")

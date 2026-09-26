@@ -698,19 +698,22 @@ def owned_peak(plan: RunJobs, gui: bool = True) -> int:
     return place(plan, plan.peak, gui)[1]
 
 
-def root_held(plan: RunJobs, keys: Sequence[str]) -> int:
-    """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS)."""
-    after = sum(1 for key in keys if key in plan.after)
+def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> int:
+    """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS).
+
+    With `gui_runners` (the pool's GUI jobs take its gui label, gui_runner()),
+    the GUI jobs hold no root runner."""
+    after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_job(key)))
     return max(1, after) if ADMISSION_JOB in keys else after
 
 
-def root_peak(plan: RunJobs, gui: bool = True) -> int:
+def root_peak(plan: RunJobs, gui: bool = True, gui_runners: bool = False) -> int:
     """The root runners a run holds on an owned pool when every job that may take one does."""
-    return root_held(plan, place(plan, plan.peak, gui)[0])
+    return root_held(plan, place(plan, plan.peak, gui)[0], gui_runners)
 
 
 def place(plan: RunJobs, budget: int, gui: bool = True,
-          root_budget: int | None = None) -> tuple[tuple[str, ...], int]:
+          root_budget: int | None = None, gui_runners: bool = False) -> tuple[tuple[str, ...], int]:
     """The jobs that take the owned pool with `budget` machines free, and the machines they hold at peak.
 
     Jobs are taken in priority() order while the run's owned peak stays within
@@ -733,7 +736,7 @@ def place(plan: RunJobs, budget: int, gui: bool = True,
         if key in plan.after and ADMISSION_JOB not in chosen:
             continue
         if held([*chosen, key]) <= max(0, budget) and (
-                root_budget is None or root_held(plan, [*chosen, key]) <= max(0, root_budget)):
+                root_budget is None or root_held(plan, [*chosen, key], gui_runners) <= max(0, root_budget)):
             chosen.append(key)
     return tuple(chosen), held(chosen)
 
@@ -2062,6 +2065,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
     jobs = owned_peak(plan, gui)
+    # The slots name gui runners (gui_runner()): the GUI jobs then hold no root runner. The pool is not
+    # picked yet, so any gui count counts here; place() below checks the picked pool's own.
+    gui_runners = any(label.startswith(GUI_PREFIX)
+                      for label in slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)))
     # The org App's token (ci.yml mints it for same-repository pull requests
     # only) reads which owned runners are idle now. Without it, or on any
     # error, the slot counts and the snapshot decide as before.
@@ -2093,7 +2100,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         owned_slots=env.get("OWNED_SLOTS"),
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
-        root_jobs=root_peak(plan, gui),
+        root_jobs=root_peak(plan, gui, gui_runners),
         light_retry=env.get("OWNED_LIGHT_RETRY"),
         triggering_actor=env.get("GITHUB_TRIGGERING_ACTOR"),
         xcode_pins={variable: env.get(variable) or ""
@@ -2120,7 +2127,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"::error title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
-    owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
+    owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
+    gui_label_out = gui_runner(choice, owned_slots)
+    owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None,
+                              bool(gui_label_out))
                         if persistent(choice.runner) else ((), plan.peak))
     # Admission on a root runner whose kept build is of this run's merge base
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
@@ -2151,9 +2161,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
                 admission_runner = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
-    owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
-    gui_label_out = gui_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)

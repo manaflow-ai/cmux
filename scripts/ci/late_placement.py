@@ -16,8 +16,8 @@ up to that many idle runners. The shards and friends then run
 test-without-building on the mini against admission's uploaded products, as
 they do after an owned admission; they never compile.
 
-With GUI_RUNNER (ci.yml's gui_runner, pr_runner_pool.gui_runner(): the pool's
-gui label, one runner per mini) the GUI jobs (the shards, tests-build-and-lag)
+When OWNED_SLOTS (vars.CI_OWNED_POOL_SLOTS) gives the pool's gui label a count
+(pr_runner_pool.gui_label(): one gui runner per mini), the GUI jobs (the shards, tests-build-and-lag)
 take that label instead, one per idle gui runner, and the other jobs the root
 label, one per idle root runner: each mini runs one GUI job at a time.
 
@@ -89,9 +89,11 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) 
         return {}, f"no owned pool runs admission's Xcode ({env.get('ADMISSION_XCODE_APP') or 'unknown'})"
     if runners is None:
         return {}, "owned runners could not be read live"
-    gui_label = (env.get("GUI_RUNNER") or "").strip()
-    if gui_label != pool.gui_label(pool.pool_label(root)):
-        gui_label = ""  # only this pool's gui label, never some other label
+    # From the slots, not the picker's gui_runner: a run the picker sent to Blacksmith has none,
+    # and its GUI jobs must still never take the root label once the minis have gui runners.
+    gui_label = pool.gui_label(pool.pool_label(root))
+    if pool.slots(env.get("OWNED_SLOTS"), env.get("ADMISSION_XCODE_APP")).get(gui_label, 0) <= 0:
+        gui_label = ""
     free = pool.live_owned_free(runners, [root, *([gui_label] if gui_label else [])])
     idle, gui_idle = free[root], free.get(gui_label, 0)
     placed = place(jobs, owned_jobs=env.get("OWNED_JOBS", ""), idle=idle, root=root,
