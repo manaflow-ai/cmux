@@ -294,6 +294,16 @@ describe("required runtime env keys cover the production provider path", () => {
     )).toBe(false);
   });
 
+  test("signed model-plane authorization keys are required", () => {
+    for (const key of ["CMUX_VM_AUTH_SIGNING_KEY", "CMUX_VM_AUTH_SIGNING_KEY_ID"]) {
+      expect(requiredRuntimeEnvKeys).toContain(key);
+    }
+    expect(requiredRuntimeEnvKeySatisfied(
+      "CMUX_VM_AUTH_SIGNING_KEY",
+      new Set(["CMUX_VM_AUTH_SIGNING_KEY_ID"]),
+    )).toBe(false);
+  });
+
   test("coderouter ledger and vault keys are required; the retired isolated PostHog project is legacy", () => {
     for (const key of [
       "CLICKHOUSE_URL",
