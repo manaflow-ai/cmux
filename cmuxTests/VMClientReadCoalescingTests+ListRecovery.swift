@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCloud
 import Foundation
 import Testing
@@ -199,6 +200,81 @@ extension VMClientReadCoalescingTests {
         try await listEventually { !model.isLoading }
         #expect(model.listStatus == nil)
         #expect(model.machines.count == 1)
+    }
+
+    @Test("Waking from sleep reconnects instead of keeping the failure of the poll that fired on wake")
+    func wakeAfterFailedPollReconnects() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let clock = CloudReadManualClock()
+        let wakes = NotificationCenter()
+        let model = MachinesPanelViewModel(
+            client: fixture.client, pollingClock: clock, wakeNotificationCenter: wakes, isCloudEnabled: { true }
+        )
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually { model.machines.count == 1 && !model.isLoading }
+        // The poll clock kept running through sleep, so a poll fires on wake
+        // before the service answers again. A poll is not a recovery.
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        try await listEventually { clock.pendingSleeperCount == 1 }
+        clock.advance(by: MachinesPanelViewModel.pollInterval)
+        try await listEventually { model.listStatus == .failed(.unreachable) && !model.isLoading }
+        await CloudRefreshURLProtocol.configure(.normal)
+        await CloudRefreshURLProtocol.holdResponses()
+        wakes.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try await listEventually { await Self.listRequests() == 3 }
+        #expect(model.listStatus == .reconnecting)
+        await CloudRefreshURLProtocol.releaseResponses()
+        try await listEventually { !model.isLoading }
+        #expect(model.listStatus == nil)
+        #expect(model.machines.count == 1)
+    }
+
+    @Test("Waking from sleep turns the failure of a read that spanned it into a recovery")
+    func wakeDuringInterruptedReadRecovers() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let clock = CloudReadManualClock()
+        let wakes = NotificationCenter()
+        let model = MachinesPanelViewModel(
+            client: fixture.client, pollingClock: clock, wakeNotificationCenter: wakes, isCloudEnabled: { true }
+        )
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually { model.machines.count == 1 && !model.isLoading }
+        // Sleep lands mid-poll; that read fails once the Mac is back.
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        await CloudRefreshURLProtocol.holdResponses()
+        try await listEventually { clock.pendingSleeperCount == 1 }
+        clock.advance(by: MachinesPanelViewModel.pollInterval)
+        try await listEventually { await Self.listRequests() == 2 }
+        wakes.post(name: NSWorkspace.didWakeNotification, object: nil)
+        try await listEventually { model.isRecoveringList }
+        await CloudRefreshURLProtocol.configure(.normal)
+        await CloudRefreshURLProtocol.releaseResponses()
+        try await listEventually { await Self.listRequests() == 3 && !model.isLoading }
+        #expect(model.listStatus == nil)
+        #expect(model.lastErrorDescription == nil)
+        #expect(model.machines.count == 1)
+    }
+
+    @Test("A wake while the panel is hidden starts no read")
+    func wakeWhileHiddenStartsNoRead() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let wakes = NotificationCenter()
+        let model = MachinesPanelViewModel(client: fixture.client, wakeNotificationCenter: wakes, isCloudEnabled: { true })
+        model.startPolling()
+        try await listEventually { model.machines.count == 1 && !model.isLoading }
+        model.stopPolling()
+        wakes.post(name: NSWorkspace.didWakeNotification, object: nil)
+        #expect(!model.isLoading)
+        #expect(!model.isRecoveringList)
+        #expect(await Self.listRequests() == 1)
     }
 
     private static func listRequests() async -> Int {

@@ -105,6 +105,8 @@ final class MachinesPanelViewModel: ObservableObject {
     let client: VMClient?
     let isCloudEnabled: @MainActor () -> Bool
     let pollingClock: any Clock<Duration>
+    /// Posts `NSWorkspace.didWakeNotification`; injectable for tests.
+    let wakeNotificationCenter: NotificationCenter
     private var networkTask: Task<Void, Never>?
     var pollTask: Task<Void, Never>?
     var statsTask: Task<Void, Never>?
@@ -145,6 +147,7 @@ final class MachinesPanelViewModel: ObservableObject {
         resourceStats: VMResourceStatsStore? = nil,
         client: VMClient? = nil,
         pollingClock: any Clock<Duration> = ContinuousClock(),
+        wakeNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
         localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
@@ -152,6 +155,7 @@ final class MachinesPanelViewModel: ObservableObject {
         let networkClient = client ?? VMClient.shared
         self.client = networkClient
         self.pollingClock = pollingClock
+        self.wakeNotificationCenter = wakeNotificationCenter
         self.isCloudEnabled = isCloudEnabled
         self.resourceStats = resourceStats ?? networkClient?.resourceStats ?? VMClient.shared?.resourceStats
         self.machinePinStore = machinePinStore
