@@ -5782,9 +5782,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surface: surface,
                 matchingLineCount: TerminalSoftWrapCopy.physicalLineCount(in: text)
             ),
-            hardWrapReflow: UserDefaults.standard.bool(
-                forKey: "terminal.reflowHardWrapOnCopy"
-            ),
+            hardWrapReflow: TerminalCatalogSection().reflowHardWrapOnCopy.value(in: .standard),
             terminalColumns: Int(ghostty_surface_size(surface).columns)
         )
     }
