@@ -162,6 +162,55 @@ class Keep(unittest.TestCase):
             self.assertTrue((derived / state.RECORD).is_file())
 
 
+class PullRequestSlots(unittest.TestCase):
+    def keep(self, store, derived, pr, fingerprint="fp"):
+        with unittest.mock.patch("owned_build_state.subprocess.run") as run, \
+                unittest.mock.patch.object(state, "free_gib", return_value=500.0):
+            run.return_value.returncode = 1
+            return state.keep(store, derived, fingerprint, "a" * 40, str(pr))
+
+    def test_keep_parks_another_pull_requests_build_and_check_brings_it_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, derived, workspace = Path(tmp, "store"), Path(tmp, "dd"), Path(tmp, "ws")
+            derived.mkdir()
+            workspace.mkdir()
+            (derived / "marker").write_text("pr5")
+            self.keep(store, derived, 5)
+            (derived / "marker").write_text("pr6")
+            self.assertEqual(self.keep(store, derived, 6)["parked"], "pr-5")
+            self.assertEqual((store / "pr-builds/pr-5/derived-data/marker").read_text(), "pr5")
+            self.assertEqual(json.loads((store / "pr-builds/pr-5/stamp.json").read_text())["pr"], 5)
+            # A re-push of the same pull request replaces its build in place; nothing is parked.
+            self.assertNotIn("parked", self.keep(store, derived, 6))
+            self.assertIn("pr-5", state.stamp_keys(store, "fp"))
+            # Pull request 5's next push: its build is swapped back in, and 6's is parked.
+            with unittest.mock.patch.object(state, "free_gib", return_value=500.0), \
+                    unittest.mock.patch("sys.stdout", io.StringIO()):
+                result = state.check(store, "fp", workspace, pr_number="5")
+            self.assertEqual((result["warm"], result["reason"]), ("true", "this pull request's parked build"))
+            self.assertEqual((store / "derived-data/marker").read_text(), "pr5")
+            self.assertEqual(json.loads((store / "stamp.json").read_text())["pr"], 5)
+            self.assertEqual((store / "pr-builds/pr-6/derived-data/marker").read_text(), "pr6")
+            # Another fingerprint's parked build is never swapped in.
+            with unittest.mock.patch("sys.stdout", io.StringIO()):
+                self.assertEqual(state.check(store, "other", workspace, pr_number="6")["warm"], "false")
+            self.assertEqual(json.loads((store / "stamp.json").read_text())["pr"], 5)
+
+    def test_slots_are_capped_by_count_age_and_free_space(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store, derived = Path(tmp, "store"), Path(tmp, "dd")
+            derived.mkdir()
+            for pr in range(1, 6):
+                self.keep(store, derived, pr)
+            self.assertEqual(sorted(path.name for path in (store / "pr-builds").iterdir()), ["pr-3", "pr-4"])
+            old = store / "pr-builds" / "pr-3"
+            os.utime(old, (0, 0))
+            state.prune_pr_slots(store)
+            self.assertFalse(old.exists())
+            with unittest.mock.patch.object(state, "free_gib", return_value=10.0):
+                self.assertEqual(state.park(store), "")
+
+
 class Admission(unittest.TestCase):
     def test_one_line_per_admission_and_the_stamp_learns_the_pull_request(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -268,6 +317,57 @@ class Routing(unittest.TestCase):
         bare = {"name": "c", "status": "online", "busy": False, "labels": [{"name": ROOT_LABEL}]}
         self.assertEqual(self.route([runner("a", busy=True), runner("b", busy=True), bare], pr={"b"},
                                     running=running)[1]["baseline_seconds"], 350.0)
+
+    def test_a_recent_build_of_this_pull_request_is_worth_a_wait(self):
+        model = {**MODEL, "pr_by_age": {"<30": {"expected": 150.0}, ">=360": {"expected": 390.0}}}
+        started = (NOW - dt.timedelta(seconds=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        running = {"b": {"job": "macOS compile admission", "started_at": started}}
+        args = dict(base_warm=(), running=running, job_tier="rebuild", model=model, now=NOW, max_wait=600,
+                    runner_label=label)
+        # 220 s wait + 150 s from a 10-minute-old build beats 350 s cold only by little; with the idle
+        # cold runner at 350 it pins when the build is fresh...
+        name, decision = wd.route_admission([runner("a"), runner("b", busy=True)], ROOT_LABEL, pr_warm={"b": 10.0}, **args)
+        self.assertEqual(decision["candidates"][0]["compile"], 150.0)
+        # ...and a 7-hour-old build of it is priced as the rebuild it will be.
+        name, decision = wd.route_admission([runner("a"), runner("b")], ROOT_LABEL, pr_warm={"b": 420.0}, **args)
+        self.assertEqual((name, decision["candidates"][0]["compile"]), ("", 390.0))
+        # A busy runner the snapshot does not list yet started after it: a fresh admission's wait.
+        name, decision = wd.route_admission([runner("a", busy=True), runner("b", busy=True)], ROOT_LABEL,
+                                            pr_warm={"b": 5.0}, **{**args, "running": {}})
+        self.assertEqual(decision["candidates"][0]["wait"], 420.0)
+
+    def test_previous_admission_comes_from_the_jobs_api(self):
+        calls = []
+
+        def get(path):
+            calls.append(path)
+            if path.startswith("/actions/runs?"):
+                return {"workflow_runs": [{"id": 9, "name": "CI"}, {"id": 8, "name": "Other"}, {"id": 7, "name": "CI"}]}
+            if path.startswith("/actions/runs/7/"):
+                return {"jobs": [{"name": "macos / macOS compile admission", "runner_name": "cmux5-glaeda-1",
+                                  "steps": [{"name": wd.KEEP_STEP, "conclusion": "success",
+                                             "completed_at": "2026-09-26T02:40:00Z"}]}]}
+            return {"jobs": []}
+        self.assertEqual(wd.previous_admission(get, "feat/x y", "9", NOW), ("cmux5-glaeda-1", 20.0))
+        self.assertIn("branch=feat%2Fx%20y", calls[0])
+        self.assertEqual(len(calls), 2)  # this run is skipped, the other workflow too
+        self.assertIsNone(wd.previous_admission(get, "", "9", NOW))
+
+    def test_a_mini_already_compiling_costs_more(self):
+        model = {**MODEL, "start_classes": {**MODEL["start_classes"], "base": {"expected": 290.0}}}
+        runners = [runner("m1-glaeda"), runner("m1-glaeda-1", busy=True), runner("m2-glaeda")]
+        running = {"m1-glaeda-1": {"job": "macOS compile admission",
+                                   "started_at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ")}}
+        name, decision = wd.route_admission(runners, ROOT_LABEL, base_warm={"m1-glaeda"}, pr_warm={}, running=running,
+                                            job_tier="near", model=model, now=NOW, max_wait=600, runner_label=label)
+        # 290 x 1.3 = 377 on the busy mini loses to a cold 350 on the empty one.
+        self.assertEqual((name, decision["candidates"][0]["compile"], decision["baseline_seconds"]), ("", 377.0, 350.0))
+        # Alone on its mini the same warm runner wins.
+        name, _ = wd.route_admission([runner("m1-glaeda"), runner("m2-glaeda")], ROOT_LABEL, base_warm={"m1-glaeda"},
+                                     pr_warm={}, running={}, job_tier="near", model=model, now=NOW, max_wait=600,
+                                     runner_label=label)
+        self.assertEqual(name, "m1-glaeda")
+        self.assertAlmostEqual(wd.compile_factor("cmux-austin-mini-0-glaeda", set()), wd.SLOW_MINI_FACTOR)
 
     def test_no_model_no_route(self):
         name, decision = wd.route_admission([runner("a")], ROOT_LABEL, base_warm={"a"}, pr_warm=(), running={},

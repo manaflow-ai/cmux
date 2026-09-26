@@ -155,6 +155,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import seed_derived_data as seed  # noqa: E402
@@ -260,9 +261,102 @@ def sweep_discarded(store: Path) -> None:
         remove(stale)
 
 
-def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
+# Pull request build slots. A root's kept DerivedData is replaced by the next admission on it, so a
+# pull request's build was gone by the time its next push arrived (09-26: re-pushes of #13504 and
+# #14149 cold-started on other minis and rebuilt the app, 324 to 465 s). When `keep` replaces the kept
+# build of another pull request, it parks that build in STORE/pr-builds/pr-<n> (a rename, no copy),
+# and `check` for pull request n swaps it back in before anything else reads the kept state. A root
+# keeps at most PR_SLOTS parked builds, each for PR_SLOT_HOURS, and parks none while the volume has
+# less than MIN_FREE_GIB free; an incremental build shares most of its blocks with the one it started
+# from only until it is replaced, so each slot can cost up to a DerivedData (about 9 GB).
+PR_BUILDS = "pr-builds"
+PR_SLOTS = 2
+PR_SLOT_HOURS = 6
+MIN_FREE_GIB = 80
+
+
+def pr_slot(store: Path, number: object) -> Path | None:
+    key = pr_key(number)
+    return store / PR_BUILDS / key if key else None
+
+
+def free_gib(path: Path) -> float:
+    try:
+        return shutil.disk_usage(path).free / 1024**3
+    except OSError:
+        return 0.0
+
+
+def prune_pr_slots(store: Path, now: float | None = None) -> None:
+    """Drop parked builds past PR_SLOT_HOURS, then all but the newest PR_SLOTS."""
+    now = time.time() if now is None else now
+    try:
+        slots = [path for path in (store / PR_BUILDS).iterdir() if path.name.startswith("pr-")]
+    except OSError:
+        return
+    dated = []
+    for path in slots:
+        try:
+            dated.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    dated.sort(reverse=True)
+    for index, (moment, path) in enumerate(dated):
+        if index >= PR_SLOTS or now - moment > PR_SLOT_HOURS * 3600:
+            with contextlib.suppress(OSError, RuntimeError):
+                clear(path)
+
+
+def park(store: Path) -> str:
+    """Move the kept build of a pull request into its slot; returns the slot name or ""."""
+    stamp = read_stamp(store)
+    slot = pr_slot(store, stamp.get("pr"))
+    if slot is None or not (store / DERIVED).is_dir() or not str(stamp.get("fingerprint") or "").endswith(STATE_VERSION):
+        return ""
+    if free_gib(store) < MIN_FREE_GIB:
+        return ""
+    incoming = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
+    remove(incoming)
+    incoming.mkdir(parents=True)
+    (store / DERIVED).rename(incoming / DERIVED)
+    write_stamp(incoming, stamp)
+    clear(slot)
+    incoming.rename(slot)
+    os.utime(slot)
+    return slot.name
+
+
+def unpark(store: Path, number: object, fingerprint: str) -> bool:
+    """Swap pull request NUMBER's parked build in as the kept one, parking the current kept build first."""
+    slot = pr_slot(store, number)
+    if slot is None or not (slot / DERIVED).is_dir():
+        return False
+    stamp = read_stamp(slot)
+    if not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
+        return False
+    current = read_stamp(store)
+    if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
+        return False  # the kept build is this pull request's already
+    park(store)
+    if (store / DERIVED).exists():
+        clear(store / DERIVED)
+    (slot / DERIVED).rename(store / DERIVED)
+    write_stamp(store, stamp)
+    with contextlib.suppress(OSError, RuntimeError):
+        clear(slot)
+    return True
+
+
+def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None,
+          pr_number: str = "") -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     sweep_discarded(store)
+    unparked = False
+    if pr_number:
+        try:
+            unparked = unpark(store, pr_number, fingerprint)
+        except (OSError, RuntimeError):
+            unparked = False
     if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
         # Which seeds this root adopts, for seed_derived_data.py `prefetch`
         # to fetch ahead while the Mac is idle. Best effort.
@@ -294,7 +388,7 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
             result["reason"] = f"kept DerivedData grew to {size} bytes"
         else:
             result["warm"] = "true"
-            result["reason"] = "kept DerivedData matches"
+            result["reason"] = ("this pull request's parked build" if unparked else "kept DerivedData matches")
     packages = (package_store or store) / PACKAGES
     if packages.is_dir():
         destination = workspace / ".ci-source-packages"
@@ -391,6 +485,14 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
+    # Another pull request's build is parked, not dropped: its next push may come back to it.
+    parked = ""
+    if pr_key(read_stamp(store).get("pr")) != pr_key(pr_number):
+        try:
+            parked = park(store)
+        except (OSError, RuntimeError):
+            parked = ""
+    prune_pr_slots(store)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
     stamp.pop("merged_onto", None)
@@ -407,7 +509,7 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     if pr_key(pr_number):
         stamp["pr"] = int(pr_number.strip())
     write_stamp(store, stamp)
-    return {"kept": "true"}
+    return {"kept": "true", **({"parked": parked} if parked else {})}
 
 
 def pr_key(number: object) -> str:
@@ -427,7 +529,19 @@ def stamp_keys(store: Path, fingerprint: str) -> list[str]:
         return []
     if fingerprint and kept != stamped(fingerprint):
         return []
-    return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
+    keys = [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
+    # Parked pull request builds come back for their next push (`check` unparks them).
+    try:
+        slots = sorted((path for path in (store / PR_BUILDS).iterdir() if (path / DERIVED).is_dir()),
+                       key=lambda path: path.stat().st_mtime, reverse=True)
+    except OSError:
+        slots = []
+    for slot in slots:
+        parked = read_stamp(slot)
+        kept_as = str(parked.get("fingerprint") or "")
+        if kept_as.endswith(f"-{STATE_VERSION}") and (not fingerprint or kept_as == stamped(fingerprint)):
+            keys.append(pr_key(parked.get("pr")))
+    return keys
 
 
 def other_root_stores(store: Path) -> list[Path]:
@@ -776,7 +890,8 @@ def package_store(argv: list[str]) -> Path | None:
 
 def main(argv: list[str]) -> int:
     if len(argv) in (5, 6) and argv[1] == "check":
-        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv)))
+        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv),
+                            os.environ.get("CMUX_OWNED_PR", "")))
         return 0
     if len(argv) == 5 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))

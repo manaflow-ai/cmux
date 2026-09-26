@@ -759,6 +759,8 @@ jobs:
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
           # Or, failing that, the root runner warm for this pull request.
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # Its branch: the picker reads which runner kept its previous push's build.
+          HEAD_REF: ${{ github.head_ref }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/pr_runner_pool.py
 

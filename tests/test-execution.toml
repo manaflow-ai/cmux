@@ -466,6 +466,10 @@ path = "tests/test_ci_warm_distance.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_owned_spm_scratch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 

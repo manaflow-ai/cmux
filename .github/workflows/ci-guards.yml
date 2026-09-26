@@ -440,6 +440,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_distance.py
 
+      - name: Validate owned SwiftPM build directories
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_spm_scratch.py
+
       - name: Validate the owned idle catch-up build
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_catch_up.py

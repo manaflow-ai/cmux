@@ -297,6 +297,18 @@ the picker cannot list live runners and never routes by warmth. A warm runner
 taken between the pick and the queue leaves admission waiting, and the rescue
 moves it to Blacksmith like any other stuck owned job.
 
+A same-pull-request start is priced by its age (`pr_by_age`: a build under
+30 minutes old is mostly near, one over 90 minutes mostly rebuilds), found in
+the snapshot's keys or, fresher, from the jobs API (the runner that kept the
+pull request's newest earlier build, `previous_admission()`, 2 or 3 requests).
+A candidate's compile is multiplied by 1.3 when another root runner of its
+mini is busy (a compile overlapped by another runs about 36% slower) and by
+1.11 on an Austin mini, so compiles spread across minis without
+`CI_OWNED_SPREAD`. When `keep` replaces another pull request's build, it parks
+that build in `pr-builds/pr-<n>` beside the root's store (at most 2 per root,
+6 h, only with 80 GiB free) and admission's `check` for that pull request
+swaps it back in (`owned_build_state.py`).
+
 The cost model is `scripts/ci/warm-distance-model.json`, fitted by
 `scripts/ci/warm_distance.py fit` from the line every owned admission appends
 to `/Users/Shared/cmux-build-fleet/ci/admissions.jsonl` on its mini (start,

@@ -68,6 +68,7 @@ import statistics
 import subprocess
 import sys
 import time
+import urllib.parse
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 MODEL_PATH = Path(__file__).resolve().with_name("warm-distance-model.json")
@@ -159,6 +160,34 @@ def start_class_seconds(start: str, job_tier: str, model: Mapping[str, Any]) -> 
         if isinstance(value, (int, float)):
             return float(value)
     return None
+
+
+# A pull request's own previous build is near when it is recent and far or a rebuild once main moved
+# (09-25/26 re-pushes: within 30 min 16 of 26 near; after 90 min 21 of 23 rebuilt), so `fit` prices a
+# same-pull-request start by its age, in these buckets (minutes, upper bounds).
+PR_AGE_BUCKETS = (30, 90, 360)
+
+
+def age_bucket(minutes: float | None) -> str:
+    if minutes is None:
+        return "unknown"
+    for bound in PR_AGE_BUCKETS:
+        if minutes < bound:
+            return f"<{bound}"
+    return f">={PR_AGE_BUCKETS[-1]}"
+
+
+def pr_start_seconds(age_minutes: float | None, job_tier: str, model: Mapping[str, Any]) -> float | None:
+    """Predicted compile from this pull request's own previous build AGE_MINUTES old, by the job's own tier.
+
+    Falls back to the age bucket's overall value, then the 'pr' start class.
+    """
+    bucket = (model.get("pr_by_age") or {}).get(age_bucket(age_minutes)) or {}
+    cell = (bucket.get("by_job_tier") or {}).get(job_tier) or {}
+    for value in (cell.get("expected"), bucket.get("expected")):
+        if isinstance(value, (int, float)):
+            return float(value)
+    return start_class_seconds("pr", job_tier, model)
 
 
 # Recording --------------------------------------------------------------------------------------------------
@@ -434,6 +463,27 @@ QUEUE_ROUND_SECONDS = 900
 # A pin must beat the unpinned root label by this much; below it, placement noise decides.
 ROUTE_MARGIN_SECONDS = 30
 UNKNOWN_JOB_SECONDS = 600.0
+# A compile on a mini whose other root already compiles runs slower: alone p50 366 s, overlapped by
+# another compile at least half its length p50 499 s (310 compiles on 12 minis, 09-26). Austin's M4
+# minis run p50 408 s against 366. Both multiply a candidate's predicted compile, which spreads compiles
+# across minis without a separate spread pin (CI_OWNED_SPREAD stays unset).
+CONTENDED_FACTOR = 1.3
+SLOW_MINI_FACTOR = 1.11
+SLOW_MINI = re.compile(r"austin")
+RUNNER_MEMBER = re.compile(r"(?P<member>.+)-glaeda(?:-[0-9]+)?")
+
+
+def mini_of(name: str) -> str:
+    match = RUNNER_MEMBER.fullmatch(name or "")
+    return match.group("member") if match else name
+
+
+def compile_factor(name: str, busy: set[str]) -> float:
+    """How much slower than alone on an M4 Pro a compile on runner NAME runs now: contended when another
+    root runner of its mini is busy (BUSY names them), slower on an Austin mini."""
+    contended = any(other != name and mini_of(other) == mini_of(name) for other in busy)
+    factor = CONTENDED_FACTOR if contended else 1.0
+    return factor * (SLOW_MINI_FACTOR if SLOW_MINI.search(name) else 1.0)
 
 
 def job_key(name: str) -> str:
@@ -469,7 +519,7 @@ def routed_wait_limit(queue_rounds: int | None) -> int:
 
 
 def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_warm: Iterable[str],
-                    pr_warm: Iterable[str], running: Mapping[str, Any], job_tier: str,
+                    pr_warm: Mapping[str, float | None] | Iterable[str], running: Mapping[str, Any], job_tier: str,
                     model: Mapping[str, Any], now: dt.datetime, max_wait: float,
                     runner_label: Callable[[str], str]) -> tuple[str, dict[str, Any]]:
     """The root runner whose expected wait plus predicted compile is lowest, if it beats the unpinned root label.
@@ -485,7 +535,9 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
     finish (UNKNOWN_JOB_SECONDS when none is known). Returns the runner name
     ("" to leave the root label) and the costs, for the log.
     """
-    base_warm, pr_warm = set(base_warm), set(pr_warm)
+    base_warm = set(base_warm)
+    # name -> the age in minutes of this pull request's build there (None: unknown)
+    pr_warm = dict(pr_warm) if isinstance(pr_warm, Mapping) else {name: None for name in pr_warm}
     cold = start_class_seconds("none", job_tier, model)
     decision: dict[str, Any] = {"job_tier": job_tier, "none_seconds": cold, "candidates": []}
     if cold is None:
@@ -493,29 +545,50 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
         return "", decision
     waits: list[float | None] = []
     pinnable: list[tuple[str, float | None]] = []
+    idle_names: list[str] = []
+    # Root runners run compiles (GUI jobs have their own runners since cmux#14796): a busy one means its
+    # mini compiles now.
+    busy = {str(runner.get("name") or "") for runner in runners
+            if runner.get("status") == "online" and runner.get("busy")
+            and root in {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}}
     for runner in runners:
         name = str(runner.get("name") or "")
         labels = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
         if runner.get("status") != "online" or not name or root not in labels:
             continue
-        wait = 0.0 if not runner.get("busy") else remaining_seconds(running.get(name), model, now)
+        if not runner.get("busy"):
+            wait: float | None = 0.0
+        elif name in running:
+            wait = remaining_seconds(running.get(name), model, now)
+        else:
+            # Busy with a job that started after the snapshot: a root job that has only just begun.
+            wait = remaining_seconds({"job": "macos-compile-admission", "started_at": now.isoformat()}, model, now)
         waits.append(wait)
+        if wait == 0.0:
+            idle_names.append(name)
         if runner_label(name) in labels:
             pinnable.append((name, wait))
     if not waits:
         decision["why"] = "no online root runner"
         return "", decision
-    if 0.0 in waits:
-        baseline = cold
+    if idle_names:
+        # GitHub gives the root label any idle root runner: price the fastest place it could land.
+        baseline = cold * min(compile_factor(name, busy) for name in idle_names)
     else:
         baseline = cold + min((wait for wait in waits if wait is not None), default=UNKNOWN_JOB_SECONDS)
     decision["baseline_seconds"] = round(baseline, 1)
     best: tuple[float, str] | None = None
     for name, wait in pinnable:
-        start = "base" if name in base_warm else "pr" if name in pr_warm else ""
-        compile_seconds = start_class_seconds(start, job_tier, model) if start else None
-        if compile_seconds is None:
+        options = []
+        if name in base_warm:
+            options.append(("base", start_class_seconds("base", job_tier, model)))
+        if name in pr_warm:
+            options.append(("pr", pr_start_seconds(pr_warm[name], job_tier, model)))
+        options = [(start, value) for start, value in options if value is not None]
+        if not options:
             continue
+        start, compile_seconds = min(options, key=lambda option: option[1])
+        compile_seconds = round(compile_seconds * compile_factor(name, busy), 1)
         cost = None if wait is None else wait + compile_seconds
         decision["candidates"].append({"runner": name, "start": start, "wait": wait,
                                        "compile": compile_seconds, "cost": cost})
@@ -532,10 +605,45 @@ def route_admission(runners: Sequence[Mapping[str, Any]], root: str, *, base_war
     return best[1], decision
 
 
+ADMISSION_JOB_SUFFIX = "macOS compile admission"
+KEEP_STEP = "Keep this owned Mac's DerivedData"
+PREVIOUS_RUNS = 2
+
+
+def previous_admission(get: Callable[[str], Any], head_ref: str, exclude_run: str,
+                       now: dt.datetime) -> tuple[str, float] | None:
+    """The runner that kept this pull request's newest earlier build, and its age in minutes.
+
+    The janitor's warm state lags a sweep or more behind, and a re-push usually
+    comes within minutes (09-26: #13504's second push found no key for its first
+    build, 21 minutes old). At most 1 + PREVIOUS_RUNS requests.
+    """
+    if not head_ref:
+        return None
+    runs = get(f"/actions/runs?event=pull_request&branch={urllib.parse.quote(head_ref, safe='')}&per_page=5")
+    checked = 0
+    for run in (runs or {}).get("workflow_runs") or []:
+        if str(run.get("id")) == exclude_run or run.get("name") != "CI":
+            continue
+        if checked >= PREVIOUS_RUNS:
+            break
+        checked += 1
+        jobs = (get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100") or {}).get("jobs") or []
+        for job in jobs:
+            if not str(job.get("name") or "").endswith(ADMISSION_JOB_SUFFIX) or not job.get("runner_name"):
+                continue
+            for step in job.get("steps") or []:
+                if step.get("name") == KEEP_STEP and step.get("conclusion") == "success" and step.get("completed_at"):
+                    done = dt.datetime.fromisoformat(str(step["completed_at"]).replace("Z", "+00:00"))
+                    return str(job["runner_name"]), max(0.0, (now - done).total_seconds() / 60)
+    return None
+
+
 def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto: str | None,
                  pr_number: str | None, snapshot: Mapping[str, Any], workspace: Path, queue_rounds: int | None,
                  now: dt.datetime, warm_key: Callable[[str | None], str],
-                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+                 runner_label: Callable[[str], str], model: Mapping[str, Any] | None = None,
+                 previous: Callable[[], tuple[str, float] | None] | None = None) -> tuple[str, dict[str, Any]]:
     """pr_runner_pool.py's admission pin: route_admission() over the snapshot's `warm` and `running`.
 
     The pull request's own tier comes from the checkout (the merge commit and
@@ -559,9 +667,28 @@ def picker_route(runners: Sequence[Mapping[str, Any]], root: str, *, merged_onto
         _deadline[0] = float("inf")
     job_tier = tier(features(own[0], own[1], model.get("hot_files") or DEFAULT_HOT_FILES), model) if own else ""
     running = snapshot.get("running") if isinstance(snapshot.get("running"), Mapping) else {}
-    name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=holding(pr_key),
+    # This pull request's builds: the snapshot's keys, aged by that runner's newest admission (a lower
+    # bound), and the runner the jobs API says kept its newest build, aged exactly.
+    pr_warm: dict[str, float | None] = {}
+    for held in holding(pr_key):
+        entry = kept.get(held) or {}
+        try:
+            at = dt.datetime.fromisoformat(str(entry.get("at")).replace("Z", "+00:00"))
+            pr_warm[held] = max(0.0, (now - at).total_seconds() / 60)
+        except ValueError:
+            pr_warm[held] = None
+    found = None
+    if previous is not None and pr_key:
+        try:
+            found = previous()
+        except Exception:  # noqa: BLE001 - the snapshot's keys still route
+            found = None
+    if found:
+        pr_warm[found[0]] = found[1]
+    name, decision = route_admission(runners, root, base_warm=holding(base_key), pr_warm=pr_warm,
                                      running=running, job_tier=job_tier, model=model, now=now,
                                      max_wait=routed_wait_limit(queue_rounds), runner_label=runner_label)
+    decision["previous_build"] = list(found) if found else None
     return (json.dumps([root, runner_label(name)], separators=(",", ":")) if name else ""), decision
 
 
@@ -713,6 +840,50 @@ def start_classes(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
     return classes
 
 
+def pr_by_age(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
+              repo: Path | None) -> dict[str, dict[str, Any]]:
+    """Predicted compile from this pull request's newest earlier build, by its age (age_bucket()) and the job's tier.
+
+    For each admission with an earlier build of the same pull request, the
+    tier mean of the distance between the two builds (with REPO), or the
+    actual compile when it did start there.
+    """
+    ordered = sorted((row for row in rows if parse_at(row)), key=lambda row: parse_at(row))
+    cells: dict[str, list[tuple[str, float]]] = {}
+    for index, row in enumerate(ordered):
+        if not row.get("pr") or not row.get("sha"):
+            continue
+        match = next((other for other in reversed(ordered[:index])
+                      if other.get("pr") == row["pr"] and other.get("sha") and other["sha"] != row["sha"]), None)
+        if match is None:
+            continue
+        age = (parse_at(row) - parse_at(match)).total_seconds() / 60
+        own = tier(with_hot(row["own"], model), model) if row.get("own") else ""
+        if start_class(row) == "pr":
+            value: float | None = float(row["compile_seconds"])
+        elif repo is not None:
+            feature = tree_features(repo, match["sha"], row["sha"], model.get("hot_files") or ())
+            entry = (model.get("tiers") or {}).get(tier(feature, model)) or {} if feature else {}
+            value = entry.get("mean", entry.get("p50"))
+        else:
+            value = None
+        if isinstance(value, (int, float)):
+            cells.setdefault(age_bucket(age), []).append((own, float(value)))
+    out: dict[str, dict[str, Any]] = {}
+    for bucket, pairs in cells.items():
+        entry: dict[str, Any] = {"n": len(pairs)}
+        if len(pairs) >= MIN_CLASS_ROWS:
+            entry["expected"] = round(statistics.fmean(value for _, value in pairs), 1)
+        by_tier = {}
+        for own in TIERS:
+            picked = [value for job_tier, value in pairs if job_tier == own]
+            if len(picked) >= MIN_CLASS_ROWS:
+                by_tier[own] = {"n": len(picked), "expected": round(statistics.fmean(picked), 1)}
+        entry["by_job_tier"] = by_tier
+        out[bucket] = entry
+    return out
+
+
 def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[Mapping[str, Any]] = (),
         near: int = NEAR_APP_SWIFT_FILES, hot_floor: Sequence[str] = DEFAULT_HOT_FILES,
         repo: Path | None = None) -> dict[str, Any]:
@@ -734,6 +905,7 @@ def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[M
                 if bool(row["app_rebuilt"]) != (name == "rebuild"))
     model["misclassified"] = {"rows": wrong, "share": round(wrong / len(rows), 3) if rows else None}
     model["start_classes"] = start_classes(rows, model, repo)
+    model["pr_by_age"] = pr_by_age(rows, model, repo)
     lengths: dict[str, list[float]] = {}
     for job in jobs:
         if isinstance(job.get("seconds"), (int, float)) and job.get("job"):
@@ -785,10 +957,10 @@ def evaluate(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> str
 def collect(hosts: Sequence[str]) -> int:
     for host in hosts:
         try:
+            # bash with nullglob: the minis' zsh aborts the whole command on a glob with no match.
             out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-                                  f"cat /Users/Shared/cmux-build-fleet/ci/{LOG_NAME}.1 "
-                                  f"/Users/Shared/cmux-build-fleet/ci/{LOG_NAME} "
-                                  f"/Users/Shared/cmux-build-fleet/ci/cmux-ci-*/{LOG_NAME} 2>/dev/null; true"],
+                                  "bash -c 'shopt -s nullglob; cat /Users/Shared/cmux-build-fleet/ci/"
+                                  f"{LOG_NAME}* /Users/Shared/cmux-build-fleet/ci/cmux-ci-*/{LOG_NAME}*'"],
                                  capture_output=True, text=True, timeout=120).stdout
         except (OSError, subprocess.SubprocessError) as error:
             print(f"{host}: {error}", file=sys.stderr)
