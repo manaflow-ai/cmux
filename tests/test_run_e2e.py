@@ -20,6 +20,8 @@ DEFAULT_RUNNER = re.search(
 ).group(1)
 HEAD = "a" * 40
 REMOTE_HEAD = "b" * 40
+BASE = "f" * 40
+MERGE = "9" * 40
 SMALL = "blacksmith-6vcpu-macos-26"
 LARGE = "blacksmith-12vcpu-macos-26"
 
@@ -65,7 +67,7 @@ def queue(*, small=0, large=0, old=0, small_running=10, large_running=0, old_run
 IDLE = json.dumps(queue())
 BUSY_LARGE = json.dumps(queue(large=3))
 FAKE_GH =r'''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, re, sys
 args = sys.argv[1:]
 root = pathlib.Path(os.environ["LAUNCHER_TEST_DIR"])
 with (root / "calls.jsonl").open("a") as f:
@@ -83,6 +85,12 @@ if args[0] == "api" and "/actions/" in args[-1]:
     if "/actions/runs?head_sha=" in endpoint:
         # CI runs of the tested commit, for reusing their app-host products.
         print(json.dumps({"workflow_runs": json.loads(os.environ.get("LAUNCHER_CI_RUNS", "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+/artifacts", endpoint):
+        print(json.dumps({"artifacts": json.loads(os.environ.get("LAUNCHER_CI_ARTIFACTS", "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+/jobs", endpoint):
+        print(json.dumps({"jobs": json.loads(os.environ.get("LAUNCHER_CI_JOBS", "[]"))}))
+    elif re.search(r"/actions/runs/[0-9]+$", endpoint):
+        print(json.dumps({"status": os.environ.get("LAUNCHER_CI_STATUS", "completed")}))
     elif "/actions/artifacts?" in endpoint:
         artifacts = [] if queue is None else [{
             "id": 77, "expired": False, "created_at": stamp(queue["age"] - 1),
@@ -158,7 +166,10 @@ class FocusedLauncherTests(unittest.TestCase):
         self.bin.mkdir()
         for name, source in {
             "gh": FAKE_GH,
-            "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
+            # `cat-file commit` answers for a pull request merge: base, then HEAD.
+            "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n'
+                   '*"cat-file commit"*) printf "tree t\\nparent %s\\nparent %s\\n\\nmerge\\n" "' + BASE + '" "' + HEAD + '";;\n'
+                   '*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
             # No shared waiter daemon unless a test says so: --wait falls back to gh.
             "glaeda-gh": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TEST_DIR/glaeda.calls"\nexit "${LAUNCHER_GLAEDA_STATUS:-3}"\n',
@@ -194,16 +205,71 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
 
-    def test_only_unpinned_cmux_tests_look_for_ci_products(self):
+    def test_only_unpinned_runs_without_full_build_look_for_ci_products(self):
         for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
-                     ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"]):
+                     ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"],
+                     ["ExampleUITests", "--full-build"], ["ExampleUITests", "--runner", SMALL]):
             with self.subTest(args=args):
                 (self.root / "calls.jsonl").unlink(missing_ok=True)
                 result = self.launch(*args)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 looked = any("head_sha=" in call[-1] for call in self.calls() if call[:1] == ["api"])
-                self.assertEqual(looked, args == ["cmuxTests/ExampleTests"])
+                self.assertEqual(looked, args in (["cmuxTests/ExampleTests"], ["ExampleUITests"]))
                 self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    PR_CI = {"id": 500, "path": ".github/workflows/ci.yml", "event": "pull_request", "status": "completed",
+             "head_sha": HEAD, "created_at": "2026-09-25T00:00:00Z", "html_url": "https://x/runs/500",
+             "head_repository": {"full_name": "manaflow-ai/cmux"},
+             "referenced_workflows": [{"ref": "refs/pull/7/merge", "sha": MERGE}]}
+    PRODUCTS = [{"id": 7, "name": "app-host-products-v1-k-1", "expired": False}]
+    ADMISSION_26 = [{"name": "macos / macOS compile admission", "labels": ["glaeda-root-std-xcode-26.6"]}]
+
+    def ci_env(self, run=None, *, artifacts=PRODUCTS, jobs=ADMISSION_26, status="completed"):
+        return {
+            "LAUNCHER_CI_RUNS": json.dumps([run or self.PR_CI]),
+            "LAUNCHER_CI_ARTIFACTS": json.dumps(artifacts),
+            "LAUNCHER_CI_JOBS": json.dumps(jobs),
+            "LAUNCHER_CI_STATUS": status,
+        }
+
+    def test_a_ui_run_of_a_pull_request_head_tests_the_merge_ci_compiled(self):
+        result = self.launch("ExampleUITests", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], MERGE)
+        self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
+        self.assertEqual(self.dispatch()["record_video"], "true")
+
+    def test_a_ui_run_keeps_the_head_when_ci_compiled_it_directly(self):
+        push = {**self.PR_CI, "event": "push", "referenced_workflows": []}
+        result = self.launch("ExampleUITests", **self.ci_env(push))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotIn("the merge of", result.stdout)
+
+    def test_a_ui_run_ignores_products_it_could_not_adopt(self):
+        cases = {
+            "fork": {"run": {**self.PR_CI, "head_repository": {"full_name": "someone/cmux"}}},
+            "macos 15": {"jobs": [{"name": "macos / macOS compile admission", "labels": [OLD]}]},
+            "no products": {"artifacts": []},
+            "no recorded merge": {"run": {**self.PR_CI, "referenced_workflows": []}},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name):
+                result = self.launch("ExampleUITests", **self.ci_env(**overrides))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_a_ui_run_falls_back_to_the_head_when_ci_ends_without_products(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", **self.ci_env(building, artifacts=[], status="completed"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertIn(f"compiling {HEAD} instead", result.stderr)
+
+    def test_full_build_tests_the_head_of_a_pull_request(self):
+        result = self.launch("ExampleUITests", "--full-build", **self.ci_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
 
     def test_explicit_remote_ref_is_resolved_before_dispatch(self):
         result = self.launch("cmuxTests/ExampleTests/testOne", "--ref", "topic/fix")

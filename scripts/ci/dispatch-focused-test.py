@@ -614,10 +614,14 @@ def skips_macos(run_id: int) -> bool:
     )
 
 
-def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
-    """Wait for a building run's products, then plan against them."""
+def wait_for_products(producer: dict) -> bool:
+    """Wait for a building CI run to upload its app-host products.
+
+    True once they exist; False when the run ends without them, skips its
+    macOS compile, or has not produced them within PRODUCTS_WAIT_SECONDS.
+    """
     print(
-        f"{producer['url']} is already compiling {commit}; waiting for its app-host "
+        f"{producer['url']} is already compiling this revision; waiting for its app-host "
         "products instead of compiling them a second time.",
         flush=True,
     )
@@ -625,19 +629,79 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
     with cancellation_scope() as cancel_event:
         while True:
             if rerun.products_artifact(REPO, str(producer["id"]), rerun.gh_api):
-                return planned_products(commit, only_testing, str(producer["id"]))
+                return True
             state = rerun.gh_api(f"repos/{REPO}/actions/runs/{producer['id']}")
             if state.get("status") not in UNFINISHED:
                 print(f"note: {producer['url']} finished without app-host products", file=sys.stderr, flush=True)
-                return None
+                return False
             if skips_macos(producer["id"]):
                 print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
-                return None
+                return False
             if time.monotonic() > deadline:
                 print(f"note: {producer['url']} has not produced app-host products yet", file=sys.stderr, flush=True)
-                return None
+                return False
             if wait_for_retry(cancel_event, PRODUCTS_POLL_SECONDS):
                 raise ValueError("waiting for CI products cancelled")
+
+
+def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
+    """Wait for a building run's products, then plan against them."""
+    if not wait_for_products(producer):
+        return None
+    return planned_products(commit, only_testing, str(producer["id"]))
+
+
+def ui_product_source(commit: str) -> dict | None:
+    """The CI run whose app-host products a UI run of this commit can adopt.
+
+    Compile admission builds the `cmux` scheme for testing, so its product
+    already holds cmuxUITests-Runner.app and the UI xctestrun next to the app.
+    test-e2e.yml adopts it whenever the tested tree has the same product
+    inputs. A pull request run compiles `refs/pull/N/merge`, never the head, so
+    a UI dispatch of the head missed it and compiled the whole app again
+    (75 UI runs on 2026-09-25: 32 had such a product, 36 a CI run cancelled
+    before one). Testing that merge instead is what pull request CI tests.
+
+    Returns {"revision", "id", "url", "ready"}: the revision to dispatch, which
+    is the merge for a pull request run, and whether its products exist yet.
+    None when no in-repository CI run of this commit has or will have them.
+    Only a macOS 26 product is taken, the pools an unpinned E2E run lands on.
+    """
+    try:
+        listing = rerun.gh_api(f"repos/{REPO}/actions/runs?head_sha={commit}&per_page=50")
+        runs = sorted(listing.get("workflow_runs", []), key=lambda run: run.get("created_at", ""), reverse=True)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+    pending = None
+    for run in runs:
+        if (run.get("path") != CI_WORKFLOW_PATH
+                or run.get("event") not in ("push", "pull_request", "workflow_dispatch")
+                or str((run.get("head_repository") or {}).get("full_name", "")).casefold() != REPO.casefold()):
+            continue
+        try:
+            with chdir(ROOT):
+                built = rerun.built_revision(run)
+        except (KeyError, ValueError, subprocess.CalledProcessError):
+            continue
+        source = {"revision": built, "id": run["id"], "url": run.get("html_url", ""), "ready": False}
+        try:
+            if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
+                if macos_26_product(source):
+                    return {**source, "ready": True}
+                continue
+        except (subprocess.CalledProcessError, json.JSONDecodeError):
+            continue
+        if pending is None and run.get("status") in UNFINISHED:
+            pending = source
+    return pending
+
+
+def macos_26_product(source: dict) -> bool:
+    """Whether a CI run compiled its products where an unpinned E2E run can load them."""
+    try:
+        return rerun.product_runner(REPO, str(source["id"]), rerun.gh_api) == rerun.PRODUCT_RUNNERS["26"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return False
 
 
 def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None, wait: bool) -> int | None:
@@ -744,7 +808,8 @@ def main() -> int:
         "--full-build",
         action="store_true",
         help="compile the whole app even when CI already compiled this commit's app-host products; "
-        "without it, a cmuxTests run waits (up to 50 min) for a CI run still compiling this commit",
+        "without it, a run waits (up to 50 min) for a CI run still compiling this commit, and a UI "
+        "run of a pull request head tests the merge its CI compiled",
     )
     parser.add_argument(
         "--force",
@@ -798,6 +863,24 @@ def main() -> int:
         raise ValueError("GitHub did not resolve the requested revision to a full commit SHA")
     if args.ref is None and commit != requested_ref:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
+
+    # A UI run adopts the app-host product a CI run of this commit compiled,
+    # UI test bundle included; see ui_product_source(). For a pull request
+    # that means dispatching the merge CI built, so every guard below reads
+    # the revision actually dispatched.
+    head = commit
+    ui_source = None
+    if test_target == "cmuxUITests" and args.runner in (None, "auto") and not args.full_build:
+        ui_source = ui_product_source(commit)
+        if ui_source is not None:
+            commit = ui_source["revision"]
+            if commit != head:
+                print(
+                    f"Testing {commit}, the merge of {head} into its base that {ui_source['url']} "
+                    "compiled, so this run adopts CI's app and UI test bundle instead of compiling "
+                    "them. Pass --full-build to test the head itself.",
+                    flush=True,
+                )
 
     # Which pools this dispatch could land on. Empty means the answer could
     # not be established, and the in-flight guards below stay silent rather
@@ -893,6 +976,12 @@ def main() -> int:
         status = reuse_ci_products(commit, args.test_filter, args.workflow_ref, args.wait)
         if status is not None:
             return status
+
+    if ui_source is not None and not ui_source["ready"]:
+        if not (wait_for_products(ui_source) and macos_26_product(ui_source)):
+            if commit != head:
+                print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
+            commit = head
 
     runner = args.runner if pinned else routed_runner(default, test_target)
     dispatch_id = uuid.uuid4().hex
