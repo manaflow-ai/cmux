@@ -306,6 +306,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             registerForRemoteNotifications: { registrationRequests += 1 }
         )
         await coordinator.refreshReadiness()
+        #expect(registrationRequests == 1)
 
         await coordinator.handleDeviceTokenFailure()
 
@@ -319,7 +320,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
 
         coordinator.retryDeviceTokenRegistration()
-        #expect(registrationRequests == 1)
+        #expect(registrationRequests == 2)
 
         await coordinator.handleDeviceToken(Data(repeating: 0xCD, count: 32))
         #expect(coordinator.registrationSnapshot.backendState == .registered)
