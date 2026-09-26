@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// The last agent-journal event seen for one agent session.
 public struct AgentRecoveryJournalSession: Equatable, Sendable {

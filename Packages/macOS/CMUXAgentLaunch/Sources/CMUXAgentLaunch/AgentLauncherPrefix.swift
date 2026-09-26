@@ -1,4 +1,4 @@
-internal import Foundation
+import Foundation
 
 /// Derives the outer launcher that started an agent from its parent's argv.
 ///
