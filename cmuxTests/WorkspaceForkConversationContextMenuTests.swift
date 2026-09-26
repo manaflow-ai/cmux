@@ -2833,6 +2833,76 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeValidationSurvivesTheProbeRunningAFreshExecutable() async throws {
+        // The probe's first run of a just-written executable updates its
+        // access time, which Darwin reports as NOTE_ATTRIB on the watch the
+        // validation just installed. That must not discard the validation.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-probe-atime-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' 'pi 0.80.6'
+        """
+            .write(to: executable, atomically: false, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-atime-session",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "pi-atime-session"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        // Give the watch queue time to deliver the probe's access-time event.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil)
+    }
+
+    @Test
     func sharedForkProbeValidationInvalidatesWhenPathDirectorySymlinkRetargets() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
