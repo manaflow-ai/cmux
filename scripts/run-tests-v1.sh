@@ -34,9 +34,10 @@ if [ ! -d "$APP" ]; then
 fi
 
 cleanup() {
+  # Never touch the user's running stable app ("cmux", com.cmuxterm.app):
+  # killing it drops their live agent sessions.
   pkill -x "cmux DEV" || true
-  pkill -x "cmux" || true
-  rm -f /tmp/cmux*.sock || true
+  rm -f /tmp/cmux-debug*.sock || true
 }
 
 launch_and_wait() {

@@ -1228,6 +1228,10 @@ while [[ $# -gt 0 ]]; do
         echo "error: --bundle-id requires a value" >&2
         exit 1
       fi
+      if [[ "$BUNDLE_ID" == "com.cmuxterm.app" || "$BUNDLE_ID" == "com.cmuxterm.app.nightly" ]]; then
+        echo "error: --bundle-id $BUNDLE_ID is a shipped app's id; reload.sh would quit the user's running cmux" >&2
+        exit 1
+      fi
       BUNDLE_SET=1
       shift 2
       ;;
