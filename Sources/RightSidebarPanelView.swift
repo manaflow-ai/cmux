@@ -72,6 +72,7 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onRevealInCmux: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
@@ -433,6 +434,7 @@ struct RightSidebarPanelView: View {
                     store: fileExplorerStore,
                     state: fileExplorerState,
                     onOpenFilePreview: onOpenFilePreview,
+                    onRevealInCmux: onRevealInCmux,
                     presentation: .files
                 )
             case .find:
@@ -440,6 +442,7 @@ struct RightSidebarPanelView: View {
                     store: fileExplorerStore,
                     state: fileExplorerState,
                     onOpenFilePreview: onOpenFilePreview,
+                    onRevealInCmux: onRevealInCmux,
                     presentation: .find
                 )
             case .sessions:

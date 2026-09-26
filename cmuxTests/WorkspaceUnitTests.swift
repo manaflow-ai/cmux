@@ -4824,6 +4824,21 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 
+    func testRevealFileInCmuxSplitsIntoContainingDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(
+            workspace.revealFileInCmux(
+                filePath: "/tmp/cmux-reveal-project/.env",
+                sourcePanelId: sourcePanelId
+            )
+        )
+
+        let splitPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        XCTAssertEqual(splitPanel.requestedWorkingDirectory, "/tmp/cmux-reveal-project")
+    }
+
     func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
 #if DEBUG
         let workspace = Workspace()

@@ -1,11 +1,16 @@
 import Foundation
 
+enum FileExplorerExternalOpenAction {
+    case open(applicationURL: URL?)
+    case revealInCmux
+}
+
 final class FileExplorerExternalOpenRequest: NSObject {
     let fileURL: URL
-    let applicationURL: URL?
+    let action: FileExplorerExternalOpenAction
 
-    init(fileURL: URL, applicationURL: URL?) {
+    init(fileURL: URL, action: FileExplorerExternalOpenAction) {
         self.fileURL = fileURL
-        self.applicationURL = applicationURL
+        self.action = action
     }
 }
