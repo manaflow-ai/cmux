@@ -1,6 +1,714 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.localDataReset.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Erase All Data"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht alle Daten konnten gelöscht werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’effacer toutes les données"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح جميع البيانات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar todos los datos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法清除所有資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法清除所有数据"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 데이터를 지울 수 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデータを消去できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some cmux data on this device could not be erased. Try again. Your cmux account and server data were not changed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige cmux-Daten auf diesem Gerät konnten nicht gelöscht werden. Versuche es erneut. Dein cmux-Konto und die Serverdaten wurden nicht geändert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines données cmux de cet appareil n’ont pas pu être effacées. Réessayez. Votre compte cmux et les données des serveurs n’ont pas été modifiés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح بعض بيانات cmux على هذا الجهاز. حاول مرة أخرى. لم يتغير حسابك في cmux ولا بيانات الخادم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar algunos datos de cmux de este dispositivo. Inténtalo de nuevo. Tu cuenta de cmux y los datos del servidor no se modificaron."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置上的部分 cmux 資料無法清除。請再試一次。你的 cmux 帳號與伺服器資料未被變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上的部分 cmux 数据无法清除。请重试。你的 cmux 账户和服务器数据未被更改。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 일부 cmux 데이터를 지울 수 없습니다. 다시 시도하세요. cmux 계정과 서버 데이터는 변경되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの一部の cmux データを消去できませんでした。もう一度お試しください。cmux アカウントとサーバのデータは変更されていません。"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.failed.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase All Data on This Device"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Daten auf diesem Gerät löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer toutes les données de cet appareil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح جميع البيانات على هذا الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar todos los datos de este dispositivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除此裝置上的所有資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除此设备上的所有数据"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 데이터 지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべてのデータを消去"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التعيين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signs out and removes all cmux data stored on this device, including saved computers, keys, settings, and caches, so cmux starts like a new install. Your cmux account and the data stored in cmux, cmux Cloud, and on your computers are not deleted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldet dich ab und entfernt alle auf diesem Gerät gespeicherten cmux-Daten, einschließlich gespeicherter Computer, Schlüssel, Einstellungen und Caches, sodass cmux wie nach einer Neuinstallation startet. Dein cmux-Konto und die in cmux, cmux Cloud und auf deinen Computern gespeicherten Daten werden nicht gelöscht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous déconnecte et supprime toutes les données cmux stockées sur cet appareil, y compris les ordinateurs enregistrés, les clés, les réglages et les caches, pour que cmux démarre comme une nouvelle installation. Votre compte cmux et les données stockées dans cmux, cmux Cloud et sur vos ordinateurs ne sont pas supprimés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسجّل خروجك ويزيل جميع بيانات cmux المخزنة على هذا الجهاز، بما في ذلك أجهزة الكمبيوتر المحفوظة والمفاتيح والإعدادات وذاكرات التخزين المؤقت، ليبدأ cmux كأنه تثبيت جديد. لا يتم حذف حسابك في cmux ولا البيانات المخزنة في cmux وcmux Cloud وعلى أجهزة الكمبيوتر الخاصة بك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra la sesión y elimina todos los datos de cmux guardados en este dispositivo, incluidos los ordenadores guardados, las claves, los ajustes y las cachés, para que cmux se inicie como una instalación nueva. Tu cuenta de cmux y los datos guardados en cmux, cmux Cloud y en tus ordenadores no se eliminan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出並移除此裝置上儲存的所有 cmux 資料，包括已儲存的電腦、金鑰、設定與快取，讓 cmux 如同全新安裝般啟動。你的 cmux 帳號以及儲存在 cmux、cmux Cloud 和你電腦上的資料不會被刪除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录并移除此设备上存储的所有 cmux 数据，包括已保存的电脑、密钥、设置和缓存，让 cmux 像全新安装一样启动。你的 cmux 账户以及存储在 cmux、cmux Cloud 和你电脑上的数据不会被删除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃하고 저장된 컴퓨터, 키, 설정, 캐시를 포함해 이 기기에 저장된 모든 cmux 데이터를 제거하여 cmux가 새로 설치한 것처럼 시작됩니다. cmux 계정과 cmux, cmux Cloud 및 컴퓨터에 저장된 데이터는 삭제되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトし、保存済みのコンピュータ、キー、設定、キャッシュを含む、このデバイスに保存されたすべての cmux データを削除して、cmux を新規インストール時の状態で起動します。cmux アカウントと、cmux、cmux Cloud、コンピュータに保存されたデータは削除されません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase all cmux data on this device?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle cmux-Daten auf diesem Gerät löschen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer toutes les données cmux de cet appareil ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد مسح جميع بيانات cmux على هذا الجهاز؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Borrar todos los datos de cmux de este dispositivo?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除此裝置上的所有 cmux 資料嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除此设备上的所有 cmux 数据吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 cmux 데이터를 지우시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべての cmux データを消去しますか？"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You will be signed out, and saved computers, keys, settings, and caches will be removed from this device. This can’t be undone. Nothing is deleted from your cmux account or from cmux servers."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du wirst abgemeldet, und gespeicherte Computer, Schlüssel, Einstellungen und Caches werden von diesem Gerät entfernt. Dies kann nicht rückgängig gemacht werden. Aus deinem cmux-Konto und von den cmux-Servern wird nichts gelöscht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous serez déconnecté, et les ordinateurs enregistrés, les clés, les réglages et les caches seront supprimés de cet appareil. Cette action est irréversible. Rien n’est supprimé de votre compte cmux ni des serveurs cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم تسجيل خروجك، وستُزال أجهزة الكمبيوتر المحفوظة والمفاتيح والإعدادات وذاكرات التخزين المؤقت من هذا الجهاز. لا يمكن التراجع عن ذلك. لا يُحذف أي شيء من حسابك في cmux أو من خوادم cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cerrará tu sesión y se eliminarán de este dispositivo los ordenadores guardados, las claves, los ajustes y las cachés. Esta acción no se puede deshacer. No se elimina nada de tu cuenta de cmux ni de los servidores de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你將會登出，已儲存的電腦、金鑰、設定與快取將從此裝置移除。此操作無法復原。你的 cmux 帳號與 cmux 伺服器上的資料不會被刪除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你将退出登录，已保存的电脑、密钥、设置和缓存将从此设备移除。此操作无法撤销。你的 cmux 账户和 cmux 服务器上的数据不会被删除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃되며 저장된 컴퓨터, 키, 설정, 캐시가 이 기기에서 제거됩니다. 이 작업은 되돌릴 수 없습니다. cmux 계정이나 cmux 서버에서는 아무것도 삭제되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトされ、保存済みのコンピュータ、キー、設定、キャッシュがこのデバイスから削除されます。この操作は取り消せません。cmux アカウントや cmux サーバからは何も削除されません。"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.erasing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erasing cmux data on this device…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Daten auf diesem Gerät werden gelöscht …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacement des données cmux de cet appareil…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ مسح بيانات cmux على هذا الجهاز…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrando los datos de cmux de este dispositivo…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除此裝置上的 cmux 資料…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除此设备上的 cmux 数据…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 cmux 데이터를 지우는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの cmux データを消去しています…"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.finished.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Was Reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde zurückgesetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a été réinitialisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة تعيين cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se ha restablecido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 재설정됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をリセットしました"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.finished.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All cmux data on this device was erased. Your cmux account and server data were not changed. Close cmux from the App Switcher, then open it again to start fresh."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle cmux-Daten auf diesem Gerät wurden gelöscht. Dein cmux-Konto und die Serverdaten wurden nicht geändert. Schließe cmux im App-Umschalter und öffne es erneut, um neu zu beginnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les données cmux de cet appareil ont été effacées. Votre compte cmux et les données des serveurs n’ont pas été modifiés. Fermez cmux depuis le sélecteur d’apps, puis rouvrez-le pour repartir de zéro."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم مسح جميع بيانات cmux على هذا الجهاز. لم يتغير حسابك في cmux ولا بيانات الخادم. أغلق cmux من مبدّل التطبيقات، ثم افتحه مرة أخرى للبدء من جديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se borraron todos los datos de cmux de este dispositivo. Tu cuenta de cmux y los datos del servidor no se modificaron. Cierra cmux desde el selector de apps y vuelve a abrirlo para empezar de cero."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置上的所有 cmux 資料已清除。你的 cmux 帳號與伺服器資料未被變更。請從 App 切換器關閉 cmux，再重新開啟以全新開始。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上的所有 cmux 数据已清除。你的 cmux 账户和服务器数据未被更改。请从 App 切换器关闭 cmux，然后重新打开以全新开始。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 cmux 데이터가 지워졌습니다. cmux 계정과 서버 데이터는 변경되지 않았습니다. 앱 전환기에서 cmux를 닫은 다음 다시 열어 새로 시작하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべての cmux データを消去しました。cmux アカウントとサーバのデータは変更されていません。App スイッチャーで cmux を閉じてから、もう一度開くと最初から始まります。"
+          }
+        }
+      }
+    },
     "mobile.workspaces.empty.setupGuide": {
       "extractionState": "manual",
       "localizations": {
@@ -10450,55 +11158,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It's removed from all your devices. If it's still online, it reappears the next time it connects."
+            "value": "It removes this computer from your saved devices and revokes its current access. If the Mac is still signed in, it can restore access the next time cmux opens or returns to the foreground."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。"
+            "value": "保存済みのデバイスからこのコンピュータを削除し、現在のアクセスを取り消します。Macでサインインしたままの場合、cmuxを次に開くか、フォアグラウンドに戻したときにアクセスを復元できます。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es wurde von allen Ihren Geräten entfernt. Wenn es noch online ist, wird es bei der nächsten Verbindung wieder angezeigt."
+            "value": "Dieser Computer wird aus Ihren gespeicherten Geräten entfernt und sein aktueller Zugriff widerrufen. Wenn der Mac noch angemeldet ist, kann cmux den Zugriff wiederherstellen, sobald die App erneut geöffnet oder in den Vordergrund gebracht wird."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il est supprimé de tous vos appareils. S'il est toujours en ligne, il réapparaîtra lors de sa prochaine connexion."
+            "value": "Cet ordinateur sera supprimé de vos appareils enregistrés et son accès actuel sera révoqué. Si le Mac est toujours connecté, cmux peut rétablir l’accès à la prochaine ouverture ou lorsque l’app revient au premier plan."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتم إزالته من جميع أجهزتك. إذا كان لا يزال متصلاً بالإنترنت، فسيظهر مرة أخرى في المرة التالية التي يتصل فيها."
+            "value": "تتم إزالة هذا الكمبيوتر من أجهزتك المحفوظة وإلغاء وصوله الحالي. إذا ظل جهاز Mac مسجلاً للدخول، يمكن لـ cmux استعادة الوصول عند فتحه أو عودته إلى الواجهة في المرة التالية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se elimina de todos tus dispositivos. Si todavía está en línea, reaparece la próxima vez que se conecte."
+            "value": "Este ordenador se elimina de tus dispositivos guardados y se revoca su acceso actual. Si la sesión del Mac sigue iniciada, cmux puede restaurar el acceso la próxima vez que se abra o vuelva a primer plano."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "它已從您的所有設備中刪除。如果它仍然在線，它會在下次連接時重新出現。"
+            "value": "此電腦會從您儲存的裝置中移除，並撤銷目前的存取權。如果 Mac 仍保持登入狀態，cmux 會在下次開啟或回到前景時恢復存取權。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它已从您的所有设备中删除。如果它仍然在线，它会在下次连接时重新出现。"
+            "value": "此电脑会从您保存的设备中移除，并撤销当前访问权限。如果 Mac 仍保持登录状态，cmux 会在下次打开或回到前台时恢复访问权限。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 기기에서 삭제됩니다. 아직 온라인 상태라면 다음에 연결할 때 다시 나타납니다."
+            "value": "이 컴퓨터가 저장된 기기에서 제거되고 현재 접근 권한이 취소됩니다. Mac에 계속 로그인되어 있으면 cmux를 다음에 열거나 다시 전면으로 가져올 때 접근 권한을 복원할 수 있습니다."
           }
         }
       }
@@ -84062,6 +84770,65 @@
         }
       }
     },
+    "mobile.ios106PairingUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026年9月"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septembre 2026"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · سبتمبر 2026"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septiembre de 2026"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026년 9월"
+          }
+        }
+      }
+    },
     "mobile.connectionsUpdate.releaseLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -85484,55 +86251,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
+            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.5 (20260914204800)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.5 (20260914204800) をそのままご利用ください（または戻してください）。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses iPhone-Update spricht ein neues Verbindungsprotokoll und lässt sich nur mit einem aktualisierten Mac koppeln. Aktualisieren Sie cmux auf Ihrem Mac auf %@, bevor Sie eine Verbindung herstellen. Sie sind nicht bereit, Ihren Mac zu aktualisieren? Bleiben Sie bei cmux BETA TestFlight Version 1.0.4 (20260817224846) (oder kehren Sie zu ihr zurück), der letzten Version, die mit älteren Macs funktioniert."
+            "value": "Dieses iPhone-Update spricht ein neues Verbindungsprotokoll und lässt sich nur mit einem aktualisierten Mac koppeln. Aktualisieren Sie cmux auf Ihrem Mac auf %@, bevor Sie eine Verbindung herstellen. Sie sind nicht bereit, Ihren Mac zu aktualisieren? Bleiben Sie bei cmux BETA TestFlight Version 1.0.5 (20260914204800) (oder kehren Sie zu ihr zurück), der letzten Version, die mit älteren Macs funktioniert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette mise à jour de l'iPhone utilise un nouveau protocole de connexion et s'associe uniquement à un Mac mis à jour. Mettez à jour cmux sur votre Mac vers %@ avant de vous connecter. Pas prêt à mettre à jour votre Mac ? Restez sur (ou revenez à) cmux BETA TestFlight version 1.0.4 (20260817224846), la dernière version qui fonctionne avec les anciens Mac."
+            "value": "Cette mise à jour de l'iPhone utilise un nouveau protocole de connexion et s'associe uniquement à un Mac mis à jour. Mettez à jour cmux sur votre Mac vers %@ avant de vous connecter. Pas prêt à mettre à jour votre Mac ? Restez sur (ou revenez à) cmux BETA TestFlight version 1.0.5 (20260914204800), la dernière version qui fonctionne avec les anciens Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحدث تحديث iPhone هذا عن بروتوكول اتصال جديد ولا يقترن إلا بجهاز Mac محدث. قم بتحديث cmux على جهاز Mac الخاص بك إلى %@ قبل الاتصال. لست مستعدًا لتحديث جهاز Mac الخاص بك؟ استمر (أو ارجع إلى) إصدار cmux BETA TestFlight 1.0.4 (20260817224846)، الإصدار الأخير الذي يعمل مع أجهزة Mac الأقدم."
+            "value": "يتحدث تحديث iPhone هذا عن بروتوكول اتصال جديد ولا يقترن إلا بجهاز Mac محدث. قم بتحديث cmux على جهاز Mac الخاص بك إلى %@ قبل الاتصال. لست مستعدًا لتحديث جهاز Mac الخاص بك؟ استمر (أو ارجع إلى) إصدار cmux BETA TestFlight 1.0.5 (20260914204800)، الإصدار الأخير الذي يعمل مع أجهزة Mac الأقدم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta actualización de iPhone utiliza un nuevo protocolo de conexión y solo se empareja con una Mac actualizada. Actualice cmux en su Mac a %@ antes de conectarse. ¿No estás listo para actualizar tu Mac? Permanezca (o vuelva a) cmux BETA TestFlight versión 1.0.4 (20260817224846), la última versión que funciona con Mac más antiguas."
+            "value": "Esta actualización de iPhone utiliza un nuevo protocolo de conexión y solo se empareja con una Mac actualizada. Actualice cmux en su Mac a %@ antes de conectarse. ¿No estás listo para actualizar tu Mac? Permanezca (o vuelva a) cmux BETA TestFlight versión 1.0.5 (20260914204800), la última versión que funciona con Mac más antiguas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 iPhone 更新採用新的連接協議，並且僅與更新的 Mac 配對。在連接之前，將 Mac 上的 cmux 更新為 %@。還沒準備好更新您的 Mac？保留（或恢復到）cmux BETA TestFlight 版本 1.0.4 (20260817224846)，這是適用於舊版 Mac 的最後一個版本。"
+            "value": "此 iPhone 更新採用新的連接協議，並且僅與更新的 Mac 配對。在連接之前，將 Mac 上的 cmux 更新為 %@。還沒準備好更新您的 Mac？保留（或恢復到）cmux BETA TestFlight 版本 1.0.5 (20260914204800)，這是適用於舊版 Mac 的最後一個版本。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 iPhone 更新采用新的连接协议，并且仅与更新的 Mac 配对。连接之前，将 Mac 上的 cmux 更新为 %@。还没准备好更新您的 Mac？保留（或恢复到）cmux BETA TestFlight 版本 1.0.4 (20260817224846)，这是适用于旧版 Mac 的最后一个版本。"
+            "value": "此 iPhone 更新采用新的连接协议，并且仅与更新的 Mac 配对。连接之前，将 Mac 上的 cmux 更新为 %@。还没准备好更新您的 Mac？保留（或恢复到）cmux BETA TestFlight 版本 1.0.5 (20260914204800)，这是适用于旧版 Mac 的最后一个版本。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 iPhone 업데이트는 새로운 연결 프로토콜을 사용하며 업데이트된 Mac과만 페어링됩니다. 연결하기 전에 Mac의 cmux를 %@로 업데이트하세요. 아직 Mac을 업데이트할 준비가 되지 않으셨나요? 이전 Mac에서 작동하는 마지막 버전인 cmux BETA TestFlight 버전 1.0.4(20260817224846)를 유지하거나 이전 버전으로 되돌립니다."
+            "value": "이 iPhone 업데이트는 새로운 연결 프로토콜을 사용하며 업데이트된 Mac과만 페어링됩니다. 연결하기 전에 Mac의 cmux를 %@로 업데이트하세요. 아직 Mac을 업데이트할 준비가 되지 않으셨나요? 이전 Mac에서 작동하는 마지막 버전인 cmux BETA TestFlight 버전 1.0.5(20260914204800)를 유지하거나 이전 버전으로 되돌립니다."
           }
         }
       }
@@ -85602,55 +86369,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.5 (20260914204800)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+            "value": "まだの場合は、cmux BETA 1.0.5 (20260914204800) をそのままご利用ください（または戻してください）。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch nicht bereit? Bleiben Sie bei cmux BETA 1.0.4 (20260817224846) oder kehren Sie dorthin zurück."
+            "value": "Noch nicht bereit? Bleiben Sie bei cmux BETA 1.0.5 (20260914204800) oder kehren Sie dorthin zurück."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pas encore prêt ? Restez sur cmux BETA 1.0.4 (20260817224846) ou revenez-y."
+            "value": "Pas encore prêt ? Restez sur cmux BETA 1.0.5 (20260914204800) ou revenez-y."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لست مستعدًا بعد؟ ابقَ على cmux BETA 1.0.4 (20260817224846) أو ارجع إليه."
+            "value": "لست مستعدًا بعد؟ ابقَ على cmux BETA 1.0.5 (20260914204800) أو ارجع إليه."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Aún no? Quédate en cmux BETA 1.0.4 (20260817224846) o vuelve a esa versión."
+            "value": "¿Aún no? Quédate en cmux BETA 1.0.5 (20260914204800) o vuelve a esa versión."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒準備好？可以繼續使用（或還原至）cmux BETA 1.0.4 (20260817224846)。"
+            "value": "還沒準備好？可以繼續使用（或還原至）cmux BETA 1.0.5 (20260914204800)。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没准备好？可以继续使用（或还原至）cmux BETA 1.0.4 (20260817224846)。"
+            "value": "还没准备好？可以继续使用（或还原至）cmux BETA 1.0.5 (20260914204800)。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 준비되지 않았나요? cmux BETA 1.0.4 (20260817224846)를 계속 사용하거나 해당 버전으로 되돌리세요."
+            "value": "아직 준비되지 않았나요? cmux BETA 1.0.5 (20260914204800)를 계속 사용하거나 해당 버전으로 되돌리세요."
           }
         }
       }
@@ -86630,29 +87397,29 @@
     "mobile.push.connectionUnavailable.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Waiting for your Mac"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Mac を待機中"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Auf Ihren Mac warten"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "En attente de votre Mac"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "في انتظار جهاز Mac الخاص بك"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Esperando tu Mac"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待您的 Mac"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的 Mac"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 기다리는 중"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Connection unavailable"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続できません"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbindung nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connexion indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الاتصال غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Conexión no disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결할 수 없음"}}
       }
     },
     "mobile.push.connectionUnavailable.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "This notification will open when your Mac reconnects."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Mac が再接続すると、この通知が開きます。"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Diese Benachrichtigung wird geöffnet, sobald Ihr Mac wieder verbunden ist."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Cette notification s’ouvrira lorsque votre Mac se reconnectera."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "سيفتح هذا الإشعار عند إعادة اتصال جهاز Mac الخاص بك."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Esta notificación se abrirá cuando tu Mac vuelva a conectarse."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 重新連線後，這則通知會開啟。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 重新连接后，此通知会打开。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Mac이 다시 연결되면 이 알림이 열립니다."}}
+        "en": {"stringUnit": {"state": "translated", "value": "We’ll keep this notification ready until your Mac reconnects."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac が再接続するまで、この通知を準備しておきます。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wir halten diese Benachrichtigung bereit, bis Ihr Mac wieder verbunden ist."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Nous garderons cette notification prête jusqu’à la reconnexion de votre Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سنُبقي هذا الإشعار جاهزًا حتى يعاود جهاز Mac الاتصال."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantendremos esta notificación lista hasta que tu Mac se vuelva a conectar."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我們會保留此通知，直到 Mac 重新連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我们会保留此通知，直到 Mac 重新连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac이 다시 연결될 때까지 이 알림을 준비해 둡니다."}}
       }
     },
     "mobile.push.connectionUnavailable.retry": {
@@ -86672,15 +87439,15 @@
     "mobile.push.connectionUnavailable.cancel": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Dismiss"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "閉じる"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Schließen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Fermer"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "إغلاق"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Descartar"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "닫기"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "취소"}}
       }
     },
     "mobile.push.preview.ready": {

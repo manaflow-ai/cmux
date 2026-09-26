@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxCommandPalette
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

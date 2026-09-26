@@ -573,7 +573,8 @@ extension TerminalArtifactFilesSheet {
 
     private var galleryControls: some View {
         HorizontalEdgeFadePillBar(
-            contentInsets: UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 12),
+            contentInsets: UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 12),
+            fadesLeadingEdge: false,
             accessibilityIdentifier: "TerminalArtifactGalleryFilterScroller"
         ) {
             EmptyView()
@@ -610,7 +611,9 @@ extension TerminalArtifactFilesSheet {
             .equatable()
         }
         .frame(height: 34)
-        .padding(.horizontal, 16)
+        // Keep the resting inset inside the scroller so chips leave at the
+        // sheet boundary. Only the fixed sort control needs outer padding.
+        .padding(.trailing, 16)
         .padding(.vertical, 10)
     }
 

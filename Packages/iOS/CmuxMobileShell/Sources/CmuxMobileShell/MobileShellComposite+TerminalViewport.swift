@@ -312,7 +312,11 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux(
                     "terminal.output.viewport_resync surface=\(surfaceID) grid=\(effectiveGrid.columns)x\(effectiveGrid.rows)"
                 )
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    trigger: .viewportTransition,
+                    replayBarrierToken: replayBarrierToken
+                )
                 replayRequested = true
             } else if prearmedReplayBarrierToken == nil,
                       terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
@@ -326,7 +330,11 @@ extension MobileShellComposite {
                 // barrier's owed work.
                 let replayBarrierToken = beginTerminalReplayBarrierCarryingReplacedWork(surfaceID: surfaceID)
                 MobileDebugLog.anchormux("terminal.output.viewport_rearm_exhausted surface=\(surfaceID)")
-                requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+                requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    trigger: .viewportTransition,
+                    replayBarrierToken: replayBarrierToken
+                )
                 replayRequested = true
             } else {
                 replayRequested = finishPrearmedTerminalViewportBarrierWithoutResize(
@@ -515,7 +523,11 @@ extension MobileShellComposite {
            hasTerminalOutputSink(surfaceID: surfaceID),
            remoteClient != nil {
             MobileDebugLog.anchormux("terminal.output.viewport_replay_after_\(reason) surface=\(surfaceID)")
-            requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: token)
+            requestTerminalReplay(
+                surfaceID: surfaceID,
+                trigger: .viewportTransition,
+                replayBarrierToken: token
+            )
             return true
         }
         clearTerminalReplayBarrierIfCurrent(

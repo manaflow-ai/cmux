@@ -46,7 +46,7 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_TAG \
         CMUX_TERMINAL_LIFECYCLE_ID \
         CMUX_WORKSPACE_ID
-    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_HISTORY_FILE CMUX_PANEL_ID CMUX_SURFACE_ID
 
     function _cmux_tmux_sync_key_is_managed --argument-names candidate
         contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS

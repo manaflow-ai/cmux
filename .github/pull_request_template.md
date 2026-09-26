@@ -1,36 +1,31 @@
-<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+<!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
 
 ## Summary
 
-- What changed?
-- Why?
+<!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. -->
 
 ## Testing
 
-- How did you test this change?
-- What did you verify manually?
+<!--
+Say what ran, what passed, and what that establishes. Keep these apart:
+- Tests added vs. tests executed. Name the command or CI lane that ran them; a green job whose tests were skipped is not coverage.
+- Compiled vs. ran vs. checked live in a tagged build.
+- Anything still unverified, stated once, next to the claim it limits.
+The contributor verification ladder suggests the first useful check for each kind of change:
+https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md
+-->
 
 ## Demo Video
 
-For UI or behavior changes, include a short demo video (GitHub upload, Loom, or other direct link).
+For UI or behavior changes, include a short demo video or screenshots (GitHub upload, Loom, or other direct link).
 
 - Video URL or attachment:
 
-## Review Trigger (Copy/Paste as PR comment)
-
-```text
-@codex review
-@coderabbitai review
-@greptileai review
-@cubic-dev-ai review
-```
-
 ## Checklist
 
-- [ ] I tested the change locally
-- [ ] I added or updated tests for behavior changes
-- [ ] For iOS connectivity, auth, lifecycle, workspace or terminal changes, I updated the [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) or explained why existing coverage still applies, and recorded the affected workload result
-- [ ] I updated docs/changelog if needed
-- [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
-- [ ] All code review bot comments are resolved
-- [ ] All human review comments are resolved
+- [ ] Behavior changes have added or updated tests, or Testing says why not
+- [ ] UI, settings, menu, schema, help-text or user-facing docs change: [localization audited](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-localization/SKILL.md), and the result is stated above
+- [ ] New or changed v2 socket method allowlisted for `cmux ssh`: the [relay authorization questions](https://github.com/manaflow-ai/cmux/blob/main/CLAUDE.md#remote-cli-relay-authorization-ghsa-9vmv-3hjw-j28c) are answered above
+- [ ] iOS connectivity, auth, lifecycle, workspace action, terminal I/O or mobile RPC contract change: [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) updated, or explained why existing coverage still applies, with the affected workload result recorded
+- [ ] Docs and changelog updated if needed
+- [ ] Reviewed with a subagent before merge ([cmux-review](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-review/SKILL.md)), and all bot and human review comments resolved

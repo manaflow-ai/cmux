@@ -41,6 +41,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Folder the Open Folder panel starts in. Empty keeps the active
+    /// workspace's directory. Supports a leading `~`.
+    public let defaultWorkspacePath = DefaultsKey<String>(
+        id: "app.defaultWorkspacePath",
+        defaultValue: "",
+        userDefaultsKey: "defaultWorkspacePath"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,
@@ -83,6 +91,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.focusHistoryIncludesPanesAndTabs",
         defaultValue: false,
         userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
+    )
+
+    /// Whether creating a split rebalances the panes along the new split's
+    /// axis so they share the space evenly. Defaults to off, which keeps the
+    /// halve-the-source-pane behavior.
+    public let equalizeSplitsOnCreate = DefaultsKey<Bool>(
+        id: "app.equalizeSplitsOnCreate",
+        defaultValue: false,
+        userDefaultsKey: "equalizeSplitsOnCreate"
     )
 
     public let preferredEditor = DefaultsKey<String>(

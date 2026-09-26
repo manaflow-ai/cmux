@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 @MainActor
@@ -51,7 +54,7 @@ extension CmuxTuiSurfaceProvider {
         let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
         // The protocol has a native cwd field. A shell wrapper would load
         // another login profile before executing the requested terminal.
-        let argv = (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
+        let argv = (command?.isEmpty == false ? command : nil) ?? request.commandOverride ?? summary.defaultTerminalCommand
         let data = try await commands.runTuiCommand(arguments: CloudTuiRequests.runArguments(
             socketPath: connected.socketPath, workspaceID: workspaceID, command: argv,
             onExit: onExit, cwd: cwd, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument

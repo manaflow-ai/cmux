@@ -1,5 +1,7 @@
 import CMUXMobileCore
+import CmuxCloud
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 
@@ -17,6 +19,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    /// Unambiguous owners from the last accepted workspace mirror, keyed by canonical terminal ID.
+    private(set) var terminalWorkspaceIDs: [String: String] = [:]
     lazy var layoutSync = DeviceWorkspaceLayoutCoordinator(
         machine: machine, catalog: catalog,
         workspace: { Workspace.liveWorkspace(id: $0) },
@@ -55,6 +59,13 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         publish()
     }
 
+    /// The control plane issued a new directory revision; a link parked on
+    /// the other Mac's refusal retries once.
+    func directoryRevisionAdvanced() {
+        link.directoryRevisionAdvanced()
+        publish()
+    }
+
     func stop() {
         for task in restoreTasks.values { task.cancel() }
         restoreTasks.removeAll()
@@ -68,7 +79,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     var info: SurfaceMachineInfo {
         let state = Self.linkState(
-            record: record, phase: link.phase, lastFailure: link.lastFailure, needsAuthorization: link.needsAuthorization
+            record: record, phase: link.phase, lastFailure: link.lastFailure?.message, needsAuthorization: link.needsAuthorization
         )
         let workspaces = link.mirror.workspaces.hasState
             ? DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
@@ -117,17 +128,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             return (.connected, nil)
         case .connecting, .waiting:
             return (.connecting, lastFailure)
-        case .blocked(let reason):
-            return (.error, reason)
+        case .blocked(let failure):
+            return (.error, failure.message)
         case .idle:
             if record.routes.isEmpty {
                 return (.unavailable, String(localized: "devices.link.noRoutes", defaultValue: "This Mac has not published a route yet."))
             }
             if record.accountTrust == .unknown {
-                return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account\u{2026}"))
+                return (.unavailable, String(localized: "devices.link.ownerUnknown", defaultValue: "Waiting to confirm this Mac belongs to your account…"))
             }
             if needsAuthorization {
-                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
+                return (.unavailable, String(localized: "devices.link.needsAuthorization", defaultValue: "Pair this Mac in Settings › Mobile › Computers to connect."))
             }
             return (.unavailable, lastFailure)
         }
@@ -143,6 +154,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         layoutSync.connectionChanged()
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let records = link.mirror.workspaces.orderedRecords
+        var owners: [String: String] = [:]
+        var ambiguous = Set<String>()
+        for workspace in records {
+            for terminal in workspace.terminals {
+                let key = terminal.id.lowercased()
+                if let previous = owners[key], previous != workspace.id { ambiguous.insert(key) }
+                owners[key] = workspace.id
+            }
+        }
+        for key in ambiguous { owners[key] = nil }
+        terminalWorkspaceIDs = owners
         let resources = projection.resources(records, layouts: layoutSync.snapshots.mapValues(\.layout))
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }
@@ -205,7 +227,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     ) async throws -> SurfaceProjection {
         guard resource.kind == .terminal else {
             throw SurfaceCatalogError.unsupported(
-                String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can\u{2019}t be opened here yet.")
+                String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can’t be opened here yet.")
             )
         }
         guard link.isConnected else { throw DeviceLinkError.notConnected }
@@ -282,6 +304,11 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     func projectionDidEnd(_ projection: SurfaceProjection) {
         sessions.removeValue(forKey: projection.panelID)?.stop()
+    }
+
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        layoutSync.projectionDidEnd(projection, reason: reason)
+        projectionDidEnd(projection)
     }
 
     @discardableResult

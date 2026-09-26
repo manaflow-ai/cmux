@@ -32,19 +32,46 @@ from runner_label_policy import (  # noqa: E402
     _shell_local,
     drifted_runner_variables,
     forbidden_reason,
+    pool_order_reason,
 )
 
 
 class PolicyIsReadFromTheGuard(unittest.TestCase):
     def test_the_three_patterns_are_still_declared(self) -> None:
         body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
-        for name in ("fleet", "allowed", "selfhosted"):
+        for name in ("fleet", "allowed", "selfhosted", "owned"):
             with self.subTest(pattern=name):
                 self.assertTrue(_shell_local(body, name))
 
     def test_a_renamed_pattern_raises_instead_of_reporting_clean(self) -> None:
         with self.assertRaises(PolicyUnreadable):
             _shell_local("local something_else='x'\n", "fleet")
+
+    def test_an_unreadable_guard_file_or_bad_pattern_raises_policy_unreadable(self) -> None:
+        import tempfile
+
+        import runner_label_policy
+
+        good = GUARD_SCRIPT.read_text(encoding="utf-8")
+        cases = {
+            "missing": None,
+            "bad regex": good.replace("local fleet='", "local fleet='(", 1),
+            "not utf-8": good.encode("utf-8") + b"\xff\n",
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "guard.sh"
+                if isinstance(text, bytes):
+                    path.write_bytes(text)
+                elif text is not None:
+                    path.write_text(text, encoding="utf-8")
+                with mock.patch.object(runner_label_policy, "GUARD_SCRIPT", path):
+                    runner_label_policy._patterns.cache_clear()
+                    try:
+                        with self.assertRaises(PolicyUnreadable):
+                            forbidden_reason("warp-macos-26-arm64-12x")
+                    finally:
+                        runner_label_policy._patterns.cache_clear()
 
     def test_a_missing_guard_function_raises(self) -> None:
         with self.assertRaises(PolicyUnreadable):
@@ -163,6 +190,7 @@ class DriftReportingOverVariables(unittest.TestCase):
 
 
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -175,14 +203,83 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
+        # These hold runner names matched against runner.name, not a runs-on
+        # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
-            read |= set(
-                re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-            )
+            read |= {
+                name
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                if name not in NON_LABEL_RUNNER_VARIABLES
+            }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
-        self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
+        self.assertEqual(
+            missing,
+            set(),
+            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
+            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
+        )
+
+
+class SideLaneVariable(unittest.TestCase):
+    def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
+        # CI_SIDE_LANE_RUNNER is the picker-less side lanes' whole runs-on.
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "blacksmith-6vcpu-macos-26"}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-side-nonsense", "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_SIDE_LANE_RUNNER": label})],
+                    ["CI_SIDE_LANE_RUNNER"],
+                )
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_PR": "glaeda-side-std-xcode-26.6"}))
+
+
+class OwnedPoolLabels(unittest.TestCase):
+    OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
+
+    def test_no_runner_variable_may_hold_an_owned_label(self) -> None:
+        # MACOS_RUNNER_PR would send every lane, forks' fallbacks included, to
+        # the fleet; only the picker may hand one out.
+        for label in self.OWNED:
+            with self.subTest(label=label):
+                self.assertIsNotNone(forbidden_reason(label))
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"MACOS_RUNNER_PR": label})],
+                    ["MACOS_RUNNER_PR"],
+                )
+
+    def test_the_pool_order_may_name_owned_and_cloud_pools(self) -> None:
+        order = "glaeda-std-xcode-26.6, glaeda-light-xcode-26.6,blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-15"
+        self.assertIsNone(pool_order_reason(order))
+        self.assertIsNone(pool_order_reason(""))
+        self.assertEqual(drifted_runner_variables({"CI_PR_POOL_ORDER": order}), [])
+
+    def test_the_pool_order_cannot_smuggle_in_other_fleet_labels(self) -> None:
+        for bad in ("tart-canary", "warp-macos-26-arm64-12x", "self-hosted", "glaeda-mini-xcode-26.6", "cmux-macos-26"):
+            with self.subTest(label=bad):
+                reason = pool_order_reason(f"glaeda-std-xcode-26.6,{bad}")
+                self.assertIsNotNone(reason)
+                self.assertIn(bad, reason)
+
+    def test_case_does_not_hide_a_fleet_label(self) -> None:
+        # GitHub matches runner labels without regard to case.
+        for label in ("GLAEDA-std-xcode-26.6", "Glaeda-Light-Xcode-26.6", "Tart-Canary", "WARP-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertIsNotNone(forbidden_reason(label))
+        self.assertIn("lowercase", pool_order_reason("GLAEDA-std-xcode-26.6,blacksmith-6vcpu-macos-26"))
+        self.assertIsNone(forbidden_reason("blacksmith-6vcpu-macos-26"))
+
+    def test_the_guard_and_the_picker_agree_on_the_owned_shape(self) -> None:
+        import pr_runner_pool
+        import runner_label_policy
+
+        guard = runner_label_policy._owned_pattern()
+        for label in (*self.OWNED, "glaeda-std-xcode", "glaeda-mini-xcode-26.6", "blacksmith-6vcpu-macos-26", "glaeda-std-xcode-26.6.1"):
+            with self.subTest(label=label):
+                self.assertEqual(bool(guard.fullmatch(label)), pr_runner_pool.persistent(label))
 
 
 class TheReportParsesItsInput(unittest.TestCase):

@@ -767,7 +767,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var registration: CmuxVaultAgentRegistration? = nil
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
-    var permissionMode: String? = nil
+    var permissionMode: String? = nil; var hadActivePromptTurn: Bool? = nil
 
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -1967,10 +1967,10 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
-                    permissionMode: effectiveRecord.lastPermissionMode
+                    permissionMode: effectiveRecord.lastPermissionMode,
+                    hadActivePromptTurn: max(effectiveRecord.activePromptDepth ?? 0, effectiveRecord.activePromptTurnIds?.count ?? 0) > 0
                 )
-                let key = panelKey
-                let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let key = panelKey; let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
                 let recordedProcessIdentity: AgentPIDProcessIdentity? = {
@@ -3539,8 +3539,6 @@ struct DeferredAgentResumeRestore: Sendable {
     let restoresRemoteWorkspaceTerminalSnapshot: Bool
     /// The persistent-SSH owner captured for deferred admission, if any.
     let remoteResumeContext: SurfaceResumeRemoteContext?
-    /// Whether the resume command is embedded in the remote PTY attach script.
-    let remoteResumeCommandEmbedded: Bool
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
 
@@ -3555,7 +3553,6 @@ struct DeferredAgentResumeRestore: Sendable {
         resumeBinding: SurfaceResumeBindingSnapshot?,
         restoresRemoteWorkspaceTerminalSnapshot: Bool,
         remoteResumeContext: SurfaceResumeRemoteContext? = nil,
-        remoteResumeCommandEmbedded: Bool = false,
         workingDirectory: String?,
         resumeWorkingDirectory: String?
     ) {
@@ -3564,7 +3561,6 @@ struct DeferredAgentResumeRestore: Sendable {
         self.resumeBinding = resumeBinding
         self.restoresRemoteWorkspaceTerminalSnapshot = restoresRemoteWorkspaceTerminalSnapshot
         self.remoteResumeContext = remoteResumeContext
-        self.remoteResumeCommandEmbedded = remoteResumeCommandEmbedded
         self.workingDirectory = workingDirectory
         self.resumeWorkingDirectory = resumeWorkingDirectory
     }
@@ -3598,7 +3594,6 @@ struct DeferredAgentResumeRestore: Sendable {
             restoresRemoteWorkspaceTerminalSnapshot:
                 restoresRemoteWorkspaceTerminalSnapshot,
             remoteResumeContext: destinationContext,
-            remoteResumeCommandEmbedded: remoteResumeCommandEmbedded,
             workingDirectory: workingDirectory,
             resumeWorkingDirectory: resumeWorkingDirectory
         )

@@ -62,6 +62,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusDown`
 - `shortcuts.bindings.focusHistoryBack`
 - `shortcuts.bindings.focusHistoryForward`
+- `shortcuts.bindings.focusHistoryLast`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusNextPane`
 - `shortcuts.bindings.focusPreviousPane`
@@ -178,6 +179,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.fileExplorerOpenSelection`
 - `shortcuts.bindings.fileExplorerOpenSelectionFinderAlias`
 - `shortcuts.bindings.saveFilePreview`
+- `shortcuts.bindings.toggleFileEditorWordWrap`
 - `shortcuts.bindings.toggleFileExplorer`
 - `shortcuts.bindings.toggleReactGrab`
 

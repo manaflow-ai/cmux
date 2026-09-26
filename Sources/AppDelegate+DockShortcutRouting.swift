@@ -9,6 +9,7 @@ enum GhosttyGotoSplitRoute {
 }
 
 extension KeyboardShortcutSettings.Action {
+    /// Selects whether an action resolves through the Dock, responder, or main workspace.
     var dockShortcutRoutingDisposition:
         DockShortcutRoutingDisposition {
         switch self {
@@ -19,7 +20,7 @@ extension KeyboardShortcutSettings.Action {
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
-             .focusHistoryBack, .focusHistoryForward,
+             .focusHistoryBack, .focusHistoryForward, .focusHistoryLast,
              .renameTab,
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
@@ -46,6 +47,7 @@ extension KeyboardShortcutSettings.Action {
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias,
              .saveFilePreview,
+             .toggleFileEditorWordWrap,
              .browserBack, .browserForward,
              .browserReload, .browserHardReload,
              .browserZoomIn, .browserZoomOut, .browserZoomReset,

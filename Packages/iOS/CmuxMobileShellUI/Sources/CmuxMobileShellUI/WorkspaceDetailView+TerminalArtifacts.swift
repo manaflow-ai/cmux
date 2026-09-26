@@ -48,6 +48,7 @@ extension WorkspaceDetailView {
         terminalFolderTapEnabled: !isSSH && terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
+        useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
         sessionArtifactCountEnabled: !isSSH && store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         sshFilesChipEnabled: isSSH,

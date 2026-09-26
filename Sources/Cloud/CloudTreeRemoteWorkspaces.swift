@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What one cmux-tui workspace on a cloud machine holds, in the order the

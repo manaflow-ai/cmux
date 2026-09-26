@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "検出されたハーネス設定",
+    "selectionNotice": "プロバイダーを選択しても、これらのハーネスは起動または有効化されません。",
+    "selectProvider": "{provider}を選択",
+    "foundPath": "{path}を検出",
+    "foundCommand": "コマンド{command}を検出",
+    "installed": "プロバイダーはインストール済みです",
+    "missing": "プロバイダーはインストールされていません",
+    "install": "次でインストール: {command}",
+    "benefitPi": "圧縮、メモリ、プロバイダールーティング",
+    "benefitOpenagent": "OpenCode向けの並列スペシャリストと復旧",
+    "benefitClaude": "Claude Code向けのチームと検証",
+    "benefitSuperpowers": "計画、TDD、サブエージェント、レビュー"
+  },
   "coderouterAuth": {
     "title": "認証を受け取りました",
     "description": "ターミナルに戻ってセットアップを完了してください。"
@@ -136,6 +150,17 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM のセットアップを完了できませんでした",
+      "reason": "Cloud VM のゲストセットアップが完了しませんでした。",
+      "message": "cmux は Cloud VM のセットアップを完了できませんでした。",
+      "action": "操作を再試行してください。問題が続く場合はサポートにお問い合わせください。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM のクリーンアップが保留中です",
+      "message": "Cloud VM のセットアップに失敗し、クリーンアップがまだ完了していません。",
+      "action": "別のマシンを作成する前に、トレース ID を添えてサポートにお問い合わせください。"
+    },
     "artifactUnavailable": {
       "title": "Cloud VM のセットアップを利用できません",
       "message": "Cloud VM のセットアップを一時的に利用できません。",
@@ -389,6 +414,22 @@
       }
     },
     "coderouterAccounts": {
+      "transferAction": "移管",
+      "transferringAction": "移管中…",
+      "transferDialogTitle": "アカウントを別のチームに移管",
+      "transferChooseBody": "{account} を受け取るチームを選択してください。現在の所属は {source} です。",
+      "transferDestinationLabel": "移管先のチーム",
+      "continueAction": "続行",
+      "backAction": "戻る",
+      "transferConfirmTitle": "{account} を移管しますか？",
+      "transferConfirmBody": "{account} は {source} から {destination} に移ります。{source} の Cloud マシンとメンバーはすぐに使用できなくなります。{destination} でも現在の共有設定が維持されます。",
+      "transferConfirmAction": "アカウントを移管",
+      "transferSuccess": "{account} を {destination} に移管しました。",
+      "transferError": "このアカウントを移管できませんでした。もう一度お試しください。",
+      "transferForbiddenError": "そのチームにはアカウントを移管できなくなりました。",
+      "transferNotFoundError": "このアカウントはこのチームにありません。再読み込みして現在の所属を確認してください。",
+      "transferConflictError": "移管中にアカウントが変更されました。再読み込みしてもう一度お試しください。",
+      "transferUnavailableError": "移管は一時的に利用できないか、アカウントの更新中です。しばらくしてからもう一度お試しください。",
       "title": "アカウント",
       "description": "共有アカウントは、このチームの Cloud VM で利用できます。非公開のアカウントは、追加した本人だけが利用できます。",
       "accountsCount": "{count} 件のアカウント",
@@ -2414,6 +2455,10 @@
       "schemaDescriptions": {
         "root": "cmux の設定。グローバルな cmux.json では、アプリ設定、ショートカット、アクション、カスタムコマンド、通知フック、ワークスペースのレイアウトを設定できます。プロジェクトローカルの .cmux/cmux.json または cmux.json では、アクション、コマンド、通知フック、UI アクションの割り当て、Agent Chat の上書き、Vault エージェント、ワークスペースグループの上書き、ワークスペースの起動とボタンを設定できます。",
         "rightSidebar": "cmux.json に保持される、従来の右サイドバー設定および拡張機能が所有する右サイドバー設定。",
+        "packs": {
+          "description": "この設定より先に読み込むローカルの cmux パックファイルまたはディレクトリ。ディレクトリ内の cmux.pack.json を読み込みます。パス文字列、または path フィールドを持つオブジェクトを指定します。",
+          "path": "ローカルファイルまたはディレクトリのパス。絶対パス以外は、この設定ファイルからの相対パスです。"
+        },
         "computerUse": {
           "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
           "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
@@ -2450,6 +2495,7 @@
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
           "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
+          "devWindowDisplay": "新しいウィンドウを開くときに DEBUG ビルドでのみ使用するディスプレイ名です。空の値ではシステムのデフォルトを使用します。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
@@ -2661,6 +2707,7 @@
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z).",
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
       "chordsTitle": "ショートカットコード",
@@ -5739,5 +5786,15 @@
     "organization": "組織",
     "personalAccount": "個人アカウント",
     "switchAccountButton": "別のアカウントを使用"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 の新機能",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 接続の更新",
+    "connectionDetail": "このアップデートでは、新しい接続サービスと Iroh 通信を使用します。古い Mac ビルドは、接続するためにアップデートが必要です。",
+    "updateTitle": "Mac の cmux をアップデート",
+    "updateDetail": "cmux {stableVersion} 以降、または NIGHTLY {nightlyVersion} 以降が必要です。各 Mac の「設定」>「モバイル」で iOS ペアリングを有効にしてください。",
+    "rollbackTitle": "古い Mac ビルドを使い続ける場合",
+    "rollbackDetail": "利用可能な間は、TestFlight の「以前のビルド」から cmux BETA 1.0.5 ({rollbackBuild}) を使用してください。それ以降のビルドは新しい接続サービスを使用するため、このビルドを選んでください。"
   }
 }

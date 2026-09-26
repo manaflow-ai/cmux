@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -17,6 +19,11 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
     var beforeMaterialization: (() async throws -> Void)?
+    var materializeProjection: ((SurfaceResource, SurfaceRemoteView?, SurfaceDestination) throws -> SurfaceProjection)?
+    var onProjectionEnd: ((SurfaceProjection, SurfaceProjectionEndReason) -> Void)?
+    /// Mirrors a browser pane binding its Cloud resource while the provider
+    /// configures it, before the catalog operation that created the pane ends.
+    var registerDuringMaterialization: (@MainActor (SurfaceProjection) -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
     /// The daemon cursor a projection reply carries. The real reply always has one.
@@ -31,12 +38,15 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
 
     func refresh() async { refreshCount += 1 }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        try await materialize(resource, remoteView: nil, at: destination, focus: focus)
     }
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await beforeMaterialization?()
-        return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
-                          remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+        if let materializeProjection { return try materializeProjection(resource, remoteView, destination) }
+        let projection = SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+                                           remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+        registerDuringMaterialization?(projection)
+        return projection
     }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")
@@ -54,6 +64,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        onProjectionEnd?(projection, reason)
+    }
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
         try await beforeMutation?()

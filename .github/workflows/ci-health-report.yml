@@ -49,7 +49,7 @@ concurrency:
 jobs:
   report:
     name: Report CI health
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
@@ -85,7 +85,12 @@ jobs:
           # runner variable this list leaves out. The background lane carries
           # its fallback because test_ci_self_hosted_guard.sh requires it on
           # every read; `macos-15` is an approved label either way.
+          # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
+            CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
+            CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}

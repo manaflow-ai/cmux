@@ -74,13 +74,85 @@ def _shell_local(body: str, name: str) -> str:
 
 
 @cache
-def _patterns() -> tuple[str, str, str]:
-    body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
-    return (
-        _shell_local(body, "fleet"),
-        _shell_local(body, "allowed"),
-        _shell_local(body, "selfhosted"),
-    )
+def _patterns() -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
+    """The guard's fleet, allowed and self-hosted patterns, compiled.
+
+    A guard file that cannot be read or a pattern Python cannot compile raises
+    PolicyUnreadable like any other unreadable policy, so the report says so
+    instead of failing outright.
+    """
+    try:
+        body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as error:
+        raise PolicyUnreadable(f"{GUARD_SCRIPT.name} could not be read: {error}") from error
+    compiled = []
+    for name in ("fleet", "allowed", "selfhosted"):
+        try:
+            compiled.append(re.compile(f"({_shell_local(body, name)})"))
+        except re.error as error:
+            raise PolicyUnreadable(
+                f"{GUARD_SCRIPT.name} declares a `{name}` pattern Python cannot compile: {error}"
+            ) from error
+    return compiled[0], compiled[1], compiled[2]
+
+
+@cache
+def _owned_pattern() -> re.Pattern[str]:
+    """The guard's owned pool label shape (glaeda-std-xcode-26.6), compiled."""
+    try:
+        body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as error:
+        raise PolicyUnreadable(f"{GUARD_SCRIPT.name} could not be read: {error}") from error
+    try:
+        return re.compile(f"({_shell_local(body, 'owned')})")
+    except re.error as error:
+        raise PolicyUnreadable(
+            f"{GUARD_SCRIPT.name} declares an `owned` pattern Python cannot compile: {error}"
+        ) from error
+
+
+POOL_ORDER_VARIABLE = "CI_PR_POOL_ORDER"
+
+
+def pool_order_reason(order: str) -> str | None:
+    """Why CI_PR_POOL_ORDER is not allowed, or None when it is fine.
+
+    The one variable that may name an owned pool: scripts/ci/pr_runner_pool.py
+    reads it for same-repository pull request runs only, and drops owned labels
+    unless CI_PR_POOL_OWNED is 1. Every other entry is held to the workflow
+    policy, so the order cannot smuggle in a label the guard refuses.
+    """
+    for label in (entry.strip() for entry in order.split(",")):
+        if not label or _owned_pattern().fullmatch(label):
+            continue
+        if _owned_pattern().fullmatch(label.lower()):
+            # pr_runner_pool.py matches owned labels exactly, so this entry
+            # would turn the whole preference off instead of naming the pool.
+            return f"`{label}` is an owned pool label in the wrong case; write it in lowercase"
+        reason = forbidden_reason(label)
+        if reason is not None:
+            return f"`{label}` {reason}"
+    return None
+
+
+SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
+SIDE_LANE_PREFIX = "glaeda-side-"
+
+
+def side_lane_reason(label: str) -> str | None:
+    """Why CI_SIDE_LANE_RUNNER is not allowed, or None when it is fine.
+
+    The picker-less side lanes (ci-owned-pool-rescue.yml lists them) read this
+    variable as their whole runs-on, so it is the one runner variable that may
+    name an owned side label, glaeda-side-<class>-xcode-<version>: the side
+    runners a pool keeps beside its root runners. Anything else is held to the
+    workflow policy like every other runner variable.
+    """
+    if label.startswith(SIDE_LANE_PREFIX) and _owned_pattern().fullmatch(
+        "glaeda-" + label[len(SIDE_LANE_PREFIX):]
+    ):
+        return None
+    return forbidden_reason(label)
 
 
 def forbidden_reason(label: str) -> str | None:
@@ -94,13 +166,16 @@ def forbidden_reason(label: str) -> str | None:
     if not label:
         return None
     fleet, allowed, selfhosted = _patterns()
-    remainder = re.sub(f"({allowed})", "", label)
-    if re.search(f"({fleet})", remainder):
+    remainder = allowed.sub("", label)
+    # GitHub matches runner labels without regard to case, so the fleet and
+    # cloud patterns do too; the bare self-hosted labels are case-sensitive
+    # on purpose (`macOS`, not the `macos` inside cloud labels).
+    if fleet.search(allowed.sub("", label.lower())):
         return (
             "names the self-hosted fleet or a macOS image outside the approved "
             "cloud labels"
         )
-    if re.search(f"({selfhosted})", remainder):
+    if selfhosted.search(remainder):
         return "targets a self-hosted runner directly"
     return None
 
@@ -115,11 +190,16 @@ def drifted_runner_variables(
     """
     drifted = []
     for name, value in variables.items():
-        if "RUNNER" not in name:
-            continue
         if not isinstance(value, str):
             continue
-        reason = forbidden_reason(value.strip())
+        if name == POOL_ORDER_VARIABLE:
+            reason = pool_order_reason(value.strip())
+        elif name == SIDE_LANE_VARIABLE:
+            reason = side_lane_reason(value.strip())
+        elif "RUNNER" not in name:
+            continue
+        else:
+            reason = forbidden_reason(value.strip())
         if reason is not None:
             drifted.append((name, value.strip(), reason))
     return sorted(drifted)

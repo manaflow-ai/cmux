@@ -103,6 +103,20 @@ path = "tests/test_cmux_cua_helper_identity.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_drag_cursor_harness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_cua_drag_cursor.py"
+lane = "manual"
+reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
+
+[[test]]
+path = "tests/test_cmux_cua_divider_drags.py"
+lane = "manual"
+reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
+
+[[test]]
 path = "tests/test_hermes_wrapper_hooks.py"
 lane = "macos-cli-no-socket"
 
@@ -204,6 +218,10 @@ path = "tests/test_issue_9356_bash_shim_noclobber.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -260,6 +278,10 @@ requirements = ["cmux-cli"]
 path = "tests/test_pi_compacted_feed.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_extension_wakeup.py"
+lane = "macos-cli-no-socket-post-fish"
 
 [[test]]
 path = "tests/test_codex_permission_prompt_notification.py"
@@ -320,11 +342,11 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_replay_app_host_verdict.py"
+path = "tests/test_ci_package_bisect.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_app_host_guard_structure.py"
+path = "tests/test_ci_replay_app_host_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -341,6 +363,22 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_change_areas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_lane_in_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_delta_since_green.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reverse_test_impact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -372,6 +410,10 @@ path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -396,7 +438,7 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_persistent_mac_compile.py"
+path = "tests/test_ci_cli_product_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -408,11 +450,23 @@ path = "tests/test_ci_prune_xcode_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pull_request_caches_are_read_only.py"
+path = "tests/test_ci_owned_build_state.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_quality_guard_structure.py"
+path = "tests/test_ci_owned_pool_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_warm_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_runner_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
@@ -424,11 +478,15 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_required_checks_drift.py"
+path = "tests/test_ci_r2_cache_public_url.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_release_guard_structure.py"
+path = "tests/test_ci_macos_xcode_selection.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
 [[test]]
@@ -437,6 +495,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reload_build_cache_keys.py"
 lane = "linux-guard"
 
 [[test]]
@@ -544,6 +606,10 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lint_errno_in_test_assertions.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_stored_dispatch_work_items.py"
 lane = "linux-guard"
 
@@ -628,6 +694,14 @@ path = "tests/test_swift_testing_suite_timeout.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hung_test_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_run_with_timeout_process_tree.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_npm_package_artifact.py"
 lane = "linux-guard"
 
@@ -660,7 +734,15 @@ path = "tests/test_app_host_layered_products.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_host_test_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_ghostty_zig_workflows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
 [[test]]
@@ -669,6 +751,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_app_host_result_accounting.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_focused_test_selectors.py"
 lane = "linux-guard"
 
 [[test]]
@@ -706,10 +792,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ubuntu_apt_https.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
@@ -788,6 +870,10 @@ path = "tests/test_cli_version_memory_guard.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_version_memory_guard_harness.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_cli_vm_create_name.py"
 lane = "legacy"
 
@@ -816,6 +902,10 @@ path = "tests/test_cmux_settings_supported_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_settings_transactions.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_settings_configuration_review_paths.py"
 lane = "linux-guard"
 
@@ -825,10 +915,6 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_codex_wrapper_hook_append.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_current_cli_workflow.py"
 lane = "legacy"
 
 [[test]]
@@ -1077,7 +1163,11 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_tag_push.py"
+path = "tests/test_update_release_tag.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publication_marker.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1086,6 +1176,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verification_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_local.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1098,4 +1196,92 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_seed_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_seed_decide.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_video_recording.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_source_enumeration.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_git_hooks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_macos_info_plist.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_e2e_sibling_build.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_git_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_bisect.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_late_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_admission_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_catch_up_pr.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_run_guards.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_check_repo_variables.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"

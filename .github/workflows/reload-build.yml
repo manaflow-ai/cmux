@@ -4,10 +4,13 @@ name: reload-build
 #
 # scripts/reload-cloud.sh --builder blacksmith and scripts/reload-cloud-ios.sh
 # --builder blacksmith (in the cmuxterm-hq control repo) dispatch this workflow
-# against an ephemeral branch holding the caller's working tree, then download the
-# produced artifact and install it locally. This is the Blacksmith alternative to
-# SSH-leasing a fleet Mac. It is workflow_dispatch ONLY: nothing here runs on push
-# or pull_request, so it never adds to the heavy CI fan-out.
+# for an ephemeral branch holding the caller's working tree, then download the
+# produced artifact and install it locally. Dispatch on the default branch and
+# pass the ephemeral branch as `ref`: caches are scoped to the dispatch ref, so a
+# run dispatched on the ephemeral branch itself saves caches no later run reads.
+# This is the Blacksmith alternative to SSH-leasing a fleet Mac. It is
+# workflow_dispatch ONLY: nothing here runs on push or pull_request, so it never
+# adds to the heavy CI fan-out.
 
 on:
   workflow_dispatch:
@@ -78,7 +81,7 @@ jobs:
   build:
     needs: resolve-ref
     # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
-    runs-on: ${{ startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner) }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
@@ -191,28 +194,23 @@ jobs:
         if: ${{ inputs.platform == 'macos' }}
         id: cache_meta
         env:
-          SOURCE_REF: ${{ inputs.ref || github.ref_name }}
+          DISPATCH_REF: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          # actions/cache scopes entries to the run's dispatch ref: a run may
+          # restore entries saved on its own ref or the default branch, and
+          # nothing else. Say so when this run's save will be invisible to others.
+          if [ -n "${DEFAULT_BRANCH:-}" ] && [ "${DISPATCH_REF:-}" != "$DEFAULT_BRANCH" ]; then
+            echo "::notice::Dispatched on '${DISPATCH_REF}', not '${DEFAULT_BRANCH}': this run restores ${DEFAULT_BRANCH}-scoped caches, but the caches it saves are visible only to later dispatches on '${DISPATCH_REF}'. Dispatch on ${DEFAULT_BRANCH} with -f ref=<branch> to share them."
+          fi
           xcode_version="$(xcodebuild -version | awk 'NR == 1 { print $2 }')"
           xcode_build="$(xcodebuild -version | awk 'NR == 2 { print $3 }')"
           xcode_key="$(printf 'xcode-%s-%s' "$xcode_version" "$xcode_build" | tr -c 'A-Za-z0-9._-' '-')"
 
-          branch_name="${SOURCE_REF#refs/heads/}"
-          branch_name="${branch_name#refs/tags/}"
-          if [ -z "$branch_name" ]; then
-            branch_name="$(git branch --show-current)"
-          fi
-          if [ -z "$branch_name" ]; then
-            branch_name="detached"
-          fi
-          branch_slug="$(printf '%s' "$branch_name" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
-          branch_digest="$(printf '%s' "$branch_name" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
-          if [ "$branch_name" = "main" ]; then
-            branch_key="main"
-          else
-            branch_key="${branch_slug:0:48}-${branch_digest}"
-          fi
+          # Key on the resolved commit, never on the `ref` text. A short SHA, a
+          # full SHA, and a branch name for one commit must share an entry, and
+          # reload-cloud's per-call ephemeral branches must not strand theirs.
           # Xcode's SourcePackages workspace state and DerivedData build
           # database contain absolute checkout paths. Keep exact-state caches
           # tied to the path contract; a different runner workspace must cold
@@ -247,11 +245,10 @@ jobs:
             spm_key=""
             spm_source_prefix=""
           fi
-          derived_data_key_base="${derived_prefix}${branch_key}-${source_sha}"
+          derived_data_key_base="${derived_prefix}commit-${source_sha}"
 
           {
             echo "xcode_key=$xcode_key"
-            echo "branch_key=$branch_key"
             echo "workspace_key=$workspace_key"
             echo "runner_key=$runner_key"
             echo "source_sha=$source_sha"
@@ -260,11 +257,17 @@ jobs:
             echo "spm_key_base=$spm_key_base"
             echo "spm_key=$spm_key"
             echo "spm_source_prefix=$spm_source_prefix"
+            # Any Package.resolved: a fallback hit is sanitized before use and
+            # Xcode re-resolves only the packages that changed.
+            echo "spm_fallback_prefix=$spm_prefix"
             echo "derived_data_key_base=$derived_data_key_base"
             echo "derived_data_key=${derived_data_key_base}-run-${cache_run_key}"
             echo "derived_data_source_prefix=${derived_data_key_base}-run-"
-            echo "derived_data_branch_prefix=${derived_prefix}${branch_key}-"
-            echo "derived_data_main_prefix=${derived_prefix}main-"
+            # Newest entry from any commit or branch with the same Xcode, runner
+            # OS/arch, and checkout path. Safe to adopt: tracked-source mtimes are
+            # derived from blob ids below, so every file that differs from the
+            # cached build recompiles, and a cached build failure retries cold.
+            echo "derived_data_fallback_prefix=${derived_prefix}"
           } >> "$GITHUB_OUTPUT"
 
       # The verified prebuilt is the happy path for both platforms. Zig is
@@ -333,7 +336,9 @@ jobs:
         with:
           path: .ci-source-packages
           key: ${{ steps.cache_meta.outputs.spm_key }}
-          restore-keys: ${{ steps.cache_meta.outputs.spm_source_prefix }}
+          restore-keys: |
+            ${{ steps.cache_meta.outputs.spm_source_prefix }}
+            ${{ steps.cache_meta.outputs.spm_fallback_prefix }}
 
       - name: Finish SPM cache restore
         if: ${{ always() && inputs.platform == 'macos' }}
@@ -434,8 +439,7 @@ jobs:
           key: ${{ steps.cache_meta.outputs.derived_data_key }}
           restore-keys: |
             ${{ steps.cache_meta.outputs.derived_data_source_prefix }}
-            ${{ steps.cache_meta.outputs.derived_data_branch_prefix }}
-            ${{ steps.cache_meta.outputs.derived_data_main_prefix }}
+            ${{ steps.cache_meta.outputs.derived_data_fallback_prefix }}
 
       - name: Finish DerivedData cache restore
         if: ${{ always() && inputs.platform == 'macos' }}
@@ -851,7 +855,7 @@ jobs:
           ZIG_INSTALL_SECONDS: ${{ steps.zig_fallback.outputs.seconds || '0' }}
           GHOSTTYKIT_FALLBACK_SECONDS: ${{ steps.ghosttykit_fallback.outputs.seconds || '0' }}
           CACHE_XCODE_KEY: ${{ steps.cache_meta.outputs.xcode_key }}
-          CACHE_BRANCH_KEY: ${{ steps.cache_meta.outputs.branch_key }}
+          CACHE_SCOPE_REF: ${{ github.ref_name }}
           CACHE_WORKSPACE_KEY: ${{ steps.cache_meta.outputs.workspace_key }}
           CACHE_RUNNER_KEY: ${{ steps.cache_meta.outputs.runner_key }}
           SPM_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.spm_key }}
@@ -910,7 +914,7 @@ jobs:
               "zig_install_seconds": integer("ZIG_INSTALL_SECONDS"),
               "ghosttykit_fallback_seconds": integer("GHOSTTYKIT_FALLBACK_SECONDS"),
               "cache_xcode_key": os.environ.get("CACHE_XCODE_KEY", ""),
-              "cache_branch_key": os.environ.get("CACHE_BRANCH_KEY", ""),
+              "cache_scope_ref": os.environ.get("CACHE_SCOPE_REF", ""),
               "cache_workspace_key": os.environ.get("CACHE_WORKSPACE_KEY", ""),
               "cache_runner_key": os.environ.get("CACHE_RUNNER_KEY", ""),
               "spm_cache_primary_key": os.environ.get("SPM_CACHE_PRIMARY_KEY", ""),

@@ -112,6 +112,7 @@ extension V2ControlService {
         }
         try assertCurrent(run)
         cache.authorityRevoked = false
+        cache.authorityRevocationRecoverable = nil
         if cache.device?.descriptor.metadata != descriptor.metadata {
             do { try await updateMetadata(descriptor.metadata) }
             catch { record(mapFailure(error), schema: "device.metadata.v1") }
@@ -148,6 +149,9 @@ extension V2ControlService {
     }
 
     private func enroll(challenge: V2Challenge, run: UUID) async throws {
+        // The server has authorized this signed enrollment. Only this exchange
+        // may finish while the old cache is revoked, and a new revocation wins.
+        let recoveryGeneration = authorityRevocationGeneration
         let signature = try await dependencies.sign(codec.enrollment(device: descriptor, challenge: challenge))
         try assertCurrent(run)
         let request = V2RegisterRequest(
@@ -155,7 +159,7 @@ extension V2ControlService {
             requestID: UUID().uuidString.lowercased(), schemaID: .deviceRegisterV1,
             signature: codec.base64URL(signature)
         )
-        let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2RegisteredResponse.self, run: run)
+        let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2RegisteredResponse.self, run: run, recoveryGeneration: recoveryGeneration)
         try assertCurrent(run)
         try acceptDevice(response.device)
     }
@@ -195,8 +199,8 @@ extension V2ControlService {
                     let change = try JSONDecoder().decode(V2RevokedResponse.self, from: data)
                     guard change.teamID == descriptor.identity.teamID else { throw V2ControlFailure.scopeMismatch }
                     applyRevocation(change)
-                    publish()
                     try await persist(run: run)
+                    publish()
                     if cache.authorityRevoked {
                         throw V2ControlFailure.server(V2ErrorResponse(code: .deviceRevoked, requestID: "revocation", retryable: false, retryAfterMS: nil, schemaID: .errorV1))
                     }
@@ -243,21 +247,26 @@ extension V2ControlService {
     }
 
     private func applyRevocation(_ revoked: V2RevokedResponse) {
-        if revoked.deviceRecordID == cache.device?.deviceRecordID { revokeAuthority(); return }
+        if revoked.deviceRecordID == cache.device?.deviceRecordID {
+            revokeAuthority(recoverable: revoked.recoverable == true)
+            return
+        }
         if let directory = cache.directory {
             cache.directory = V2Directory(
                 devices: directory.devices.filter { $0.deviceRecordID != revoked.deviceRecordID },
                 inboundPeers: directory.inboundPeers?.filter { $0.device.deviceRecordID != revoked.deviceRecordID },
                 issuedAt: directory.issuedAt, nextCursor: directory.nextCursor,
                 permissionExpiresAt: directory.permissionExpiresAt, relayURLs: directory.relayURLs,
-                revision: max(directory.revision, revoked.revision), teamID: directory.teamID
+                revision: max(directory.revision, revoked.revision), rules: directory.rules, teamID: directory.teamID
             )
         }
         wantedDirectoryRevision = max(wantedDirectoryRevision, revoked.revision)
     }
 
-    func revokeAuthority() {
+    func revokeAuthority(recoverable: Bool? = nil) {
+        authorityRevocationGeneration &+= 1
         cache.authorityRevoked = true
+        cache.authorityRevocationRecoverable = recoverable
         cache.ticket = nil
         cache.relayCredentials = []
         cache.directory = nil

@@ -77,7 +77,10 @@ examples.
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
-(`tabs[i].id` is the panel behind the tab, not interchangeable).
+(`tabs[i].id` is the stable panel identity, not interchangeable).
+For remote tmux tabs, `surfaceId` targets the window's active pane and can
+change when another pane becomes active. It is absent until the pane is ready.
+Pass the containing workspace's `id` as `workspace_id` to focus across workspaces.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -301,7 +304,17 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  session, oldest first; omitted when none). Each `children[k]` has `id`
+  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
+  when available it adds `label` and `endedEpoch` (set when the child
+  settles; settled children are pruned after a short retention). Headless
+  OMP/Pi subagents run inside the parent's process, so they appear here via
+  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
+  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes it by `agent_id` (or the oldest running child when the
+  id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -438,8 +451,10 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
             for i in 0..<workspaces.count {
                 if workspaces[i].selected {
                     for j in 0..<workspaces[i].tabs.count {
-                        Button(action: { cmux("surface.focus", surface_id: workspaces[i].tabs[j].id) }) {
-                            HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                        if let surfaceId = workspaces[i].tabs[j].surfaceId {
+                            Button(action: { cmux("surface.focus", surface_id: surfaceId, workspace_id: workspaces[i].id) }) {
+                                HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                            }
                         }
                     }
                 }

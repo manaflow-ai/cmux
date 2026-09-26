@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -18,13 +19,48 @@ IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v2"
 MACOS_ADMISSION_JOB = "macos-compile-admission"
 E2E_BUILD_JOB = "build"
 
+# A product profile is the set of schemes one producer builds. The app-host
+# profile carries the whole app; the cli profile carries only what the host-free
+# CLI lane consumes -- the cmux-cli product and its test bundle.
+#
+# This is the single source of truth. compile-app-host-test-product.sh asks for
+# the scheme list rather than repeating it: if the built schemes and the
+# identity ever disagree, a partial product reuses under a full product's key
+# and a consumer silently tests something that was never built.
+PRODUCT_PROFILES = {
+    # The app/UI scheme builds first so its warning log keeps the runtime
+    # job's warning-budget scope; later schemes reuse the same app objects.
+    # cmux-unit supplies both ordinary app-host tests and the serialized
+    # numeric-locale gate (app_host_test_products.OUTPUT_ALIASES); the two
+    # schemes' product contracts are kept equivalent by
+    # tests/test_app_host_test_products.py, so cmux-numeric-locale is not
+    # built a third time.
+    "app-host": ("cmux", "cmux-unit", "cmux-cli-tests"),
+    "cli": ("cmux-cli-tests",),
+}
+DEFAULT_PRODUCT_PROFILE = "app-host"
+
+
+def resolve_profile(name: str | None = None) -> str:
+    """Name the product profile, defaulting to the full app-host product."""
+    resolved = name or os.environ.get("CMUX_PRODUCT_PROFILE") or DEFAULT_PRODUCT_PROFILE
+    if resolved not in PRODUCT_PROFILES:
+        raise SystemExit(
+            f"unknown product profile {resolved!r}; "
+            f"expected one of {', '.join(sorted(PRODUCT_PROFILES))}"
+        )
+    return resolved
+
+
+def profile_schemes(name: str | None = None) -> tuple[str, ...]:
+    return PRODUCT_PROFILES[resolve_profile(name)]
+
 # These checked-in CI helpers can change the actual product or its relocation
 # contract. Other scripts/ci files are admission/control-plane implementation,
 # not product bytes.
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
-    "scripts/ci/e2e_warm_derived_data.py",
     "scripts/ci/canonical-build-root.sh",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
@@ -35,6 +71,29 @@ PRODUCT_CI_INPUTS = frozenset({
 # bundle as bin/cmux-paste-text-worker, which cmuxTests loads and executes.
 # Changing it changes product bytes, so it has to invalidate reuse.
 PRODUCT_WORKER_PREFIXES = ("workers/cmux-paste-text/",)
+
+# Developer and maintenance tooling that neither the Xcode build nor any macOS
+# CI lane reads: no build phase, compile helper, bundled-resource script, or
+# ci-macos.yml / test-e2e.yml step names them, and no native test executes
+# them. agent-chat/ is the standalone chat server a user starts with cmux-chat;
+# the app only connects to it. Each keeps its own Linux guard. Keep this exact:
+# scripts/ also holds the build phases' helpers, which must stay product inputs.
+NON_PRODUCT_TOOLING_PREFIXES = (
+    ".claude/",
+    "agent-chat/",
+    "scripts/git-hooks/",
+)
+NON_PRODUCT_TOOLING = frozenset({
+    "scripts/benchmark-dev-fleet-warm-slots.py",
+    "scripts/check-pbxproj-group-membership.py",
+    "scripts/check-pbxproj.sh",
+    "scripts/check-test-determinism.py",
+    "scripts/dev-fleet-warm-slot.py",
+    "scripts/install-git-hooks.sh",
+    "scripts/merge-xcstrings.py",
+    "scripts/normalize-pbxproj.py",
+    "scripts/prune_nightly_release_assets.py",
+})
 
 REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
@@ -50,10 +109,22 @@ E2E_REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
 })
 
 NON_PRODUCT_JOB_ENV_KEYS = frozenset({
+    # Where an owned Mac keeps its build state between jobs (owned_build_state.py).
+    "CMUX_OWNED_STATE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES",
     "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS",
     "CMUX_PRODUCT_RUNNER",
+    # Read only by the changed-suites steps that test the finished product.
+    "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+    "CMUX_APP_HOST_SHARD",
+    "CMUX_APP_HOST_UNIT_SELECTORS",
+    "CMUX_APP_HOST_CAPTURE_XCRESULTS",
+    "CMUX_UNIT_TEST_TIMEOUT_SECONDS",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS",
+    "SWIFT_BACKTRACE",
 })
 
 IGNORED_JOB_LEVEL_KEYS = frozenset({
@@ -77,16 +148,33 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Diagnose checkout network failure",
     "Record hosted source preparation",
     "Measure hosted queue-to-start",
+    # Picks the root the product is compiled at, which the product contract
+    # keys as build_location; the recipe steps read it from the environment.
+    "Choose this job's canonical build root",
     "Identify reusable compiled products",
     "Reuse exact compatible compiled products",
     "Record compiled-product reuse metrics",
-    "Observe persistent Mac compile candidate",
-    "Download persistent Mac compile product",
-    "Revalidate persistent Mac compile product",
     "Cache GhosttyKit.xcframework",
     "Cache Swift packages",
     "Compute test compilation cache key",
     "Restore test compilation cache",
+    # Like the compilation cache, a seed DerivedData decides how much is
+    # rebuilt, never what the product is: Xcode rebuilds every input that
+    # differs from the seed, and replay only ages byte-identical files.
+    "Start the DerivedData seed download",
+    "Adopt the nightly DerivedData seed",
+    "Forget the adopted-build inode override",
+    # An owned Mac's kept DerivedData and packages decide how much is rebuilt
+    # and fetched, like the seed above, never what the product is.
+    "Reuse this owned Mac's build state",
+    "Prefer a near seed over this owned Mac's DerivedData",
+    "Adopt this owned Mac's DerivedData",
+    "Record this owned Mac's build inputs",
+    "Keep this owned Mac's DerivedData",
+    "Keep this owned Mac's build state",
+    # What the kept DerivedData starts from, for the warm runner labels.
+    "List the commits this owned Mac starts from warm",
+    "Upload the owned Mac's warm keys",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",
@@ -95,6 +183,20 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Record compile admission metrics",
     "Upload compile admission metrics",
     "Seed node-local compiled product cache",
+    "Report evidence collection outcomes",
+    # A changed-suites run tests the product after it is packaged and
+    # uploaded; nothing here can change its bytes.
+    "Prepare isolated DerivedData",
+    "Restore compiled app-host test product",
+    "Prepare isolated app-host home",
+    "Enumerate built app-host tests",
+    "Upload built app-host test inventory",
+    "Enable XCTest automation mode",
+    "Run changed app-host suites",
+    "Report a changed-suites failure apart from the compile",
+    "Collect app-host failure diagnostics",
+    "Upload app-host failure diagnostics",
+    "Clean up isolated app-host home",
 })
 
 
@@ -115,6 +217,8 @@ def reaches_product(path: str) -> bool:
     if path.startswith(PRODUCT_WORKER_PREFIXES):
         return True
     if path.startswith("scripts/ci/"):
+        return False
+    if path in NON_PRODUCT_TOOLING or path.startswith(NON_PRODUCT_TOOLING_PREFIXES):
         return False
     if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/", "cmux-browser/", "daemon/remote/")):
         return False
@@ -398,19 +502,49 @@ def identity_from_tree_lines(
     tree_lines: Iterable[str],
     workflow: str,
     e2e_workflow: Optional[str] = None,
+    *,
+    profile: str | None = None,
 ) -> dict[str, str]:
+    tree_lines = list(tree_lines)
+    resolved = resolve_profile(profile)
     value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
         "source": source_fingerprint(tree_lines),
         "recipe": recipe_fingerprint(workflow),
+        # Two profiles over one revision build different products. Keeping the
+        # profile out of the identity would let the cli product answer an
+        # app-host consumer's cache lookup.
+        "profile": resolved,
+        "schemes": " ".join(PRODUCT_PROFILES[resolved]),
     }
     if e2e_workflow is not None:
-        value["e2e_recipe"] = e2e_recipe_fingerprint(e2e_workflow)
+        value["e2e_recipe"] = e2e_identity_fingerprint(e2e_workflow, tree_lines)
     return value
 
 
-def local_identity(revision: str = "HEAD") -> dict[str, str]:
+_CI_HELPER_REFERENCE_RE = re.compile(r"scripts/ci/[A-Za-z0-9_.-]+")
+
+
+def e2e_identity_fingerprint(workflow: str, tree_lines: Iterable[str]) -> str:
+    """The E2E recipe plus the content of every scripts/ci file its build job names.
+
+    reaches_product() keeps scripts/ci out of the shared source fingerprint,
+    so an E2E-only helper would otherwise
+    change E2E products without changing their key. Deriving the list from the
+    job, rather than naming helpers here, keeps them out of the macOS identity.
+    """
+    helpers = set(_CI_HELPER_REFERENCE_RE.findall(_job_block(workflow, E2E_BUILD_JOB)))
+    helper_lines = sorted(line for line in tree_lines if line.rpartition("\t")[2] in helpers)
+    raw = json.dumps(
+        {"recipe": e2e_recipe_fingerprint(workflow), "helpers": helper_lines},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def local_identity(revision: str = "HEAD", profile: str | None = None) -> dict[str, str]:
     tree_lines = subprocess.check_output(
         ["git", "-c", "core.quotepath=off", "ls-tree", "-r", revision],
         text=True,
@@ -423,14 +557,25 @@ def local_identity(revision: str = "HEAD") -> dict[str, str]:
         ["git", "show", f"{revision}:{E2E_WORKFLOW}"],
         text=True,
     )
-    return identity_from_tree_lines(tree_lines, workflow, e2e_workflow)
+    return identity_from_tree_lines(tree_lines, workflow, e2e_workflow, profile=profile)
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", default="HEAD")
+    parser.add_argument("--profile", default=None)
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("identity", "schemes"),
+        default="identity",
+        help="`schemes` prints the profile's scheme list for the build script.",
+    )
     args = parser.parse_args(argv)
-    print(json.dumps(local_identity(args.revision), sort_keys=True))
+    if args.command == "schemes":
+        print(" ".join(profile_schemes(args.profile)))
+        return 0
+    print(json.dumps(local_identity(args.revision, args.profile), sort_keys=True))
     return 0
 
 

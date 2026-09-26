@@ -33,6 +33,36 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "packs": {
+      "title": "packs",
+      "descriptionKey": "schemaDescriptions.packs.description",
+      "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+",
+                "descriptionKey": "schemaDescriptions.packs.path",
+                "description": "Local file or directory path, relative to this configuration file unless absolute."
+              }
+            }
+          }
+        ]
+      },
+      "default": []
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
@@ -441,6 +471,12 @@
           "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
           "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
         },
+        "devWindowDisplay": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.devWindowDisplay",
+          "description": "DEBUG-only display name used when opening new windows. An empty value uses the system default."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -492,10 +528,20 @@
           "default": false,
           "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
+        "equalizeSplitsOnCreate": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
           "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "defaultWorkspacePath": {
+          "type": "string",
+          "default": "",
+          "description": "Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory."
         },
         "openSupportedFilesInCmux": {
           "type": "boolean",
@@ -882,7 +928,7 @@
               "hostPattern": {
                 "type": ["string", "null"],
                 "minLength": 1,
-                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. When the session sets a HostName (for example through a ProxyCommand or broker), the rule also matches against that resolved host. Omit the key or set it to null for a catch-all (a blank string is rejected)."
               },
               "command": {
                 "type": "string",
@@ -1807,6 +1853,7 @@
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
+              "focusHistoryLast",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
@@ -1872,6 +1919,7 @@
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
+              "toggleFileEditorWordWrap",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",

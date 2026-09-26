@@ -46,6 +46,12 @@
       <FileRef
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
+      <FileRef
+         location = "group:CmuxTerminalPrediction">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxWorkspacePresence">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
@@ -142,6 +148,9 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloud">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCloudBannerCore">
       </FileRef>
       <FileRef
@@ -149,6 +158,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudTui">
       </FileRef>
       <FileRef
          location = "group:CmuxCloudTunnelCore">
@@ -191,6 +203,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxLiveEval">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileHost">
       </FileRef>
       <FileRef
          location = "group:CmuxNotifications">
@@ -239,6 +254,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSudoBrokerUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSurfaceCatalogModel">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

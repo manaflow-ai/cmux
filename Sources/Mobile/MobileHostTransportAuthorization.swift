@@ -57,6 +57,30 @@ protocol MobileHostIndependentEventWriting: Sendable {
     func send(_ framedData: Data) async throws
     func reset() async
     func close() async
+
+    /// Surface lanes put each terminal's render-grid frames on its own QUIC
+    /// stream so one terminal's burst cannot head-of-line-block another's.
+    /// Only a writer that owns a multi-stream connection supports them.
+    var maximumSurfaceEventLaneCount: Int { get }
+    /// Writes one frame onto the surface's own stream. A throw means that
+    /// stream was retired; the next send for a newer `generation` reopens.
+    func sendSurfaceEvent(_ framedData: Data, surfaceID: String, generation: UInt64) async throws
+    /// Enables or disables surface lanes; disabling finishes every lane.
+    func setSurfaceEventLanesEnabled(_ enabled: Bool) async
+    /// Raises the stream priority of the surface the user is interacting with.
+    func noteInteractiveSurface(_ surfaceID: String) async
+}
+
+extension MobileHostIndependentEventWriting {
+    var maximumSurfaceEventLaneCount: Int { 0 }
+
+    func sendSurfaceEvent(_ framedData: Data, surfaceID _: String, generation _: UInt64) async throws {
+        try await send(framedData)
+    }
+
+    func setSurfaceEventLanesEnabled(_: Bool) async {}
+
+    func noteInteractiveSurface(_: String) async {}
 }
 
 final class MobileHostConnectionRegistry: @unchecked Sendable {

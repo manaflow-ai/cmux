@@ -499,139 +499,6 @@ final class WindowTerminalHostView: NSView {
 #endif
 }
 
-private final class SplitDividerOverlayView: NSView {
-    private struct DividerSegment {
-        let rect: NSRect
-        let color: NSColor
-        let isVertical: Bool
-    }
-
-    override var isOpaque: Bool { false }
-    override var acceptsFirstResponder: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard let window, let rootView = window.contentView else { return }
-
-        var dividerSegments: [DividerSegment] = []
-        collectDividerSegments(in: rootView, into: &dividerSegments)
-        guard !dividerSegments.isEmpty else { return }
-        let hostedFrames = hostedFramesLikelyToOccludeDividers()
-        let visibleSegments = dividerSegments.filter { shouldRenderOverlay(for: $0, hostedFrames: hostedFrames) }
-        guard !visibleSegments.isEmpty else { return }
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-
-        // Keep separators visible above portal-hosted surfaces while matching each split view's
-        // native divider color (avoids visible color shifts at tiny pane sizes).
-        for segment in visibleSegments where segment.rect.intersects(dirtyRect) {
-            segment.color.setFill()
-            let rect = segment.rect
-            let pixelAligned = NSRect(
-                x: floor(rect.origin.x),
-                y: floor(rect.origin.y),
-                width: max(1, round(rect.size.width)),
-                height: max(1, round(rect.size.height))
-            )
-            NSBezierPath(rect: pixelAligned).fill()
-        }
-    }
-
-    private func collectDividerSegments(in view: NSView, into result: inout [DividerSegment]) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            let dividerColor = overlayDividerColor(for: splitView)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let thickness = max(splitView.dividerThickness, 1)
-                let dividerRectInSplit: NSRect
-                if splitView.isVertical {
-                    dividerRectInSplit = NSRect(
-                        x: first.maxX,
-                        y: 0,
-                        width: thickness,
-                        height: splitView.bounds.height
-                    )
-                } else {
-                    dividerRectInSplit = NSRect(
-                        x: 0,
-                        y: first.maxY,
-                        width: splitView.bounds.width,
-                        height: thickness
-                    )
-                }
-
-                let dividerRectInWindow = splitView.convert(dividerRectInSplit, to: nil)
-                let dividerRectInOverlay = convert(dividerRectInWindow, from: nil)
-                if dividerRectInOverlay.intersects(bounds) {
-                    result.append(
-                        DividerSegment(
-                            rect: dividerRectInOverlay,
-                            color: dividerColor,
-                            isVertical: splitView.isVertical
-                        )
-                    )
-                }
-            }
-        }
-
-        for subview in view.subviews {
-            collectDividerSegments(in: subview, into: &result)
-        }
-    }
-
-    private func hostedFramesLikelyToOccludeDividers() -> [NSRect] {
-        guard let hostView = superview else { return [] }
-        return hostView.subviews.compactMap { subview -> NSRect? in
-            guard let hosted = subview as? GhosttySurfaceScrollView else { return nil }
-            guard !hosted.isHidden, hosted.window != nil else { return nil }
-            return hosted.frame
-        }
-    }
-
-    private func shouldRenderOverlay(for segment: DividerSegment, hostedFrames: [NSRect]) -> Bool {
-        // Draw only when a hosted surface actually intrudes across the divider centerline.
-        // This preserves tiny-pane visibility fixes without darkening regular dividers.
-        let axisEpsilon: CGFloat = 0.01
-        let axis = segment.isVertical ? segment.rect.midX : segment.rect.midY
-        let extentRect = segment.rect.insetBy(
-            dx: segment.isVertical ? 0 : -1,
-            dy: segment.isVertical ? -1 : 0
-        )
-
-        for frame in hostedFrames where frame.intersects(extentRect) {
-            if segment.isVertical {
-                if frame.minX < axis - axisEpsilon && frame.maxX > axis + axisEpsilon {
-                    return true
-                }
-            } else if frame.minY < axis - axisEpsilon && frame.maxY > axis + axisEpsilon {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {
-        let divider = splitView.dividerColor.usingColorSpace(.deviceRGB) ?? splitView.dividerColor
-        let alpha = divider.alphaComponent
-        guard alpha < 0.999 else { return divider }
-
-        guard let bgColor = splitView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
-              let bgRGB = bgColor.usingColorSpace(.deviceRGB) else {
-            return divider
-        }
-
-        let opaqueBG = bgRGB.withAlphaComponent(1)
-        let opaqueDivider = divider.withAlphaComponent(1)
-        return opaqueBG.blended(withFraction: alpha, of: opaqueDivider) ?? divider
-    }
-}
-
 enum PaneSwapSelectionCancellationReason: Equatable {
     case escapeKey
     case secondaryClick
@@ -954,6 +821,13 @@ final class WindowTerminalPortal: NSObject {
     let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+
+#if DEBUG
+    /// Compile-checked overlays for the divider z-order regression tests.
+    /// fileprivate-in-product visibility reached only through @testable.
+    var dividerOverlayForTesting: NSView { dividerOverlayView }
+    var paneSwapOverlayForTesting: NSView { paneSwapOverlayView }
+#endif
     private let chromeComposition = AppWindowChromeComposition()
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?
@@ -1008,6 +882,8 @@ final class WindowTerminalPortal: NSObject {
         var needsSettledCommit: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+        /// A model-projected frame held until the anchor re-asserts geometry.
+        var provisionalGeometry: ProvisionalPaneGeometry?
     }
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -1084,7 +960,7 @@ final class WindowTerminalPortal: NSObject {
     /// re-arm the portal's own sync. Only genuinely external geometry —
     /// notifications arriving with no portal write on the stack — schedules
     /// a pass.
-    private func performSelfFrameWrite<T>(_ body: () -> T) -> T {
+    func performSelfFrameWrite<T>(_ body: () -> T) -> T {
         selfFrameWriteDepth += 1
         defer { selfFrameWriteDepth -= 1 }
         return body()
@@ -1287,10 +1163,7 @@ final class WindowTerminalPortal: NSObject {
                     shouldFlushLatestNow = self.pendingExternalGeometrySyncRequiresImmediate
                 }
                 if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.hostView.inLiveResize
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.window?.inLiveResize == true
+                    shouldFlushLatestNow = self.isWindowLiveResizeActive
                 }
                 if !shouldFlushLatestNow {
                     shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -1324,11 +1197,11 @@ final class WindowTerminalPortal: NSObject {
             if !shouldPerformNow {
                 shouldPerformNow = self.pendingExternalGeometrySyncRequiresImmediate
             }
+            // Same live-resize predicate as the anchor callback that queued
+            // this pass, so a live resize flushes on this hop instead of
+            // trailing the window edge by another runloop turn.
             if !shouldPerformNow {
-                shouldPerformNow = self.hostView.inLiveResize
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = self.window?.inLiveResize == true
+                shouldPerformNow = self.isWindowLiveResizeActive
             }
             if !shouldPerformNow {
                 shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -1527,15 +1400,106 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
+    /// Keeps the overlay above the hosted views, repainting only if that
+    /// re-placement actually moved something.
+    ///
+    /// The repaint is not cheap: `SplitDividerOverlayView.draw` walks the whole
+    /// window view tree from `contentView` looking for split views before it
+    /// consults `dirtyRect`, so a one-pixel dirty region costs a full-hierarchy
+    /// traversal. This used to invalidate unconditionally on every hosted-view
+    /// sync, and in a 20-second sample of an idle app that walk was the
+    /// heaviest cmux frame on the main thread.
+    ///
+    /// Placement only, and deliberately cheap: this runs twice per
+    /// `synchronizeHostedView` (once through `ensureInstalled`, once at the
+    /// end), and `synchronizeAllHostedViews` runs that per entry. Anything
+    /// O(entries) in here is O(entries squared) for the batch, and a session
+    /// of mirrored tmux windows carries dozens of surfaces. The geometry
+    /// comparison lives in `refreshDividerOverlayIfGeometryChanged`, which the
+    /// batch calls once at its boundary.
     private func ensureDividerOverlayOnTop() {
+        var placementChanged = false
+
         if dividerOverlayView.superview !== hostView {
             dividerOverlayView.frame = hostView.bounds
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+            placementChanged = true
+        } else if let topHosted = dividerOverlayReferenceInHost() {
+            // "Above the hosted views", NOT "last subview": markDividerOverlayNeedingDisplay
+            // hoists paneSwapOverlayView above this overlay, so demanding last place here
+            // made the two swap every sync and repaint forever. Panorama: the stable state
+            // is divider above the hosted views; paneSwap may keep sitting above it.
+            if !Self.isView(dividerOverlayView, above: topHosted, in: hostView) {
+                hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: topHosted)
+                placementChanged = true
+            }
         }
 
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
             dividerOverlayView.frame = hostView.bounds
+            placementChanged = true
         }
+
+        guard placementChanged else { return }
+        markDividerOverlayNeedingDisplay()
+    }
+
+    /// The divider overlay's placement reference: the HIGHEST-hosted-index
+    /// sibling in the host's subview order. Any hosted view above the divider
+    /// means the divider needs to move; the reference returned is the topmost
+    /// hosted view overall, so ONE re-add clears every inversion at once.
+    /// Cost: no scan at all when the divider is already the last subview, else
+    /// a single back-to-front pass that stops at the first hosted view it
+    /// finds from the top — the settled case never walks entries, and even the
+    /// churn case is one subviews pass, kept out of an entries-squared
+    /// per-batch blowup.
+    private func dividerOverlayReferenceInHost() -> NSView? {
+        let subviews = hostView.subviews
+        // Fast path: divider is the last subview. No hosted view can be above
+        // it, and pane-swap/render helpers are the only things it should ever
+        // sit below; nothing to do without scanning.
+        if subviews.last === dividerOverlayView {
+            return subviews.last { $0 is GhosttySurfaceScrollView }
+        }
+        guard let dividerIndex = subviews.firstIndex(of: dividerOverlayView) else {
+            // Divider not installed yet: re-add above the topmost hosted view.
+            return subviews.last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+        }
+        // Hosted view above the divider? Take the TOPMOST (highest index), so
+        // one re-add above it clears every hosted view at or beyond that index.
+        return subviews[(dividerIndex + 1)...].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+            ?? subviews[..<dividerIndex].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+    }
+
+    private func entryForHostedView(_ view: NSView) -> Entry? {
+        entriesByHostedId[ObjectIdentifier(view)]
+    }
+
+
+
+    /// Repaints the overlay when what it would paint has changed.
+    ///
+    /// `SplitDividerOverlayView.draw` walks the whole window view tree from
+    /// `contentView` before it consults `dirtyRect`, so an invalidation that
+    /// changes nothing still costs a full traversal. The comparison asks the
+    /// overlay for its own render inputs rather than reusing the portal's
+    /// geometry signature, because the two are not the same set: the overlay
+    /// paints a segment only where a hosted surface crosses the divider
+    /// centerline, and it drops hidden and windowless surfaces when deciding
+    /// that. Dragging a divider resizes the surfaces beside it, and both
+    /// bounds and those frames are window-relative, so moving the window by
+    /// its titlebar still costs nothing.
+    private func refreshDividerOverlayIfGeometryChanged() {
+        let inputs = dividerOverlayView.renderInputs()
+        guard lastDividerOverlayRenderInputs != inputs else { return }
+        lastDividerOverlayRenderInputs = inputs
+        markDividerOverlayNeedingDisplay()
+    }
+
+    private func markDividerOverlayNeedingDisplay() {
+#if DEBUG
+        RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
+#endif
         dividerOverlayView.needsDisplay = true
 
         if paneSwapOverlayView.superview !== hostView {
@@ -1550,6 +1514,17 @@ final class WindowTerminalPortal: NSObject {
         }
         paneSwapOverlayView.needsDisplay = true
     }
+
+    /// Render inputs the divider overlay was last painted for. Deliberately
+    /// not `ExternalGeometrySignature`: that one answers a different question
+    /// for the layout-sync path, and its contents are tuned for terminating
+    /// the sync echo chain.
+    private var lastDividerOverlayRenderInputs: SplitDividerOverlayView.RenderInputs?
+
+    /// Set while `synchronizeAllHostedViews` is walking its entries, so the
+    /// per-entry syncs skip the geometry comparison and the batch pays for it
+    /// once.
+    private var isBatchSynchronizingHostedViews = false
 
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
@@ -1644,14 +1619,14 @@ final class WindowTerminalPortal: NSObject {
         return false
     }
 
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+    static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
+    static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
         guard rect.origin.x.isFinite,
               rect.origin.y.isFinite,
               rect.size.width.isFinite,
@@ -1670,7 +1645,8 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+    private static func isView(_ view: NSView, above reference: NSView?, in container: NSView) -> Bool {
+        guard let reference else { return true }
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
             return false
@@ -1715,7 +1691,7 @@ final class WindowTerminalPortal: NSObject {
     /// SwiftUI/AppKit hosting layers can report an anchor bounds wider than its split pane when
     /// intrinsic-size content overflows; intersecting through ancestor bounds gives the effective
     /// visible rect that should drive portal geometry.
-    private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
+    func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
         var frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
         var current = anchorView.superview
         while let ancestor = current {
@@ -1752,7 +1728,7 @@ final class WindowTerminalPortal: NSObject {
         return intersection
     }
 
-    private func seededFrameInHost(for anchorView: NSView) -> NSRect? {
+    func seededFrameInHost(for anchorView: NSView) -> NSRect? {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
@@ -1824,6 +1800,7 @@ final class WindowTerminalPortal: NSObject {
         entry.hostedView?.clearPortalGeometry()
         entry.needsSettledCommit = false
         entry.transientRecoveryRetriesRemaining = 0
+        entry.provisionalGeometry = nil
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
@@ -1971,7 +1948,8 @@ final class WindowTerminalPortal: NSObject {
             visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
             needsSettledCommit: previousEntry?.needsSettledCommit ?? false,
             zPriority: zPriority,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: 0,
+            provisionalGeometry: previousEntry?.anchorView === anchorView ? previousEntry?.provisionalGeometry : nil
         )
 
         let didChangeAnchor: Bool = {
@@ -2002,7 +1980,7 @@ final class WindowTerminalPortal: NSObject {
 
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
-        if let seededFrame = seededFrameInHost(for: anchorView),
+        if let seededFrame = seededFrameInHost(for: anchorView, hostedId: hostedId),
            seededFrame.width > 0,
            seededFrame.height > 0 {
             performSelfFrameWrite {
@@ -2162,7 +2140,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String, transition: TerminalWorkContext.Transition) {
+    func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String, transition: TerminalWorkContext.Transition) {
         guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView else { return }
         let frame = hostedView.frame
         guard lastDeferredSurfaceRefreshFrames[hostedId].map({ !Self.rectApproximatelyEqual($0, frame) }) ?? true else {
@@ -2202,6 +2180,13 @@ final class WindowTerminalPortal: NSObject {
         }
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
+        // One geometry comparison for the whole batch. Per entry it would be
+        // O(entries) work inside an O(entries) loop.
+        isBatchSynchronizingHostedViews = true
+        defer {
+            isBatchSynchronizingHostedViews = false
+            refreshDividerOverlayIfGeometryChanged()
+        }
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
             // Hidden entries retain their last frame until they become visible.
@@ -2268,6 +2253,19 @@ final class WindowTerminalPortal: NSObject {
         deferDividerOverlay: Bool = false
     ) {
         guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
+        // Every exit path compares the overlay's render inputs, not just the
+        // fallthrough: early returns here (missing anchor/window, anchor on
+        // another window) hide hosted views, and the overlay's render inputs
+        // exclude hidden ones, so skipping the comparison on those paths left
+        // divider pixels painted for a view that is no longer visible.
+        defer {
+            if !deferDividerOverlay {
+                ensureDividerOverlayOnTop()
+                if !isBatchSynchronizingHostedViews {
+                    refreshDividerOverlayIfGeometryChanged()
+                }
+            }
+        }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2356,7 +2354,12 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = anchorTargetFrame(
+            honoringProvisionalGeometryFor: hostedId,
+            entry: &entry,
+            anchorFrameInWindow: frameInWindow,
+            anchorFrameInHost: Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        )
 #if DEBUG
         logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
@@ -2642,8 +2645,6 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
-        if !deferDividerOverlay { ensureDividerOverlayOnTop() }
     }
 
     private func updatePresentationState(
@@ -3245,6 +3246,22 @@ enum TerminalWindowPortalRegistry {
 
     static func endInteractiveGeometryResize(in window: NSWindow?) {
         endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+    }
+    /// The window of the pointer event AppKit is dispatching, for scoping a
+    /// divider drag. `NSApp.currentEvent` keeps the last event AppKit
+    /// dequeued, which can be an unrelated `appKitDefined` event from another
+    /// window, so only mouse events count; callers fall back to the window
+    /// that hosts their terminals.
+    static func pointerEventWindow() -> NSWindow? {
+        guard let event = NSApp.currentEvent else { return nil }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+             .otherMouseDown, .otherMouseDragged, .otherMouseUp:
+            return event.window
+        default:
+            return nil
+        }
     }
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)

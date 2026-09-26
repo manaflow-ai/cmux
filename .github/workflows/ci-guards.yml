@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -46,10 +46,6 @@ jobs:
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
-
-      - name: Validate persistent Mac compile admission contract
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_ci_persistent_mac_compile.py
 
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
@@ -67,17 +63,41 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
-      - name: Validate quality guard structure
+      - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_quality_guard_structure.py
+        run: python3 tests/test_ci_run_guards.py
+
+      - name: Validate the CI timing readout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_timing_readout.py
+
+      - name: Validate the repository variable check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_check_repo_variables.py
+
+      - name: Validate guard failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guard_attribution.py
+
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
+      - name: Require the R2 public URL wherever the R2 cache actions run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_public_url.py
+
+      - name: Validate macOS jobs select a pinned Xcode
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_macos_xcode_selection.py
+
+      - name: Validate v0.64.25 rpath repair workflow contract
+        if: ${{ matrix.group == 'ci' }}
+        run: bash tests/test_repair_v06425_workflow.sh
 
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_build_metrics.py
-
-      - name: Validate app-host guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_app_host_guard_structure.py
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
@@ -87,9 +107,13 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
 
-      - name: Validate release guard structure
+      - name: Validate seeded macOS checkout
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_release_guard_structure.py
+        run: python3 tests/test_ci_git_seed.py
+
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -122,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
 
+      - name: Validate reload resolves the cmux-tui client before building
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -131,7 +159,7 @@ jobs:
         run: python3 tests/test_web_complexity_scope.py
 
       - name: Validate iOS package conventions for this change
-        if: ${{ matrix.group == 'preflight' }}
+        if: ${{ matrix.group == 'release-ios' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
@@ -183,6 +211,10 @@ jobs:
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Test Computer Use drag regression harness
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
 
       - name: Validate Python test execution registry
         if: ${{ matrix.group == 'preflight' }}
@@ -249,10 +281,15 @@ jobs:
         with:
           bun-version: "1.3.6"
 
-      - name: Validate Claude launch environment policy behavior
+      # Runs the agent-chat unit tests listed in its package.json, including
+      # the Claude launch environment policy. `bun run check` also runs an
+      # unpinned tsc, whose result depends on the version bun x fetches.
+      - name: Run agent-chat unit tests
         if: ${{ matrix.group == 'preflight' }}
         working-directory: agent-chat
-        run: bun test/claude-environment.test.ts
+        run: |
+          bun install --frozen-lockfile
+          bun run test
 
       # The committed control-plane wire types (Swift + TS) must be exactly
       # what quicktype regenerates from schemas/control-plane/; fails on any
@@ -261,6 +298,12 @@ jobs:
       - name: Validate control-plane generated types
         if: ${{ matrix.group == 'preflight' }}
         run: ./scripts/check-control-plane-types.sh
+
+      # Runs web/scripts/check-complexity.mjs against scratch repositories, so
+      # it needs the Bun set up above rather than the `ci` group's Python only.
+      - name: Validate web complexity source enumeration
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_web_complexity_source_enumeration.py
 
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -287,13 +330,19 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      - name: Validate contributor verification receipts and selection
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_verification_receipt.py
+          python3 tests/test_verify_local.py
+
       - name: Validate local hook trust boundary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
-      - name: Validate required checks report for the merge queue
+      - name: Validate hook installation leaves existing hooks alone
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_merge_queue_required_checks.py
+        run: python3 tests/test_install_git_hooks.py
 
       - name: Validate required-check drift reconciliation
         if: ${{ matrix.group == 'ci' }}
@@ -331,9 +380,57 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
+      - name: Validate main full-suite failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_attribution.py
+
+      - name: Validate merge receipts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate PR catch-up merge and its workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_catch_up_pr.py
+
+      - name: Validate merge-main's green base and guard failure labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_main.py
+
+      - name: Validate main full-suite failure reruns and bisects
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_bisect.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
+
+      - name: Validate pull request macOS pool choice
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate delta CI from the last green head
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_delta_since_green.py
+
+      - name: Validate late placement onto idle root runners
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate spread-first compile admission placement
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_admission_placement.py
+
+      - name: Validate owned Mac build state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_build_state.py
+
+      - name: Validate the persistent-pool rescue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_rescue.py
+
+      - name: Validate the owned Mac warm state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -393,6 +490,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
 
+      - name: Validate the R2 cache pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_r2_cache_prune.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |
@@ -406,6 +507,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate Homebrew cask macOS dependency syntax
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
 
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}
@@ -423,6 +528,12 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
 
+      - name: Validate hung test watchdog
+        if: ${{ matrix.group == 'app-host-watchdog' }}
+        run: |
+          python3 tests/test_hung_test_watchdog.py
+          python3 tests/test_run_with_timeout_process_tree.py
+
       - name: Validate Swift package execution evidence
         if: ${{ matrix.group == 'app-host-execution' }}
         run: |
@@ -430,7 +541,7 @@ jobs:
           python3 tests/test_swift_package_execution.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
-        if: ${{ matrix.group == 'app-host-execution' }}
+        if: ${{ matrix.group == 'app-host-watchdog' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
       - name: Validate xcodebuild failure diagnostics
@@ -448,10 +559,15 @@ jobs:
         run: |
           python3 tests/test_run_e2e.py
           python3 tests/test_ci_e2e_compilation_cache.py
+          python3 tests/test_ci_focused_test_selectors.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_manual_macos_package_cache.py
+
+      - name: Validate test-only app-host rerun planning
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_app_host_test_rerun.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -468,6 +584,10 @@ jobs:
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
+
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
 
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
@@ -527,6 +647,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate reload-build cache keys
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: python3 tests/test_ci_reload_build_cache_keys.py
+
       - name: Validate local build cache preflight
         if: ${{ matrix.group == 'app-host-cache' }}
         run: |
@@ -577,6 +701,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
 
+      - name: Validate TestFlight migration candidate preparation
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_testflight_prepare_only.py
+
       - name: Validate iOS upload lean checkout
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
@@ -601,6 +729,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate iOS video recording failures
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: python3 tests/test_ios_video_recording.py
+
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
@@ -618,6 +750,10 @@ jobs:
       - name: Validate stalled GhosttyKit downloads resume
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_download_stall.sh
+
+      - name: Validate the owned-Mac GhosttyKit archive cache
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_ghosttykit_archive_cache.sh
 
       - name: Validate GhosttyKit release check behavior
         if: ${{ matrix.group == 'release-tooling' }}
@@ -639,6 +775,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
+
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_build_app_bundled_resources.sh
@@ -647,13 +787,15 @@ jobs:
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_ci_virtual_display_lock.sh
 
-      - name: Validate nightly tag push auth
+      - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: ./tests/test_ci_nightly_tag_push_auth.sh
+        run: |
+          python3 tests/test_update_release_tag.py
+          python3 tests/test_nightly_publication_marker.py
 
-      - name: Validate nightly tag push retries
+      - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_tag_push.py
+        run: bash ./tests/test_nightly_tag_permission_probe.sh
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
@@ -679,6 +821,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly Sparkle key selection
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_sparkle_key.sh
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
@@ -687,7 +833,9 @@ jobs:
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
-        run: bash ./tests/test_ci_test_compilation_cache_seed.sh
+        run: |
+          bash ./tests/test_ci_test_compilation_cache_seed.sh
+          bash ./tests/test_ci_swiftpm_manifest_cache.sh
 
       - name: Validate cmux-tui client installation
         if: ${{ matrix.group == 'release-tooling' }}
@@ -713,11 +861,13 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js
 
-      - name: Validate CI change area filter
+      - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' }}
-        run: |
-          python3 tests/test_ci_change_areas.py
-          python3 tests/test_ci_linux_guard_routing.py
+        run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate runner capability resolution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_capability_resolver.py
 
       - name: Validate evidence collection reporting
         if: ${{ matrix.group == 'ci' }}
@@ -734,7 +884,11 @@ jobs:
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_e2e_warm_derived_data.py
+          python3 tests/test_e2e_sibling_build.py
+          python3 tests/test_seed_derived_data.py
+          python3 tests/test_seed_decide.py
           python3 tests/test_ci_product_publication.py
+          python3 tests/test_ci_cli_product_routing.py
 
       - name: Validate Python R2 appcast upload guard
         if: ${{ matrix.group == 'release-tooling' }}
@@ -743,10 +897,6 @@ jobs:
       - name: Validate release-build timeout guard
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_release_build_timeout.sh
-
-      - name: Validate reusable workflow permission grants
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_reusable_workflow_permissions.py
 
       - name: Validate release does not gate on iOS screenshot capture
         if: ${{ matrix.group == 'release-ios' }}
@@ -772,6 +922,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_strip_release_bundle.sh
 
+      - name: Validate cmux-tui SSH payload thinning and signing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_cmux_tui_ssh_payload_bundle.sh
+
       - name: Validate current GhosttyKit checksum pin
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
@@ -788,6 +942,10 @@ jobs:
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate shell surface-scoped environment keys
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_shell_surface_scoped_keys.py
+
       - name: Validate focused Dock shortcut routing guard
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_dock_shortcut_routing_guard.py
@@ -795,6 +953,12 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
+
+      - name: Validate errno is captured before Swift test assertions
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_lint_errno_in_test_assertions.py
+          python3 scripts/lint-errno-in-test-assertions.py
 
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
@@ -807,7 +971,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -856,7 +1020,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -891,7 +1055,7 @@ jobs:
         group: [sidebar-layout, dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -935,7 +1099,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

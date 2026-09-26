@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxControlSocket
 import Foundation
 
@@ -8,7 +9,7 @@ private enum AgentRestoreAdmissionDecision: Sendable {
     case liveOwner(LiveAgentSessionOwner)
     case concurrentLaunch
     case targetChanged
-    case unverifiable(AgentRestoreAdmissionUnverifiableReason)
+    case recovering
 
     var debugLabel: String {
         switch self {
@@ -20,43 +21,8 @@ private enum AgentRestoreAdmissionDecision: Sendable {
             return "concurrent-launch"
         case .targetChanged:
             return "target-changed"
-        case .unverifiable(let reason):
-            return "unverifiable reason=\(reason.rawValue)"
-        }
-    }
-}
-
-/// Why admission could not decide whether the session is already running.
-///
-/// Each reason carries its own explanation so the CLI shows the user what
-/// actually failed. A scan that ran out of time is worth retrying; an
-/// unreadable hook store for this agent kind is not.
-private enum AgentRestoreAdmissionUnverifiableReason: String, Sendable {
-    case scanTimedOut = "scan_timed_out"
-    case scanCancelled = "scan_cancelled"
-    case hookStoreUnreadable = "hook_store_unreadable"
-
-    var isRetryable: Bool {
-        self != .hookStoreUnreadable
-    }
-
-    var message: String {
-        switch self {
-        case .scanTimedOut:
-            return String(
-                localized: "agentRestore.admission.unavailable.timedOut",
-                defaultValue: "cmux could not finish checking whether this agent session is already running before the time limit. Retry 'cmux restore --surface'."
-            )
-        case .scanCancelled:
-            return String(
-                localized: "agentRestore.admission.unavailable",
-                defaultValue: "cmux could not verify whether this agent session is already running. Retry 'cmux restore --surface'."
-            )
-        case .hookStoreUnreadable:
-            return String(
-                localized: "agentRestore.admission.unavailable.hookStoreUnreadable",
-                defaultValue: "cmux could not read its saved session records for this agent, so it cannot tell whether the session is already running. Retry 'cmux restore --surface'."
-            )
+        case .recovering:
+            return "recovering"
         }
     }
 }
@@ -82,11 +48,11 @@ extension TerminalController {
         }
         let admissionStart = ContinuousClock.now
 
-        let targetMatchesBeforeScan = await v2MainAsync {
-            self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil
-                && self.agentRestoreTargetMatches(inputs)
+        let record = await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
+            guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return nil }
+            return self.agentRestoreTargetRecord(inputs)
         }
-        guard targetMatchesBeforeScan else {
+        guard let record else {
             return Self.agentRestoreAdmissionResponse(
                 request: request,
                 inputs: inputs,
@@ -95,71 +61,97 @@ extension TerminalController {
             )
         }
 
-        let index: RestorableAgentSessionIndex
-        switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision() {
-        case .index(let refreshedIndex):
-            index = refreshedIndex
-        case .timedOut:
-            return Self.agentRestoreAdmissionResponse(
-                request: request,
-                inputs: inputs,
-                decision: .unverifiable(.scanTimedOut),
-                startedAt: admissionStart
-            )
-        case .cancelled:
-            return Self.agentRestoreAdmissionResponse(
-                request: request,
-                inputs: inputs,
-                decision: .unverifiable(.scanCancelled),
-                startedAt: admissionStart
-            )
-        }
-        guard index.isComplete(
-            forWorkspaceId: inputs.workspaceID,
-            panelId: inputs.surfaceID,
-            kind: inputs.kind
-        ) else {
-            return Self.agentRestoreAdmissionResponse(
-                request: request,
-                inputs: inputs,
-                decision: .unverifiable(.hookStoreUnreadable),
-                startedAt: admissionStart
-            )
-        }
-        let liveOwner = index.liveSessionOwner(
-            kind: inputs.kind,
-            sessionID: inputs.sessionID,
-            revalidateProcessEvidence: true,
-            processArgumentsProvider: { pid in
-                CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: pid)
-            },
-            processPresenceProvider: { pid in
-                guard pid > 0, pid <= Int(Int32.max) else { return .absent }
-                return PIDPresence.current(pid: pid_t(pid))
+        var writer = AgentRestoreCodexEvidence().inspect(
+            record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
+        )
+        let liveOwner: LiveAgentSessionOwner?
+        let indexComplete: Bool
+        if inputs.kind == "codex", writer != nil {
+            let evidence = await codexRestoreHookEvidence.load(sessionID: inputs.sessionID) { pid in
+                guard pid > 0, pid <= Int(Int32.max) else { return nil }
+                return AgentPIDProcessIdentity(pid: pid_t(pid))
             }
+            liveOwner = evidence.owner
+            indexComplete = evidence.isComplete
+        } else {
+            switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision() {
+            case .index(let index):
+                liveOwner = index.liveSessionOwner(
+                    kind: inputs.kind, sessionID: inputs.sessionID, revalidateProcessEvidence: true,
+                    processArgumentsProvider: { CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0) },
+                    processPresenceProvider: { pid in
+                        guard pid > 0, pid <= Int(Int32.max) else { return .absent }
+                        return PIDPresence.current(pid: pid_t(pid))
+                    }
+                )
+                indexComplete = index.isComplete(
+                    forWorkspaceId: inputs.workspaceID, panelId: inputs.surfaceID, kind: inputs.kind
+                )
+            case .timedOut, .cancelled:
+                liveOwner = nil
+                indexComplete = false
+            }
+        }
+        guard !Task.isCancelled else {
+            return Self.agentRestoreAdmissionResponse(
+                request: request, inputs: inputs, decision: .targetChanged, startedAt: admissionStart
+            )
+        }
+        var writerCandidates: [CodexWriterProcessInspector.Candidate] = []
+        if liveOwner == nil, let observed = writer, observed.state == .active {
+            writerCandidates = CodexWriterProcessInspector().candidates(for: observed)
+            writer = AgentRestoreCodexEvidence().inspect(
+                record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
+            )
+            if writer?.deviceAndInodeMatch(observed) != true { writerCandidates = [] }
+        }
+        let heldWriterCandidates = writer?.state == .active ? writerCandidates : nil
+        let evidenceDecision = inputs.launchLeasePending ? .refreshEvidence : AgentRestoreEvidencePolicy().decision(
+            hasLiveOwner: liveOwner != nil,
+            indexComplete: indexComplete,
+            writerLock: writer?.state
         )
         let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
-                  self.agentRestoreTargetMatches(inputs) else {
-                return .targetChanged
-            }
-            if let liveOwner {
-                AgentRestoreSuppressionJournal().record(
-                    kind: inputs.kind,
-                    sessionID: inputs.sessionID,
-                    workspaceID: inputs.workspaceID,
-                    surfaceID: inputs.surfaceID,
-                    processID: liveOwner.processID
+                  self.agentRestoreTargetRecord(inputs) == record else { return .targetChanged }
+            if evidenceDecision != .claimLaunch {
+                let changed = self.presentAgentRestoreRecovery(
+                    workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
+                    state: liveOwner.map { .liveOwner(kind: inputs.kind, processID: $0.processID) }
+                        ?? heldWriterCandidates.map { .writerLock(candidates: $0) } ?? .checking
                 )
-                return .liveOwner(liveOwner)
+                if changed, let liveOwner {
+                    AgentRestoreSuppressionJournal().record(
+                        kind: inputs.kind, sessionID: inputs.sessionID,
+                        workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID,
+                        processID: liveOwner.processID
+                    )
+                }
+                return liveOwner.map(AgentRestoreAdmissionDecision.liveOwner) ?? .recovering
             }
             guard let claim = AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
-                kind: inputs.kind,
-                sessionId: inputs.sessionID
-            ) else {
-                return .concurrentLaunch
-            }
+                kind: inputs.kind, sessionId: inputs.sessionID
+            ) else { return .concurrentLaunch }
+            self.presentAgentRestoreRecovery(
+                workspaceID: inputs.workspaceID, surfaceID: inputs.surfaceID, state: nil
+            )
             return .admitted(claim)
+        }
+        // The CLI keeps the original restore operation alive. Each subsequent
+        // request is paced by kernel evidence or the bounded RPC deadline.
+        if inputs.waitForChange {
+            switch decision {
+            case .liveOwner, .recovering, .concurrentLaunch:
+                let kind = RestorableAgentKind(rawValue: inputs.kind)
+                let hookPath = kind?.hookStoreFileURL(homeDirectory: NSHomeDirectory())
+                let lockDirectory = writer.map { URL(fileURLWithPath: $0.lockPath).deletingLastPathComponent().path }
+                await AgentRestoreEvidenceObservation().wait(
+                    process: liveOwner?.processIdentity,
+                    paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
+                )
+            case .admitted, .targetChanged:
+                break
+            }
         }
         return Self.agentRestoreAdmissionResponse(
             request: request,
@@ -215,14 +207,6 @@ extension TerminalController {
         )
     }
 
-    nonisolated private struct AgentRestoreAdmissionInputs: Sendable {
-        let workspaceID: UUID
-        let surfaceID: UUID
-        let kind: String
-        let sessionID: String
-        let recordSessionID: String
-    }
-
     private nonisolated static func agentRestoreAdmissionInputs(
         _ params: [String: JSONValue]
     ) -> AgentRestoreAdmissionInputs? {
@@ -244,14 +228,22 @@ extension TerminalController {
             surfaceID: surfaceID,
             kind: kind,
             sessionID: sessionID,
-            recordSessionID: string("record_session_id") ?? sessionID
+            recordSessionID: string("record_session_id") ?? sessionID,
+            codexHome: params["codex_home"].flatMap { if case .string(let home) = $0 { return home }; return nil },
+            waitForChange: boolean("wait_for_change", in: params),
+            launchLeasePending: boolean("launch_lease_pending", in: params)
         )
     }
 
+    private nonisolated static func boolean(_ key: String, in params: [String: JSONValue]) -> Bool {
+        if case .bool(let value)? = params[key] { return value }
+        return false
+    }
+
     @MainActor
-    private func agentRestoreTargetMatches(
+    private func agentRestoreTargetRecord(
         _ inputs: AgentRestoreAdmissionInputs
-    ) -> Bool {
+    ) -> ControlSurfaceRestoreRecord? {
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: false,
             windowID: nil,
@@ -285,9 +277,9 @@ extension TerminalController {
             lhs: checkpointID,
             rhs: inputs.recordSessionID
         ) else {
-            return false
+            return nil
         }
-        return true
+        return record
     }
 
     private nonisolated static func agentRestoreAdmissionResponse(
@@ -319,6 +311,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "live_owner_pid": .int(Int64(owner.processID)),
+                    "recovering": .bool(true),
                 ]))
             )
         case .concurrentLaunch:
@@ -327,6 +320,7 @@ extension TerminalController {
                 .ok(.object([
                     "admitted": .bool(false),
                     "launch_pending": .bool(true),
+                    "recovering": .bool(true),
                 ]))
             )
         case .targetChanged:
@@ -338,15 +332,10 @@ extension TerminalController {
                     defaultValue: "The surface restore record changed. Run 'cmux restore --surface' again."
                 )
             )
-        case .unverifiable(let reason):
-            return v2Encoder.error(
+        case .recovering:
+            return v2Encoder.response(
                 id: request.id,
-                code: "busy",
-                message: reason.message,
-                data: .object([
-                    "retryable": .bool(reason.isRetryable),
-                    "reason": .string(reason.rawValue),
-                ])
+                .ok(.object(["admitted": .bool(false), "recovering": .bool(true)]))
             )
         }
     }

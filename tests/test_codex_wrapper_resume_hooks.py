@@ -158,6 +158,12 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+# cmux-launched Codex always disables the native `computer_use` provider before
+# any other argument (Resources/bin/cmux-codex-wrapper), including when hook
+# injection fails, so cmux-cua stays the only Computer Use provider.
+NATIVE_COMPUTER_USE_POLICY = ["--disable", "computer_use"]
+
+
 def assert_session_entrypoint_is_instrumented(
     *,
     socket_state: str,
@@ -174,13 +180,16 @@ def assert_session_entrypoint_is_instrumented(
     )
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
     expect(stderr == "", f"{label}: wrapper wrote unexpected stderr: {stderr!r}", failures)
-    expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
+    expect(real_argv[:len(NATIVE_COMPUTER_USE_POLICY)] == NATIVE_COMPUTER_USE_POLICY,
+           f"{label}: missing native Computer Use policy prefix: {real_argv}", failures)
+    hook_args = real_argv[len(NATIVE_COMPUTER_USE_POLICY):]
+    expect(hook_args[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
            f"{label}: missing injected hook prefix: {real_argv}", failures)
     expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
            f"{label}: missing SessionStart hook: {real_argv}", failures)
     expect(any(arg.startswith("hooks.Stop=") for arg in real_argv),
            f"{label}: missing Stop hook: {real_argv}", failures)
-    expect(real_argv[-len(argv):] == argv if argv else len(real_argv) == 7,
+    expect(real_argv[-len(argv):] == argv if argv else len(hook_args) == 7,
            f"{label}: original argv was not preserved: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"{label}: wrapper never requested local hook args: {cmux_log}", failures)
@@ -280,7 +289,8 @@ def test_injection_failure_preserves_cmux_context(failures: list[str]) -> None:
         inject_args_available=False,
     )
     expect(code == 0, f"inject-failure: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["resume"], f"inject-failure: original argv changed: {real_argv}", failures)
+    expect(real_argv == [*NATIVE_COMPUTER_USE_POLICY, "resume"],
+           f"inject-failure: original argv changed: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"inject-failure: injection was never attempted: {cmux_log}", failures)
     expect(observed_env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
