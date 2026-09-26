@@ -46,21 +46,28 @@ extension AppDelegate {
         }
     }
 
-    /// Archives the primary snapshot the previous launch left behind into the
-    /// rotated history, then installs the overwrite guard with its richness as
-    /// the baseline. Runs before the manual-restore sync and before any save,
-    /// so every launch's starting layout is kept even if this launch restores
-    /// nothing and is relaunched again right away.
-    func archivePrimarySessionSnapshotAndInstallOverwriteGuard(now: Date = Date()) {
+    /// Archives the snapshot the previous launch left behind into the rotated
+    /// history, then installs the overwrite guard with its richness as the
+    /// baseline. That is the primary, or the `-previous` copy when the primary
+    /// is missing or unusable (the case startup restore falls back on). Runs
+    /// before the manual-restore sync and before any save, so every launch's
+    /// starting layout is kept even if this launch restores nothing and is
+    /// relaunched again right away.
+    func archiveSessionSnapshotAndInstallOverwriteGuard(now: Date = Date()) {
         var baseline = SessionSnapshotRichness.empty
-        if let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
-           case .loaded(let primary) = sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
-            baseline = primary.richness
+        let candidates = [
+            sessionSnapshotStore.defaultSnapshotFileURL(),
+            sessionSnapshotStore.manualRestoreSnapshotFileURL(),
+        ].compactMap { $0 }
+        for fileURL in candidates {
+            guard case .loaded(let snapshot) = sessionSnapshotStore.loadOutcome(fileURL: fileURL) else { continue }
+            baseline = snapshot.richness
             sessionSnapshotStore.archiveSnapshotToHistory(
-                fileURL: primaryURL,
-                richness: primary.richness,
+                fileURL: fileURL,
+                richness: snapshot.richness,
                 archivedAt: now
             )
+            break
         }
         sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(baseline: baseline, launchDate: now)
 #if DEBUG
@@ -73,19 +80,13 @@ extension AppDelegate {
 
     /// Returns `snapshot` when this launch may write it to the primary file,
     /// or nil while the overwrite guard holds a poorer, unchanged, young
-    /// session back. Removing the snapshot (last window closed) is explicit
-    /// intent and matures the guard.
+    /// session back. Removals (nil snapshots) pass through unchanged.
     func snapshotAllowedByOverwriteGuard(
         _ snapshot: AppSessionSnapshot?,
-        removeWhenEmpty: Bool,
         now: Date = Date()
     ) -> AppSessionSnapshot? {
-        guard var overwriteGuard = sessionSnapshotOverwriteGuard else { return snapshot }
+        guard let snapshot, var overwriteGuard = sessionSnapshotOverwriteGuard else { return snapshot }
         defer { sessionSnapshotOverwriteGuard = overwriteGuard }
-        guard let snapshot else {
-            if removeWhenEmpty { overwriteGuard.markMature() }
-            return nil
-        }
         switch overwriteGuard.evaluate(
             candidate: snapshot.richness,
             structure: snapshot.structureSignature,

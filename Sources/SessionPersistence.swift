@@ -1838,8 +1838,9 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
         )
     }
 
-    /// Hash of the window, workspace, and panel identities, used by the
-    /// overwrite guard to tell a user layout change from autosave churn.
+    /// Hash of the window, workspace, and panel identities plus each
+    /// terminal's agent session, used by the overwrite guard to tell a user
+    /// change (a new workspace, a started agent) from autosave churn.
     var structureSignature: Int {
         var hasher = Hasher()
         for window in windows {
@@ -1848,6 +1849,8 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
                 hasher.combine(workspace.workspaceId)
                 for panel in workspace.panels {
                     hasher.combine(panel.id)
+                    hasher.combine(panel.terminal?.agent?.sessionId)
+                    hasher.combine(panel.terminal?.resumeBinding != nil)
                 }
             }
         }

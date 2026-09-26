@@ -1265,11 +1265,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Holds back primary snapshot writes from a launch that restored less
+    /// than it started from; installed by startup snapshot preparation or the
+    /// first save, whichever comes first.
+    var sessionSnapshotOverwriteGuard: SessionSnapshotOverwriteGuard?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
-    /// Holds back primary snapshot writes from a launch that restored less
-    /// than it started from; installed once startup snapshot preparation runs.
-    var sessionSnapshotOverwriteGuard: SessionSnapshotOverwriteGuard?
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier,
@@ -3621,9 +3622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func finishPreparingStartupSessionSnapshot() {
-        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment), !isRunningUnderXCTestCached {
-            archivePrimarySessionSnapshotAndInstallOverwriteGuard()
-        }
+        installSessionSnapshotOverwriteGuardIfNeeded()
         syncManualRestoreSnapshotCachePruningCrashDiagnostics(
             preserveExistingBackup: previousSessionLaunchWasUnclean
         )
@@ -3631,6 +3630,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    /// Archives the on-disk snapshot and installs the overwrite guard once per
+    /// process, before the first `-previous` sync or primary write. Skipped
+    /// under XCTest so tests never archive into real Application Support.
+    func installSessionSnapshotOverwriteGuardIfNeeded() {
+        guard sessionSnapshotOverwriteGuard == nil,
+              !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
+              !isRunningUnderXCTestCached else { return }
+        archiveSessionSnapshotAndInstallOverwriteGuard()
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -5048,7 +5057,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
-        let snapshot = snapshotAllowedByOverwriteGuard(snapshot, removeWhenEmpty: removeWhenEmpty)
+        installSessionSnapshotOverwriteGuardIfNeeded()
+        let snapshot = snapshotAllowedByOverwriteGuard(snapshot)
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         // Persistence can outlive its main-actor owner; retain only the Sendable

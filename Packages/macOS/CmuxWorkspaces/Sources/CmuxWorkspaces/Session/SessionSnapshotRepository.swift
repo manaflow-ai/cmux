@@ -168,11 +168,10 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         archivedAt: Date
     ) -> SessionSnapshotHistoryEntry? {
         guard let directory = historyDirectoryURL(),
-              let data = try? Data(contentsOf: fileURL) else { return nil }
+              fileManager.fileExists(atPath: fileURL.path) else { return nil }
         let existing = historyEntries()
-        if let newest = existing.first,
-           let newestData = try? Data(contentsOf: newest.fileURL),
-           newestData == data {
+        if let newest = existing.first, fileSize(newest.fileURL) == fileSize(fileURL),
+           fileManager.contentsEqual(atPath: newest.fileURL.path, andPath: fileURL.path) {
             return nil
         }
         let entry = SessionSnapshotHistoryEntry(
@@ -189,7 +188,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         )
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            try data.write(to: entry.fileURL, options: .atomic)
+            // copyItem clones on APFS, so launch pays no read+write of a
+            // multi-megabyte scrollback snapshot.
+            try fileManager.copyItem(at: fileURL, to: entry.fileURL)
         } catch {
             return nil
         }
@@ -199,6 +200,10 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             try? fileManager.removeItem(at: stale.fileURL)
         }
         return kept.contains(entry.fileURL) ? entry : nil
+    }
+
+    private func fileSize(_ url: URL) -> UInt64? {
+        (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value
     }
 
     public func historyEntries() -> [SessionSnapshotHistoryEntry] {

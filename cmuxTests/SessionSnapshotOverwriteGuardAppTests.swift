@@ -32,14 +32,49 @@ struct SessionSnapshotOverwriteGuardAppTests {
         let trivial = try #require(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
         #expect(trivial.richness < SessionSnapshotRichness(workspaces: 6, panels: 12))
 
-        #expect(app.snapshotAllowedByOverwriteGuard(trivial, removeWhenEmpty: false, now: launch) == nil)
-        #expect(app.snapshotAllowedByOverwriteGuard(trivial, removeWhenEmpty: false, now: launch) == nil)
+        #expect(app.snapshotAllowedByOverwriteGuard(trivial, now: launch) == nil)
+        #expect(app.snapshotAllowedByOverwriteGuard(trivial, now: launch) == nil)
 
         _ = manager.addWorkspace(workingDirectory: "/tmp/cmux-guard-2")
         let changed = try #require(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
         #expect(changed.structureSignature != trivial.structureSignature)
-        #expect(app.snapshotAllowedByOverwriteGuard(changed, removeWhenEmpty: false, now: launch) != nil)
+        #expect(app.snapshotAllowedByOverwriteGuard(changed, now: launch) != nil)
         #expect(app.sessionSnapshotOverwriteGuard?.isMature == true)
+    }
+
+    @MainActor
+    @Test
+    func startingAnAgentInTheHeldLayoutCountsAsAChange() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager(initialWorkingDirectory: "/tmp/cmux-guard-agent", autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let launch = Date()
+        app.sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(
+            baseline: SessionSnapshotRichness(workspaces: 6, panels: 12),
+            launchDate: launch
+        )
+        let idle = try #require(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        #expect(app.snapshotAllowedByOverwriteGuard(idle, now: launch) == nil)
+
+        var withAgent = idle
+        let panelIndex = try #require(
+            withAgent.windows[0].tabManager.workspaces[0].panels.firstIndex { $0.terminal != nil }
+        )
+        withAgent.windows[0].tabManager.workspaces[0].panels[panelIndex].terminal?.agent =
+            SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: "11111111-2222-3333-4444-555555555555",
+                workingDirectory: "/tmp/cmux-guard-agent",
+                launchCommand: nil
+            )
+        #expect(withAgent.richness == idle.richness)
+        #expect(app.snapshotAllowedByOverwriteGuard(withAgent, now: launch) != nil)
     }
 
     @MainActor
@@ -53,6 +88,6 @@ struct SessionSnapshotOverwriteGuardAppTests {
         )
         let trivial = AppSessionSnapshot(version: SessionSnapshotSchema.currentVersion, createdAt: 0, windows: [])
         let late = launch.addingTimeInterval(SessionSnapshotOverwriteGuard.defaultMaturityInterval)
-        #expect(app.snapshotAllowedByOverwriteGuard(trivial, removeWhenEmpty: false, now: late) != nil)
+        #expect(app.snapshotAllowedByOverwriteGuard(trivial, now: late) != nil)
     }
 }

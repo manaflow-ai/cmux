@@ -65,10 +65,4 @@ public struct SessionSnapshotOverwriteGuard: Sendable {
         }
         return .hold
     }
-
-    /// Marks the session mature, for explicit user intent such as closing the
-    /// last window.
-    public mutating func markMature() {
-        isMature = true
-    }
 }
