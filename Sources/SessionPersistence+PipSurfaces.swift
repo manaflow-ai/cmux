@@ -15,7 +15,10 @@ extension AppSessionSnapshot {
         var workspaceLocations: [UUID: (windowIndex: Int, workspaceIndex: Int)] = [:]
         for windowIndex in copy.windows.indices {
             for workspaceIndex in copy.windows[windowIndex].tabManager.workspaces.indices {
-                workspaceLocations[copy.windows[windowIndex].tabManager.workspaces[workspaceIndex].workspaceId] = (windowIndex, workspaceIndex)
+                guard let workspaceId = copy.windows[windowIndex].tabManager.workspaces[workspaceIndex].workspaceId else {
+                    continue
+                }
+                workspaceLocations[workspaceId] = (windowIndex, workspaceIndex)
             }
         }
         for pipSurface in pipSurfaces {
@@ -57,7 +60,7 @@ extension AppSessionSnapshot {
     }
 
     private mutating func insertPipSurfaceIntoSelectedWorkspace(_ pipSurface: SessionPipSurfaceSnapshot) {
-        guard let windowIndex = windows.indices.first(where: { !$0.tabManager.workspaces.isEmpty })
+        guard let windowIndex = windows.indices.first(where: { !windows[$0].tabManager.workspaces.isEmpty })
             ?? windows.indices.first else { return }
         let workspaceIndex = windows[windowIndex].tabManager.selectedWorkspaceIndex.flatMap {
             windows[windowIndex].tabManager.workspaces.indices.contains($0) ? $0 : nil
