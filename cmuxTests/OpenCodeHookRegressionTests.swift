@@ -56,6 +56,41 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         XCTAssertEqual(requestIDs.count, Set(requestIDs).count, "OpenCode telemetry request IDs must not collide: \(frames)")
     }
 
+    func testOpenCodeBlockingFeedEventsUseIndependentSocketConnections() throws {
+        let fileManager = FileManager.default
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
+        XCTAssertTrue(fileManager.fileExists(atPath: pluginURL.path))
+
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-opencode-feed-blocking-\(UUID().uuidString)", isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let socketPath = "/tmp/cmux-oc-\(UUID().uuidString.prefix(8)).sock"
+        defer { unlink(socketPath) }
+        let harnessURL = root.appendingPathComponent("harness.js")
+        try Self.openCodeBlockingFeedHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
+        let bunURL = try Self.bunExecutableURL()
+
+        let result = runProcess(
+            executablePath: bunURL.path,
+            arguments: [harnessURL.path, pluginURL.path, socketPath],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let data = try XCTUnwrap(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8))
+        let summary = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(summary["blockingFrameCount"] as? Int, 2, "Expected both permission events to reach Feed: \(summary)")
+        XCTAssertEqual(summary["connectionCount"] as? Int, 2, "Each blocking feed wait must use its own socket: \(summary)")
+    }
+
     func testOpenCodeInstallHooksIsIdempotentForLegacySetupAlias() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
@@ -205,6 +240,67 @@ const fs = require("node:fs");
   await new Promise((resolve) => server.close(resolve));
   try { fs.unlinkSync(activeSocketPath); } catch (_) {}
   console.log(JSON.stringify(frames));
+})().catch((error) => {
+  console.error(error && error.stack ? error.stack : String(error));
+  process.exit(1);
+});
+"""#
+
+    private static let openCodeBlockingFeedHarness = #"""
+const net = require("node:net");
+const fs = require("node:fs");
+
+(async () => {
+  const [pluginPath, socketPath] = process.argv.slice(2);
+  try { fs.unlinkSync(socketPath); } catch (_) {}
+  const frames = [];
+  const sockets = new Set();
+  const server = net.createServer((conn) => {
+    sockets.add(conn);
+    conn.setEncoding("utf8");
+    let buffered = "";
+    conn.on("data", (chunk) => {
+      buffered += chunk;
+      let index;
+      while ((index = buffered.indexOf("\n")) >= 0) {
+        const line = buffered.slice(0, index);
+        buffered = buffered.slice(index + 1);
+        if (!line.trim()) continue;
+        const frame = JSON.parse(line);
+        frames.push(frame);
+        setTimeout(() => {
+          conn.write(JSON.stringify({ id: frame.id, ok: true, result: { status: "acknowledged" } }) + "\n");
+        }, 100);
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, () => { server.off("error", reject); resolve(); });
+  });
+
+  process.env.CMUX_SOCKET_PATH = socketPath;
+  const source = fs.readFileSync(pluginPath, "utf8")
+    .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async")
+    .replace("const REPLY_TIMEOUT_MS = 120_000;", "const REPLY_TIMEOUT_MS = 1_000;");
+  eval(source);
+  const hooks = await globalThis.CMUXFeed({ directory: "/tmp/opencode-project" });
+  const first = hooks.event({ event: {
+    type: "permission.asked",
+    properties: { id: "permission-one", sessionID: "session-one", permission: "bash" }
+  } });
+  const second = hooks.event({ event: {
+    type: "permission.asked",
+    properties: { id: "permission-two", sessionID: "session-two", permission: "bash" }
+  } });
+  await Promise.all([first, second]);
+  for (const socket of sockets) socket.destroy();
+  await new Promise((resolve) => server.close(resolve));
+  try { fs.unlinkSync(socketPath); } catch (_) {}
+  console.log(JSON.stringify({
+    blockingFrameCount: frames.filter((frame) => frame.params?.wait_timeout_seconds > 0).length,
+    connectionCount: sockets.size,
+  }));
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : String(error));
   process.exit(1);

@@ -15,9 +15,9 @@ const MAX_PLAN_BYTES = 128 * 1024;
 
 export const CMUXFeed = async (ctx) => {
   let client = null;
-  let buffered = "";
   let telemetrySequence = 0;
   const pending = new Map();
+  const blockingConnections = new Map();
   const messageRoles = new Map();
   const sessions = new Map();
 
@@ -356,54 +356,80 @@ export const CMUXFeed = async (ctx) => {
     if (!requestId || !pending.has(requestId)) return;
     const resolver = pending.get(requestId);
     pending.delete(requestId);
+    const blockingConnection = blockingConnections.get(requestId);
+    blockingConnections.delete(requestId);
+    if (blockingConnection && !blockingConnection.destroyed) blockingConnection.end();
     resolver(value);
   };
 
   const failPending = () => {
     for (const requestId of pending.keys()) {
+      if (blockingConnections.has(requestId)) continue;
       resolvePending(requestId, { status: "timed_out" });
     }
-    buffered = "";
+  };
+
+  const handleSocketLine = (line) => {
+    if (!line) return;
+    try {
+      const msg = JSON.parse(line);
+      // The socket sends either V2 responses (id/ok/result/error)
+      // or push frames keyed by request_id. We only care about
+      // results whose result.decision matches a waiter.
+      const responseId =
+        typeof msg?.id === "string" && msg.id.startsWith("opencode-")
+          ? msg.id.slice("opencode-".length)
+          : null;
+      const requestId = msg?.result?.request_id || msg?.request_id || responseId;
+      resolvePending(requestId, msg.result || msg);
+    } catch (e) {
+      // swallow - malformed line, keep the connection alive.
+    }
+  };
+
+  const attachResponseReader = (conn, onClose) => {
+    let connectionBuffer = "";
+    conn.setEncoding("utf8");
+    conn.on("data", (chunk) => {
+      connectionBuffer += chunk;
+      let idx;
+      while ((idx = connectionBuffer.indexOf("\n")) >= 0) {
+        const line = connectionBuffer.slice(0, idx);
+        connectionBuffer = connectionBuffer.slice(idx + 1);
+        handleSocketLine(line);
+      }
+    });
+    conn.on("close", onClose);
+    conn.on("error", onClose);
+    return conn;
   };
 
   const connect = () => {
     try {
-      const conn = net.createConnection(SOCKET_PATH);
-      conn.setEncoding("utf8");
-      conn.on("data", (chunk) => {
-        buffered += chunk;
-        let idx;
-        while ((idx = buffered.indexOf("\n")) >= 0) {
-          const line = buffered.slice(0, idx);
-          buffered = buffered.slice(idx + 1);
-          if (!line) continue;
-          try {
-            const msg = JSON.parse(line);
-            // The socket sends either V2 responses (id/ok/result/error)
-            // or push frames keyed by request_id. We only care about
-            // results whose result.decision matches a waiter.
-            const responseId =
-              typeof msg?.id === "string" && msg.id.startsWith("opencode-")
-                ? msg.id.slice("opencode-".length)
-                : null;
-            const requestId = msg?.result?.request_id || msg?.request_id || responseId;
-            resolvePending(requestId, msg.result || msg);
-          } catch (e) {
-            // swallow - malformed line, keep the connection alive.
-          }
-        }
-      });
-      conn.on("close", () => {
-        client = null;
-        failPending();
-      });
-      conn.on("error", () => {
-        client = null;
+      let conn;
+      conn = attachResponseReader(net.createConnection(SOCKET_PATH), () => {
+        if (client === conn) client = null;
         failPending();
       });
       return conn;
     } catch (e) {
       failPending();
+      return null;
+    }
+  };
+
+  const connectBlocking = (requestId) => {
+    try {
+      let conn;
+      conn = attachResponseReader(net.createConnection(SOCKET_PATH), () => {
+        // A dedicated connection only owns this request. The shared
+        // connection may still be carrying telemetry or other waits.
+        resolvePending(requestId, { status: "timed_out" });
+      });
+      blockingConnections.set(requestId, conn);
+      return conn;
+    } catch (e) {
+      resolvePending(requestId, { status: "timed_out" });
       return null;
     }
   };
@@ -487,16 +513,24 @@ export const CMUXFeed = async (ctx) => {
       pending.set(requestId, resolve);
       setTimeout(() => {
         if (pending.has(requestId)) {
-          pending.delete(requestId);
-          resolve({ status: "timed_out" });
+          resolvePending(requestId, { status: "timed_out" });
         }
       }, REPLY_TIMEOUT_MS);
     });
-    const wrote = write({
-      id: `opencode-${requestId}`,
-      method: "feed.push",
-      params: { event, wait_timeout_seconds: REPLY_TIMEOUT_MS / 1000 },
-    });
+    const conn = connectBlocking(requestId);
+    let wrote = Boolean(conn);
+    if (conn) {
+      try {
+        conn.write(JSON.stringify({
+          id: `opencode-${requestId}`,
+          method: "feed.push",
+          params: { event, wait_timeout_seconds: REPLY_TIMEOUT_MS / 1000 },
+        }) + "\n");
+      } catch (e) {
+        wrote = false;
+        resolvePending(requestId, { status: "timed_out" });
+      }
+    }
     if (!wrote) {
       resolvePending(requestId, { status: "timed_out" });
     }
