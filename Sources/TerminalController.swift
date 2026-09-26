@@ -6905,7 +6905,7 @@ class TerminalController {
             data: ["url": url.absoluteString]
         )
         v2MainSync {
-            guard NSWorkspace.shared.open(url) else { return }
+            guard BrowserExternalAppOpener().open(url) else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),

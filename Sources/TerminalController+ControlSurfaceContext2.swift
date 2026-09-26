@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import Bonsplit
 import CmuxControlSocket
@@ -55,7 +56,7 @@ extension TerminalController {
         guard let url else {
             return .noURL
         }
-        guard NSWorkspace.shared.open(url) else {
+        guard BrowserExternalAppOpener().open(url) else {
             return .externalOpenFailed(url: url.absoluteString)
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)

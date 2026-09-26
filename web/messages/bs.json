@@ -1327,6 +1327,7 @@
           "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk."
         },
         "browser": {
+          "externalApplication": "Naziv aplikacije, identifikator paketa ili putanja do .app koja se koristi samo za HTTP(S) URL-ove otvorene izvan cmuxa. Ostavite prazno ili koristite nerješivu vrijednost da biste koristili sistemsku zadanu aplikaciju.",
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",

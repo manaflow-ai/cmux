@@ -256,7 +256,7 @@ extension ProUpgradePresenter {
     static func presentProWelcomeWeb() {
         let url = decoratedAppWebURL(AuthEnvironment.appProWelcomeURL)
         guard BrowserAvailabilitySettings.isEnabled() else {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
             return
         }
         if presentDedicatedProWelcomeWorkspace(url: url) {

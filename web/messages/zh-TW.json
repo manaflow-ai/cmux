@@ -1327,6 +1327,7 @@
           "soundOverride": "通知聲音覆寫。default 使用 notifications.sound，none 停用播放，其餘值選擇內建或自訂聲音。"
         },
         "browser": {
+          "externalApplication": "僅用於在 cmux 外開啟 HTTP(S) URL 的 App 名稱、套件識別碼或 .app 路徑。留白或使用無法解析的值即可使用系統預設 App。",
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCloud
 import AppKit
 import CmuxCloudMachines
@@ -115,15 +116,8 @@ final class CloudGuestURLService {
                                               sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false)
             opened = coordinator.open(context)
             if let externalURL {
-                let configuration = NSWorkspace.OpenConfiguration()
-                configuration.activates = false
-                // AppKit reports real external-browser delivery before the guest
-                // gets success; errors leave it printing the fallback URL.
-                opened = await withCheckedContinuation { continuation in
-                    NSWorkspace.shared.open(externalURL, configuration: configuration) { application, _ in
-                        continuation.resume(returning: application != nil)
-                    }
-                }
+                opened = await BrowserExternalAppOpener()
+                    .openAwaitingCompletion(externalURL, activates: false)
             }
         }
         guard self.generation == generation, !Task.isCancelled else { return }

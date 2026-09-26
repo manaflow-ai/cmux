@@ -18,6 +18,7 @@ public struct BrowserSection: View {
     private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
+    @State private var externalApplication: DefaultsValueModel<String>
     @State private var engine: DefaultsValueModel<BrowserSearchEngine>
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
@@ -69,6 +70,7 @@ public struct BrowserSection: View {
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
+        _externalApplication = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.externalApplication))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
@@ -107,7 +109,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, externalApplication, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -302,6 +304,22 @@ public struct BrowserSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsBrowserAskWhereToSaveDownloadsToggle")
+            }
+            SettingsCardDivider()
+
+            // External Browser Application
+            SettingsCardRow(
+                configurationReview: .json("browser.externalApplication"),
+                String(localized: "settings.browser.externalApplication", defaultValue: "External Browser Application"),
+                subtitle: String(localized: "settings.browser.externalApplication.subtitle", defaultValue: "HTTP(S) URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty, or use an unresolved value, to use the system default.")
+            ) {
+                TextField(
+                    String(localized: "settings.browser.externalApplication.placeholder", defaultValue: "e.g. com.google.Chrome"),
+                    text: Binding(get: { externalApplication.current }, set: { externalApplication.set($0) })
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .accessibilityIdentifier("SettingsBrowserExternalApplicationField")
             }
             SettingsCardDivider()
 

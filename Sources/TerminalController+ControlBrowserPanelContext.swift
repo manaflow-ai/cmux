@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxControlSocket
 import Foundation
@@ -30,7 +31,7 @@ extension TerminalController: ControlBrowserPanelContext {
     }
 
     func controlBrowserPanelOpenURLExternally(_ url: URL) -> Bool {
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     func controlBrowserPanelOpen(url: URL?) -> UUID? {

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -77,7 +78,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                     // NSWorkspace.open is main-only; run it synchronously to keep the
                     // command's position in the sequence.
                     if let url = URL(string: urlString) {
-                        DispatchQueue.main.sync { _ = NSWorkspace.shared.open(url) }
+                        DispatchQueue.main.sync { _ = BrowserExternalAppOpener().open(url) }
                     }
                 case .log:
                     break

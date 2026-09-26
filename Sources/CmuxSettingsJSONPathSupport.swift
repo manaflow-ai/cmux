@@ -400,6 +400,10 @@ enum BrowserSettingsFileMapping {
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
+        .init(
+            jsonKey: "externalApplication",
+            defaultsKey: BrowserExternalApplicationSettings.userDefaultsKey
+        ),
         .init(jsonKey: "reactGrabVersion", defaultsKey: ReactGrabSettings.versionKey),
     ]
 

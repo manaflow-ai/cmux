@@ -491,7 +491,7 @@ import WebKit
            shouldOpenInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let opened = NSWorkspace.shared.open(url)
+            let opened = BrowserExternalAppOpener().open(url)
 #if DEBUG
             cmuxDebugLog(
                 "browser.nav.decidePolicy.action kind=openExternalIntentInSystemBrowser opened=\(opened ? 1 : 0) " +

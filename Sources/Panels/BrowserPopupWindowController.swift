@@ -65,6 +65,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // overlaying the opener's browser context so OAuth popups keep cmux's
         // shared cookie/storage scope and opener linkage.
         let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
+        webView.contextMenuDefaultBrowserOpener = { BrowserExternalAppOpener().open($0) }
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -219,7 +220,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             case .failed:
                 browserPresentExternalNavigationFailure(for: url, in: self.webView)
             case .notConfigured:
-                _ = NSWorkspace.shared.open(url)
+                _ = BrowserExternalAppOpener().open(url)
             }
         }
 
@@ -376,7 +377,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if let openerPanel {
             openerPanel.openLinkInNewTab(request: request)
         } else if let url = request.url {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
         }
     }
 
@@ -424,8 +425,8 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
-        alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux.")
-        alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
+        alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your external browser, or proceed in cmux.")
+        alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in External Browser"))
         alert.addButton(withTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.showsSuppressionButton = true
@@ -441,7 +442,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             switch response {
             case .alertFirstButtonReturn:
                 // Open in default browser, cancel popup navigation
-                NSWorkspace.shared.open(url)
+                BrowserExternalAppOpener().open(url)
                 decisionHandler(.cancel)
             case .alertSecondButtonReturn:
                 // Proceed in popup

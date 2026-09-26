@@ -1499,6 +1499,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "externalApplication": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.externalApplication",
+          "description": "Application name, bundle identifier, or .app path used only for HTTP(S) URLs opened outside cmux. Leave empty, or use an unresolved value, to use the system default."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxCanvas
 import CmuxPanes
@@ -92,7 +93,7 @@ struct BrowserActionDispatcher {
               scheme == "http" || scheme == "https" else {
             return false
         }
-        return NSWorkspace.shared.open(url)
+        return BrowserExternalAppOpener().open(url)
     }
 
     private func toggleReactGrab(

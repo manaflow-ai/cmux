@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCloud
 import AppKit
 import Bonsplit
@@ -46,7 +47,7 @@ enum ProUpgradePresenter {
     static func presentAppPricingWeb(source: ProUpgradeSource) {
         let url = appPricingURLForCurrentAppearance(source: source)
         guard BrowserAvailabilitySettings.isEnabled() else {
-            NSWorkspace.shared.open(url)
+            BrowserExternalAppOpener().open(url)
             return
         }
         if presentDedicatedPricingWorkspace(url: url) {
@@ -63,7 +64,7 @@ enum ProUpgradePresenter {
     @MainActor
     static func presentCheckout(source: ProUpgradeSource, plan: CheckoutPlan = .pro) {
         PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
-        NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
+        BrowserExternalAppOpener().open(checkoutURL(source: source, plan: plan))
     }
 
     /// The checkout URL a surface opens: the billing origin's checkout route,
@@ -78,7 +79,7 @@ enum ProUpgradePresenter {
 
     @MainActor
     static func presentBillingPortal() {
-        NSWorkspace.shared.open(AuthEnvironment.billingPortalURL)
+        BrowserExternalAppOpener().open(AuthEnvironment.billingPortalURL)
     }
 
     @MainActor
@@ -127,7 +128,7 @@ enum ProUpgradePresenter {
         if AppDelegate.shared?.openBrowserAndFocusAddressBar(url: url) != nil {
             return
         }
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 
     @MainActor
@@ -499,7 +500,7 @@ private struct NativePricingPlansView: View {
                 period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
                 isCurrent: false,
                 actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
-                action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                action: { BrowserExternalAppOpener().open(AuthEnvironment.websiteOrigin) },
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
@@ -516,7 +517,7 @@ private struct NativePricingPlansView: View {
                 actionTitle: String(localized: "pricing.native.enterprise.cta", defaultValue: "Contact sales"),
                 action: {
                     if let url = URL(string: "mailto:founders@manaflow.com") {
-                        NSWorkspace.shared.open(url)
+                        BrowserExternalAppOpener().open(url)
                     }
                 },
                 features: [

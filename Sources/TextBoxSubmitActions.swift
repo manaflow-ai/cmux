@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxWorkspaces
@@ -602,6 +603,6 @@ extension TextBoxInputContainer {
         guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/configuration.md#terminaltextboxsubmitactions") else {
             return
         }
-        NSWorkspace.shared.open(url)
+        BrowserExternalAppOpener().open(url)
     }
 }

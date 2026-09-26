@@ -1328,6 +1328,7 @@
           "soundOverride": "การแทนที่เสียงการแจ้งเตือน default ใช้ notifications.sound, none ปิดการเล่น และค่าอื่นจะเลือกเสียงในตัวหรือเสียงกำหนดเอง"
         },
         "browser": {
+          "externalApplication": "ชื่อแอป ตัวระบุบันเดิล หรือเส้นทาง .app ที่ใช้เฉพาะกับ URL HTTP(S) ที่เปิดนอก cmux เว้นว่างหรือใช้ค่าที่แก้ไขไม่ได้เพื่อใช้แอปเริ่มต้นของระบบ",
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
           "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",

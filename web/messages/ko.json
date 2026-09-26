@@ -1327,6 +1327,7 @@
           "soundOverride": "알림 소리 재정의입니다. default는 notifications.sound를 사용하고, none은 재생을 끄며, 나머지 값은 내장 또는 사용자 지정 소리를 선택합니다."
         },
         "browser": {
+          "externalApplication": "cmux 외부에서 여는 HTTP(S) URL에만 사용할 앱 이름, 번들 식별자 또는 .app 경로입니다. 비워 두거나 확인할 수 없는 값을 사용하면 시스템 기본 앱을 사용합니다.",
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",
           "customSearchEngineName": "defaultSearchEngine이 custom일 때 사용할 표시 이름입니다.",
           "customSearchEngineURLTemplate": "defaultSearchEngine이 custom일 때 사용할 검색 URL입니다. 인코딩된 검색어에는 쿼리 자리표시자 또는 %s를 포함하세요. 자리표시자가 없으면 cmux가 URL에 q=를 추가합니다.",
