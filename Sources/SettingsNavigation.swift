@@ -7,10 +7,10 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case cloudMachines
     /// Devices (My Devices). The raw value predates the rename and stays
     /// because persisted navigation targets and `cmux settings open` send it.
     case computers
-    case cloudMachines
     case networking
     case sidebarAppearance
     case customSidebars
