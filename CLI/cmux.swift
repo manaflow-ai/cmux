@@ -32071,6 +32071,7 @@ struct CMUXCLI {
         guard let normalizedSessionId else { return nil }
 
         let argv: [String]?
+        let routesThroughOwnedLauncher: Bool
         switch AgentResumeArgv().launcherResolution(
             launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
@@ -32082,7 +32083,9 @@ struct CMUXCLI {
             // which must never regain permission state a restored teammate did
             // not explicitly opt into; observed mode applies only below.
             argv = resolved
+            routesThroughOwnedLauncher = true
         case .passthrough:
+            routesThroughOwnedLauncher = false
             argv = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: normalizedSessionId,
@@ -32097,7 +32100,9 @@ struct CMUXCLI {
         // resolution above produced, so the wrapper receives exactly the options cmux would have
         // passed to the agent directly. The config is only read when a launcher was captured.
         let resumeWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
-        let externalLauncher = launchCommand?.externalLauncher.flatMap { launcherID in
+        // A cmux-owned route already names its own launcher in argv[0]; only the bare agent argv
+        // is wrapped.
+        let externalLauncher = routesThroughOwnedLauncher ? nil : launchCommand?.externalLauncher.flatMap { launcherID in
             externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
                 .resolvedLauncher(id: launcherID, kind: kind)
         }

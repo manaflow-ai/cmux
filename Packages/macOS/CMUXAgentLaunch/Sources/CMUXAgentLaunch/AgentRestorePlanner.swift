@@ -120,6 +120,13 @@ public struct AgentRestorePlanner: Sendable {
         )
 
         if request.mode == .resumeAgent,
+           let checkpointID = normalized(request.checkpointID),
+           !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+               launcher: request.launchCommand?.launcher,
+               sessionId: checkpointID,
+               executablePath: request.launchCommand?.executablePath,
+               arguments: request.launchCommand?.arguments ?? []
+           ),
            let externalLauncher = externalLaunchers.resolvedLauncher(
                id: request.launchCommand?.externalLauncher,
                kind: kind

@@ -813,6 +813,45 @@ import Testing
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "claude:\(sessionID)")
     }
 
+    /// A cmux-owned launcher already names itself in the resume argv's `argv[0]`. Wrapping that route
+    /// would drop `cmux` and run `claude-teams` under the declared launcher, so the owned route wins.
+    @Test func ownedLauncherRouteIsNotWrapped() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claudeTeams",
+                externalLauncher: "teamclaude",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: ["/usr/local/bin/cmux", "claude-teams"],
+                workingDirectory: "/tmp/work",
+                source: "environment"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        #expect(AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+            launcher: "claudeTeams",
+            sessionId: sessionID,
+            executablePath: "/usr/local/bin/cmux",
+            arguments: ["/usr/local/bin/cmux", "claude-teams"]
+        ))
+
+        let invocation = try #require(
+            AgentRestorePlanner(
+                isExecutableFile: { _ in false },
+                externalLaunchers: registry(Self.teamclaude)
+            ).invocation(for: request, ambientEnvironment: [:])
+        )
+
+        #expect(invocation.arguments.first == "/usr/local/bin/cmux")
+        #expect(invocation.arguments.contains("teamclaude") == false)
+    }
+
     /// The working-directory sanitizer and the provider rewrites target the agent's own argv, so the
     /// launcher prefix is applied after them: a prefix may legitimately carry the same path the
     /// capture recorded as its working directory, and stripping it would break the wrapper's own

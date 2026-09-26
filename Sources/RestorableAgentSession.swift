@@ -410,6 +410,7 @@ enum AgentResumeCommandBuilder {
 
         let externalLauncher = externalLauncher(
             kind: kind,
+            sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory
         )
@@ -656,10 +657,17 @@ enum AgentResumeCommandBuilder {
     /// the prefix twice. #10494
     private static func externalLauncher(
         kind: RestorableAgentKind,
+        sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> AgentExternalLauncher? {
-        guard let launcherID = launchCommand?.externalLauncher else { return nil }
+        guard let launcherID = launchCommand?.externalLauncher,
+              !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+                  launcher: launchCommand?.launcher,
+                  sessionId: sessionId,
+                  executablePath: launchCommand?.executablePath,
+                  arguments: launchCommand?.arguments ?? []
+              ) else { return nil }
         return AgentExternalLauncherRegistry.load(
             homeDirectory: NSHomeDirectory(),
             workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,

@@ -437,3 +437,37 @@ public struct AgentExternalLauncher: Codable, Equatable, Sendable {
         values.compactMap { normalized($0) }
     }
 }
+
+extension AgentResumeArgv {
+    /// Whether a cmux-owned launcher (`cmux claude-teams`, `omo`, a routed Subrouter launch, ...)
+    /// builds this session's resume argv.
+    ///
+    /// Such a route already names its own launcher in `argv[0]`. A user-declared external launcher
+    /// is only re-supplied around the bare agent argv: wrapping an owned route would replace that
+    /// `argv[0]` with the declared prefix and run the owned launcher's subcommand under the wrong
+    /// program. #10494
+    ///
+    /// - Parameters:
+    ///   - launcher: The captured launcher identifier.
+    ///   - sessionId: The session identifier being resumed.
+    ///   - executablePath: The captured executable path, when available.
+    ///   - arguments: The captured argv, including `argv[0]`.
+    /// - Returns: `true` when ``launcherResolution(launcher:sessionId:executablePath:arguments:)``
+    ///   resolves the resume itself instead of passing through to the built-in agent argv.
+    public func resumeRoutesThroughOwnedLauncher(
+        launcher: String?,
+        sessionId: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> Bool {
+        if case .resolved = launcherResolution(
+            launcher: launcher,
+            sessionId: sessionId,
+            executablePath: executablePath,
+            arguments: arguments
+        ) {
+            return true
+        }
+        return false
+    }
+}
