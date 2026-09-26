@@ -48,6 +48,15 @@ export function acpPromptFromMail(message: AcpMailMessage): string {
   ].join("\n");
 }
 
+// Providers may put the actionable diagnostic in JSON-RPC's optional data.
+// Only strings are display text; structured payloads retain message-only behavior.
+function acpError(error: { message?: string; data?: unknown }, fallback: string): Error {
+  const message = error.message ?? fallback;
+  return new Error(typeof error.data === "string" && error.data.length > 0
+    ? `${message}: ${error.data}`
+    : message);
+}
+
 // Generic Agent Client Protocol (https://agentclientprotocol.com) client over
 // stdio NDJSON JSON-RPC. One adapter covers every ACP-speaking agent:
 // `opencode acp`, `gemini --experimental-acp`, `claude-code-acp`, goose, ...
@@ -223,7 +232,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
       const p = pending.get(msg.id);
       if (p) {
         pending.delete(msg.id);
-        msg.error ? p.reject(new Error(msg.error.message ?? "acp error")) : p.resolve(msg.result);
+        msg.error ? p.reject(acpError(msg.error, "acp error")) : p.resolve(msg.result);
       }
       return;
     }
@@ -572,7 +581,7 @@ async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandE
           pending.delete(msg.id);
           if (msg.error) {
             clearTimeout(timer);
-            reject(new Error(msg.error.message ?? "acp command catalog failed"));
+            reject(acpError(msg.error, "acp command catalog failed"));
           } else if (msg.id === 1) {
             write("session/new", { cwd, mcpServers: [] });
           }
@@ -623,7 +632,7 @@ async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionO
         pending.delete(msg.id);
         if (msg.error) {
           clearTimeout(timer);
-          reject(new Error(msg.error.message ?? "acp option catalog failed"));
+          reject(acpError(msg.error, "acp option catalog failed"));
         } else if (msg.id === 1) {
           write("session/new", { cwd, mcpServers: [] });
         } else {
