@@ -2294,14 +2294,19 @@ actor MobileHostConnection {
     /// fails (which closes the unusable control session).
     func drainQueuedEvents() async {
         while true {
-            if isClosed || independentEventNegotiationInProgress {
+            if isClosed {
                 eventQueue.abandonDrain()
                 return
             }
             // Fan-out that overflows while this drain runs cannot start
-            // another one, so the running drain owns the close.
+            // another one, so the running drain owns the close. Check it
+            // before yielding to lane negotiation, which can wait out a probe.
             if eventQueue.consumeOverflow() {
                 await close(reason: "event queue overflow")
+                return
+            }
+            if independentEventNegotiationInProgress {
+                eventQueue.abandonDrain()
                 return
             }
             guard let event = eventQueue.dequeue() else {
