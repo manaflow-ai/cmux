@@ -919,6 +919,17 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "running")
         #expect(session["runtimeStatus"] as? String == "running")
         #expect(session["activePromptTurnIds"] as? [String] == ["turn-active"])
+        if recordsLiveOwner {
+            // The live owner's identity must survive the rejected SessionStart
+            // rather than being rewritten to the incoming PID.
+            let owner = try #require(AgentPIDProcessIdentity(pid: getpid()))
+            let savedPID = try #require(session["pid"] as? NSNumber)
+            let savedStartSeconds = try #require(session["pidStartSeconds"] as? NSNumber)
+            let savedStartMicroseconds = try #require(session["pidStartMicroseconds"] as? NSNumber)
+            #expect(savedPID.intValue == Int(owner.pid))
+            #expect(savedStartSeconds.int64Value == Int64(owner.startSeconds))
+            #expect(savedStartMicroseconds.int64Value == Int64(owner.startMicroseconds))
+        }
     }
 
     @Test func codexSessionStartRefreshesCompletedPriorTurn() throws {
