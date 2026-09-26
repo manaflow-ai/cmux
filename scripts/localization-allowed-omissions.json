@@ -2381,6 +2381,14 @@
     "class": "technical",
     "source": "cmux.json"
   },
+  "globalSearch.kind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "settings.section.terminal": {
     "source": "Terminal",
     "identityLocales": {
