@@ -153,6 +153,21 @@ if test "$_cmux_integration_enabled" != 0
     end
     _cmux_restore_scrollback_once
 
+    # First-launch welcome banner. cmux sets CMUX_SHOW_WELCOME on the first
+    # workspace's shell instead of typing `cmux welcome` into it, so the banner
+    # prints during startup and never lands in shell history.
+    function _cmux_show_welcome_once
+        test "$CMUX_SHOW_WELCOME" = 1; or return 0
+        set -e CMUX_SHOW_WELCOME
+        set -l cli (string replace -r '/?shell-integration/?$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")/bin/cmux
+        if not test -x "$cli"
+            set cli (command -s cmux)
+        end
+        test -n "$cli"; or return 0
+        "$cli" welcome 2>/dev/null; or true
+    end
+    _cmux_show_welcome_once
+
     function _cmux_now
         if test -n "$EPOCHSECONDS"
             printf '%s\n' "$EPOCHSECONDS"

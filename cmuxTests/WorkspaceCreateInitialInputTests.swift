@@ -152,6 +152,79 @@ extension WorkspaceCreateWorkingDirectoryTests {
         #expect(defaults.object(forKey: welcomeShownKey) == nil)
     }
 
+    @Test func welcomeBannerUsesShellStartupOnlyWhenCmuxIntegrationLoads() {
+        for shell in ["/bin/zsh", "/bin/bash", "/opt/homebrew/bin/fish", "/opt/homebrew/bin/nu"] {
+            #expect(
+                WelcomeBannerDelivery.resolve(
+                    shellIntegrationEnabled: true,
+                    resolvedShell: shell,
+                    hasUserGhosttyCommand: false
+                ) == .shellStartup
+            )
+        }
+        #expect(
+            WelcomeBannerDelivery.resolve(
+                shellIntegrationEnabled: true,
+                resolvedShell: "/usr/local/bin/xonsh",
+                hasUserGhosttyCommand: false
+            ) == .typedCommand
+        )
+        #expect(
+            WelcomeBannerDelivery.resolve(
+                shellIntegrationEnabled: false,
+                resolvedShell: "/bin/zsh",
+                hasUserGhosttyCommand: false
+            ) == .typedCommand
+        )
+        #expect(
+            WelcomeBannerDelivery.resolve(
+                shellIntegrationEnabled: true,
+                resolvedShell: "/bin/zsh",
+                hasUserGhosttyCommand: true
+            ) == .typedCommand
+        )
+        #expect(
+            WelcomeBannerDelivery.resolve(
+                shellIntegrationEnabled: true,
+                resolvedShell: nil,
+                hasUserGhosttyCommand: false
+            ) == .typedCommand
+        )
+        #expect(WelcomeBannerDelivery.typedCommand.hasPrefix(" "))
+    }
+
+    @Test func automaticWelcomeRidesShellStartupEnvironmentInsteadOfTypedInput() throws {
+        try #require(
+            WelcomeBannerDelivery.current() == .shellStartup,
+            "Test host shell must load cmux shell integration"
+        )
+        let defaults = UserDefaults.standard
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
+            } else {
+                defaults.removeObject(forKey: welcomeShownKey)
+            }
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defaults.removeObject(forKey: welcomeShownKey)
+        let created = try #require(manager.addWorkspaceIfActive(select: true))
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+
+        #expect(
+            panel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey] == "1"
+        )
+        #expect(panel.surface.debugInitialInputForTesting() == nil)
+        #expect(defaults.bool(forKey: welcomeShownKey))
+
+        let second = try #require(manager.addWorkspaceIfActive(select: true))
+        let secondPanel = try #require(second.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        #expect(secondPanel.surface.respawnInitialEnvironmentOverrides[WelcomeBannerDelivery.environmentKey] == nil)
+    }
+
     @Test(
         "terminal creation RPCs inject input into an interactive shell",
         arguments: ["surface.split", "pane.create", "surface.create"]

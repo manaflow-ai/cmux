@@ -1374,6 +1374,18 @@ class TabManager: ObservableObject {
             // boots terminal state. The ssh/new-workspace path can otherwise crash while
             // reading @Published placement state from existing workspaces mid-creation.
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+            let welcomeDelivery: WelcomeBannerDelivery? = autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+                ? WelcomeBannerDelivery.current()
+                : nil
+            var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            if welcomeDelivery == .shellStartup {
+                resolvedInitialTerminalEnvironment.merge(
+                    WelcomeBannerDelivery.shellStartupEnvironment,
+                    uniquingKeysWith: { current, _ in current }
+                )
+                UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+            }
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let defaultTitle: String
@@ -1398,7 +1410,7 @@ class TabManager: ObservableObject {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
-                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalEnvironment: resolvedInitialTerminalEnvironment,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
@@ -1470,8 +1482,7 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && initialSurface == .terminal
-                && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
+            if welcomeDelivery == .typedCommand {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -1488,7 +1499,7 @@ class TabManager: ObservableObject {
            terminalPanel.surface.surface != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommand)
             }
             return
         }
@@ -1508,7 +1519,7 @@ class TabManager: ObservableObject {
             panelsCancellable?.cancel()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-                terminalPanel.sendText("cmux welcome\n")
+                terminalPanel.sendText(WelcomeBannerDelivery.typedCommand)
             }
         }
 
@@ -6981,4 +6992,47 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = CmuxWebView.firstResponderPointerInitiatedUserInfoKey
+}
+
+/// How the first-launch welcome banner reaches the new workspace's terminal.
+///
+/// cmux shell integration prints the banner from inside the shell's startup
+/// when it sees ``environmentKey``, so no command is typed and nothing lands in
+/// the user's shell history. Typing ``typedCommand`` is the fallback for shells
+/// that do not load cmux shell integration.
+enum WelcomeBannerDelivery: Equatable {
+    case shellStartup
+    case typedCommand
+
+    /// The one-shot variable the bundled zsh, bash, fish and nushell
+    /// integrations consume (and unset) to print `cmux welcome` at startup.
+    static let environmentKey = "CMUX_SHOW_WELCOME"
+    static let shellStartupEnvironment = [environmentKey: "1"]
+    /// Leading space keeps the fallback out of history for shells configured
+    /// with HIST_IGNORE_SPACE / HISTCONTROL=ignorespace (and fish by default).
+    static let typedCommand = " cmux welcome\n"
+    private static let integratedShellNames: Set<String> = ["zsh", "bash", "fish", "nu"]
+
+    static func resolve(
+        shellIntegrationEnabled: Bool,
+        resolvedShell: String?,
+        hasUserGhosttyCommand: Bool
+    ) -> WelcomeBannerDelivery {
+        guard shellIntegrationEnabled,
+              !hasUserGhosttyCommand,
+              let resolvedShell,
+              integratedShellNames.contains(URL(fileURLWithPath: resolvedShell).lastPathComponent) else {
+            return .typedCommand
+        }
+        return .shellStartup
+    }
+
+    @MainActor
+    static func current(defaults: UserDefaults = .standard) -> WelcomeBannerDelivery {
+        resolve(
+            shellIntegrationEnabled: defaults.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
+            resolvedShell: GhosttyApp.shared.resolvedUserShell,
+            hasUserGhosttyCommand: GhosttyApp.shared.hasUserGhosttyCommand
+        )
+    }
 }

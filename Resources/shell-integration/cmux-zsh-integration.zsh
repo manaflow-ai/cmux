@@ -275,6 +275,20 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+# First-launch welcome banner. cmux sets CMUX_SHOW_WELCOME on the first
+# workspace's shell instead of typing `cmux welcome` into it, so the banner
+# prints during startup and never lands in shell history.
+_cmux_show_welcome_once() {
+    [[ "${CMUX_SHOW_WELCOME:-}" == "1" ]] || return 0
+    unset CMUX_SHOW_WELCOME
+    local cli="${CMUX_SHELL_INTEGRATION_DIR%/}"
+    cli="${cli%/shell-integration}/bin/cmux"
+    [[ -x "$cli" ]] || cli="$(_cmux_relay_cli_path)"
+    [[ -n "$cli" ]] || return 0
+    "$cli" welcome 2>/dev/null || true
+}
+_cmux_show_welcome_once
+
 _cmux_now() {
     print -r -- "${EPOCHSECONDS:-$SECONDS}"
 }

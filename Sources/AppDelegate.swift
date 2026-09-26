@@ -10465,14 +10465,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
             bringToFront(window)
         }
-        guard let workspace = context.tabManager.addWorkspaceIfActive(select: true, autoWelcomeIfNeeded: false) else {
+        let delivery = WelcomeBannerDelivery.current()
+        guard let workspace = context.tabManager.addWorkspaceIfActive(
+            initialTerminalEnvironment: delivery == .shellStartup ? WelcomeBannerDelivery.shellStartupEnvironment : [:],
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else {
             return
         }
-        sendWelcomeCommandWhenReady(to: workspace)
+        if delivery == .typedCommand {
+            sendWelcomeCommandWhenReady(to: workspace)
+        }
     }
 
     func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
-        sendTextWhenReady("cmux welcome\n", to: workspace, beforeSend: {
+        sendTextWhenReady(WelcomeBannerDelivery.typedCommand, to: workspace, beforeSend: {
             if markShownOnSend {
                 UserDefaults.standard.set(true, forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
             }

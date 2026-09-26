@@ -256,6 +256,17 @@ def --env _cmux_restore_scrollback_once [] {
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($env.PWD)\u{07}"
 }
 
+# First-launch welcome banner. cmux sets CMUX_SHOW_WELCOME on the first
+# workspace's shell instead of typing `cmux welcome` into it, so the banner
+# prints during startup and never lands in shell history.
+def --env _cmux_show_welcome_once [] {
+    if ($env.CMUX_SHOW_WELCOME? | default "") != "1" { return }
+    hide-env CMUX_SHOW_WELCOME
+    let cli = (_cmux_wrapper_path "cmux")
+    if ($cli | is-empty) { return }
+    try { ^$cli welcome }
+}
+
 # Locates a bundled cmux CLI wrapper relative to CMUX_SHELL_INTEGRATION_DIR.
 def _cmux_wrapper_path [wrapper_file: string] {
     let dir = ($env.CMUX_SHELL_INTEGRATION_DIR? | default "")
@@ -324,6 +335,7 @@ def --env _cmux_pre_prompt [] {
 if (_cmux_integration_enabled) {
     $env._CMUX_SEND_TOOL = (_cmux_pick_send_tool)
     _cmux_restore_scrollback_once
+    _cmux_show_welcome_once
     # String hooks (not closures) so the def --env entry points can persist
     # their dedupe state into the REPL environment.
     $env.config = ($env.config | upsert hooks.pre_execution (
