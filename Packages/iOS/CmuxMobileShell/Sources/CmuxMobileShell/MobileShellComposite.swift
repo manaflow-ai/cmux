@@ -14991,9 +14991,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ownerKey: foregroundMacKey,
             surfaceID: surfaceID
         )
-        if terminalViewportPreparationGenerationsBySequenceKey[
-            preparationSequenceKey
-        ] == nil {
+        // SSH surfaces never wait for that acknowledgement: their grid is
+        // recorded when the viewport is prepared, and tying the attach to
+        // the Mac negotiation stranded the one-shot seed whenever a late
+        // teardown of the previous view retired the negotiation.
+        if sshOwnsSurface(surfaceID)
+            || terminalViewportPreparationGenerationsBySequenceKey[
+                preparationSequenceKey
+            ] == nil {
             requestColdAttachTerminalReplay(surfaceID: surfaceID)
         } else {
             terminalViewportDeferredColdReplayGenerationsBySequenceKey[

@@ -113,6 +113,10 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
     @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var gridBySurface: [String: (columns: Int, rows: Int)] = [:]
+    /// Surfaces asked to attach before the phone reported their grid. The
+    /// phone owns SSH geometry (PRD D19), so the attach (and its one-shot
+    /// seed) waits for the first real grid instead of opening at a guess.
+    @ObservationIgnored private var attachAwaitingGrid: Set<String> = []
     /// The last queued resize or geometry release per surface.
     @ObservationIgnored private var sizingTasks: [String: Task<Void, Never>] = [:]
     /// Input typed while a surface's attach is in flight.
@@ -597,6 +601,10 @@ public final class MobileSSHComputers {
     /// terminal that released its geometry claims it again).
     func viewportChanged(surfaceID: String, columns: Int, rows: Int) {
         gridBySurface[surfaceID] = (columns, rows)
+        if attachAwaitingGrid.remove(surfaceID) != nil {
+            attach(surfaceID: surfaceID)
+            return
+        }
         if let attachment = attachments[surfaceID] {
             enqueueSizing(surfaceID) { await attachment.resize(columns: columns, rows: rows) }
         }
@@ -624,7 +632,7 @@ public final class MobileSSHComputers {
     /// Repaints a (re)mounted surface: attaches on first use, otherwise
     /// replays retained output.
     func replay(surfaceID: String) {
-        if attachments[surfaceID] != nil || attachTasks[surfaceID] != nil {
+        if attachments[surfaceID] != nil || attachTasks[surfaceID] != nil || attachAwaitingGrid.contains(surfaceID) {
             sink?.sshDeliver(Self.replacement(replaying: replayBySurface[surfaceID] ?? Data()), surfaceID: surfaceID)
             return
         }
@@ -656,7 +664,7 @@ public final class MobileSSHComputers {
         guard let attachment = attachments[surfaceID] else {
             // Keystrokes typed while the attach is in flight are sent once
             // it lands, in order.
-            if attachTasks[surfaceID] != nil {
+            if attachTasks[surfaceID] != nil || attachAwaitingGrid.contains(surfaceID) {
                 pendingInputBySurface[surfaceID, default: Data()].append(data)
                 return
             }
@@ -671,7 +679,13 @@ public final class MobileSSHComputers {
         guard let hostID = MobileSSHIdentifier(surfaceID).hostID,
               let local = MobileSSHLocalID(scopedID: surfaceID),
               attachTasks[surfaceID] == nil else { return }
-        let grid = gridBySurface[surfaceID] ?? (80, 24)
+        guard let grid = gridBySurface[surfaceID] else {
+            // Seeding at a placeholder size would capture the screen (and
+            // resize a shared tmux window) at the wrong grid; attach when
+            // the view reports its size.
+            attachAwaitingGrid.insert(surfaceID)
+            return
+        }
         attachTasks[surfaceID] = Task { [weak self] in
             guard let self else { return }
             defer { self.attachTasks[surfaceID] = nil }
@@ -703,6 +717,7 @@ public final class MobileSSHComputers {
     }
 
     private func detach(surfaceID: String) async {
+        attachAwaitingGrid.remove(surfaceID)
         attachTasks.removeValue(forKey: surfaceID)?.cancel()
         sizingTasks[surfaceID] = nil
         if let attachment = attachments.removeValue(forKey: surfaceID) {
