@@ -388,6 +388,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_catch_up_pr.py
 
+      - name: Validate merge-main's green base and guard failure labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_main.py
+
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_bisect.py

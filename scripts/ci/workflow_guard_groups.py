@@ -104,6 +104,14 @@ PATH_OWNERS = {
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_ci_merge_main.py runs merge-main end to end: the green-base
+    # selection, the catch-up merge above, and the guard runner it reruns
+    # failed steps with (test_ci_run_guards.py also imports the runner).
+    "scripts/merge-main.sh": frozenset(("ci",)),
+    "scripts/ci/merge_main.py": frozenset(("ci",)),
+    "scripts/ci/last_green_base.py": frozenset(("ci",)),
+    "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
