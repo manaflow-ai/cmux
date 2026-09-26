@@ -35,6 +35,7 @@ enum SSHPTYAttachStartupCommandBuilder {
     ) -> String {
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         var lines = [
+            SSHLocaleEnvironment().shellSetup,
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",

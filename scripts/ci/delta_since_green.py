@@ -15,8 +15,8 @@ which may be one ordinary commit on top of such a merge.
 
 Fail open. Anything unexpected (another shape, a red or missing verdict, a
 force push, history too shallow, a pull request that edits CI policy, an
-API error) prints why and leaves
-`base_sha` empty, and ci.yml routes the usual pull request diff. The result
+API error, or main-only UI tests with no automatically routed PR lane) prints
+why and leaves `base_sha` empty, and ci.yml routes the usual pull request diff. The result
 also never drops a file the pull request's own diff needs: every file the
 pull request changes against main must either differ since H1 or have been
 part of the pull request's diff at H1, which H1's green run covered.
@@ -238,6 +238,12 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
     # is already local is skipped by fetch, so ask for the trees themselves.
     git.fetch("--filter=blob:none", git.remote, git.tree(green.oid), git.tree(base))
     delta = git.changed(green.oid, merge_sha)
+    # suite-coverage rejects cmuxUITests/ unless the full suite was requested;
+    # no PR job automatically executes those tests. Do not turn tests imported
+    # unchanged from main into a new coverage requirement for this PR. Falling
+    # back preserves the entire PR diff, including any UI tests it does change.
+    if any(path.startswith("cmuxUITests/") for path in delta - own_now):
+        raise Skip("the delta includes main-only UI tests without an automatically routed PR lane")
     own_then = git.changed(base, green.oid)
     # A file the pull request changes now that neither differs since H1 nor
     # was changed at H1 was never tested with this content: a merge that kept

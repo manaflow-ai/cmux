@@ -98,25 +98,20 @@ public struct MoshTerminalCommandBuilder: Sendable {
         )
         let remoteCapabilityCommand =
             remoteMoshServerResolver.resolutionProbeShellCommand + " >/dev/null 2>&1"
-        let capabilityProbe = (capabilityProbeSSHArguments + [
+        let locale = SSHLocaleEnvironment()
+        let capabilityProbe = locale.shellCommandPrefix(arguments: capabilityProbeSSHArguments + [
             "-T",
             destination,
             remoteCapabilityCommand,
         ])
-            .map(\.remoteCommandShellQuoted)
-            .joined(separator: " ")
         let remoteSSHConnectionScript = "printf '%s\\n' \"__CMUX_SSH_CONNECTION__${SSH_CONNECTION:-}\""
         let remoteSSHConnectionCommand = "/bin/sh -c \(remoteSSHConnectionScript.remoteCommandShellQuoted)"
-        let remoteSSHConnectionProbe = (capabilityProbeSSHArguments + [
+        let remoteSSHConnectionProbe = locale.shellCommandPrefix(arguments: capabilityProbeSSHArguments + [
             "-T",
             destination,
             remoteSSHConnectionCommand,
         ])
-            .map(\.remoteCommandShellQuoted)
-            .joined(separator: " ")
-        let moshSSHCommand = sessionSSHArguments
-            .map(\.remoteCommandShellQuoted)
-            .joined(separator: " ")
+        let moshSSHCommand = locale.shellCommandPrefix(arguments: sessionSSHArguments)
         let moshArguments = ([
             "--ssh=\(moshSSHCommand)",
             "--server=\(remoteMoshServerResolver.remoteExecPrefixShellCommand)",
@@ -126,7 +121,7 @@ public struct MoshTerminalCommandBuilder: Sendable {
             .map(\.remoteCommandShellQuoted)
             .joined(separator: " ")
         var script = [
-            "cmux_mosh_fallback() { exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted); }",
+            "cmux_mosh_fallback() { \(locale.shellSetup); exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted); }",
             "cmux_mosh=\"$(\(localMoshResolver.resolutionProbeShellCommand) 2>/dev/null)\"",
             "cmux_mosh_resolve_status=$?",
             "if [ \"$cmux_mosh_resolve_status\" -ne 0 ] || [ -z \"$cmux_mosh\" ]; then",

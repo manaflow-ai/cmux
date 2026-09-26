@@ -13337,17 +13337,19 @@ struct CMUXCLI {
         guard let launchPath = sshArguments.first else {
             throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
         }
+        let localeSetup = SSHLocaleEnvironment().shellSetup + "; exec \"$@\""
         client.close()
         if let passwordCredential = options.passwordCredential, !passwordCredential.isEmpty {
             let askpassRunner = try prepareSSHAskpassRunner(passwordCredential: passwordCredential)
             try execInteractiveProgram(
                 launchPath: "/bin/sh",
-                arguments: [askpassRunner, launchPath] + Array(sshArguments.dropFirst())
+                arguments: ["-c", localeSetup, "cmux-ssh", "/bin/sh", askpassRunner, launchPath]
+                    + Array(sshArguments.dropFirst())
             )
         }
         try execInteractiveProgram(
-            launchPath: launchPath,
-            arguments: Array(sshArguments.dropFirst())
+            launchPath: "/bin/sh",
+            arguments: ["-c", localeSetup, "cmux-ssh"] + sshArguments
         )
     }
 

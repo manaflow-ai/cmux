@@ -4,6 +4,52 @@ import Testing
 
 @Suite("Mosh terminal command selection and fallback")
 struct MoshTerminalCommandBuilderTests {
+    @Test("drops the bare macOS ctype from SSH while preserving Mosh's local locale", arguments: [false, true])
+    func macOSCTypeIsNotForwarded(hasLCAll: Bool) throws {
+        try withFakeCommands(sshStatus: 0) { directory, baseEnvironment in
+            var environment = baseEnvironment
+            environment["LC_CTYPE"] = "UTF-8"
+            if hasLCAll { environment["LC_ALL"] = "en_US.UTF-8" }
+            let staging = try #require(RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: ["ssh"],
+                destination: "user@example.com",
+                remoteRelayPort: 52_265,
+                bootstrapScript: "true"
+            ))
+            let result = try run(
+                builder(preparationShellScript: staging.preparationShellScript),
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            let sshLocales = try String(contentsOf: directory.appendingPathComponent("ssh.locale"), encoding: .utf8)
+                .split(separator: "\n").map(String.init)
+            // Installer, capability check, address probe, and Mosh's --ssh child.
+            #expect(sshLocales == ["unset", "unset", "unset", "unset"])
+            let moshLocale = try String(contentsOf: directory.appendingPathComponent("mosh.locale"), encoding: .utf8)
+            #expect(moshLocale == "UTF-8")
+        }
+    }
+
+    @Test("SSH fallback preserves full ctype names and other locale categories", arguments: ["UTF-8", "en_US.UTF-8", "C", ""])
+    func sshFallbackLocale(ctype: String) throws {
+        try withFakeCommands(sshStatus: 0, installMosh: false) { _, baseEnvironment in
+            var environment = baseEnvironment
+            environment["LC_CTYPE"] = ctype
+            environment["LANG"] = "en_US.UTF-8"
+            environment["LC_ALL"] = "en_US.UTF-8"
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "printf '%s' \"${LC_CTYPE-unset}|$LANG|$LC_ALL\"",
+                    localMoshExecutableName: "cmux-missing-mosh"
+                ),
+                environment: environment
+            )
+            #expect(result.status == 0)
+            #expect(result.stdout == "\(ctype == "UTF-8" ? "unset" : ctype)|en_US.UTF-8|en_US.UTF-8")
+        }
+    }
+
     @Test("falls back to SSH when Mosh is missing locally")
     func localMoshMissingFallsBack() throws {
         try withFakeCommands(sshStatus: 0, installMosh: false) { directory, environment in
@@ -148,7 +194,8 @@ struct MoshTerminalCommandBuilderTests {
             #expect(capabilityProbeArguments.last?.contains("$HOME/.local/bin") == true)
             #expect(probeInvocations.contains(where: { $0.last?.contains("SSH_CONNECTION") == true }))
             #expect(moshArguments[0] == "--experimental-remote-ip=remote")
-            #expect(moshArguments[1] == "--ssh='ssh' '-o' 'RemoteCommand=none' '-p' '2222'")
+            #expect(moshArguments[1].hasPrefix("--ssh="))
+            #expect(probeInvocations.contains(["-o", "RemoteCommand=none", "-p", "2222", "user@example.com", "true"]))
             #expect(moshArguments[2].hasPrefix("--server="))
             #expect(moshArguments[2].contains("mosh-server"))
             #expect(Array(moshArguments.suffix(5)) == [
@@ -538,6 +585,7 @@ struct MoshTerminalCommandBuilderTests {
             named: "ssh",
             script: """
             #!/bin/sh
+            printf '%s\\n' "${LC_CTYPE-unset}" >> "$SSH_LOCALE_FILE"
             printf '%s\\n' "$@" >> "$SSH_ARGS_FILE"
             printf '%s\\n' '__CMUX_SSH_INVOCATION_END__' >> "$SSH_ARGS_FILE"
             cmux_remote_command=
@@ -572,6 +620,7 @@ struct MoshTerminalCommandBuilderTests {
                 named: "mosh",
                 script: """
                 #!/bin/sh
+                printf '%s' "${LC_CTYPE-unset}" > "$MOSH_LOCALE_FILE"
                 if [ "${1:-}" = "--help" ]; then
                   if [ "$FAKE_MOSH_SUPPORTS_REMOTE_IP" = "1" ]; then
                     printf '%s\\n' '  --experimental-remote-ip=(local|remote|proxy)'
@@ -582,6 +631,11 @@ struct MoshTerminalCommandBuilderTests {
                   exit 71
                 fi
                 printf '%s\\n' "$@" > "$MOSH_ARGS_FILE"
+                for cmux_arg in "$@"; do
+                  case "$cmux_arg" in
+                    --ssh=*) /bin/sh -c "${cmux_arg#--ssh=} user@example.com true" || exit $? ;;
+                  esac
+                done
                 if [ "$FAKE_MOSH_EXECS_REMOTE_COMMAND" = "1" ]; then
                   while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
                   if [ "$#" -gt 0 ]; then shift; fi
@@ -622,6 +676,8 @@ struct MoshTerminalCommandBuilderTests {
             "FAKE_MOSH_STATUS": String(moshStatus),
             "MANAGEMENT_READY_FILE": directory.appendingPathComponent("management.ready").path,
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
+            "SSH_LOCALE_FILE": directory.appendingPathComponent("ssh.locale").path,
+            "MOSH_LOCALE_FILE": directory.appendingPathComponent("mosh.locale").path,
             "MOSH_ARGS_FILE": directory.appendingPathComponent("mosh.args").path,
             "CMUX_ARGS_FILE": directory.appendingPathComponent("cmux.args").path,
             "CMUX_BUNDLED_CLI_PATH": directory.appendingPathComponent("cmux").path,
