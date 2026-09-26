@@ -64,13 +64,15 @@ struct GhosttyRuntimeLifetimeTests {
         #expect(await view?.processOutputAndWait(Data("X".utf8)) == true)
 
         // Hold the output queue so the free waits behind this item.
-        let blockerStarted = DispatchSemaphore(value: 0)
         let releaseBlocker = DispatchSemaphore(value: 0)
-        view?.outputQueue.async {
-            blockerStarted.signal()
-            releaseBlocker.wait()
+        let blockerStarted = await withCheckedContinuation { (started: CheckedContinuation<Bool, Never>) in
+            let queued = view?.outputQueue.async {
+                started.resume(returning: true)
+                releaseBlocker.wait()
+            }
+            if queued != true { started.resume(returning: false) }
         }
-        #expect(blockerStarted.wait(timeout: .now() + 5) == .success)
+        try #require(blockerStarted)
 
         view?.prepareForDismantle()
         view?.disposeSurface()
