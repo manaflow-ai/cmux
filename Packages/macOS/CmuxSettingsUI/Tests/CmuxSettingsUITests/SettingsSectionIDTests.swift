@@ -16,12 +16,12 @@ struct SettingsSectionIDTests {
     }
 
     /// Devices keeps the persisted `computers` raw value and sits right after
-    /// Mobile, so search ties and the detail stack follow the sidebar (#14771).
-    @Test func devicesIsItsOwnSectionAfterMobile() {
+    /// Cloud, so search ties and the detail stack follow the sidebar (#14771).
+    @Test func devicesIsItsOwnSectionAfterCloud() {
         let cases = SettingsSectionID.allCases
         #expect(SettingsSectionID.computers.title == "Devices")
         #expect(SettingsSectionID(rawValue: "computers") == .computers)
-        #expect(cases.firstIndex(of: .computers) == cases.firstIndex(of: .mobile).map { $0 + 1 })
+        #expect(cases.firstIndex(of: .computers) == cases.firstIndex(of: .cloudMachines).map { $0 + 1 })
     }
 
     /// Anchors saved while Devices lived under Mobile select Devices and

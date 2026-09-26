@@ -10,10 +10,10 @@ import Testing
 struct SettingsSectionMountModelTests {
     private let order: [SettingsSectionID] = [.account, .app, .terminal, .browser, .reset]
 
-    @Test func devicesSitsBetweenMobileAndCloudInTheDetailStack() throws {
+    @Test func devicesSitsBetweenCloudAndNetworkingInTheDetailStack() throws {
         let order = SettingsSectionMountModel.displayOrder
         let mobile = try #require(order.firstIndex(of: .mobile))
-        #expect(Array(order[(mobile + 1)...].prefix(2)) == [.computers, .cloudMachines])
+        #expect(Array(order[(mobile + 1)...].prefix(3)) == [.cloudMachines, .computers, .networking])
     }
 
     @Test func displayOrderGivesEverySectionASlotExceptTheEmbeddedBrowserImport() {
