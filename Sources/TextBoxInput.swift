@@ -2761,7 +2761,7 @@ struct TextBoxInputContainer: View {
     private func focusTerminalForSubmission() {
         // Use the panel's shared focus path so tab, window, and coordinator eligibility
         // checks remain identical to keyboard and socket focus actions.
-        _ = surface.owningWorkspace()?.terminalPanel(for: surface.id)?
+        _ = surface.owningWorkspace()?.terminalInputTarget(forPanelID: surface.id)?.panel
             .focusTerminalForTextBoxSubmission()
     }
 
