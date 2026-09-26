@@ -110,6 +110,35 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         )
     }
 
+    /// Returns the zoomed container's content rectangle in window coordinates,
+    /// excluding the tab chrome. A split pane's snapshot may still be unzoomed.
+    public func zoomedWindowOverlayRect(layoutSnapshot: LayoutSnapshot?) -> CGRect? {
+        guard let frame = layoutSnapshot?.containerFrame.cgRect,
+              frame.width > 1, frame.height > 1 else { return nil }
+        return contentRect(CGRect(x: frame.minX, y: 0, width: frame.width, height: frame.height))
+    }
+
+    /// Chooses the visible container during zoom, or a hosted view that fits
+    /// within the split pane. Never uses a stale split rect as a zoom fallback.
+    public func preferredWindowOverlayRect(
+        exactRect: CGRect?,
+        paneRect: CGRect?,
+        isSplitZoomed: Bool = false,
+        zoomedContainerRect: CGRect? = nil
+    ) -> CGRect? {
+        if isSplitZoomed { return zoomedContainerRect }
+        guard let paneRect else { return exactRect }
+        guard let exactRect, exactRect.width > 1, exactRect.height > 1 else { return paneRect }
+
+        let tolerance: CGFloat = 0.5
+        let exactFitsWithinPane =
+            exactRect.minX >= paneRect.minX - tolerance &&
+            exactRect.maxX <= paneRect.maxX + tolerance &&
+            exactRect.minY >= paneRect.minY - tolerance &&
+            exactRect.maxY <= paneRect.maxY + tolerance
+        return exactFitsWithinPane ? exactRect : paneRect
+    }
+
     /// Picks the snapshot with renderable geometry, preferring the live snapshot.
     /// - Parameters:
     ///   - cachedSnapshot: the previously cached snapshot, if any.

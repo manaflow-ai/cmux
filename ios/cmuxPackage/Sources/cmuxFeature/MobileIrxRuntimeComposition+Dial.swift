@@ -158,7 +158,10 @@ extension MobileIrxRuntimeComposition {
             try await assertScope(scope, epoch: currentEpoch)
             let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
             try await assertScope(scope, epoch: currentEpoch)
-            await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
+            // One shared events lane plus up to 16 per-terminal output lanes
+            // (IrxSurfaceEventLanes), with headroom for streams the Mac is
+            // replacing. An older Mac opens only the shared lane.
+            await connection.raiseRemoteStreamCredit(bi: 0, uni: 40)
             if !forceRelayOnly, case .automatic = intent { await connection.authorizeDirectPaths() }
             try await assertScope(scope, epoch: currentEpoch)
             activeDialIntentByPeer[peerHex] = intent
