@@ -284,11 +284,21 @@ extension AppDelegate {
 
 extension TerminalController {
     /// `session.agent_recovery.list`: agent sessions that were running when
-    /// cmux last died and are neither running nor open now.
+    /// cmux last died and are neither running nor open now. After a clean
+    /// exit nothing was lost, so the wider 48-hour window is listed for
+    /// inspection only.
     func v2AgentRecoveryList(params: [String: Any]) -> V2CallResult {
-        let openSessionIds = AppDelegate.shared?.openAgentSessionIdsForRecovery() ?? []
-        let candidates = AgentSessionRecovery().candidates(openSessionIds: openSessionIds)
-        return .ok(["sessions": candidates.map(Self.agentRecoveryPayload)])
+        guard let appDelegate = AppDelegate.shared else {
+            return .err(code: "unavailable", message: "App is not ready", data: nil)
+        }
+        let candidates = AgentSessionRecovery().candidates(
+            openSessionIds: appDelegate.openAgentSessionIdsForRecovery(),
+            activeSince: appDelegate.previousSessionLaunchStartedAt
+        )
+        return .ok([
+            "sessions": candidates.map(Self.agentRecoveryPayload),
+            "previous_exit_unclean": appDelegate.previousLaunchWasUncleanForRecovery,
+        ])
     }
 
     /// `session.agent_recovery.restore`: reopens those sessions, or only the
@@ -298,11 +308,16 @@ extension TerminalController {
             return .err(code: "unavailable", message: "App is not ready", data: nil)
         }
         var candidates = AgentSessionRecovery().candidates(
-            openSessionIds: appDelegate.openAgentSessionIdsForRecovery()
+            openSessionIds: appDelegate.openAgentSessionIdsForRecovery(),
+            activeSince: appDelegate.previousSessionLaunchStartedAt
         )
         if let requested = params["session_ids"] as? [String], !requested.isEmpty {
             let wanted = Set(requested)
             candidates = candidates.filter { wanted.contains($0.sessionId) }
+        } else if !appDelegate.previousLaunchWasUncleanForRecovery {
+            // After a clean exit, a session without an end event is more
+            // likely a closed pane than a lost one; restore only by id.
+            candidates = []
         }
         let restored = Set(appDelegate.restoreRecoveredAgentSessions(candidates))
         return .ok([

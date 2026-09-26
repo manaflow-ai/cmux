@@ -8721,6 +8721,10 @@ struct CMUXCLI {
         }
         let sessions = (response[listOnly ? "sessions" : "restored"] as? [[String: Any]]) ?? []
         if sessions.isEmpty {
+            if !listOnly, (response["restored"] as? [Any])?.isEmpty != false, sessionIds.isEmpty {
+                print("No agent sessions restored. cmux last quit cleanly; pass --session <id> from --list to restore one.")
+                return
+            }
             print(listOnly ? "No agent sessions to restore." : "No agent sessions restored.")
             return
         }
@@ -18627,6 +18631,8 @@ struct CMUXCLI {
             cmux finds them in the agent journal, skips any that are running or already
             open, and resumes each in its own workspace through the launcher that started
             it (for example `sr claude proxy --account <x>`).
+
+            Without --session, restore acts only after an unexpected quit.
 
             Options:
               --list            Show the sessions without restoring them.
