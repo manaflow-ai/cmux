@@ -387,12 +387,13 @@ enum SessionScrollbackCheckpointMerge {
             for index in panels.indices {
                 guard panels[index].terminal != nil,
                       let record = records[panels[index].id] else { continue }
-                panels[index].terminal?.scrollback = resolvedScrollback(
+                let scrollback = resolvedScrollback(
                     snapshotScrollback: panels[index].terminal?.scrollback,
                     snapshotCreatedAt: createdAt,
                     snapshotScrollbackCapturedAt: scrollbackCapturedAt,
                     checkpoint: record
                 )
+                panels[index].terminal?.scrollback = scrollback
             }
         }
         var merged = snapshot
