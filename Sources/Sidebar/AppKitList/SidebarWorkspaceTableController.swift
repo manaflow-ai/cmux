@@ -762,6 +762,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
         var isSmallPureReorder = false
+        var pureEdit: SidebarWorkspaceTableRowEdit?
         if hasStructuralChanges {
             previousIds = previousRows.map(\.id)
             nextIds = nextRows.map(\.id)
@@ -777,6 +778,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             isSmallPureReorder = previousIds.count == nextIds.count
                 && mismatches <= Self.maxAnimatedReorderMoves
                 && Self.multisetEqual(previousIds, nextIds)
+            if !previousIds.isEmpty {
+                pureEdit = SidebarWorkspaceTableRowEdit(from: previousIds, to: nextIds)
+            }
         }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
@@ -836,12 +840,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     table.endUpdates()
                     // Per-index state (first-row flag, drop-indicator geometry)
                     // shifts with the order even when per-id content didn't.
-                    let visible = table.rows(in: table.visibleRect)
-                    if visible.length > 0 {
-                        reconfigureVisibleRows(
-                            IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
-                        )
+                    reconfigureLoadedRows(in: table)
+                }
+            } else if let pureEdit {
+                // Closing or creating a workspace (or collapsing/expanding a
+                // group) only drops or adds rows. reloadData tore down every
+                // visible cell for that: rename and checklist drafts on
+                // unrelated rows committed early, their popovers closed, and
+                // every row repainted from a recycled cell. Touch only the
+                // affected rows; the rest keep their cells.
+                let table = containerView.tableView
+                performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    table.beginUpdates()
+                    switch pureEdit {
+                    case .remove(let indexes):
+                        table.removeRows(at: indexes, withAnimation: [])
+                    case .insert(let indexes):
+                        table.insertRows(at: indexes, withAnimation: [])
                     }
+                    table.endUpdates()
+                    // Per-index state (shortcut digits, first-row flag, group
+                    // counts) shifts with the edit even for rows whose own
+                    // content did not; configure skips cells whose model is equal.
+                    reconfigureLoadedRows(in: table)
                 }
             } else {
                 let table = containerView.tableView
@@ -2448,6 +2469,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 break
             }
         }
+    }
+
+    /// Row edits that keep cells (moves, inserts, removes) must refresh every
+    /// loaded row view, not just the visible ones: NSTableView keeps prepared
+    /// views above and below the viewport, and viewFor is not asked again
+    /// when they scroll in, so a visible-only pass left them stale.
+    private func reconfigureLoadedRows(in table: NSTableView) {
+        var loaded = IndexSet()
+        table.enumerateAvailableRowViews { _, row in
+            if row >= 0 { loaded.insert(row) }
+        }
+        reconfigureVisibleRows(loaded)
     }
 
     private func reconfigureVisibleRows(_ indexes: IndexSet) {
