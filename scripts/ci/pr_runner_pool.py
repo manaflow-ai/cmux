@@ -161,17 +161,23 @@ Warm affinity: an owned Mac keeps compile admission's DerivedData
 each root runner, the main commits its kept build starts from cheaply
 (owned_warm_state.py, from the `owned-warm-keys` artifact admission uploads).
 When `vars.CI_OWNED_WARM == '1'`, admission is placed on a pool with a root
-count and the runners were read live, the picker looks for an idle runner of
-that root label that the snapshot calls warm for this run's merge base
-(MERGED_ONTO, the merge commit's first parent), or failing that for this
-pull request (`pr-<PR_NUMBER>`, a re-push), and that carries its own
-static label, `glaeda-runner-<runner name>` (glaeda-cmux-runner gives every
-root runner one at install). If one does, it writes `admission_runner`, the
-JSON array `["<root label>", "glaeda-runner-<name>"]`, which admission's
-attempt 1 takes as its runs-on. Otherwise it is empty and admission takes the
-root label. Nothing writes a runner label at job time, so the routing App
-needs only "Self-hosted runners: Read-only". The match is exact: v1 does not
-rank runners by commit distance. A warm runner taken between the pick and
+count and the runners were read live, the picker routes by cost
+(warm_distance.picker_route()): each online runner of that root label that
+carries its own static label, `glaeda-runner-<runner name>`
+(glaeda-cmux-runner gives every root runner one at install), costs its
+expected wait (0 when idle, else what its current job has left, from the
+snapshot's `running`) plus the compile predicted for its start: a kept build
+of this run's merge base (MERGED_ONTO, the merge commit's first parent), of
+this pull request (`pr-<PR_NUMBER>`, a re-push), or neither, by the pull
+request's own distance tier (scripts/ci/warm-distance-model.json). The root
+label costs the cold compile, plus a wait when Choice.root_budget leaves no
+root runner free. When a warm runner is cheapest by ROUTE_MARGIN_SECONDS it
+writes `admission_runner`, the JSON array `["<root label>",
+"glaeda-runner-<name>"]`, which admission's attempt 1 takes as its runs-on;
+a busy one only within the wait CI_PR_POOL_QUEUE_ROUNDS lets the rescue
+allow. Otherwise it is empty and admission takes the root label. Nothing
+writes a runner label at job time, so the routing App needs only
+"Self-hosted runners: Read-only". A warm runner taken between the pick and
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
 
@@ -2098,8 +2104,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # just before admission queues.
         admission_warm = warm_tiers(env.get("MERGED_ONTO"), snapshot.get("warm"), env.get("PR_NUMBER"))
         if live_runners is not None:
-            admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
-                                                     snapshot.get("warm"), env.get("PR_NUMBER"))
+            # Cost routing (warm_distance.py): expected wait plus predicted compile per root runner, a
+            # busy warm one included when the rescue budget covers its wait, against the root label.
+            from pathlib import Path  # noqa: PLC0415
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import warm_distance  # noqa: PLC0415
+            admission_runner, route = warm_distance.picker_route(
+                live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
+                queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                warm_key=warm_key, runner_label=runner_label, root_free=choice.root_budget)
+            print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,

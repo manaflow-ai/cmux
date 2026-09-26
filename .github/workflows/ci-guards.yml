@@ -424,6 +424,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate warm-state distance recording and routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_warm_distance.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py

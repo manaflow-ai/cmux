@@ -1,0 +1,182 @@
+{
+  "app_rebuild_units": 1000,
+  "fitted_at": "2026-09-26T02:21:53Z",
+  "hot_files": [
+    "Sources/DockPanelView.swift",
+    "Sources/Panels/BrowserPanel.swift",
+    "Sources/SidebarWorkspaceGroupHeaderView.swift",
+    "Sources/SidebarWorkspaceSnapshotBuilder.swift",
+    "Sources/SidebarWorkspaceSnapshotFactory.swift",
+    "Sources/WorkspaceContentView.swift"
+  ],
+  "job_seconds": {
+    "app-host-unit-tests": {
+      "n": 537,
+      "p50": 191.1,
+      "p90": 410.1
+    },
+    "auth-refresh-tests": {
+      "n": 44,
+      "p50": 85.1,
+      "p90": 147.2
+    },
+    "build": {
+      "n": 121,
+      "p50": 802.4,
+      "p90": 1320.4
+    },
+    "claude-wrapper": {
+      "n": 171,
+      "p50": 74.1,
+      "p90": 118.2
+    },
+    "cli-product-tests": {
+      "n": 199,
+      "p50": 131.1,
+      "p90": 271.1
+    },
+    "client": {
+      "n": 49,
+      "p50": 31.1,
+      "p90": 47.4
+    },
+    "diagnostic-presentation": {
+      "n": 43,
+      "p50": 62.1,
+      "p90": 78.3
+    },
+    "ios-simulator": {
+      "n": 22,
+      "p50": 685.3,
+      "p90": 986.1
+    },
+    "ios-simulator-build": {
+      "n": 29,
+      "p50": 194.1,
+      "p90": 513.1
+    },
+    "macos-compile-admission": {
+      "n": 793,
+      "p50": 427.5,
+      "p90": 852.4
+    },
+    "mobile-core-package": {
+      "n": 57,
+      "p50": 117.2,
+      "p90": 224.1
+    },
+    "phase-attribution": {
+      "n": 17,
+      "p50": 49.1,
+      "p90": 72.2
+    },
+    "portal-reconciliation": {
+      "n": 17,
+      "p50": 24.1,
+      "p90": 32.1
+    },
+    "remote-daemon-macos-tests": {
+      "n": 25,
+      "p50": 37.1,
+      "p90": 57.2
+    },
+    "swift-package-tests": {
+      "n": 301,
+      "p50": 119.3,
+      "p90": 573.2
+    },
+    "test": {
+      "n": 18,
+      "p50": 152.2,
+      "p90": 271.2
+    },
+    "tests-build-and-lag": {
+      "n": 42,
+      "p50": 133.2,
+      "p90": 253.2
+    }
+  },
+  "misclassified": {
+    "rows": 27,
+    "share": 0.121
+  },
+  "near_app_swift_files": 5,
+  "rows": 223,
+  "start_classes": {
+    "base": {
+      "by_job_tier": {
+        "far": {
+          "expected": 322.8,
+          "n": 31
+        },
+        "near": {
+          "expected": 234.5,
+          "n": 85
+        },
+        "rebuild": {
+          "expected": 400.7,
+          "n": 44
+        }
+      },
+      "expected": 297.3,
+      "n": 160
+    },
+    "none": {
+      "by_job_tier": {
+        "far": {
+          "expected": 323.5,
+          "n": 40
+        },
+        "near": {
+          "expected": 256.6,
+          "n": 110
+        },
+        "rebuild": {
+          "expected": 400.7,
+          "n": 58
+        }
+      },
+      "expected": 309.7,
+      "n": 208
+    },
+    "pr": {
+      "by_job_tier": {
+        "far": {
+          "expected": 292.3,
+          "n": 29
+        },
+        "near": {
+          "expected": 259.2,
+          "n": 37
+        },
+        "rebuild": {
+          "expected": 325.7,
+          "n": 28
+        }
+      },
+      "expected": 289.2,
+      "n": 94
+    }
+  },
+  "tiers": {
+    "far": {
+      "n": 45,
+      "p50": 266.5,
+      "p90": 382.3,
+      "rebuilt": 3
+    },
+    "near": {
+      "n": 56,
+      "p50": 140.1,
+      "p90": 269.0,
+      "rebuilt": 1
+    },
+    "rebuild": {
+      "n": 122,
+      "p50": 400.7,
+      "p90": 494.5,
+      "rebuilt": 99
+    }
+  },
+  "version": 1
+}

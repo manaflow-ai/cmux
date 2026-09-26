@@ -331,12 +331,30 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
     return result
 
 
-def record(source: Path, derived: Path) -> dict[str, str]:
-    """Record the input times this compile sees, for the next job's adopt."""
+def record(source: Path, derived: Path, distance_out: str = "") -> dict[str, str]:
+    """Record the input times this compile sees, for the next job's adopt.
+
+    With DISTANCE_OUT (CMUX_WARM_DISTANCE_START), it first compares this
+    record with the one the adopted DerivedData carries, the kept build's own
+    or the seed's MANIFEST, and writes the changed paths there for
+    warm_distance.py: the exact distance from the start, at no extra digest.
+    """
     manifest = derived / RECORD
+    start = None
+    if distance_out:
+        for name in (RECORD, seed.MANIFEST):
+            with contextlib.suppress(OSError, ValueError):
+                start = json.loads((derived / name).read_text())
+                break
     if manifest.is_file() or manifest.is_symlink():
         manifest.unlink()
     recorded = seed.warm.record(source)
+    if distance_out:
+        with contextlib.suppress(OSError, ValueError, TypeError):
+            import warm_distance  # noqa: PLC0415 - only owned admissions record a distance
+            changed = changed_paths(recorded, start) if isinstance(start, dict) else None
+            warm_distance.start_distance(recorded, start if isinstance(start, dict) else None, changed,
+                                         Path(distance_out))
     derived.mkdir(parents=True, exist_ok=True)
     incoming = derived / f".{RECORD}.incoming"
     incoming.write_text(json.dumps(recorded, sort_keys=True))
@@ -748,7 +766,7 @@ def main(argv: list[str]) -> int:
         write_outputs(adopt(Path(argv[2]), Path(argv[3]), Path(argv[4]).resolve()))
         return 0
     if len(argv) == 4 and argv[1] == "record":
-        write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
+        write_outputs(record(Path(argv[2]).resolve(), Path(argv[3]), os.environ.get("CMUX_WARM_DISTANCE_START", "")))
         return 0
     if len(argv) in (5, 6, 7) and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) >= 6 else "",
