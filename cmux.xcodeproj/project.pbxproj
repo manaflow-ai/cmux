@@ -851,6 +851,7 @@
 				D89CD9078DCFB9C6A284675B /* CloudTreeDevicesEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E53580E2DFD42DB9F7FEC5 /* CloudTreeDevicesEmptyView.swift */; };
 		9227367FC61F48CB8001E60D /* CloudTreeDragRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A140580BAC9F43B79A607812 /* CloudTreeDragRegistration.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
+		804D4B1A5D2D5447573018FE /* CloudTreeHeaderActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */; };
 		A12501000000000000000003 /* CloudTreeLayoutMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */; };
 		1E4E42D3E7014A549A2B0572 /* CloudTreeLocalMachineRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55995802F81B4EE8BCA5F4D4 /* CloudTreeLocalMachineRowContent.swift */; };
 		B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */; };
@@ -4944,6 +4945,7 @@
 				81E53580E2DFD42DB9F7FEC5 /* CloudTreeDevicesEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeDevicesEmptyView.swift; sourceTree = "<group>"; };
 		A140580BAC9F43B79A607812 /* CloudTreeDragRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeDragRegistration.swift"; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
+		E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeHeaderActionsTests.swift"; sourceTree = "<group>"; };
 		A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeLayoutMetricsTests.swift; sourceTree = "<group>"; };
 		55995802F81B4EE8BCA5F4D4 /* CloudTreeLocalMachineRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeLocalMachineRowContent.swift; sourceTree = "<group>"; };
 		ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineMenuTests.swift; sourceTree = "<group>"; };
@@ -12091,6 +12093,7 @@
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
 				CDB53053B8C69BDF0B219DE3 /* CloudWorkspaceRenameRefreshTests.swift */,
 				C1A102DC561C2D349FD9A09C /* ComputerUseOnboardingIntentTests.swift */,
+				E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15904,6 +15907,7 @@
 				8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */,
 				F784196EBF041740F2BC7A0E /* CloudTreeAvailabilityTests.swift in Sources */,
 				6D0AAF2659F856C3E6562FF0 /* CloudTreeCompactLayoutTests.swift in Sources */,
+				804D4B1A5D2D5447573018FE /* CloudTreeHeaderActionsTests.swift in Sources */,
 				A12501000000000000000003 /* CloudTreeLayoutMetricsTests.swift in Sources */,
 				B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */,
 				67C1325431BC42F58AC69F1C /* CloudTreeMachineResourcesTests.swift in Sources */,
