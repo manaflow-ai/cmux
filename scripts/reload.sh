@@ -1118,89 +1118,29 @@ validate_app_bundle() {
   fi
 }
 
-# Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
-# that is not the tag's own may hold other tags, so only the tag's app is removed from it.
-tag_build_cleanup_paths() {
-  local tag="$1" derived="${2:-}"
-  local own="" link="/tmp/cmux-${tag}"
-  own="$(tagged_derived_data_path "$tag")"
-  if [[ -z "$derived" && -L "$link" ]]; then
-    derived="$(readlink "$link" 2>/dev/null || true)"
-  fi
-  if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
-    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
-    [[ -d "$own" ]] || return 0
-  fi
-  printf '%q ' "$own"
-}
-
-# Prints the commands that remove one tag's build and state. They are meant to be pasted
-# into a shell, and a DerivedData, symlink target, or HOME can hold any character, so every
-# argument is escaped with %q instead of being wrapped in quotes.
-print_tag_cleanup_commands() {
-  local tag="$1" derived="${2:-}"
-  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
-  printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
-  printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
-  printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
-}
-
+# A successful reload does not establish that any other session's build is
+# disposable. Even a process check here is stale by the time printed commands
+# are pasted. Leave cleanup to the build owner/managed cleanup job; never emit
+# kill-and-delete recipes, including for the current tag.
 print_tag_cleanup_reminder() {
   local current_slug="$1"
-  local current_derived="${2:-}"
-  local path=""
-  local tag=""
-  local seen=" "
-  local -a stale_tags=()
-
-  while IFS= read -r -d '' path; do
-    if [[ "$path" == /tmp/cmux-* ]]; then
-      tag="${path#/tmp/cmux-}"
-    elif [[ "$path" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-"* ]]; then
-      tag="${path#"$HOME"/Library/Developer/Xcode/DerivedData/cmux-}"
-    else
-      continue
-    fi
-    if [[ "$tag" == "$current_slug" ]]; then
-      continue
-    fi
-    # Anyone can create a name under /tmp. Only a tag slug names a build of ours.
-    if [[ ! "$tag" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      continue
-    fi
-    # Only surface stale debug tag builds.
-    if [[ ! -d "$path/Build/Products/Debug" ]]; then
-      continue
-    fi
-    if [[ "$seen" == *" $tag "* ]]; then
-      continue
-    fi
-    seen="${seen}${tag} "
-    stale_tags+=("$tag")
-  done < <(
-    # The trailing slash makes find descend when /tmp is itself a symlink.
-    find /tmp/ -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
-    find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null
-  )
+  local message_locale="${LC_ALL:-${LC_MESSAGES:-${LANG:-en}}}"
 
   echo
-  echo "Tag cleanup status:"
-  echo "  current tag: ${current_slug} (keep this running until you verify)"
-  if [[ "${#stale_tags[@]}" -eq 0 ]]; then
-    echo "  stale tags: none"
-    echo "  stale cleanup: not needed"
-  else
-    echo "  stale tags:"
-    for tag in "${stale_tags[@]}"; do
-      echo "    - ${tag}"
-    done
-    echo "Cleanup stale tags only:"
-    for tag in "${stale_tags[@]}"; do
-      print_tag_cleanup_commands "$tag"
-    done
-  fi
-  echo "After you verify current tag, cleanup command:"
-  print_tag_cleanup_commands "$current_slug" "$current_derived"
+  case "$message_locale" in
+    ja*)
+      echo "タグのクリーンアップ状況:"
+      printf '  現在のタグ: %s\n' "$current_slug"
+      echo "  ビルドの所有者による検証が完了するまで、ビルドを保持してください。"
+      echo "  クリーンアップは、ビルドの所有者または管理されたクリーンアップジョブに任せてください。"
+      ;;
+    *)
+      echo "Tag cleanup status:"
+      printf '  current tag: %s\n' "$current_slug"
+      echo "  Keep builds until their owners finish verification."
+      echo "  Leave cleanup to the build owner or managed cleanup job."
+      ;;
+  esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -2409,5 +2349,5 @@ fi
 # tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
 # (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
-  print_tag_cleanup_reminder "$TAG_SLUG" "$DERIVED_DATA"
+  print_tag_cleanup_reminder "$TAG_SLUG"
 fi
