@@ -2462,6 +2462,84 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("openVmPort tracks the provider token's real expiry in the revocation ledger", async () => {
+    // A desktop/port preview token lives 7 days; a ledger row that expired
+    // after the old 12h default would hide a still-valid token from sign-out
+    // revocation sweeps, which only consider unexpired leases.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000150",
+      userId: "user-workflow-open-port",
+      billingTeamId: "team-workflow-open-port",
+      providerVmId: "provider-vm-open-port",
+      status: "running",
+    });
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents: [], leases });
+    const tokenExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      openPort: () =>
+        Effect.succeed({
+          url: "http://10.0.0.1:6901",
+          token: "preview-token",
+          openUrl: "http://10.0.0.1:6901/vnc.html",
+          expiresAtMs: tokenExpiresAtMs,
+        }),
+    };
+
+    await Effect.runPromise(
+      openVmPort({
+        userId: "user-workflow-open-port",
+        teamIds: ["team-workflow-open-port"],
+        providerVmId: "provider-vm-open-port",
+        port: 6901,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(leases).toHaveLength(1);
+    expect(leases[0]).toMatchObject({ kind: "preview", vmId: vm.id });
+    expect(leases[0]!.expiresAt.getTime()).toBe(tokenExpiresAtMs);
+  });
+
+  test("openVmPort falls back to the default lease TTL when the driver reports no expiry", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000151",
+      userId: "user-workflow-open-port-default",
+      billingTeamId: "team-workflow-open-port-default",
+      providerVmId: "provider-vm-open-port-default",
+      status: "running",
+    });
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents: [], leases });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      openPort: () =>
+        Effect.succeed({
+          url: "http://10.0.0.1:3000",
+          token: "preview-token",
+          openUrl: "http://10.0.0.1:3000",
+        }),
+    };
+
+    const before = Date.now();
+    await Effect.runPromise(
+      openVmPort({
+        userId: "user-workflow-open-port-default",
+        teamIds: ["team-workflow-open-port-default"],
+        providerVmId: "provider-vm-open-port-default",
+        port: 3000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(leases).toHaveLength(1);
+    const expiresAt = leases[0]!.expiresAt.getTime();
+    // 12h default, bracketed to keep the test clock-tolerant.
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 11 * 60 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 13 * 60 * 60 * 1000);
+  });
+
   test("openVmCmuxRemote rejects an explicitly unsupported transport before provider work", async () => {
     const vm = testCloudVmRow({ userId: "user-remote-unsupported", providerVmId: "vm-remote-unsupported", status: "running" });
     const repo = testWorkflowRepo({ vm });
