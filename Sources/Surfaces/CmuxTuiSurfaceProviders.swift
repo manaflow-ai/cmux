@@ -480,10 +480,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ? .current
             : .stale(reason: info.linkError ?? info.linkState.rawValue)
         Task { [weak self, portScan] in
+            // The scan's request fence already decided whether its inventory is current, so a
+            // summary poll or cached pass that retired this refresh cannot strand the settled
+            // status over the previous rows. The graph's freshness is whatever the catalog holds now.
             if let portScan, let refreshedPorts = await portScan.value,
-               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation),
+               let self, self.isCurrentLifecycleGeneration(lifecycle),
+               self.portDiscovery.scan?.ports == refreshedPorts,
                refreshedPorts != publishedPorts, let cloudState = self.cloudState {
-                self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: observation)
+                let current = self.catalog.cloudStateObservations[self.machine] ?? observation
+                self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: current)
             }
         }
         Task { [weak self] in
