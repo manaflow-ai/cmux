@@ -256,33 +256,55 @@ struct CloudNativeLayoutProjectionTests {
         #expect(fixture.adoption(of: terminalC.id) === down)
     }
 
-    @Test("A terminal that no request created never takes an unbound reservation's pane or input")
-    func unboundDeviceReservationKeepsItsPaneAndInput() async throws {
+    @Test("A terminal that no request created never takes an unbound reservation's pane")
+    func unboundDeviceReservationKeepsItsPane() async throws {
         let fixture = try DeviceSplitFixture()
         defer { fixture.tearDown() }
-        let (right, rightRequest) = try fixture.reserve(.right)
-        let (down, _) = try fixture.reserve(.down)
-        let downPane = try #require(fixture.viewer.paneId(forPanelId: down.panelID))
-        down.inputRelay.send(.bytes(Data("x".utf8)))
+        let (reservation, _) = try fixture.reserve(.right)
+        let reservedPane = try #require(fixture.viewer.paneId(forPanelId: reservation.panelID))
 
         let coordinator = fixture.makeCoordinator()
         defer { coordinator.stop() }
-        let terminalB = fixture.addTerminal("remote-b")
         let foreign = fixture.addTerminal("remote-foreign")
-        #expect(coordinator.bindCreatedTerminal(requestID: rightRequest, remoteWorkspaceID: fixture.remoteWorkspace.id, resource: terminalB))
         coordinator.accept(fixture.snapshot(.split(direction: .horizontal, ratio: 0.5,
-            first: .split(direction: .vertical, ratio: 0.5,
-                first: fixture.sourceLayout,
-                second: .pane(id: "foreign", surfaceIDs: ["remote-foreign"], selectedSurfaceID: "remote-foreign")),
-            second: .pane(id: "right", surfaceIDs: ["remote-b"], selectedSurfaceID: "remote-b"))))
+            first: fixture.sourceLayout,
+            second: .pane(id: "foreign", surfaceIDs: ["remote-foreign"], selectedSurfaceID: "remote-foreign"))))
         await coordinator.waitForIdle()
 
-        #expect(fixture.adoption(of: terminalB.id) === right)
+        // The only reservation is still waiting for its create receipt, so the
+        // new terminal is projected without it.
         #expect(fixture.provider.adoptions.contains { $0.resource == foreign.id })
         #expect(fixture.adoption(of: foreign.id) == nil)
-        #expect(fixture.destinationPanes[foreign.id] != downPane.id)
-        #expect(fixture.viewer.cloudPendingCreations[down.panelID] === down)
-        #expect(down.inputRelay.pendingCount == 1)
+        let foreignPane = try #require(fixture.destinationPanes[foreign.id])
+        #expect(foreignPane != reservedPane.id)
+    }
+
+    @Test("Only the terminal bound to a device reservation adopts its pane and queued input")
+    func deviceReservationAdoptionRequiresItsBoundTerminal() throws {
+        let fixture = try DeviceSplitFixture()
+        defer { fixture.tearDown() }
+        let (reservation, requestID) = try fixture.reserve(.right)
+        let viewer = fixture.viewer
+        let remoteID = fixture.remoteWorkspace.id
+        let created = fixture.addTerminal("remote-b")
+        let foreign = fixture.addTerminal("remote-foreign")
+
+        #expect(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: created) == nil,
+            "An unbound reservation must wait for its create receipt")
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+
+        #expect(viewer.bindPendingDeviceTerminal(requestID: requestID, remoteWorkspaceID: remoteID, resource: created))
+        #expect(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: foreign) == nil,
+            "A terminal the request did not create must not take the pane")
+        #expect(viewer.cloudPendingCreations[reservation.panelID] === reservation)
+
+        let adopted = try #require(viewer.adoptPendingDeviceTerminalPane(reservation, machine: fixture.machine,
+            remoteWorkspaceID: remoteID, resource: created))
+        #expect(adopted.workspaceID == viewer.id)
+        #expect(adopted.panelID == reservation.panelID)
+        #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
     }
 
     /// One device-mirrored workspace whose only projected terminal is the split source.
