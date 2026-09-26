@@ -352,6 +352,9 @@ extension AppDelegate {
 
     /// A conservative pre-check for whether `event` could trigger `action`.
     ///
+    /// Only key-down events can trigger a clause-gated action here; media
+    /// keys arrive as `.systemDefined` and never carry a key code.
+    ///
     /// Every matcher (plain, numbered digit, directional, Tab) requires the
     /// event's modifiers to equal the relevant stroke's, so that is checked
     /// first. Plain strokes then use the real matcher; the arrow, Tab, and
@@ -361,6 +364,7 @@ extension AppDelegate {
         _ event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
+        guard event.type == .keyDown else { return false }
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound else { return false }
         let stroke: ShortcutStroke
@@ -389,11 +393,10 @@ extension AppDelegate {
             return cache.isActive
         }
         let window = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        var view = window?.firstResponder as? NSView
-        while let current = view, !(current is GhosttyNSView) {
-            view = current.superview
-        }
-        let isActive = (view as? GhosttyNSView)?.terminalSurface?.isAlternateScreenActive() ?? false
+        // Hosted inputs (TextBox, find field) count as the terminal they sit on,
+        // so a focused TextBox over vim still reads as the alternate screen.
+        let terminalView = window?.firstResponder.cmuxTerminalFocusOwningGhosttyView()
+        let isActive = terminalView?.terminalSurface?.isAlternateScreenActive() ?? false
         shortcutEventAlternateScreenCache = ShortcutEventAlternateScreenCache(event: event, isActive: isActive)
         return isActive
     }

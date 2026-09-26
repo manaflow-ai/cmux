@@ -186,6 +186,13 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .terminal,
+                id: "text-editing-gestures-full-screen-apps",
+                title: String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
+                paths: ["terminal.textEditingGesturesInFullScreenApps"],
+                synonyms: "terminal.textEditingGesturesInFullScreenApps alternate screen tmux screen zellij vim less tui full screen multiplexer"
+            ),
+            .init(
+                section: .terminal,
                 id: "reflow-hard-wrap-on-copy",
                 title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
                 detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOff", defaultValue: "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line."),

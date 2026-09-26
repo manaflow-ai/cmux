@@ -375702,55 +375702,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "At the shell prompt, Command and Option arrow and delete keys move and delete by line and word. Full-screen apps such as vim still receive the original keys."
+            "value": "Command and Option arrow and delete keys move and delete by line and word at the shell prompt."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "シェルのプロンプトでは、Command と Option の矢印キー・削除キーで行単位・単語単位に移動・削除します。vim などのフルスクリーンアプリには元のキーがそのまま届きます。"
+            "value": "シェルのプロンプトでは、Command と Option の矢印キー・削除キーで行単位・単語単位に移動・削除します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 shell 提示符下，Command 和 Option 加方向键和删除键按行和按词移动和删除。vim 等全屏应用仍会收到原始按键。"
+            "value": "在 shell 提示符下，Command 和 Option 加方向键和删除键按行和按词移动和删除。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "An der Shell-Eingabeaufforderung bewegen und löschen Befehls- und Wahltaste mit Pfeil- und Löschtasten zeilen- und wortweise. Vollbild-Apps wie vim erhalten weiterhin die ursprünglichen Tasten."
+            "value": "Befehls- und Wahltaste mit Pfeil- und Löschtasten bewegen und löschen an der Shell-Eingabeaufforderung zeilen- und wortweise."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "À l'invite du shell, les flèches et la touche Supprimer avec Commande et Option déplacent et suppriment par ligne et par mot. Les apps plein écran comme vim reçoivent toujours les touches d'origine."
+            "value": "À l'invite du shell, les flèches et la touche Supprimer avec Commande et Option déplacent et suppriment par ligne et par mot."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "في موجه الصدفة، تنقل مفاتيح الأسهم والحذف مع Command وOption وتحذف حسب السطر والكلمة. وتظل التطبيقات بملء الشاشة مثل vim تتلقى المفاتيح الأصلية."
+            "value": "في موجه الصدفة، تنقل مفاتيح الأسهم والحذف مع Command وOption وتحذف حسب السطر والكلمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En el prompt de la shell, las flechas y la tecla Eliminar con Comando y Opción mueven y borran por línea y por palabra. Las apps a pantalla completa como vim siguen recibiendo las teclas originales."
+            "value": "En el prompt de la shell, las flechas y la tecla Eliminar con Comando y Opción mueven y borran por línea y por palabra."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 shell 提示字元下，Command 與 Option 加方向鍵與刪除鍵會依行與依字移動與刪除。vim 等全螢幕 App 仍會收到原本的按鍵。"
+            "value": "在 shell 提示字元下，Command 與 Option 加方向鍵與刪除鍵會依行與依字移動與刪除。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "셸 프롬프트에서 Command 및 Option 화살표와 삭제 키가 줄 및 단어 단위로 이동하고 삭제합니다. vim 같은 전체 화면 앱은 원래 키를 그대로 받습니다."
+            "value": "셸 프롬프트에서 Command 및 Option 화살표와 삭제 키가 줄 및 단어 단위로 이동하고 삭제합니다."
           }
         }
       }
@@ -558581,6 +558581,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "Command 加方向鍵與刪除鍵會依字移動與刪除，與 Option 相同。Control 加左右方向鍵會移到行首與行尾。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editing Gestures in Full-Screen Apps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيماءات تحرير النص في التطبيقات بملء الشاشة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbearbeitungsgesten in Vollbild-Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos de edición de texto en apps a pantalla completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestes d’édition de texte dans les apps plein écran"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーンアプリでのテキスト編集ジェスチャー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱에서 텍스트 편집 제스처"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏应用中的文本编辑手势"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全螢幕 App 中的文字編輯手勢"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-screen apps such as vim, less, and tmux receive the original keys. tmux, screen, and zellij count as full-screen apps, including at their shell prompt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتلقى التطبيقات بملء الشاشة مثل vim وless وtmux المفاتيح الأصلية. تُعد tmux وscreen وzellij تطبيقات بملء الشاشة، حتى عند موجه الصدفة فيها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollbild-Apps wie vim, less und tmux erhalten die ursprünglichen Tasten. tmux, screen und zellij gelten als Vollbild-Apps, auch an ihrer Shell-Eingabeaufforderung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las apps a pantalla completa como vim, less y tmux reciben las teclas originales. tmux, screen y zellij cuentan como apps a pantalla completa, incluso en su prompt de shell."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les apps plein écran comme vim, less et tmux reçoivent les touches d’origine. tmux, screen et zellij comptent comme des apps plein écran, y compris à leur invite du shell."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less、tmux などのフルスクリーンアプリには元のキーが届きます。tmux、screen、zellij は、そのシェルのプロンプトでもフルスクリーンアプリとして扱われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim, less, tmux 같은 전체 화면 앱은 원래 키를 받습니다. tmux, screen, zellij는 셸 프롬프트에서도 전체 화면 앱으로 간주됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less 和 tmux 等全屏应用会收到原始按键。tmux、screen 和 zellij 都算作全屏应用，即使在其 shell 提示符下也是如此。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less 與 tmux 等全螢幕 App 會收到原本的按鍵。tmux、screen 與 zellij 都算是全螢幕 App，即使在其 shell 提示字元下也是如此。"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنطبق الإيماءات أيضًا أثناء تشغيل تطبيق بملء الشاشة مثل vim أو less أو tmux، فتظل تعمل في الصدفة داخل tmux أو screen أو zellij."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesten gelten auch, während eine Vollbild-App wie vim, less oder tmux läuft, und funktionieren so weiter an einer Shell in tmux, screen oder zellij."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los gestos también se aplican mientras se ejecuta una app a pantalla completa como vim, less o tmux, así que siguen funcionando en una shell dentro de tmux, screen o zellij."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les gestes s’appliquent aussi lorsqu’une app plein écran comme vim, less ou tmux est en cours d’exécution, et continuent donc de fonctionner dans un shell sous tmux, screen ou zellij."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim、less、tmux などのフルスクリーンアプリの実行中もジェスチャーが有効になるため、tmux、screen、zellij 内のシェルでも引き続き使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vim, less, tmux 같은 전체 화면 앱이 실행 중일 때도 제스처가 적용되므로 tmux, screen, zellij 안의 셸에서도 계속 작동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全屏应用运行时手势也会生效，因此在 tmux、screen 或 zellij 中的 shell 里仍可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 vim、less 或 tmux 等全螢幕 App 執行時手勢也會生效，因此在 tmux、screen 或 zellij 中的 shell 裡仍可使用。"
           }
         }
       }

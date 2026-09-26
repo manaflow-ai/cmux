@@ -697,12 +697,17 @@
         "textEditingGestures": {
           "type": "boolean",
           "default": false,
-          "description": "Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop) has the terminal on the alternate screen, it receives the original chords instead."
+          "description": "Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop, tmux) has the terminal on the alternate screen, it receives the original chords instead unless textEditingGesturesInFullScreenApps is on."
         },
         "textEditingCommandMovesByWord": {
           "type": "boolean",
           "default": false,
           "description": "With textEditingGestures on, switch to a browser-style layout: Command arrow and Delete keys move and delete by word, like Option, and Control+Left/Right move to the start and end of the line. Every other Control chord, including Ctrl+W and Ctrl+C, still reaches the terminal. macOS reserves Control+Left/Right for switching Spaces by default; turn those off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control for Control+arrows to reach cmux."
+        },
+        "textEditingGesturesInFullScreenApps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep textEditingGestures active while a full-screen application has the terminal on the alternate screen. tmux, screen, and zellij keep the outer terminal on the alternate screen even at their shell prompt, so turn this on to use gestures inside a multiplexer. Applications that bind the gesture chords themselves then receive the translated keys."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",

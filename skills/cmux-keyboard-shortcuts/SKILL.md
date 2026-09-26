@@ -167,7 +167,7 @@ For people who drive the terminal like a browser text field. Ctrl+W closes the s
 "$CMUX_SETTINGS" set terminal.textEditingCommandMovesByWord true
 ```
 
-With both terminal settings on, Command and Option arrows move by word, Command and Option Delete delete by word, and Control+Left/Right move to line start and end. Warn that macOS reserves Control+Left/Right for switching Spaces until they are turned off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control, that Ctrl+W no longer deletes a word at the prompt (Option+Delete still does), and that Cmd+Tab belongs to the macOS app switcher and cannot be rebound in cmux. The same `when` value works for any Control binding that should fall through to full-screen apps, such as `ctrl+h/j/k/l` pane focus next to Neovim.
+With both terminal settings on, Command and Option arrows move by word, Command and Option Delete delete by word, and Control+Left/Right move to line start and end. Warn that macOS reserves Control+Left/Right for switching Spaces until they are turned off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control, that Ctrl+W no longer deletes a word at the prompt (Option+Delete still does), and that Cmd+Tab belongs to the macOS app switcher and cannot be rebound in cmux. If the user works inside tmux, add `"$CMUX_SETTINGS" set terminal.textEditingGesturesInFullScreenApps true`, because tmux keeps the terminal on the alternate screen and gestures otherwise pass through; `!terminalAlternateScreen` likewise reads tmux as a full-screen app, so Ctrl+W reaches tmux instead of closing the surface.
 
 ### Browser Defaults Restore
 
