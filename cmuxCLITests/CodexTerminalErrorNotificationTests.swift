@@ -475,11 +475,6 @@ private struct CodexTerminalErrorProcess {
         }
         stdin.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdin.fileHandleForWriting.close()
-
-        // Avoid consuming a global queue worker for waitUntilExit(). Under
-        // parallel test load the worker can be delayed even after Process has
-        // exited, making a successful hook look like a timeout. Process calls
-        // the termination handler when the child actually terminates.
         let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
