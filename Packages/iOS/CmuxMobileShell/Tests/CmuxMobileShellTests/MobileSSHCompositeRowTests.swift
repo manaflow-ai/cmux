@@ -118,6 +118,13 @@ import Testing
         #expect(!MobileSSHIdentifier(MobileSSHIdentifier(computerOf: host).rawValue + "\u{1F}" + scoped).isScoped)
     }
 
+    @Test func sshComputerIDsAreNeverMacIDs() {
+        let host = UUID()
+        #expect(MobileShellComposite.isSSHComputerID(MobileSSHIdentifier(computerOf: host).rawValue))
+        #expect(!MobileShellComposite.isSSHComputerID("mac-a"))
+        #expect(!MobileShellComposite.isSSHComputerID(""))
+    }
+
     /// A full secondary-Mac reconcile (foreground, Computers sheet, presence
     /// churn) pruned every per-computer entry that was not a stored paired
     /// Mac, which removed SSH rows until the next SSH pull-to-refresh: the

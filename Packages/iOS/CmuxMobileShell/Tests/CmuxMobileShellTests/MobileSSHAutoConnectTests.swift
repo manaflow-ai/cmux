@@ -140,6 +140,63 @@ import Testing
         #expect(!computers.isAutoConnectPaused(hostID: jump.id), "opening the target asks about its jump host again")
     }
 
+    @Test func savingANewHostFromItsFormConnectsIt() async throws {
+        let (computers, _) = try await makeRuntime()
+        let added = SSHHostRecord(name: "Added", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        let task = try #require(try await computers.saveHostAndConnect(added), "a new host connects like a new Mac")
+        // The workspace list appearing meanwhile joins, it does not start a second connect.
+        #expect(computers.autoConnect(hostID: added.id) == nil)
+        await task.value
+        guard case .failed = computers.statusByHost[added.id] else {
+            Issue.record("expected the keyless connect to run and fail, got \(String(describing: computers.statusByHost[added.id]))")
+            return
+        }
+    }
+
+    @Test func renamingAHostDoesNotReconnectIt() async throws {
+        let (computers, host) = try await makeRuntime()
+        await computers.disconnect(hostID: host.id)
+        var renamed = host
+        renamed.name = "Renamed"
+        #expect(try await computers.saveHostAndConnect(renamed) == nil)
+        #expect(computers.host(id: host.id)?.name == "Renamed")
+        #expect(!computers.canAutoConnect(hostID: host.id), "a rename keeps the user's disconnect")
+    }
+
+    @Test func changingConnectionDetailsClearsTheOldFailureAndReconnects() async throws {
+        let (computers, host) = try await makeRuntime()
+        await computers.autoConnect(hostID: host.id)?.value
+        guard case .failed = computers.statusByHost[host.id] else {
+            Issue.record("expected failed before the edit")
+            return
+        }
+        await decline(.trustNewHostKey(host: host, key: Self.serverKey), on: computers)
+        #expect(await persistedPause(computers, hostID: host.id, equals: true))
+        var fixed = try #require(computers.host(id: host.id))
+        fixed.endpoint = SSHEndpoint(host: "127.0.0.1", port: 2, username: "nobody")
+        let task = try #require(try await computers.saveHostAndConnect(fixed), "new details connect even after a failure and a decline")
+        #expect(!computers.isAutoConnectPaused(hostID: host.id))
+        await task.value
+    }
+
+    @Test func connectionDetailsIgnoreNameAndIdlePolicy() {
+        let host = SSHHostRecord(name: "A", endpoint: SSHEndpoint(host: "h", port: 22, username: "u"))
+        var renamed = host
+        renamed.name = "B"
+        renamed.idleClose = .never
+        renamed.autoConnectPaused = true
+        #expect(host.connectsLike(renamed))
+        var moved = host
+        moved.endpoint = SSHEndpoint(host: "h", port: 2222, username: "u")
+        #expect(!host.connectsLike(moved))
+        var rekeyed = host
+        rekeyed.keyID = UUID()
+        #expect(!host.connectsLike(rekeyed))
+        var jumped = host
+        jumped.jumpHostID = UUID()
+        #expect(!host.connectsLike(jumped))
+    }
+
     @Test func hostsSavedBeforeThePauseFlagStillDecode() throws {
         let json = """
         [{"id":"8C4E2F6A-3B1D-4E5F-9A7B-1C2D3E4F5A6B","name":"Old","endpoint":{"host":"example.com","port":22,"username":"me"},"idleClose":"oneDay","createdAt":0}]

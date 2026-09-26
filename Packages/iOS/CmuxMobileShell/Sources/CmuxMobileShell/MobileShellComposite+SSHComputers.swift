@@ -132,6 +132,12 @@ extension MobileShellComposite: MobileSSHComputersSink {
         MobileSSHIdentifier(computerOf: hostID).rawValue
     }
 
+    /// Whether a computer id names an SSH computer rather than a paired Mac.
+    /// Mac-only states (pairing, version gate, list-auth) never apply to it.
+    public nonisolated static func isSSHComputerID(_ computerID: String) -> Bool {
+        MobileSSHIdentifier(computerID).isSSH
+    }
+
     /// The SSH host behind a computer device id, if any.
     public func sshHostID(computerDeviceID: String) -> UUID? {
         MobileSSHIdentifier(computerDeviceID).hostID

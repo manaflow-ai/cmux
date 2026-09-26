@@ -60,6 +60,13 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
     /// Whether automatic reconnects are paused for this host.
     public var isAutoConnectPaused: Bool { autoConnectPaused ?? false }
 
+    /// Whether `other` reaches the same server the same way: address, port,
+    /// user, key, and jump host. Name, idle policy, and pause state do not
+    /// change how the host connects.
+    public func connectsLike(_ other: SSHHostRecord) -> Bool {
+        id == other.id && endpoint == other.endpoint && keyID == other.keyID && jumpHostID == other.jumpHostID
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,

@@ -188,6 +188,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView.resetVisibleArtifactCountTracking()
         }
         context.coordinator.setPersistentFilesChip(sshFilesChipEnabled)
+        // The SSH chip is the only way into the server's files, so it shows
+        // as soon as the terminal opens instead of waiting for a scroll.
+        surfaceView.artifactChipReveal = sshFilesChipEnabled ? .always : .onScroll
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount

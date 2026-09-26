@@ -151,9 +151,36 @@ public final class MobileSSHComputers {
 
     // MARK: Host and key management
 
+    /// Persists a host. When an existing host's connection details changed
+    /// (address, user, key, jump host), its live connection closes and any
+    /// failure from the old details clears, so the next connect uses the new
+    /// ones. Does not connect; see ``saveHostAndConnect(_:)``.
     public func saveHost(_ host: SSHHostRecord) async throws {
+        let previous = self.host(id: host.id)
         try await hostStore.upsert(host)
+        if let previous, !previous.connectsLike(host) {
+            await closeConnection(hostID: host.id)
+        }
         await reload()
+    }
+
+    /// Saves a host from its form and connects it the way a paired Mac
+    /// connects once added: a new host, or one whose connection details
+    /// changed, starts ``autoConnect(hostID:)``. Editing only its name or
+    /// idle policy leaves its connection (or a user's disconnect) alone.
+    ///
+    /// Saving new details is an explicit request to use them, so it lifts a
+    /// disconnect or declined question left from the old details, like
+    /// ``open(hostID:)``. A workspace list opened on the host meanwhile joins
+    /// this connect instead of asking its questions again.
+    @discardableResult
+    public func saveHostAndConnect(_ host: SSHHostRecord) async throws -> Task<Void, Never>? {
+        let previous = self.host(id: host.id)
+        try await saveHost(host)
+        if let previous, previous.connectsLike(host) { return nil }
+        autoConnectSuppressed.remove(host.id)
+        setAutoConnectPaused(false, hostID: host.id)
+        return autoConnect(hostID: host.id)
     }
 
     public func deleteHost(id: UUID) async throws {
@@ -431,6 +458,12 @@ public final class MobileSSHComputers {
     /// disconnected (no automatic reconnect) until opened again.
     public func disconnect(hostID: UUID) async {
         autoConnectSuppressed.insert(hostID)
+        await closeConnection(hostID: hostID)
+    }
+
+    /// Tears down the host's connection, attachments, and forwards, and
+    /// returns it to idle. Leaves automatic-connect eligibility to callers.
+    private func closeConnection(hostID: UUID) async {
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
         for surfaceID in attachments.keys where MobileSSHIdentifier(surfaceID).hostID == hostID {
             await detach(surfaceID: surfaceID)

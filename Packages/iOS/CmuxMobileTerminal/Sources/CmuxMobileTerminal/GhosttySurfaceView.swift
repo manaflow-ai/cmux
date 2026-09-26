@@ -1095,6 +1095,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @objc private func handleAppDidEnterBackground() {
+        // Leaving the foreground is not a transient interruption: the
+        // keyboard stays down when the app returns.
+        inputSession.send(.sceneDidEnterBackground)
         // Backstop: `willResignActive` already suspended, but guarantee the
         // surface is occluded before the GPU goes away.
         suspendRendering()
@@ -2178,15 +2181,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         bottomDockHostView ?? self
     }
 
+    /// Whether the Files chip waits for a scroll (a Mac's on-screen files)
+    /// or shows whenever mounted (an SSH computer's file browser).
+    public var artifactChipReveal: TerminalFilesChipReveal = .onScroll {
+        didSet {
+            guard artifactChipReveal != oldValue else { return }
+            updateArtifactChipVisibility(animated: false)
+        }
+    }
+
     private var artifactChipShouldBeVisible: Bool {
         artifactChipHost.isRequestedVisible
             // Assistive technologies cannot reasonably perform a scroll to
             // reveal the only Files control, and the host hides its
             // accessibility descendants while invisible — so the transient
             // reveal is bypassed whenever VoiceOver or Switch Control runs.
-            && (artifactChipScrollRevealed
-                || UIAccessibility.isVoiceOverRunning
-                || UIAccessibility.isSwitchControlRunning)
+            && artifactChipReveal.isVisible(
+                scrollRevealed: artifactChipScrollRevealed,
+                assistiveTechnologyRunning: UIAccessibility.isVoiceOverRunning
+                    || UIAccessibility.isSwitchControlRunning
+            )
             && dockedToolbarShouldBeVisible
             && dockedToolbar?.isHidden == false
             && !zoomOverlayShown
@@ -3102,9 +3116,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if window != nil {
             isDismantled = false
             setNeedsLayout()
-            if UIApplication.shared.applicationState == .active {
+            switch UIApplication.shared.applicationState {
+            case .active:
                 inputSession.send(.sceneDidBecomeActive)
-            } else {
+            case .background:
+                inputSession.send(.sceneWillResignActive)
+                inputSession.send(.sceneDidEnterBackground)
+            default:
                 inputSession.send(.sceneWillResignActive)
             }
             #if DEBUG

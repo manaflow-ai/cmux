@@ -457,12 +457,21 @@ struct SSHComputerEditorView: View {
     // MARK: Actions
 
     /// Persists the draft. Returns the saved id, or `nil` after showing why not.
-    private func persist() async -> UUID? {
+    ///
+    /// `connect` starts the host's automatic connect when it is new or its
+    /// connection details changed. The password install passes `false`: it
+    /// connects itself once the key is on the server, so a connect started
+    /// here would race it with the key still missing.
+    private func persist(connect: Bool) async -> UUID? {
         showsValidation = true
         let current = existing ?? computers.host(id: hostID)
         guard let record = draft.record(id: hostID, existing: current) else { return nil }
         do {
-            try await computers.saveHost(record)
+            if connect {
+                try await computers.saveHostAndConnect(record)
+            } else {
+                try await computers.saveHost(record)
+            }
             saveError = nil
             return record.id
         } catch {
@@ -477,13 +486,13 @@ struct SSHComputerEditorView: View {
     private func saveAndFinish() async {
         isSaving = true
         defer { isSaving = false }
-        guard let id = await persist() else { return }
+        guard let id = await persist(connect: true) else { return }
         onFinish(id)
     }
 
     private func install(password: String) async {
         installState = .installing
-        guard let id = await persist() else {
+        guard let id = await persist(connect: false) else {
             installState = .idle
             return
         }
