@@ -238956,179 +238956,415 @@
         }
       }
     },
-    "machines.unavailable.stale": {
+    "machines.listUnavailable.stale": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud unreachable — showing last known"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドに接続できません — 最後の状態を表示中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "云端无法连接 —— 显示的是最后已知状态"
+            "value": "Machine list unavailable — showing last known"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud nicht erreichbar – zeige letzten bekannten Stand"
+            "value": "Maschinenliste nicht verfügbar – zeige letzten bekannten Stand"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud inaccessible — affichage des dernières informations connues"
+            "value": "Liste des machines indisponible — affichage des dernières informations connues"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر الوصول إلى السحابة — يتم عرض آخر حالة معروفة"
+            "value": "قائمة الأجهزة غير متاحة — يتم عرض آخر حالة معروفة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nube inaccesible — se muestra el último estado conocido"
+            "value": "Lista de máquinas no disponible — se muestra el último estado conocido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法連線至雲端 — 顯示上次已知的狀態"
+            "value": "無法取得機器清單 — 顯示上次已知的狀態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器列表不可用 —— 显示的是最后已知状态"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드에 연결할 수 없음 — 마지막으로 확인된 상태 표시 중"
+            "value": "머신 목록을 사용할 수 없음 — 마지막으로 확인된 상태 표시 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧を取得できません — 最後の状態を表示中"
           }
         }
       }
     },
-    "machines.unavailable.subtitle": {
+    "machines.listUnavailable.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your machines are still there. cmux couldn’t reach the Cloud service just now; it retries on its own."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシンはそのまま残っています。cmux は今クラウドサービスに接続できませんでした。自動的に再試行します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的机器都还在。cmux 此刻无法连接云端服务；它会自动重试。"
+            "value": "Your machines are unchanged. cmux couldn’t load the list from the Cloud service and retries on its own."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Maschinen sind noch da. cmux konnte den Cloud-Dienst gerade nicht erreichen und versucht es selbstständig erneut."
+            "value": "Deine Maschinen sind unverändert. cmux konnte die Liste nicht vom Cloud-Dienst laden und versucht es selbstständig erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vos machines sont toujours là. cmux n’a pas pu contacter le service Cloud à l’instant ; il va réessayer automatiquement."
+            "value": "Vos machines ne sont pas modifiées. cmux n’a pas pu charger la liste depuis le service Cloud et va réessayer automatiquement."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزتك لا تزال موجودة. تعذر على cmux الوصول إلى الخدمة السحابية الآن؛ سيتم إعادة المحاولة تلقائيًا."
+            "value": "لم تتغير أجهزتك. تعذر على cmux تحميل القائمة من الخدمة السحابية، وسيعيد المحاولة تلقائيًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tus máquinas siguen ahí. cmux no pudo conectarse al servicio de la nube en este momento; volverá a intentarlo automáticamente."
+            "value": "Tus máquinas no han cambiado. cmux no pudo cargar la lista desde el servicio de la nube y volverá a intentarlo automáticamente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您的機器依然存在。cmux 剛才無法連線至雲端服務；它會自動重試。"
+            "value": "您的機器沒有任何變動。cmux 無法從雲端服務載入清單，會自動重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的机器没有任何变化。cmux 无法从云端服务加载列表，会自动重试。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "머신은 그대로 유지됩니다. 현재 cmux가 클라우드 서비스에 연결할 수 없습니다. 자동으로 다시 시도합니다."
+            "value": "머신은 변경되지 않았습니다. cmux가 클라우드 서비스에서 목록을 불러오지 못했으며 자동으로 다시 시도합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンは変更されていません。cmux はクラウドサービスから一覧を読み込めませんでした。自動的に再試行します。"
           }
         }
       }
     },
-    "machines.unavailable.title": {
+    "machines.listUnavailable.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud is unreachable"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドに接続できません"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "云端无法连接"
+            "value": "Can’t load the machine list"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud ist nicht erreichbar"
+            "value": "Maschinenliste kann nicht geladen werden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le Cloud est inaccessible"
+            "value": "Impossible de charger la liste des machines"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر الوصول إلى السحابة"
+            "value": "تعذر تحميل قائمة الأجهزة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se puede conectar a la nube"
+            "value": "No se puede cargar la lista de máquinas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法連線至雲端"
+            "value": "無法載入機器清單"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载机器列表"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드에 연결할 수 없습니다"
+            "value": "머신 목록을 불러올 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧を読み込めません"
+          }
+        }
+      }
+    },
+    "machines.offline.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline — showing last known"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline – zeige letzten bekannten Stand"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne — affichage des dernières informations connues"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل — يتم عرض آخر حالة معروفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión — se muestra el último estado conocido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線 — 顯示上次已知的狀態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线 —— 显示的是最后已知状态"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 — 마지막으로 확인된 상태 표시 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン — 最後の状態を表示中"
+          }
+        }
+      }
+    },
+    "machines.offline.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines load when this Mac is back online."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen werden geladen, sobald dieser Mac wieder online ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud se chargeront dès que ce Mac sera de nouveau en ligne."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم تحميل الأجهزة السحابية عندما يعود جهاز Mac هذا إلى الاتصال بالإنترنت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas en la nube se cargarán cuando este Mac vuelva a estar en línea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 恢復連線後，就會載入雲端機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 恢复联网后，就会加载云端机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 다시 온라인 상태가 되면 클라우드 머신을 불러옵니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac がオンラインに戻ると Cloud マシンを読み込みます。"
+          }
+        }
+      }
+    },
+    "machines.offline.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for network"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Netzwerk"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente du réseau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في انتظار الشبكة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando la red"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待網路"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待网络"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 대기 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークを待機中"
+          }
+        }
+      }
+    },
+    "machines.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting to Cloud…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung zur Cloud wird wiederhergestellt…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnexion au Cloud…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعادة الاتصال بالسحابة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconectando con la nube…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新連線至雲端…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新连接云端…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드에 다시 연결하는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドに再接続中…"
           }
         }
       }

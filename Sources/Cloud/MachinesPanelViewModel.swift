@@ -20,35 +20,18 @@ final class MachinesPanelViewModel: ObservableObject {
     /// plan gate needs an upgrade, and only genuinely transient failures get
     /// the retry-first "unreachable" presentation.
     @Published private(set) var listProblem: CloudListProblem?
+    /// Mirrors the read coordinator's last network event; offline is its own
+    /// state, never a failed list read.
+    @Published private(set) var isNetworkOffline = false
+    /// Set by a recovery read (panel shown, back online, Retry) until it settles;
+    /// routine polls never set it, so a real outage does not flicker.
+    @Published private(set) var isRecoveringList = false
     /// Per-machine coderouter spend from the last successful usage fetch,
     /// keyed by machine id. Refreshed with every machine-list refresh (the
     /// slow poll and the explicit Refresh verb), never more often. Empty on
     /// backends without the usage route; a failed fetch keeps the last value.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
-    enum CloudListProblem: Equatable {
-        /// HTTP 401: the Cloud service no longer accepts this session.
-        case sessionRejected
-        /// HTTP 402: the plan gates Cloud access.
-        case requiresPro
-        /// Everything else — retrying may help.
-        case unreachable
-    }
-
-    /// Classify a list failure for ``listProblem``. Pure so tests can pin the
-    /// mapping without a live client.
-    nonisolated static func classifyListFailure(_ error: VMClientError) -> CloudListProblem {
-        switch error {
-        case .httpStatus(401, _):
-            return .sessionRejected
-        case .httpStatus(402, _):
-            return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse, .lifecycleUnsupported,
-             .disabledByManagedPolicy, .cloudMachinesDisabled:
-            // A managed policy can race a refresh; keep the generic unreachable state.
-            return .unreachable
-        }
-    }
     /// Human-readable label of the Cloud VM action currently running from this
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
@@ -92,23 +75,29 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     /// Projects the coordinator's typed reachability event into this panel's
-    /// local loading and empty-state model. The panel owns presentation state;
-    /// the coordinator remains the sole network-state owner.
+    /// local presentation. The panel owns presentation state; the coordinator
+    /// remains the sole network-state owner.
     private func applyNetworkChange(_ online: Bool) {
+        #if DEBUG
+        cmuxDebugLog("cloud.machines.list network online=\(online) wantsPolling=\(wantsPolling)")
+        #endif
+        isNetworkOffline = !online
         if online {
             if wantsPolling { startPolling() }
             return
         }
         clearUnavailableMetrics()
-        lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
-        listProblem = .unreachable
-        // Mark an interrupted first request as observed so the offline empty
-        // state renders its retry action.
-        hasLoadedOnce = true
-        // Retire the active transport and advance the generation so a late
-        // response cannot clear the offline state or schedule another refresh.
-        // `wantsPolling` remains true, allowing the online event to restart it.
+        // Retire the transport; `wantsPolling` survives so online restarts it.
         pausePolling()
+    }
+
+    /// A recovery read: a transient failure reads as reconnecting until it settles.
+    func recoverList() {
+        refresh()
+        isRecoveringList = refreshTask != nil
+        #if DEBUG
+        cmuxDebugLog("cloud.machines.list recover started=\(isRecoveringList) problem=\(String(describing: listProblem))")
+        #endif
     }
 
     var refreshTask: Task<Void, Never>?
@@ -340,7 +329,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
     /// `refresh(tree: true)` refreshes machines, stats, and the catalog.
     func refresh(tree forceTree: Bool) {
-        refresh()
+        recoverList()
         refreshTree(force: forceTree)
     }
     func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
@@ -467,7 +456,8 @@ final class MachinesPanelViewModel: ObservableObject {
         let generation = refreshGeneration
         let scope = machinePinStore?.scopeIdentifier
         refreshTask = Task { [weak self] in
-            defer { self?.isLoading = false }
+            // Only the last read in flight ends loading; a retired or chained one must not.
+            defer { if self?.refreshTask == nil { self?.isLoading = false } }
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
@@ -477,6 +467,8 @@ final class MachinesPanelViewModel: ObservableObject {
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
                 self.refresh()
+            } else {
+                self.isRecoveringList = false
             }
         }
     }
@@ -487,6 +479,7 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoading = false
         refreshGeneration &+= 1
         isLoading = false
+        isRecoveringList = false
         statsTask?.cancel(); statsTask = nil; statsID = nil
         usageTask?.cancel(); usageTask = nil
         usageFailureCount = 0
@@ -540,6 +533,10 @@ final class MachinesPanelViewModel: ObservableObject {
             listProblem = nil
         } catch is CancellationError {
             return
+        } catch let error as URLError where error.code == .notConnectedToInternet {
+            // The read coordinator's offline verdict (URLSession transport errors
+            // arrive as backendUnreachable): not a list failure; offline owns it.
+            return
         } catch let error as VMClientError {
             guard !Task.isCancelled, generation == refreshGeneration,
                   scope == machinePinStore?.scopeIdentifier else { return }
@@ -563,5 +560,8 @@ final class MachinesPanelViewModel: ObservableObject {
             listProblem = .unreachable
         }
         hasLoadedOnce = true
+        #if DEBUG
+        cmuxDebugLog("cloud.machines.list settled count=\(machines.count) problem=\(String(describing: listProblem))")
+        #endif
     }
 }

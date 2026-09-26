@@ -50,7 +50,8 @@ extension MachinesPanelViewModel {
     func startPolling() {
         wantsPolling = true
         guard isCloudEnabled() else { pausePolling(); return }
-        refresh()
+        // Showing the panel or returning online is a recovery; polls are not.
+        recoverList()
         guard pollTask == nil else { return }
         pollTask = Task { [weak self, pollingClock] in
             while !Task.isCancelled {
