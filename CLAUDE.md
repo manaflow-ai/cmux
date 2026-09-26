@@ -39,6 +39,10 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 Before drafting or revising a top-level issue or PR description, read [STYLE.md](STYLE.md). It also covers RFCs and progress updates.
 
+## Changelog
+
+When a user-visible change merges, add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) (PR link, `-- thanks @user!` for outside authors).
+
 ## Outside contributors
 
 Before fixing a bug or building a feature, run `gh search prs --repo manaflow-ai/cmux --state open '<symptom or issue number>'` and look for an outside PR (author not on the team). If one exists:
