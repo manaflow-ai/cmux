@@ -374,7 +374,14 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.activeRoute?.id == "good")
-        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
+        // The pool is keyed by exact build identity (#10179), and the scripted
+        // host authenticates as tag "default", so read that pairing's entry.
+        #expect(store.activeMacInstanceTag == "default")
+        let pooledKey = MacPairingKey(
+            macDeviceID: "test-mac",
+            instanceTag: store.activeMacInstanceTag
+        )
+        #expect(store.pooledRouteForTesting(macDeviceID: pooledKey.pairingID)?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {

@@ -236,7 +236,12 @@ public final class GhosttySurfaceHostView: UIView {
         // chrome must not.
         surfaceView.moveArtifactChip(to: self)
         if usesKeyboardGuideSeat {
-            keyboardLayoutGuide.followsUndockedKeyboard = true
+            // The terminal dock is a full-width bottom bar. Following an
+            // undocked/floating iPad keyboard would move the composer into
+            // the middle of the workspace (and can preserve that stale seat
+            // across a workspace transition). Keep the dock at the bottom
+            // safe area, matching the task-composer keyboard dock policy.
+            keyboardLayoutGuide.followsUndockedKeyboard = false
             keyboardLayoutGuide.usesBottomSafeArea = true
             let guide = surfaceView.hostedBottomDockBottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor
