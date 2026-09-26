@@ -5,7 +5,7 @@ set -euo pipefail
 # while the user's cmux is running would replace that app and drop its live
 # agent sessions, so refuse unless explicitly allowed.
 running_stable_outside_derived_data() {
-  pgrep -fl "cmux.app/Contents/MacOS/cmux$" 2>/dev/null | grep -vF "/Build/Products/Release/cmux.app/Contents/MacOS/cmux" || true
+  pgrep -fl "cmux\.app/Contents/MacOS/cmux( |$)" 2>/dev/null | grep -vF "/Build/Products/Release/cmux.app/Contents/MacOS/cmux" || true
 }
 
 OTHER_STABLE="$(running_stable_outside_derived_data)"
