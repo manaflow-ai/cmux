@@ -80,7 +80,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
-    # (four API calls at most; see e2e_runner_pool.py for the budget).
+    # (four or five API calls; see e2e_runner_pool.py for the budget), and the
+    # owned runners through the routing App's own budget.
     permissions:
       contents: read
       actions: read
@@ -103,10 +104,44 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # The org's manaflow-glaeda-route App, read-only on runners, so an
+        # `auto` pick sees which owned Macs are idle now instead of estimating
+        # from the janitor snapshot (e2e_runner_pool.py, "Live owned
+        # capacity"). This repository's runs only, on this ephemeral Linux
+        # runner; no Mac holds it. Any failure leaves the token empty and the
+        # snapshot decides, as before.
+        if: github.repository_owner == 'manaflow-ai' && (inputs.runner == '' || inputs.runner == 'auto') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
       - name: Pick the macOS pool
         id: pool
         env:
           GH_TOKEN: ${{ github.token }}
+          # Empty unless a step above minted it: idle owned runners, live.
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
@@ -382,7 +417,7 @@ jobs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id || steps.upload-product-after-tests.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest || steps.upload-product-after-tests.outputs.artifact-digest }}
       sha256: ${{ steps.package.outputs.sha256 }}
-      product_contract: ${{ steps.product-key.outputs.key }}
+      product_contract: ${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}
       xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
@@ -526,11 +561,16 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
+      # On an owned Mac this also looks at the Mac's other canonical roots
+      # and, on a hit there, moves the job to that root before restoring
+      # (reuse_app_host_products.py switch_root): about one E2E build in five
+      # starts on a root other than the one its product was compiled at.
       - name: Reuse a compiled product instead of building one
         id: reuse
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
@@ -600,8 +640,15 @@ jobs:
           set -euo pipefail
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      # Not on an owned Mac (glaeda-*). The cache almost never hits: an entry
+      # covers a module's whole source set, so what an incremental build
+      # recompiles is exactly what changed (8 owned builds on 2026-09-25: 0 to
+      # 6 hits against 116 to 3,233 misses, with one outlier of 409). An owned Mac
+      # downloads at 6-7 MB/s, so the restore took 52 to 95 s and the save 46
+      # to 134 s. Compile admission never restores it either. The directory
+      # still exists, since its path is a compiler argument.
       - name: Restore E2E compilation cache
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}
         id: compilation-cache-restore
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -832,7 +879,7 @@ jobs:
         if: ${{ (vars.CI_E2E_TEST_IN_BUILD || '1') == '0' || !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          name: app-host-products-v1-${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3
@@ -897,7 +944,8 @@ jobs:
       - name: Bound E2E compilation cache
         id: compilation-cache-bound
         continue-on-error: true
-        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        # An owned Mac neither restores nor saves the cache (see the restore).
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' && !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}
         env:
           WORKFLOW_REF: ${{ github.ref }}
           # The tests run after the cache is saved, so what makes the cache
@@ -1040,7 +1088,7 @@ jobs:
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
           artifact-digest: ${{ steps.upload-product.outputs.artifact-digest }}
           sha256: ${{ steps.package.outputs.sha256 }}
-          product-contract: ${{ steps.product-key.outputs.key }}
+          product-contract: ${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}
           product-from-producer: "true"
 
       # main_regression_bisect.py reads a run's verdict from its failed
@@ -1073,7 +1121,7 @@ jobs:
         if: ${{ always() && steps.late-upload-check.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          name: app-host-products-v1-${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3

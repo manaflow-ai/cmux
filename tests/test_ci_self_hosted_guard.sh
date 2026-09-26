@@ -203,6 +203,10 @@ allowed = {
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
     # The sweeper's fixed-name marker: without it the run is only not watched.
     ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
+    # The routing App's token: without it the pool choice reads the janitor snapshot.
+    ("runner", "route-token", "Mint the owned-pool routing token", "actions/create-github-app-token"),
+    ("runner", "route-token-repo", "Mint the routing token without the org permission",
+     "actions/create-github-app-token"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -1726,9 +1730,10 @@ from pathlib import Path
 import yaml
 
 
-# Attempt 1 of compile admission may take the warm labels in
-# pr_admission_runner, a JSON array; the env restates the first, the root label.
-WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+# Attempt 1 of compile admission may take the pinned labels of
+# admission-placement or pr_admission_runner, a JSON array; the env restates
+# the first, the root label.
+WARM_RUNS_ON = "fromJSON(needs.admission-placement.outputs.runner || inputs.pr_admission_runner)"
 
 
 def restated(value):
