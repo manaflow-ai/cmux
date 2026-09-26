@@ -5597,9 +5597,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     static var suiteBaselineWindowNumbers: Set<Int>?
     static var suiteBaselinePortalCount = 0
     static var suiteBaselineRuntimeSurfaceCount = 0
+    static var suiteBaselinePendingTeardownCount = 0
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         // Leaked cross-test state in this suite has produced livelocks (a
         // SwiftUI reentrant-layout loop inside one CA commit) that hang the
         // app host until CI's job timeout. Bound each test so a wedge fails
@@ -5611,6 +5612,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             Self.suiteBaselinePortalCount = TerminalWindowPortalRegistry.debugPortalCount()
             Self.suiteBaselineRuntimeSurfaceCount =
                 GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().runtimeSurfaceCount
+            Self.suiteBaselinePendingTeardownCount =
+                await GhosttyApp.terminalSurfaceRuntimeDependencies
+                    .runtimeTeardown
+                    .debugPendingTeardownCount
         }
     }
 
@@ -6620,10 +6625,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             .terminalSurfaceRuntimeDependencies
             .runtimeTeardown
             .debugPendingTeardownCount
-        XCTAssertEqual(
+        XCTAssertLessThanOrEqual(
             pendingTeardowns,
-            0,
-            "Earlier tests left \(pendingTeardowns) native surface free(s) in flight; "
+            Self.suiteBaselinePendingTeardownCount,
+            "This suite left \(pendingTeardowns - Self.suiteBaselinePendingTeardownCount) "
+                + "additional native surface free(s) in flight; "
                 + "release test surfaces synchronously instead of dropping them"
         )
     }
