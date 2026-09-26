@@ -28,6 +28,11 @@ final class FileDropOverlayView: NSView {
     weak var preparedDragWebView: WKWebView?
     /// Pane drop target currently receiving delegated file drag events.
     weak var activePaneDropTarget: (any FileDropPaneTarget)?
+    /// TextBox currently receiving a file drag so the pane fallback cannot
+    /// turn an attachment drop into terminal path text.
+    weak var activeTextBox: TextBoxInputTextView?
+    /// TextBox that accepted prepareForDragOperation for the current drop.
+    weak var preparedTextBox: TextBoxInputTextView?
     /// Pane drop target that accepted prepareForDragOperation.
     weak var preparedPaneDropTarget: (any FileDropPaneTarget)?
     var didPerformDragAsText = false
@@ -285,6 +290,8 @@ final class FileDropOverlayView: NSView {
         hintPresentation.dismiss()
         preparedDragWebView = nil
         preparedPaneDropTarget = nil
+        activeTextBox = nil
+        preparedTextBox = nil
         didPerformDragAsText = false
         performedTextDragWebView = nil
         performedTextPaneDropTarget = nil
@@ -304,6 +311,9 @@ final class FileDropOverlayView: NSView {
             prev.fileDropDraggingExited(sender)
             activePaneDropTarget = nil
         }
+        activeTextBox?.draggingExited(sender)
+        activeTextBox = nil
+        preparedTextBox = nil
     }
 
     private func exitActiveDragTargets(
@@ -319,6 +329,11 @@ final class FileDropOverlayView: NSView {
            !samePaneDropTarget(prev, paneDropTarget) {
             prev.fileDropDraggingExited(sender)
             activePaneDropTarget = nil
+        }
+        if activeTextBox != nil {
+            activeTextBox?.draggingExited(sender)
+            activeTextBox = nil
+            preparedTextBox = nil
         }
     }
 
@@ -339,6 +354,12 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         if shouldRouteFileDropToTextDestination(sender) {
+            if let textBox = editableTextViewUnderPoint(sender.draggingLocation) as? TextBoxInputTextView {
+                exitActiveDragTargets(sender)
+                let accepted = textBox.prepareForDragOperation(sender)
+                preparedTextBox = accepted ? textBox : nil
+                return accepted
+            }
             let paneDropTarget = activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation)
             let webView = paneDropTarget == nil ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
             exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: webView)
@@ -402,6 +423,12 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         if shouldRouteFileDropToTextDestination(sender) {
+            if let textBox = preparedTextBox ?? activeTextBox,
+               textBox.window != nil {
+                preparedTextBox = nil
+                activeTextBox = nil
+                return textBox.performDragOperation(sender)
+            }
             didPerformDragAsText = false
             performedTextDragWebView = nil
             performedTextPaneDropTarget = nil
@@ -499,6 +526,7 @@ final class FileDropOverlayView: NSView {
             preparedDragWebView = nil
             activeDragWebView = nil
             preparedPaneDropTarget = nil
+            preparedTextBox = nil
             activePaneDropTarget = nil
             didPerformDragAsText = false
             performedTextDragWebView = nil

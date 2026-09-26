@@ -12,6 +12,67 @@ import Testing
 @MainActor
 @Suite("TextBox pending paste reservation interactions", .serialized)
 struct TextBoxPendingPasteReservationInteractionTests {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage?
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any?
+        let draggingSequenceNumber: Int
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(pasteboard: NSPasteboard) {
+            draggingDestinationWindow = nil
+            draggingSourceOperationMask = .copy
+            draggingLocation = .zero
+            draggedImageLocation = .zero
+            draggedImage = nil
+            draggingPasteboard = pasteboard
+            draggingSource = nil
+            draggingSequenceNumber = 1
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+            nil
+        }
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+    }
+
+    @Test("image drags are offered to the TextBox paste pipeline")
+    func imageDragIsAcceptedAndForwardedToPaste() {
+        let pasteboard = NSPasteboard(name: .init("cmux.textbox.drag.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(Data([0]), forType: .png)
+        let draggingInfo = MockDraggingInfo(pasteboard: pasteboard)
+        let textView = TextBoxInputTextView(frame: .zero)
+        var pasteForwarded = false
+        textView.onDrop = { _, _ in
+            pasteForwarded = true
+            return true
+        }
+
+        #expect(textView.draggingEntered(draggingInfo) == .copy)
+        #expect(textView.prepareForDragOperation(draggingInfo))
+        #expect(textView.performDragOperation(draggingInfo))
+        #expect(pasteForwarded)
+    }
+
     @Test("a new overlapping paste supersedes the older reservation")
     func overlappingPasteSupersedesOlderReservation() {
         let (window, textView) = makeTextView()

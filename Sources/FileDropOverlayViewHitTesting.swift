@@ -17,6 +17,16 @@ extension FileDropOverlayView {
         )
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
+        if let textBox = editableTextViewUnderPoint(loc) as? TextBoxInputTextView,
+           DragOverlayRoutingPolicy.hasFileURL(types) {
+            if activeTextBox !== textBox {
+                exitActiveDragTargets(sender)
+                activeTextBox = textBox
+                return textBox.draggingEntered(sender)
+            }
+            return textBox.draggingUpdated(sender)
+        }
+
         if shouldRouteFileDropToTextDestination(sender) {
             let paneDropTarget = paneDropTargetForTextDrop(at: loc)
             if let prev = activePaneDropTarget {
@@ -221,7 +231,7 @@ extension FileDropOverlayView {
         return rootView.hitTest(point)
     }
 
-    private func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
+    func editableTextViewUnderPoint(_ windowPoint: NSPoint) -> NSTextView? {
         var current = viewUnderPoint(windowPoint)
         while let view = current {
             if let textView = view as? NSTextView, textView.isEditable {

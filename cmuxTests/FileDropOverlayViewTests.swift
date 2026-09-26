@@ -196,6 +196,55 @@ struct FileDropOverlayViewTests {
     }
 
     @Test
+    func overlayForwardsFinderFileDropsToTextBoxAttachments() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        window.contentView = contentView
+        let textView = TextBoxInputTextView(frame: NSRect(x: 40, y: 80, width: 340, height: 40))
+        textView.isEditable = true
+        contentView.addSubview(textView)
+
+        var insertedURLs: [URL] = []
+        textView.onInsertFileURLs = { urls, _ in
+            insertedURLs = urls
+            return true
+        }
+
+        let overlay = FileDropOverlayView(frame: contentView.bounds)
+        overlay.hitTestReferenceView = contentView
+        contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-textbox-drop-\(UUID().uuidString).png")
+        try Data([0]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let pasteboard = NSPasteboard(name: .init("cmux.textbox.overlay.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([fileURL as NSURL])
+        let point = textView.convert(
+            NSPoint(x: textView.bounds.midX, y: textView.bounds.midY),
+            to: nil
+        )
+        let dragInfo = MockDraggingInfo(
+            window: window,
+            location: point,
+            pasteboard: pasteboard
+        )
+
+        #expect(overlay.draggingEntered(dragInfo) == .copy)
+        #expect(overlay.prepareForDragOperation(dragInfo))
+        #expect(overlay.performDragOperation(dragInfo))
+        #expect(insertedURLs == [fileURL.standardizedFileURL])
+    }
+
+    @Test
     func overlayResolvesPortalHostedBrowserWebViewForFileDrops() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),

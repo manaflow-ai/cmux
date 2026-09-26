@@ -3,7 +3,8 @@ import AppKit
 extension TextBoxInputContainer {
     func handlePaste(
         _ pasteboard: NSPasteboard,
-        into textView: TextBoxInputTextView
+        into textView: TextBoxInputTextView,
+        mode: TerminalImageTransferMode = .paste
     ) -> Bool {
         guard let preparationService = surface.hostedView
             .surfaceView.imageTransferPreparation else {
@@ -11,7 +12,8 @@ extension TextBoxInputContainer {
         }
         return textView.beginPreparingPaste(
             from: pasteboard,
-            using: preparationService
+            using: preparationService,
+            mode: mode
         ) {
             textView,
             placeholderID,
@@ -22,9 +24,17 @@ extension TextBoxInputContainer {
                 in: textView,
                 placeholderID: placeholderID,
                 validationToken: validationToken,
-                preparationService: preparationService
+                preparationService: preparationService,
+                mode: mode
             )
         }
+    }
+
+    func handleDrop(
+        _ pasteboard: NSPasteboard,
+        into textView: TextBoxInputTextView
+    ) -> Bool {
+        handlePaste(pasteboard, into: textView, mode: .drop)
     }
 
     private func completePreparedPaste(
@@ -32,7 +42,8 @@ extension TextBoxInputContainer {
         in textView: TextBoxInputTextView,
         placeholderID: UUID,
         validationToken: UInt64,
-        preparationService: TerminalImageTransferPreparationService
+        preparationService: TerminalImageTransferPreparationService,
+        mode: TerminalImageTransferMode
     ) {
         guard ownsTextView(textView),
               textView.canAcceptPendingAttachmentUpload(
@@ -66,7 +77,8 @@ extension TextBoxInputContainer {
                 to: textView,
                 placeholderID: placeholderID,
                 validationToken: validationToken,
-                preparationService: preparationService
+                preparationService: preparationService,
+                mode: mode
             )
         case .reject:
             if textView.removePendingAttachmentUploadPlaceholder(
@@ -82,7 +94,8 @@ extension TextBoxInputContainer {
         to textView: TextBoxInputTextView,
         placeholderID: UUID,
         validationToken: UInt64,
-        preparationService: TerminalImageTransferPreparationService
+        preparationService: TerminalImageTransferPreparationService,
+        mode: TerminalImageTransferMode
     ) {
         guard !preparedAttachments.isEmpty else {
             _ = textView.removePendingAttachmentUploadPlaceholder(
@@ -96,7 +109,7 @@ extension TextBoxInputContainer {
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: fileURLs,
             target: surface.resolvedImageTransferTarget(),
-            mode: .paste
+            mode: mode
         )
 
         switch plan {
