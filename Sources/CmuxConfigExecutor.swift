@@ -76,6 +76,17 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if case .setting(let change) = action.action {
+            let didStart = CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                presentingWindow: presentingWindow
+            )
+            if didStart { onExecuted?() }
+            return didStart
+        }
+
         if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
             // Inline `type: "workspace"` actions reuse the named-command path via a
             // synthetic definition so trust, restart, confirm, and layout behavior

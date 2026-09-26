@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
@@ -36,6 +37,12 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         case confirm
         case target
         case newWorkspaceMenu
+        case path
+        case set
+        case toggle
+        case cycle
+        case unset
+        case preset
     }
 
     init(
@@ -139,6 +146,11 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             let definition = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
             let restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
             action = .workspace(definition, restart: restart)
+        case "setting":
+            action = .setting(try Self.decodeSettingChange(in: container, codingPath: decoder.codingPath))
+        case "settingPreset":
+            let preset = try Self.requiredTrimmedString(forKey: .preset, in: container)
+            action = .setting(.preset(name: preset))
         case nil:
             action = nil
         default:
@@ -181,9 +193,81 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
+        case .setting(let change):
+            try Self.encodeSettingChange(change, in: &container)
         case .actionReference(let identifier):
             try container.encode("builtin", forKey: .type)
             try container.encode(identifier, forKey: .builtin)
+        }
+    }
+
+    /// Decodes a `"type": "setting"` action: `path` plus exactly one of
+    /// `set`, `toggle: true`, `cycle: [...]`, or `unset: true`. The path and
+    /// values are checked against the schema when the action runs, so an
+    /// action written for a newer cmux still loads.
+    private static func decodeSettingChange(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        codingPath: [any CodingKey]
+    ) throws -> CmuxSettingChange {
+        let path = try requiredTrimmedString(forKey: .path, in: container)
+        let operations = [CodingKeys.set, .toggle, .cycle, .unset].filter { container.contains($0) }
+        guard operations.count == 1, let operation = operations.first else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: codingPath,
+                    debugDescription: "setting actions require exactly one of 'set', 'toggle', 'cycle', or 'unset'"
+                )
+            )
+        }
+        switch operation {
+        case .set:
+            return .set(path: path, value: try container.decode(CmuxSettingValue.self, forKey: .set))
+        case .toggle, .unset:
+            guard try container.decode(Bool.self, forKey: operation) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: operation,
+                    in: container,
+                    debugDescription: "\(operation.stringValue) must be true"
+                )
+            }
+            return operation == .toggle ? .toggle(path: path) : .unset(path: path)
+        default:
+            let values = try container.decode([CmuxSettingValue].self, forKey: .cycle)
+            guard !values.isEmpty else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .cycle,
+                    in: container,
+                    debugDescription: "cycle must list at least one value"
+                )
+            }
+            return .cycle(path: path, values: values)
+        }
+    }
+
+    private static func encodeSettingChange(
+        _ change: CmuxSettingChange,
+        in container: inout KeyedEncodingContainer<CodingKeys>
+    ) throws {
+        switch change {
+        case .set(let path, let value):
+            try container.encode("setting", forKey: .type)
+            try container.encode(path, forKey: .path)
+            try container.encode(value, forKey: .set)
+        case .unset(let path):
+            try container.encode("setting", forKey: .type)
+            try container.encode(path, forKey: .path)
+            try container.encode(true, forKey: .unset)
+        case .toggle(let path):
+            try container.encode("setting", forKey: .type)
+            try container.encode(path, forKey: .path)
+            try container.encode(true, forKey: .toggle)
+        case .cycle(let path, let values):
+            try container.encode("setting", forKey: .type)
+            try container.encode(path, forKey: .path)
+            try container.encode(values, forKey: .cycle)
+        case .preset(let name):
+            try container.encode("settingPreset", forKey: .type)
+            try container.encode(name, forKey: .preset)
         }
     }
 

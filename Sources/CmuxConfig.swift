@@ -888,6 +888,9 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     case agent(CmuxConfigAgentKind, args: String?)
     case workspaceCommand(String)
     case workspace(CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)
+    /// `"type": "setting"` / `"type": "settingPreset"`: edits the global
+    /// cmux.json through ``JSONConfigStore/apply(_:)``.
+    case setting(CmuxSettingChange)
     case actionReference(String)
 
     var defaultId: String {
@@ -902,6 +905,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return "workspaceCommand." + Self.generatedCommandId(for: commandName)
         case .workspace(let definition, _):
             return "workspace." + Self.generatedCommandId(for: definition.name ?? "workspace")
+        case .setting(let change):
+            return "setting." + Self.generatedCommandId(for: change.displayTarget)
         case .actionReference(let identifier):
             return identifier
         }
@@ -921,6 +926,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return agent.defaultIcon
         case .workspaceCommand, .workspace:
             return .symbol("rectangle.stack.badge.plus")
+        case .setting:
+            return .symbol("slider.horizontal.3")
         case .actionReference:
             return .symbol("questionmark.circle")
         }
@@ -933,7 +940,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
         case .agent(let agent, let args):
             let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
-        case .builtIn, .workspaceCommand, .workspace, .actionReference:
+        case .builtIn, .workspaceCommand, .workspace, .setting, .actionReference:
             return nil
         }
     }
@@ -943,6 +950,11 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return name
         }
         return nil
+    }
+
+    var isSettingChange: Bool {
+        if case .setting = self { return true }
+        return false
     }
 
     /// Inline workspace payload for `type: "workspace"` actions.
@@ -1076,7 +1088,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             switch action {
             case .builtIn(let builtIn):
                 return builtIn.bonsplitAction ?? .custom(id)
-            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            case .command, .agent, .workspaceCommand, .workspace, .setting, .actionReference:
                 return .custom(id)
             }
         }()
@@ -1300,6 +1312,10 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
+        case .setting:
+            // Setting changes are only declared in the `actions` registry;
+            // a button that runs one references its action id.
+            try container.encode(id, forKey: .action)
         case .actionReference(let identifier):
             try container.encode(identifier, forKey: .action)
         }
@@ -1479,6 +1495,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             return commandName
         case .workspace(let definition, _):
             return definition.name ?? id
+        case .setting:
+            return id
         case .builtIn(let builtIn):
             return builtIn.configID
         case .actionReference(let identifier):
@@ -2620,6 +2638,18 @@ final class CmuxConfigStore: ObservableObject {
 
         func apply(_ entries: [String: ActionEntry]) {
             for (id, entry) in entries {
+                // A setting action rewrites the global cmux.json, so only the
+                // user's own global config may declare one. A project config or
+                // pack could otherwise ship a harmless-looking button that flips
+                // a security setting such as automation.socketControlMode.
+                if case .setting = entry.definition.action,
+                   !CmuxSettingActionTrust.allowsSettingAction(
+                       actionSourcePath: entry.actionSourcePath,
+                       globalConfigPath: globalConfigPath
+                   ) {
+                    NSLog("[CmuxConfig] setting action '%@' ignored: setting actions are only read from the global cmux.json", id)
+                    continue
+                }
                 let registryID = CmuxSurfaceTabBarBuiltInAction(configID: id)?.configID ?? id
                 if let existing = registry[registryID] {
                     guard let resolved = existing.applying(
