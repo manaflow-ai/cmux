@@ -71,6 +71,15 @@ cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
           link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
         })}
       </p>
+      <p>
+        {t.rich("hooksGuideLink", {
+          link: (chunks) => (
+            <a href="https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md">
+              {chunks}
+            </a>
+          ),
+        })}
+      </p>
 
       <DocsHeading level={2} id="requirements">{t("requirements")}</DocsHeading>
       <ul>

@@ -1149,7 +1149,8 @@
       "sessionCallout": "cmux 暂不支持恢复实时进程状态。活跃的终端应用会话（如 Claude Code、tmux、vim）在应用重启后不会恢复。",
       "requirements": "系统要求",
       "reqItem1": "macOS 14.0 或更高版本",
-      "reqItem2": "Apple Silicon 或 Intel Mac",
+      "reqItem2": "Apple Silicon 或 Intel Mac",,
+      "hooksGuideLink": "完整的设置和支持矩阵请参阅<link>代理挂钩指南</link>。"
       "metaTitle": "快速开始"
     },
     "concepts": {

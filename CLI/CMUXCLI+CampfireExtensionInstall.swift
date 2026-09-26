@@ -42,10 +42,14 @@ extension CMUXCLI {
         }
     }
 
-    func installCampfireExtensionHooks(_ _: AgentHookDef) throws {
+    func installCampfireExtensionHooks(
+        _ _: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let extensionURL = campfireExtensionURL()
         let fileManager = FileManager.default
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = try existingCampfireExtensionContents(at: extensionURL, fileManager: fileManager)
         if existing == Self.campfireExtensionSource {

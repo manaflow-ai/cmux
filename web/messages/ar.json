@@ -1149,7 +1149,8 @@
       "sessionCallout": "cmux لا يستعيد حالة العمليات الحية بعد. جلسات تطبيقات الطرفية النشطة مثل Claude Code وtmux وvim لا تُستأنف بعد إعادة تشغيل التطبيق.",
       "requirements": "المتطلبات",
       "reqItem1": "macOS 14.0 أو أحدث",
-      "reqItem2": "Mac بمعالج Apple Silicon أو Intel",
+      "reqItem2": "Mac بمعالج Apple Silicon أو Intel",,
+      "hooksGuideLink": "راجع <link>دليل خطافات الوكلاء</link> للإعداد الكامل ومصفوفة الدعم."
       "metaTitle": "البدء"
     },
     "concepts": {

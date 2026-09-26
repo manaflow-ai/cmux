@@ -44,9 +44,13 @@ extension CMUXCLI {
             .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
     }
 
-    func installAmpExtensionHooks(_ def: AgentHookDef) throws {
+    func installAmpExtensionHooks(
+        _ def: AgentHookDef,
+        skipConfirmation: Bool = false
+    ) throws {
         let extensionURL = ampExtensionURL(for: def)
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = skipConfirmation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
         if existing == Self.ampExtensionSource {

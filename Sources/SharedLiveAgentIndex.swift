@@ -82,6 +82,7 @@ final class SharedLiveAgentIndex {
     private var indexLoaderWaiterTimers: [UUID: DispatchSourceTimer] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshTaskGeneration: UUID?
+    private var missingHookNudgeTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTaskGeneration: UUID?
     private var refreshCompletionGeneration = 0
@@ -739,6 +740,7 @@ final class SharedLiveAgentIndex {
                 success: reloadResult.didComplete && !Task.isCancelled
             )
             self.restartForkAvailabilityRefreshIfPending()
+            self.nudgeForMissingAgentHooks()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
@@ -1486,6 +1488,7 @@ final class SharedLiveAgentIndex {
     }
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
+        nudgeForMissingAgentHooks(panelIdsByWorkspaceId: panelIdsByWorkspaceId)
         guard !panelIdsByWorkspaceId.isEmpty else {
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             return
@@ -1497,6 +1500,154 @@ final class SharedLiveAgentIndex {
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
             ]
         )
+    }
+
+    /// Publishes one actionable notification when a supported agent process is
+    /// running before cmux has a hook session store for that agent.
+    ///
+    /// Process discovery is the fallback that makes this work precisely when
+    /// hooks are absent; the installation check reads the hook configuration,
+    /// rather than the historical session store that hooks create after their
+    /// first event. The per-agent default keeps a long-lived workspace from
+    /// repeating the prompt on every index refresh.
+    private struct HookNudgeCandidate: Sendable {
+        let workspaceID: UUID
+        let surfaceID: UUID
+        let kind: RestorableAgentKind
+    }
+
+    private func nudgeForMissingAgentHooks(
+        panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
+    ) {
+        guard let index else { return }
+        // Claude is managed by the wrapper/settings toggle, so it has no
+        // standalone `cmux hooks setup --agent claude` command. Registry-owned
+        // agents can be represented as `.custom`, so compare canonical IDs.
+        let supported: Set<String> = ["codex", "gemini", "opencode", "amp", "pi"]
+        let entries: [(RestorableAgentSessionIndex.PanelKey, RestorableAgentSessionIndex.Entry)]
+        if let panelIdsByWorkspaceId {
+            entries = panelIdsByWorkspaceId.flatMap { workspaceID, panelIDs in
+                panelIDs.compactMap { panelID in
+                    guard let entry = index.entry(workspaceId: workspaceID, panelId: panelID) else {
+                        return nil
+                    }
+                    return (
+                        RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceID, panelId: panelID),
+                        entry
+                    )
+                }
+            }
+        } else {
+            entries = index.forkValidationEntries()
+        }
+        let candidates = entries.compactMap { panelKey, entry -> HookNudgeCandidate? in
+            let kind = entry.snapshot.kind
+            guard supported.contains(kind.rawValue),
+                  entry.processLiveness == .running,
+                  !entry.agentProcessIDs.isEmpty else { return nil }
+            return HookNudgeCandidate(
+                workspaceID: panelKey.workspaceId,
+                surfaceID: panelKey.panelId,
+                kind: kind
+            )
+        }
+        missingHookNudgeTask?.cancel()
+        missingHookNudgeTask = Task { @MainActor [weak self] in
+            let missingCandidates = await Task.detached(priority: .utility) {
+                candidates.filter { !Self.hasInstalledAgentHooks(for: $0.kind) }
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            self.deliverMissingAgentHookNudges(missingCandidates)
+        }
+    }
+
+    private func deliverMissingAgentHookNudges(_ candidates: [HookNudgeCandidate]) {
+        let defaults = UserDefaults.standard
+        for candidate in candidates {
+            let kind = candidate.kind
+            let nudgeKey = "cmux.hooks.nudgeShown.\(kind.rawValue)"
+            guard !defaults.bool(forKey: nudgeKey) else { continue }
+            let displayName = kind.rawValue == "pi" ? "Pi" : kind.displayName
+            let title = String.localizedStringWithFormat(
+                String(localized: "cli.hooks.nudge.title", defaultValue: "cmux hooks are not installed for %@"),
+                displayName
+            )
+            let body = String.localizedStringWithFormat(
+                String(localized: "cli.hooks.nudge.body", defaultValue: "Install them with `cmux hooks setup --agent %@` to show agent status in cmux."),
+                kind.rawValue
+            )
+            guard AgentNotificationDelivery().enqueue(
+                workspaceID: candidate.workspaceID,
+                surfaceID: candidate.surfaceID,
+                title: title,
+                subtitle: "",
+                body: body,
+                category: nil,
+                pending: false,
+                agentKind: kind.rawValue,
+                correlationKey: nudgeKey
+            ) else { continue }
+            defaults.set(true, forKey: nudgeKey)
+        }
+    }
+
+    /// Checks the same cmux-owned configuration files that hook status reports.
+    nonisolated private static func hasInstalledAgentHooks(for kind: RestorableAgentKind) -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        let home = environment["HOME"].flatMap { value -> String? in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : NSString(string: trimmed).expandingTildeInPath
+        } ?? NSHomeDirectory()
+        let homeURL = URL(fileURLWithPath: home, isDirectory: true)
+        let configuredURL: URL
+        let markers: [String]
+        switch kind.rawValue {
+        case "codex":
+            let root = environment["CODEX_HOME"].flatMap { value -> URL? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath, isDirectory: true)
+            } ?? homeURL.appendingPathComponent(".codex", isDirectory: true)
+            configuredURL = root.appendingPathComponent("hooks.json", isDirectory: false)
+            markers = ["cmux hooks codex", "hooks enqueue codex", "cmux_codex_"]
+        case "gemini":
+            configuredURL = homeURL
+                .appendingPathComponent(".gemini", isDirectory: true)
+                .appendingPathComponent("settings.json", isDirectory: false)
+            markers = ["cmux hooks gemini", "hooks enqueue gemini", "cmux_gemini_"]
+        case "opencode":
+            let root = environment["OPENCODE_CONFIG_DIR"].flatMap { value -> URL? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath, isDirectory: true)
+            } ?? homeURL.appendingPathComponent(".config/opencode", isDirectory: true)
+            configuredURL = root
+                .appendingPathComponent("plugins", isDirectory: true)
+                .appendingPathComponent("cmux-session.js", isDirectory: false)
+            markers = ["cmux-opencode-session-plugin-marker", "cmux-feed-plugin-marker"]
+        case "amp":
+            configuredURL = homeURL
+                .appendingPathComponent(".config/amp", isDirectory: true)
+                .appendingPathComponent("plugins", isDirectory: true)
+                .appendingPathComponent("cmux-session.ts", isDirectory: false)
+            markers = ["cmux-amp-session-extension-marker"]
+        case "pi":
+            let root = environment["PI_CODING_AGENT_DIR"].flatMap { value -> URL? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return URL(fileURLWithPath: NSString(string: trimmed).expandingTildeInPath, isDirectory: true)
+            } ?? homeURL.appendingPathComponent(".pi/agent", isDirectory: true)
+            configuredURL = root
+                .appendingPathComponent("extensions", isDirectory: true)
+                .appendingPathComponent("cmux-session.ts", isDirectory: false)
+            markers = ["cmux-pi-session-extension-marker"]
+        default:
+            return false
+        }
+        guard let contents = try? String(contentsOf: configuredURL, encoding: .utf8) else {
+            return false
+        }
+        return markers.contains(where: contents.contains)
     }
 
     private func reloadIfLiveAgentProcessFingerprintChanged(
