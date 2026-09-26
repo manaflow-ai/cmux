@@ -2398,7 +2398,14 @@ impl RemoteSession {
             }
             Some("detached") => {
                 if let Some(id) = surface_id() {
-                    self.surfaces.lock().unwrap().remove(&id);
+                    if value.get("retained").and_then(Value::as_bool) == Some(true) {
+                        // The child has exited, but its final replay is still
+                        // a visible terminal. Keep it scrollable and reject
+                        // input until an authoritative removal retires it.
+                        self.exited_surfaces.lock().unwrap().ids.insert(id);
+                    } else {
+                        self.surfaces.lock().unwrap().remove(&id);
+                    }
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -6903,6 +6910,23 @@ mod tests {
         assert!(!session.has_surface(7));
         assert!(session.surface_is_exited(7));
         assert!(crate::session::SurfaceHandle::Remote(mirror, session).is_dead());
+    }
+
+    #[test]
+    fn retained_exited_terminal_detach_keeps_final_mirror() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let surface = test_remote_surface(7);
+        surface.term.lock().unwrap().vt_write(b"finished-agent-output");
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        session.handle_line(json!({"event": "detached", "surface": 7, "retained": true}));
+        let retained = session.surface(7).expect("final output must stay visible");
+        assert!(Arc::ptr_eq(&retained, &surface));
+        assert!(
+            retained.term.lock().unwrap().plain_text().unwrap().contains("finished-agent-output")
+        );
+        assert!(session.surface_is_exited(7));
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.surface(7).is_none(), "explicit removal must still retire the view");
     }
 
     #[test]

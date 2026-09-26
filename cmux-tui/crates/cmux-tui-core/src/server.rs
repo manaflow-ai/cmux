@@ -10055,6 +10055,30 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn retains_exited_terminal(mux: &Mux, surface: &crate::Surface) -> bool {
+    if surface.kind() != SurfaceKind::Pty || !surface.is_dead() {
+        return false;
+    }
+    let Some(terminal) = surface.terminal_public_id() else { return false };
+    mux.resolve_terminal(terminal.as_str()).ok().flatten().is_some_and(|resolved| {
+        resolved.terminal.on_exit == crate::workspace_registry::TerminalOnExit::Keep
+            && surface_has_view_placement(mux, surface.id)
+    })
+}
+
+fn get_retained_view_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    mux.surface(id)
+        .filter(|surface| !surface.is_dead() || retains_exited_terminal(mux, surface))
+        .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
+fn detached_surface_message(mux: &Mux, id: SurfaceId) -> Value {
+    // A finite final replay ends its stream without removing the retained
+    // terminal. Tell clients to keep that mirror until topology removes it.
+    let retained = mux.surface(id).is_some_and(|surface| retains_exited_terminal(mux, &surface));
+    json!({"event": "detached", "surface": id, "retained": retained})
+}
+
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
 }
@@ -11466,6 +11490,9 @@ fn handle_command_with_cancellation(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
+            if mux.surface(surface).is_some_and(|surface| retains_exited_terminal(mux, &surface)) {
+                return Ok(json!({}));
+            }
             get_surface(mux, surface)?;
             if exclusive && target.is_none() {
                 mux.use_only_client_size(surface, client).ok_or_else(|| {
@@ -12458,7 +12485,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
-            get_surface(mux, surface)?;
+            get_retained_view_surface(mux, surface)?;
             if !mux.close_surface(surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
@@ -12780,7 +12807,7 @@ fn handle_command_with_cancellation(
             })
         }
         Command::ScrollSurface { surface, delta } => {
-            let surface = get_surface(mux, surface)?;
+            let surface = get_retained_view_surface(mux, surface)?;
             require_pty(&surface)?;
             mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
@@ -12898,7 +12925,14 @@ fn handle_command_with_cancellation(
                         .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
                 }
             };
-            let surface = get_surface(mux, surface_id)?;
+            // Process exit does not remove a keep-on-exit terminal's view.
+            // Its surface still owns the final VT replay; attachment is a read
+            // operation, so do not apply the live-child guard used by input.
+            let surface = get_retained_view_surface(mux, surface_id)?;
+            // Retained output has no live PTY to resize. Preserve attachment
+            // bookkeeping while replaying the final geometry unchanged.
+            let initial_size =
+                if retains_exited_terminal(mux, &surface) { None } else { initial_size };
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -13020,7 +13054,7 @@ fn handle_command_with_cancellation(
                         }
                         if writer.is_open() && !lifecycle.overflowed() {
                             let _ = writer.send_stream_backpressured(
-                                &json!({"event": "detached", "surface": surface_id}),
+                                &detached_surface_message(&mux, surface_id),
                                 &outbound_stream,
                             );
                         }
@@ -13277,7 +13311,7 @@ fn handle_command_with_cancellation(
                                 attach.lifecycle.cancel();
                                 if writer.is_open() {
                                     let _ = writer.send_stream_backpressured(
-                                        &json!({"event": "detached", "surface": surface_id}),
+                                        &detached_surface_message(&mux, surface_id),
                                         &outbound_stream,
                                     );
                                 }
@@ -19671,6 +19705,136 @@ mod tests {
             BrowserPointerOwner::Legacy,
             "a connection cannot change pointer identity after its first pointer command"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retained_exited_terminal_socket_attach_preserves_output() {
+        use crate::workspace_registry::TerminalOnExit;
+        for (mode, policy) in [
+            ("bytes", TerminalOnExit::Keep),
+            ("render", TerminalOnExit::Keep),
+            ("bytes", TerminalOnExit::Close),
+            ("render", TerminalOnExit::Close),
+        ] {
+            let mux = test_mux();
+            let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+            let id = mux
+                .seed_running_terminal_with_on_exit_for_test(
+                    "00000000000040008000000000013290",
+                    "10000000000040008000000000013290",
+                    &workspace.key,
+                    policy,
+                )
+                .unwrap();
+            let surface = mux.surface(id).unwrap();
+            assert!(surface.is_dead());
+            surface.with_terminal(|terminal| terminal.vt_write(b"finished-agent-output"));
+            // A terminal may appear in several tabs. The resolver returns one
+            // placement, but every retained view must remain attachable.
+            let id = if policy == TerminalOnExit::Keep {
+                let terminal = surface.terminal_public_id().unwrap().clone();
+                let pane = mux.with_state(|state| {
+                    state.resource_indexes.pane_ids[&state.pane_of(id).unwrap()].to_string()
+                });
+                let selectors = crate::ResourceSelectors {
+                    machine: Some("current".into()),
+                    session: Some("current".into()),
+                    ..Default::default()
+                };
+                mux.resource_project_terminal_selected(
+                    crate::ResourceSelectors {
+                        terminal: Some(terminal.to_string()),
+                        ..selectors.clone()
+                    },
+                    crate::ResourceSelectors { pane: Some(pane), ..selectors },
+                    usize::MAX,
+                    None,
+                    None,
+                    &WorkspaceMutation::local("retained-output-projection"),
+                )
+                .unwrap();
+                mux.with_state(|state| {
+                    state
+                        .placements_of_content(&ContentPublicId::Terminal(terminal))
+                        .iter()
+                        .copied()
+                        .find(|placement| *placement != id)
+                        .unwrap()
+                })
+            } else {
+                id
+            };
+            let retained_size = mux.surface(id).unwrap().size();
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let attached = handle_command(
+                &mux,
+                client,
+                Command::AttachSurface {
+                    surface: Some(id),
+                    mode: Some(mode.into()),
+                    cols: Some(100),
+                    rows: Some(30),
+                    expected_generation: None,
+                    expected_terminal_id: None,
+                },
+                &writer,
+            );
+            if policy == TerminalOnExit::Close {
+                assert!(attached.unwrap_err().to_string().contains("unknown surface"));
+                disconnect_client(&mux, client, false);
+                mux.shutdown();
+                continue;
+            }
+            attached.expect("retained output must remain attachable after child exit");
+            assert_eq!(
+                mux.surface(id).unwrap().size(),
+                retained_size,
+                "sized attachment must preserve the exited terminal's final geometry"
+            );
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientSizing {
+                    surface: id,
+                    client: None,
+                    enabled: true,
+                    exclusive: true,
+                },
+                &writer,
+            )
+            .expect("frontend sizing follow-up must accept a retained terminal");
+            let initial = pop_json(&outbound);
+            if mode == "bytes" {
+                assert_eq!(initial["event"], "vt-state");
+                let replay = base64::engine::general_purpose::STANDARD
+                    .decode(initial["data"].as_str().unwrap())
+                    .unwrap();
+                assert!(String::from_utf8_lossy(&replay).contains("finished-agent-output"));
+            } else {
+                assert!(initial.to_string().contains("finished-agent-output"));
+            }
+            loop {
+                let event = pop_json(&outbound);
+                if event["event"] == "detached" {
+                    assert_eq!(event["retained"], true);
+                    break;
+                }
+            }
+            handle_command(
+                &mux,
+                client,
+                Command::ScrollSurface { surface: id, delta: -1 },
+                &writer,
+            )
+            .expect("retained view must remain scrollable");
+            handle_command(&mux, client, Command::CloseSurface { surface: id }, &writer)
+                .expect("retained view must remain closable");
+            assert!(!surface_has_view_placement(&mux, id));
+            disconnect_client(&mux, client, false);
+            mux.shutdown();
+        }
     }
 
     #[test]

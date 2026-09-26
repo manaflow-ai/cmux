@@ -23967,11 +23967,13 @@ mod tests {
         assert_eq!(records[0].session.as_deref(), Some("racing-hook"));
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let batches = mux.resource_events_after(revision).unwrap().batches;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(batches[0].revision, revision + 1);
-        assert_eq!(batches[1].revision, revision + 2);
-        assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
-        assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+        assert_eq!(batches.len() as u64, hook_commit.revision - revision);
+        for (index, batch) in batches.iter().enumerate() {
+            assert_eq!(batch.revision, revision + index as u64 + 1);
+        }
+        let last = batches.last().expect("the hook report must publish an event");
+        assert_eq!(last.changes[0]["value"]["source"], "hook");
+        assert_eq!(last.changes[0]["value"]["state"], "blocked");
     }
 
     #[test]
@@ -25319,15 +25321,20 @@ mod tests {
             )
             .unwrap()
         };
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 1).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 2).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-1")
+            .unwrap();
+        mux.append_journal_ingress(&ingress("SessionEnd", "old"), "test", "delayed-start-2")
+            .unwrap();
         // The old session can arrive after its end marker. Matching the ended
         // identity is still a stale event, not permission to reopen it.
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-3")
+            .unwrap();
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
-        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "new"), "test", "delayed-start-4")
+            .unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-5")
+            .unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
