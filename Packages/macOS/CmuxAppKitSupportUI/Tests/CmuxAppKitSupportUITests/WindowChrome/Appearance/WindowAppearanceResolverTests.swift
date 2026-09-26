@@ -119,6 +119,43 @@ import Testing
         #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
     }
 
+    /// A separate sidebar draws a material that resolves against the app
+    /// appearance, so its content must follow that appearance even when an
+    /// opaque terminal theme disagrees. A sidebar sharing the terminal
+    /// backdrop keeps following the terminal.
+    @Test(arguments: [
+        (false, ColorScheme.dark, ColorScheme.light, ColorScheme.light),
+        (false, ColorScheme.light, ColorScheme.dark, ColorScheme.dark),
+        (true, ColorScheme.dark, ColorScheme.light, ColorScheme.dark),
+        (true, ColorScheme.light, ColorScheme.dark, ColorScheme.light),
+    ])
+    func sidebarSchemeFollowsTheSurfaceItIsDrawnOn(
+        unifySurfaceBackdrops: Bool,
+        terminalScheme: ColorScheme,
+        ambientScheme: ColorScheme,
+        expectedSidebarScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: terminalScheme == .dark ? "#262427" : "#F8F8F2") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: unifySurfaceBackdrops,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false,
+            colorScheme: ambientScheme
+        ))
+
+        #expect(snapshot.resolvedColorScheme == terminalScheme)
+        #expect(snapshot.sidebarContentColorScheme == expectedSidebarScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == expectedSidebarScheme)
+    }
+
     /// Callers that omit the ambient scheme must not have translucent chrome
     /// resolved against a guessed light window: without an injected ambient
     /// the resolver fails closed to the terminal authority.
