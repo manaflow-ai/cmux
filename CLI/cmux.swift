@@ -25679,7 +25679,7 @@ struct CMUXCLI {
         }
         config["plugin"] = plugins
 
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try output.write(to: shadowJsonURL, options: .atomic)
 
         // Symlink node_modules from the user's config dir so installed packages resolve
@@ -25814,7 +25814,7 @@ struct CMUXCLI {
                attrs[.type] as? FileAttributeType == .typeSymbolicLink {
                 try? fm.removeItem(at: omoConfigURL)
             }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try output.write(to: omoConfigURL, options: .atomic)
         }
 
@@ -32783,7 +32783,7 @@ export default CMUXSessionRestore;
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)
