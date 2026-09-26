@@ -47,7 +47,8 @@ extension CMUXCLI {
     }
 
     /// Resolves an explicit target, live descriptor TTY, then ambient workspace.
-    /// An external script may match exactly one workspace in its worktree.
+    /// An external script may match exactly one workspace in its own worktree,
+    /// or, when none is there, exactly one in another worktree of the repository.
     /// Mutable foreground selection is never an implicit caller identity.
     private func pullRequestWorkspaceID(
         _ explicit: String?,
@@ -118,10 +119,24 @@ extension CMUXCLI {
                 candidates[workspaceID] = path
             }
         }
-        guard candidates.count == 1, let workspaceID = candidates.keys.first else {
+        // The caller's own checkout wins; a sibling worktree of the same
+        // repository is only a fallback when no workspace sits in the caller's.
+        let ownCandidates = candidates.filter {
+            Self.pullRequestOwningWorktreeRoot($0.value, worktreeRoots: worktreeRoots) == root
+        }
+        let pool = ownCandidates.isEmpty ? candidates : ownCandidates
+        guard pool.count == 1, let workspaceID = pool.keys.first else {
             throw pullRequestAmbiguousWorkspaceError()
         }
         return workspaceID
+    }
+
+    /// The deepest registered worktree containing `path`, so a worktree nested
+    /// inside another checkout owns its own directories.
+    private static func pullRequestOwningWorktreeRoot(_ path: String, worktreeRoots: [String]) -> String? {
+        worktreeRoots
+            .filter { path == $0 || path.hasPrefix($0 + "/") }
+            .max(by: { $0.count < $1.count })
     }
 
     private func pullRequestAmbiguousWorkspaceError() -> CLIError {
@@ -174,9 +189,7 @@ extension CMUXCLI {
             membership[path] = false
             return false
         }
-        guard let worktreeRoot = worktreeRoots
-            .filter({ path == $0 || path.hasPrefix($0 + "/") })
-            .max(by: { $0.count < $1.count }) else {
+        guard let worktreeRoot = Self.pullRequestOwningWorktreeRoot(path, worktreeRoots: worktreeRoots) else {
             membership[path] = false
             return false
         }

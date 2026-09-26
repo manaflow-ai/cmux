@@ -8,7 +8,7 @@ url=$(gh pr create --fill) && cmux pr "$url"
 
 `cmux pr 123` also works. Git and an authenticated GitHub CLI (`gh auth login`) are required. The command checks the PR against the current directory's GitHub repository using gh's configured default repository, including a fork's upstream. Invalid URLs, missing PRs, lookup failures, and repository mismatches leave the existing link unchanged.
 
-The workspace is resolved from `--workspace`, the caller's live TTY, `CMUX_WORKSPACE_ID`, or a unique workspace whose current directory is in the caller's worktree. Ambiguous or missing targets fail with guidance to pass `--workspace`; the focused workspace is never assumed. `--window` restricts the search. The command does not change focus.
+The workspace is resolved from `--workspace`, the caller's live TTY, `CMUX_WORKSPACE_ID`, or a unique workspace whose current directory is in the caller's worktree. When no workspace is in the caller's worktree, a unique workspace in another worktree of the same repository is used. Ambiguous or missing targets fail with guidance to pass `--workspace`; the focused workspace is never assumed. `--window` restricts the search. The command does not change focus.
 
 ```sh
 cmux pr https://github.com/owner/repo/pull/123 --workspace workspace:2
