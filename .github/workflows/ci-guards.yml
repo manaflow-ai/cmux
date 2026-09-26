@@ -63,6 +63,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate the local and fast guard runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_run_guards.py
+
+      - name: Validate the repository variable check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_check_repo_variables.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_reverse_test_impact.py
@@ -372,6 +380,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate PR catch-up merge and its workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_catch_up_pr.py
+
       - name: Validate main full-suite failure reruns and bisects
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_regression_bisect.py
@@ -384,9 +396,17 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate delta CI from the last green head
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_delta_since_green.py
+
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate spread-first compile admission placement
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_admission_placement.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
@@ -396,9 +416,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
-      - name: Validate the owned Mac warm labels
+      - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_owned_warm_labels.py
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -552,6 +572,10 @@ jobs:
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
+
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
 
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
@@ -738,6 +762,10 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
 
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
