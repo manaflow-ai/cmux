@@ -277,8 +277,9 @@ struct CloudNativeLayoutProjectionTests {
         // terminal is projected without it and never aimed at its pane.
         #expect(fixture.provider.adoptions.contains { $0.resource == foreign.id })
         #expect(fixture.adoption(of: foreign.id) == nil)
-        #expect(fixture.destinationPanes[foreign.id] != reservedPane.id)
+        #expect(fixture.destinationPanes[foreign.id] == nil)
         let foreignPanel = try #require(fixture.projectedPanels[foreign.id])
+        #expect(fixture.viewer.paneId(forPanelId: foreignPanel) != reservedPane)
 
         // The owner's arrangement still applies around the reserved pane,
         // which stays alone beside the terminal it was split from.
@@ -347,16 +348,19 @@ struct CloudNativeLayoutProjectionTests {
     /// terminal bound to the adopted reservation takes the pane the workspace
     /// already inserted; any other terminal gets a new manual-mirror pane at
     /// the destination. `newTerminalSurface` would route to the machine
-    /// instead, because the pane's selected tab is Cloud-owned.
+    /// instead, because the pane's selected tab is Cloud-owned. The provider
+    /// falls back to a new pane when adoption fails; here every lent
+    /// reservation is bound to its terminal, so that fallback would only hide
+    /// a broken adoption.
     private static func materializeDeviceTerminal(
         _ resource: SurfaceResource, view: SurfaceRemoteView?, at destination: SurfaceDestination,
         in viewer: Workspace, adopting reservation: CloudTerminalPaneReservation?
     ) throws -> SurfaceProjection {
         let panelID: UUID
-        if let reservation, let remoteWorkspaceID = view?.workspace.id ?? resource.remoteWorkspace?.id,
-           let adopted = viewer.adoptPendingDeviceTerminalPane(reservation, machine: resource.id.machine,
-               remoteWorkspaceID: remoteWorkspaceID, resource: resource) {
-            panelID = adopted.panelID
+        if let reservation {
+            let remoteWorkspaceID = try #require(view?.workspace.id ?? resource.remoteWorkspace?.id)
+            panelID = try #require(viewer.adoptPendingDeviceTerminalPane(reservation, machine: resource.id.machine,
+                remoteWorkspaceID: remoteWorkspaceID, resource: resource)).panelID
         } else {
             let panel = try #require(viewer.makeRemoteTmuxPanePanel(onInput: { _ in }))
             _ = try viewer.insertCloudManualMirrorPanel(panel, at: destination, focus: false, isLoading: false)

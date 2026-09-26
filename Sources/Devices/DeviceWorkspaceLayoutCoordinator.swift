@@ -562,9 +562,11 @@ extension DeviceWorkspaceLayoutNode {
     fileprivate func grafting(_ kept: Set<String>, from local: DeviceWorkspaceLayoutNode) -> DeviceWorkspaceLayoutNode {
         var result = self
         local.graft(kept, into: &result)
-        // A panel whose neighbors all left still needs a place.
+        // A panel whose neighbors all left, or that `local` predates, still
+        // needs a place: local order where known, then the rest.
         let present = Set(result.orderedSurfaceIDs)
-        let stranded = local.orderedSurfaceIDs.filter { kept.contains($0) && !present.contains($0) }
+        let known = local.orderedSurfaceIDs.filter { kept.contains($0) && !present.contains($0) }
+        let stranded = known + kept.subtracting(present).subtracting(known).sorted()
         if let anchor = result.orderedSurfaceIDs.last {
             for surface in stranded.reversed() {
                 result = result.inserting(surface, beside: anchor, after: true)
@@ -588,8 +590,8 @@ extension DeviceWorkspaceLayoutNode {
                 present.insert(surface)
             }
         case .split(let direction, let ratio, let first, let second):
-            let firstIsKept = first.orderedSurfaceIDs.allSatisfy(kept.contains)
-            let secondIsKept = second.orderedSurfaceIDs.allSatisfy(kept.contains)
+            let firstIsKept = !first.orderedSurfaceIDs.isEmpty && first.orderedSurfaceIDs.allSatisfy(kept.contains)
+            let secondIsKept = !second.orderedSurfaceIDs.isEmpty && second.orderedSurfaceIDs.allSatisfy(kept.contains)
             guard firstIsKept != secondIsKept else {
                 first.graft(kept, into: &result)
                 second.graft(kept, into: &result)
