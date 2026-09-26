@@ -41040,11 +41040,7 @@ export default CMUXSessionRestore;
         var detectedDefinitions: [AgentHookDef] = []
         if agentFilterDef == nil, !isUninstall {
             detectedDefinitions = Self.agentDefs.filter { definition in
-                let configDir = definition.resolvedConfigDir()
-                let canUseMissingConfigDir = definition.createConfigDirIfMissing
-                    || ["opencode", "pi", "amp"].contains(definition.name)
-                return (canUseMissingConfigDir || fm.fileExists(atPath: configDir))
-                    && Self.isBinaryOnPath(definition.binaryName)
+                Self.isBinaryOnPath(definition.binaryName)
             }
             print(String(localized: "cli.hooks.setup.detected", defaultValue: "Detected agent CLIs: %@")
                 .replacingOccurrences(of: "%@", with: detectedDefinitions.map(\.displayName).joined(separator: ", ")))

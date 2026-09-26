@@ -558073,7 +558073,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "available"
+            "value": "មាន"
           }
         },
         "nb": {
@@ -558198,7 +558198,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent hook status"
+            "value": "ស្ថានភាព hook របស់ភ្នាក់ងារ"
           }
         },
         "nb": {
@@ -558323,7 +558323,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "installed"
+            "value": "បានដំឡើង"
           }
         },
         "nb": {
@@ -558448,7 +558448,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "not installed"
+            "value": "មិនបានដំឡើង"
           }
         },
         "nb": {
@@ -558573,7 +558573,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent CLI unavailable"
+            "value": "CLI ភ្នាក់ងារមិនមាន"
           }
         },
         "nb": {
@@ -558698,7 +558698,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run cmux hooks setup to connect installed coding agents to cmux."
+            "value": "ដំណើរការ cmux hooks setup ដើម្បីភ្ជាប់ភ្នាក់ងារកូដដែលបានដំឡើងទៅ cmux។"
           }
         },
         "nb": {
@@ -559028,7 +559028,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown hooks target: %@"
+            "value": "គោលដៅ hooks មិនស្គាល់៖ %@"
           }
         },
         "nb": {
@@ -559153,7 +559153,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "--agent requires an agent name"
+            "value": "--agent ត្រូវការឈ្មោះភ្នាក់ងារ"
           }
         },
         "nb": {
@@ -559278,7 +559278,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Too many hooks targets: specify at most one positional agent"
+            "value": "គោលដៅ hooks ច្រើនពេក៖ បញ្ជាក់ភ្នាក់ងារតាមទីតាំងបានតែមួយ"
           }
         },
         "nb": {
@@ -559403,7 +559403,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conflicting hooks target: use either --agent or a positional target, not both"
+            "value": "គោលដៅ hooks មិនត្រូវគ្នា៖ ប្រើ --agent ឬគោលដៅតាមទីតាំងតែមួយ"
           }
         },
         "nb": {
@@ -559528,7 +559528,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show installed hooks and agent availability"
+            "value": "បង្ហាញ hooks ដែលបានដំឡើង និងភាពមានរបស់ CLI ភ្នាក់ងារ"
           }
         },
         "nb": {
@@ -559653,7 +559653,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detected agent CLIs: %@"
+            "value": "បានរកឃើញ CLI ភ្នាក់ងារ៖ %@"
           }
         },
         "nb": {
@@ -559778,7 +559778,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "No supported agent CLIs were found on PATH."
+            "value": "រកមិនឃើញ CLI ភ្នាក់ងារដែលគាំទ្រនៅក្នុង PATH។"
           }
         },
         "nb": {
@@ -559903,7 +559903,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux hooks for all detected agents? [y/N] "
+            "value": "ដំឡើង cmux hooks សម្រាប់ភ្នាក់ងារដែលបានរកឃើញទាំងអស់ឬ? [y/N] "
           }
         },
         "nb": {
@@ -560028,7 +560028,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aborted."
+            "value": "បានបោះបង់។"
           }
         },
         "nb": {
@@ -560153,7 +560153,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hooks are not installed for %@"
+            "value": "cmux hooks មិនទាន់បានដំឡើងសម្រាប់ %@"
           }
         },
         "nb": {

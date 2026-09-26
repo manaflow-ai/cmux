@@ -4701,7 +4701,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent Hooks"
+            "value": "Hooks ភ្នាក់ងារ"
           }
         },
         "nb": {
@@ -4826,7 +4826,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open agent hooks documentation"
+            "value": "បើកឯកសារ hooks ភ្នាក់ងារ"
           }
         },
         "nb": {
@@ -4856,7 +4856,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดเอกสาร Agent Hooks"
+            "value": "เปิดเอกสาร agent hooks"
           }
         },
         "tr": {
@@ -5076,7 +5076,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install detected hooks"
+            "value": "ដំឡើង hooks ដែលបានរកឃើញ"
           }
         },
         "nb": {
@@ -5201,7 +5201,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check status"
+            "value": "ពិនិត្យស្ថានភាព"
           }
         },
         "nb": {
@@ -5451,7 +5451,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install"
+            "value": "ដំឡើង"
           }
         },
         "nb": {
@@ -5576,7 +5576,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uninstall"
+            "value": "លុបការដំឡើង"
           }
         },
         "nb": {
@@ -5701,7 +5701,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or remove hooks for this agent."
+            "value": "ដំឡើង ឬលុប hooks សម្រាប់ភ្នាក់ងារនេះ។"
           }
         },
         "nb": {
@@ -5731,7 +5731,7 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ติดตั้งหรือนำ hooks ของ Agent นี้ออก"
+            "value": "ติดตั้งหรือลบ hooks สำหรับเอเจนต์นี้"
           }
         },
         "tr": {

@@ -13,7 +13,7 @@ cmux hooks status --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary. Use `cmux hooks status` to see which integrations are installed and which agent CLIs are available; add `--json` for scripts.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. Without an agent filter, `cmux hooks setup` lists supported agent CLIs found on `PATH` and asks once before installing for the whole detected set; agents that cannot be configured are reported as skipped. Use `cmux hooks status` to see which integrations are installed and which agent CLIs are available; add `--json` for scripts.
 
 ## Integrations
 
