@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux មិនទាន់ស្ដារស្ថានភាពដំណើរការផ្ទាល់ទេ។ វគ្គកម្មវិធីទែមីណលដែលកំពុងដំណើរការដូចជា Claude Code, tmux, និង vim មិនត្រូវបានបន្តបន្ទាប់ពីចាប់ផ្ដើមកម្មវិធីឡើងវិញទេ។",
       "requirements": "តម្រូវការ",
       "reqItem1": "macOS 14.0 ឬក្រោយ",
-      "reqItem2": "Mac Apple Silicon ឬ Intel",,
-      "hooksGuideLink": "សូមមើល<link>មគ្គុទ្ទេសក៍ hooks ភ្នាក់ងារ</link> សម្រាប់ការដំឡើងពេញលេញ និងតារាងការគាំទ្រ。"
+      "reqItem2": "Mac Apple Silicon ឬ Intel",
+      "hooksGuideLink": "សូមមើល<link>មគ្គុទ្ទេសក៍ hooks ភ្នាក់ងារ</link> សម្រាប់ការដំឡើងពេញលេញ និងតារាងការគាំទ្រ。",
       "metaTitle": "ចាប់ផ្តើម"
     },
     "concepts": {

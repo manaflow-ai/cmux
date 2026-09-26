@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux ne restaure pas encore l'état des processus en cours. Les sessions d'applications terminales actives comme Claude Code, tmux et vim ne sont pas reprises après un redémarrage de l'application.",
       "requirements": "Configuration requise",
       "reqItem1": "macOS 14.0 ou ultérieur",
-      "reqItem2": "Mac Apple Silicon ou Intel",,
-      "hooksGuideLink": "Consultez le <link>guide des hooks d’agent</link> pour la configuration complète et la matrice de prise en charge."
+      "reqItem2": "Mac Apple Silicon ou Intel",
+      "hooksGuideLink": "Consultez le <link>guide des hooks d’agent</link> pour la configuration complète et la matrice de prise en charge.",
       "metaTitle": "Démarrage"
     },
     "concepts": {

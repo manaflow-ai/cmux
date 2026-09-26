@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux пока не восстанавливает состояние живых процессов. Активные сессии терминальных приложений, таких как Claude Code, tmux и vim, не возобновляются после перезапуска приложения.",
       "requirements": "Требования",
       "reqItem1": "macOS 14.0 или новее",
-      "reqItem2": "Apple Silicon или Intel Mac",,
-      "hooksGuideLink": "Полную настройку и матрицу поддержки см. в <link>руководстве по хукам агентов</link>."
+      "reqItem2": "Apple Silicon или Intel Mac",
+      "hooksGuideLink": "Полную настройку и матрицу поддержки см. в <link>руководстве по хукам агентов</link>.",
       "metaTitle": "Начало работы"
     },
     "concepts": {

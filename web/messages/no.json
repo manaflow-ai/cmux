@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux gjenoppretter ikke live prosesstilstand ennå. Aktive terminalappsesjoner som Claude Code, tmux og vim gjenopptas ikke etter omstart av appen.",
       "requirements": "Systemkrav",
       "reqItem1": "macOS 14.0 eller nyere",
-      "reqItem2": "Apple Silicon eller Intel Mac",,
-      "hooksGuideLink": "Se <link>veiledningen for agent-hooks</link> for fullstendig oppsett og støttematrise."
+      "reqItem2": "Apple Silicon eller Intel Mac",
+      "hooksGuideLink": "Se <link>veiledningen for agent-hooks</link> for fullstendig oppsett og støttematrise.",
       "metaTitle": "Kom i gang"
     },
     "concepts": {

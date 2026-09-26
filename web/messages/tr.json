@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux henüz canlı süreç durumunu geri yüklemiyor. Claude Code, tmux ve vim gibi aktif terminal uygulama oturumları, uygulama yeniden başlatıldıktan sonra devam ettirilmez.",
       "requirements": "Gereksinimler",
       "reqItem1": "macOS 14.0 veya üstü",
-      "reqItem2": "Apple Silicon veya Intel Mac",,
-      "hooksGuideLink": "Tam kurulum ve destek matrisi için <link>aracı kancaları kılavuzuna</link> bakın."
+      "reqItem2": "Apple Silicon veya Intel Mac",
+      "hooksGuideLink": "Tam kurulum ve destek matrisi için <link>aracı kancaları kılavuzuna</link> bakın.",
       "metaTitle": "Başlarken"
     },
     "concepts": {

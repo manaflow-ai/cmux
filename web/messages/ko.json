@@ -1149,8 +1149,8 @@
       "sessionCallout": "cmux는 아직 라이브 프로세스 상태를 복원하지 않습니다. Claude Code, tmux, vim 등의 활성 터미널 앱 세션은 앱 재시작 후 복원되지 않습니다.",
       "requirements": "요구 사항",
       "reqItem1": "macOS 14.0 이상",
-      "reqItem2": "Apple Silicon 또는 Intel Mac",,
-      "hooksGuideLink": "전체 설정 및 지원 매트릭스는 <link>에이전트 후크 가이드</link>를 참조하세요。"
+      "reqItem2": "Apple Silicon 또는 Intel Mac",
+      "hooksGuideLink": "전체 설정 및 지원 매트릭스는 <link>에이전트 후크 가이드</link>를 참조하세요。",
       "metaTitle": "시작하기"
     },
     "concepts": {
