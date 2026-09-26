@@ -10802,7 +10802,6 @@
 			isa = PBXGroup;
 			children = (
 				805500000000000000000003 /* BrowserValueTextFormatter.swift */,
-				C0DE10651000000000000030 /* CLIError.swift */,
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */,
 				C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */,
@@ -15308,7 +15307,7 @@
 				D3AD00000000000000000002 /* ClaudeHookSessionStore+CodexTurnAdmission.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
-				C0DE10651000000000000020 /* CLIError.swift in Sources */,
+				C11218000000000000000052 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 					575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */,
