@@ -2877,7 +2877,24 @@ def install_native_fake_claude(tmp: Path, env: dict[str, str]) -> None:
     source.write_text(NATIVE_FAKE_CLAUDE_C, encoding="utf-8")
     target = tmp / "real-bin" / "claude"
     target.unlink()
-    subprocess.run(["cc", "-o", str(target), str(source)], check=True, capture_output=True)
+    compiled = subprocess.run(["cc", "-o", str(target), str(source)], capture_output=True, text=True)
+    if compiled.returncode != 0:
+        raise RuntimeError(f"cc failed to build the native fake claude: {compiled.stderr}")
+
+
+def install_native_fake_claude_with(extra_env: dict[str, str]):
+    def setup(tmp: Path, env: dict[str, str]) -> None:
+        install_native_fake_claude(tmp, env)
+        env.update(extra_env)
+    return setup
+
+
+def install_native_fake_claude_as_volta_shim(tmp: Path, env: dict[str, str]) -> None:
+    install_native_fake_claude(tmp, env)
+    volta_bin = tmp / ".volta" / "bin"
+    volta_bin.mkdir(parents=True)
+    (tmp / "real-bin" / "claude").rename(volta_bin / "claude")
+    env["PATH"] = env["PATH"].replace(str(tmp / "real-bin"), str(volta_bin))
 
 
 def test_live_socket_native_claude_skips_node_options_injection(failures: list[str]) -> None:
@@ -2903,6 +2920,37 @@ def test_live_socket_native_claude_skips_node_options_injection(failures: list[s
     expect(code == 0, f"native claude with user NODE_OPTIONS: wrapper exited {code}: {stderr}", failures)
     expect(node_options == "--trace-warnings", f"native claude: expected user NODE_OPTIONS untouched, got {node_options!r}", failures)
     expect(child_node_options == "--trace-warnings", f"native claude: expected child to inherit user NODE_OPTIONS, got {child_node_options!r}", failures)
+
+    # An earlier cmux layer (claude-teams, a re-entering shim) already injected
+    # the restore preload; the wrapper undoes it since the module won't run.
+    injected = "--require=/tmp/x/cmux-claude-node-options/restore-node-options.cjs --max-old-space-size=4096"
+    for label, extra, expected in [
+        ("no original", {"CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "0"}, "__UNSET__"),
+        ("original", {"CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1", "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-warnings"}, "--trace-warnings"),
+    ]:
+        code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            node_options=injected,
+            setup_sandbox=install_native_fake_claude_with(extra),
+        )
+        expect(code == 0, f"native claude inherited injection ({label}): wrapper exited {code}: {stderr}", failures)
+        expect(node_options == expected, f"native claude inherited injection ({label}): expected {expected!r}, got {node_options!r}", failures)
+        expect(child_node_options == expected, f"native claude inherited injection ({label}): expected child {expected!r}, got {child_node_options!r}", failures)
+
+    # A version-manager shim is a native launcher for what may be a Node
+    # claude, so it keeps the restore preload and heap cap.
+    code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=install_native_fake_claude_as_volta_shim,
+    )
+    expect(code == 0, f"volta shim: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "restore-node-options.cjs" in node_options and "--max-old-space-size=4096" in node_options,
+        f"volta shim: expected NODE_OPTIONS restore preload, got {node_options!r}",
+        failures,
+    )
 
 
 def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[str]) -> None:
