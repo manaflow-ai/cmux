@@ -68,7 +68,7 @@ export type TeamVmUsageResponse = {
   readonly machines: readonly TeamMachineUsage[];
 };
 
-export function publicTotals(
+function publicTotals(
   totals: CoderouterVmMetricsTotals,
 ): VmUsageTotals {
   return {

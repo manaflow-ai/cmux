@@ -151,6 +151,9 @@ type AccountDeletionTombstoneStart =
   | { readonly kind: "completed" }
   | { readonly kind: "cleanupIncomplete" };
 
+// Account deletion is intentionally one transaction-shaped handler: each
+// checkpoint must update the same tombstone before the next cleanup phase.
+// react-doctor-disable-next-line react-doctor/no-giant-component -- transactional cleanup boundary
 export async function DELETE(request: Request): Promise<Response> {
   let stackSession: DeletableStackSession | null;
   try {

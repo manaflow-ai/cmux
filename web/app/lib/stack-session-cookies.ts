@@ -7,7 +7,7 @@
  */
 export type CookieLike = { readonly name: string; readonly value: string };
 
-export function stackRefreshCookiePatterns(projectId: string): {
+function stackRefreshCookiePatterns(projectId: string): {
   readonly exact: readonly string[];
   readonly prefixes: readonly string[];
 } {

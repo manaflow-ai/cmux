@@ -395,7 +395,7 @@ export function coalescingCredentialsProvider(
   };
 }
 
-export function kmsKeyService(): CredentialKeyService {
+function kmsKeyService(): CredentialKeyService {
   if (defaultKeyService) return defaultKeyService;
   const region = requiredEnv("AWS_REGION");
   const runningOnVercel = Boolean(process.env.VERCEL);

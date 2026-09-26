@@ -61,7 +61,7 @@ export type VmModelPlaneDependencies = {
   readonly vercelBypassSecret: () => string | undefined;
 };
 
-export const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
+const VERCEL_BYPASS_HEADER = "x-vercel-protection-bypass";
 
 const defaultDependencies: VmModelPlaneDependencies = {
   issueToken: issueVmAuthorizationToken,
@@ -77,7 +77,7 @@ const defaultDependencies: VmModelPlaneDependencies = {
  * Vercel preview serves itself (its branch URL), so a PR can be tested end to
  * end without touching production; otherwise coderouter.dev.
  */
-export function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "edgeOriginEnv" | "vercelEnv" | "vercelBranchUrl">): string {
+function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "edgeOriginEnv" | "vercelEnv" | "vercelBranchUrl">): string {
   const explicit = dependencies.edgeOriginEnv()?.trim();
   if (explicit) return coderouterEdgeOrigin(explicit);
   const branchUrl = dependencies.vercelBranchUrl()?.trim();
@@ -88,7 +88,7 @@ export function resolveEdgeOrigin(dependencies: Pick<VmModelPlaneDependencies, "
 }
 
 /** Extra headers the edge must add for the origin to be reachable at all (preview SSO bypass). */
-export function edgeOriginHeaders(dependencies: Pick<VmModelPlaneDependencies, "vercelEnv" | "vercelBypassSecret">): Record<string, string> {
+function edgeOriginHeaders(dependencies: Pick<VmModelPlaneDependencies, "vercelEnv" | "vercelBypassSecret">): Record<string, string> {
   const secret = dependencies.vercelBypassSecret()?.trim();
   if (dependencies.vercelEnv() === "preview" && secret) return { [VERCEL_BYPASS_HEADER]: secret };
   return {};

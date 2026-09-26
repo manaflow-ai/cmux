@@ -4,8 +4,8 @@
 // in the guest turns them into these two headers (Claude Code through
 // ANTHROPIC_CUSTOM_HEADERS, Codex through env_http_headers). The ids are
 // opaque attribution keys only; a missing or malformed header is null.
-export const WORKSPACE_ID_HEADER = "x-cmux-workspace-id";
-export const SURFACE_ID_HEADER = "x-cmux-surface-id";
+const WORKSPACE_ID_HEADER = "x-cmux-workspace-id";
+const SURFACE_ID_HEADER = "x-cmux-surface-id";
 
 const ORIGIN_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
 

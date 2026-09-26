@@ -1,5 +1,9 @@
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 
+// The fallback snapshot is consumed by the fallback component and its route
+// boundary; keeping the value next to that component makes the loading state
+// explicit.
+// react-doctor-disable-next-line react-doctor/only-export-components -- colocated fallback snapshot
 export const unknownPlan: AppPlanSnapshot = {
   authenticated: false,
   developmentPro: false,

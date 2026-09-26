@@ -12,8 +12,9 @@ import {
 import {
   articleSchema,
   breadcrumbList,
-  JsonLd,
-} from "@/app/[locale]/components/json-ld";
+} from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
+
 import {
   changelogPath,
   changelogVersionDescription,

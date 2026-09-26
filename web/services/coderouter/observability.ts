@@ -1,5 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { reportError } from "../observability/report";
+// Keep the breadcrumb sink independent from the analytics implementation so
+// analytics failures cannot create an import cycle.
+import {
+  addCoderouterBreadcrumb,
+  SENSITIVE_CONTEXT_KEY,
+} from "./breadcrumbs";
+export { addCoderouterBreadcrumb } from "./breadcrumbs";
 // Namespace import: test suites replace `./analytics` with partial mocks, and a
 // missing named export must degrade to "no PostHog leg", not a link error.
 import * as analytics from "./analytics";
@@ -44,7 +51,6 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "alerts",
 ]);
 
-const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
 // A route finalizer emits one trace-linked exception after the handler returns.
 // Keep step failures out of Error Tracking while that route scope is active;
 // cron and other background callers still emit their standalone exception.
@@ -52,29 +58,6 @@ const routeFailureScope = new AsyncLocalStorage<boolean>();
 
 export function runWithCoderouterFailureScope<T>(fn: () => T): T {
   return routeFailureScope.run(true, fn);
-}
-
-export function addCoderouterBreadcrumb(
-  category: string,
-  message: string,
-  data: Readonly<Record<string, string | number | boolean>> = {},
-  level: "debug" | "info" | "warning" | "error" = "info",
-): void {
-  const safeData = Object.fromEntries(
-    Object.entries(data).filter(([key]) => !SENSITIVE_CONTEXT_KEY.test(key)),
-  );
-  void import("@sentry/nextjs")
-    .then((Sentry) => {
-      Sentry.addBreadcrumb({
-        category: `coderouter.${category}`,
-        message,
-        level,
-        data: safeData,
-      });
-    })
-    .catch(() => {
-      // Observability must never alter product control flow.
-    });
 }
 
 /**

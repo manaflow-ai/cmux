@@ -47,7 +47,7 @@ export function extractTranscriptMessages(jsonl: string): readonly TranscriptMes
   return messages;
 }
 
-export function extractTranscriptMessage(value: unknown): TranscriptMessage | null {
+function extractTranscriptMessage(value: unknown): TranscriptMessage | null {
   for (const candidate of messageCandidates(value)) {
     const role = stringProperty(candidate, "role");
     if (!role) continue;

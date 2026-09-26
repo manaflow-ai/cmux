@@ -188,7 +188,7 @@ export function recordCoderouterIdentity(
   }
 }
 
-export function recordCoderouterUser(userId: string): void {
+function recordCoderouterUser(userId: string): void {
   const context = storage.getStore();
   if (context) context.userId = userId;
 }

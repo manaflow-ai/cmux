@@ -7,7 +7,7 @@ import {
 } from "../vms/routeHelpers";
 import {
   isSubrouterAuthorizationError,
-  unauthorized,
+  unauthorized as unauthorizedResponse,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
@@ -53,7 +53,7 @@ export async function resolveSubrouterRequestContext(
         requestedTeamId,
         allowCookie: options.allowCookie ?? true,
       });
-      if (!user) return { ok: false, response: unauthorized() };
+      if (!user) return { ok: false, response: unauthorizedResponse() };
 
       const bearer = parseBearer(request);
       if (
@@ -131,7 +131,7 @@ export async function resolveSubrouterRequestContext(
       if (!accessToken) {
         return {
           ok: false,
-          response: unauthorized(),
+          response: unauthorizedResponse(),
         };
       }
 

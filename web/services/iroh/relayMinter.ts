@@ -9,15 +9,12 @@ import {
 } from "./errors";
 import { IrohTrustBrokerConfig } from "./config";
 import {
-  IROH_RELAY_MINTER_PATH,
   parseIrohMinterUrl,
   type IrohMinterUrlPolicy,
 } from "./minterUrlPolicy";
 import { IROH_RELAY_TOKEN_LIFETIME_SECONDS, endpointId } from "./model";
 
 const MAX_MINTER_RESPONSE_BYTES = 32 * 1_024;
-export { IROH_RELAY_MINTER_PATH };
-
 export type IrohRelayMintResult = {
   readonly token: string;
   readonly expiresAt: Date;

@@ -16,8 +16,8 @@ import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import {
   FeatureList,
   PlanCard,
-  visibleProFeatures,
 } from "@/app/components/pricing-shared";
+import { visibleProFeatures } from "@/app/components/pricing-helpers";
 import {
   PricingCheckoutButton,
   PricingView,
@@ -131,6 +131,7 @@ export default async function DashboardBillingPage({
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           <span>{t("banners.pastDue")}</span>{" "}
           {/* The portal route creates a session and needs a full document navigation. */}
+          {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/billing/portal" className="underline">
             {t("actions.manageBilling")}
@@ -142,6 +143,7 @@ export default async function DashboardBillingPage({
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           <span>{t("banners.pastDue")}</span>{" "}
           {/* The portal route creates a session and needs a full document navigation. */}
+          {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a href="/api/billing/portal?scope=team" className="underline">
             {t("actions.manageBilling")}
@@ -272,6 +274,7 @@ function FreePlan({
       {showBillingPortal ? (
         // The portal route creates a Stripe session and needs a full document
         // navigation rather than a Next.js client transition.
+        // oxlint-disable-next-line react-doctor/nextjs-no-a-element
         // eslint-disable-next-line @next/next/no-html-link-for-pages
         <a
           href="/api/billing/portal"
@@ -495,6 +498,7 @@ function StripePlan({
         {canManageBilling ? (
           // This API route creates a Stripe portal session and must perform a
           // full document navigation rather than a Next.js client transition.
+          // oxlint-disable-next-line react-doctor/nextjs-no-a-element
           // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal"
@@ -589,6 +593,7 @@ function TeamPlan({
         {canManageBilling ? (
           // This API route creates a Stripe portal session and must perform a
           // full document navigation rather than a Next.js client transition.
+          // oxlint-disable-next-line react-doctor/nextjs-no-a-element
           // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/billing/portal?scope=team"

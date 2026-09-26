@@ -7,7 +7,8 @@ import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
 import { CopyPrompt } from "@/app/[locale]/components/copy-prompt";
-import { JsonLd, breadcrumbList } from "@/app/[locale]/components/json-ld";
+import { breadcrumbList } from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { codingAgents } from "@/i18n/coding-agents";
 

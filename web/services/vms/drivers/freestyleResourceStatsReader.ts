@@ -7,7 +7,7 @@ import type { VMResourceStatsResult } from "./types";
 const PROBE_TIMEOUT_MS = 5_000;
 
 /** Provider deletion raced the read; workflows must reconcile the VM row. */
-export class FreestyleResourceStatsNotFoundError extends Error {
+class FreestyleResourceStatsNotFoundError extends Error {
   readonly status = 404;
   constructor() {
     super("resource stats VM not found");

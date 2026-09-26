@@ -12,12 +12,12 @@
 export const CHECKOUT_SOURCE_PARAM = "cmux_source";
 export const CHECKOUT_PLACEMENT_PARAM = "cmux_placement";
 export const CHECKOUT_CLIENT_PARAM = "cmux_client";
-export const CHECKOUT_CHANNEL_PARAM = "cmux_channel";
-export const CHECKOUT_APP_VERSION_PARAM = "cmux_app_version";
-export const CHECKOUT_APP_BUILD_PARAM = "cmux_app_build";
+const CHECKOUT_CHANNEL_PARAM = "cmux_channel";
+const CHECKOUT_APP_VERSION_PARAM = "cmux_app_version";
+const CHECKOUT_APP_BUILD_PARAM = "cmux_app_build";
 
 /** Query parameters an entrypoint may forward unchanged to the checkout URL. */
-export const CHECKOUT_ATTRIBUTION_PARAMS = [
+const CHECKOUT_ATTRIBUTION_PARAMS = [
   CHECKOUT_SOURCE_PARAM,
   CHECKOUT_PLACEMENT_PARAM,
   CHECKOUT_CLIENT_PARAM,
@@ -37,7 +37,7 @@ export type CheckoutAttributionParam = (typeof CHECKOUT_ATTRIBUTION_PARAMS)[numb
 export const CHECKOUT_SOURCE_PRICING_PAGE = "pricing_page";
 export const CHECKOUT_SOURCE_APP_PRICING = "app_pricing";
 export const CHECKOUT_SOURCE_DASHBOARD_BILLING = "dashboard_billing";
-export const CHECKOUT_SOURCE_UNKNOWN = "unknown";
+const CHECKOUT_SOURCE_UNKNOWN = "unknown";
 
 export const CHECKOUT_CLIENTS = ["web", "mac", "ios", "tui", "cli"] as const;
 export type CheckoutClient = (typeof CHECKOUT_CLIENTS)[number];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
+import Image from "next/image";
 import { Link } from "../../../i18n/navigation";
 import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import { NavLinks } from "./nav-links";
@@ -37,12 +38,16 @@ export function SiteHeader({
             {!hideLogo && (
               <>
                 <BrandLogoLink className="flex items-center gap-2.5">
-                  <img
+                  <Image
                     src="/logo.png"
                     alt="cmux"
                     width={24}
                     height={24}
                     className="rounded-md"
+                    // Keep this static logo out of /_next/image. Safari's
+                    // cache mishandles the optimizer's Vary: Accept response
+                    // (issue #5819), while the raw PNG is reliable.
+                    unoptimized
                   />
                   <span className="text-sm font-semibold tracking-tight">
                     cmux
@@ -93,7 +98,7 @@ export function SiteHeader({
           <ThemeToggle />
           <button
             onClick={close}
-            className="w-8 h-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
+            className="size-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
             aria-label={tc("closeMenu")}
           >
             <svg

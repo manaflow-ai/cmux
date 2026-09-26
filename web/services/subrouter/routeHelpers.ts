@@ -92,7 +92,7 @@ export function authorizedSubrouterTeams(
   });
 }
 
-export function teamDisplayName(user: AuthedUser, teamId: string): string {
+function teamDisplayName(user: AuthedUser, teamId: string): string {
   if (teamId === user.id) {
     return user.displayName ?? user.primaryEmail ?? user.id;
   }

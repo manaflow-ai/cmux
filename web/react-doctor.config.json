@@ -1,0 +1,14 @@
+{
+  "ignore": {
+    "overrides": [
+      {
+        "files": ["services/iroh/config.ts"],
+        "rules": ["deslop/unused-export"]
+      },
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dependency", "deslop/unused-dev-dependency"]
+      }
+    ]
+  }
+}

@@ -11,7 +11,7 @@ import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 // and the body streams freely. A timeout surfaces as a transport failure, so
 // the proxies fail over to the next account exactly like a connection error.
 
-export const UPSTREAM_HEADERS_TIMEOUT_ENV = "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS";
+const UPSTREAM_HEADERS_TIMEOUT_ENV = "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS";
 /** Non-streaming completions can legitimately take minutes before headers. */
 export const DEFAULT_UPSTREAM_HEADERS_TIMEOUT_MS = 10 * 60_000;
 /**

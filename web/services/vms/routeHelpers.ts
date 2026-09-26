@@ -13,7 +13,7 @@ import {
 } from "../telemetry";
 import {
   parseNativeStackTokens,
-  unauthorized,
+  unauthorized as unauthorizedResponse,
   verifyRequest,
   type AuthedUser,
 } from "./auth";
@@ -160,7 +160,7 @@ export async function withAuthedVmApiRoute(
         }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
-        if (!user) return finalize(unauthorized());
+        if (!user) return finalize(unauthorizedResponse());
         requestContext.userId = user.id;
         requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
         if (requestContext.operationId && !isPolledVmOperation(operation)) {

@@ -104,7 +104,7 @@ function MenuIconImage({
       width={1024}
       height={1024}
       unoptimized
-      className="h-8 w-8 shrink-0 object-contain"
+      className="size-8 shrink-0 object-contain"
       aria-hidden="true"
     />
   );
@@ -113,10 +113,10 @@ function MenuIconImage({
 function GridIcon() {
   return (
     <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center text-muted"
+      className="flex size-8 shrink-0 items-center justify-center text-muted"
       aria-hidden="true"
     >
-      <span className="grid h-5 w-5 grid-cols-2 gap-0.5">
+      <span className="grid size-5 grid-cols-2 gap-0.5">
         <span className="rounded-sm border border-current" />
         <span className="rounded-sm border border-current" />
         <span className="rounded-sm border border-current" />

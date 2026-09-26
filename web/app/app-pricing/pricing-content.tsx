@@ -31,12 +31,14 @@ import {
   PricingCompareTable,
   PrimaryLink,
   SecondaryLink,
+} from "../components/pricing-shared";
+import {
   visibleCompareRows,
   visibleFaqItems,
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-} from "../components/pricing-shared";
+} from "../components/pricing-helpers";
 import { PricingCheckoutButton } from "../components/pricing-checkout";
 import {
   MAX_PRICING_USD,
@@ -50,7 +52,9 @@ const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
 const pricing = enMessages.pricing;
 const HOSTED_NETWORKING_ENABLED = false;
 
-// oxlint-disable-next-line complexity -- Embedded actions retain native return and App Store rules.
+// Embedded actions retain native return and App Store rules, so this is the
+// single behavior boundary for app pricing cards.
+// oxlint-disable-next-line complexity, react-doctor/no-giant-component -- Embedded actions retain native return and App Store rules.
 export function AppPricingContent({
   params,
   headersList,

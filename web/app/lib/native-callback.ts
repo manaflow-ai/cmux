@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 export const DEFAULT_NATIVE_CALLBACK_SCHEME = "cmux";
-export const NATIVE_CALLBACK_HOST = "auth-callback";
+const NATIVE_CALLBACK_HOST = "auth-callback";
 
 const NATIVE_SCHEMES = new Set([DEFAULT_NATIVE_CALLBACK_SCHEME, "cmux-nightly"]);
 
@@ -40,7 +40,7 @@ export function isAllowedNativeReturnTo(
   }
 }
 
-export function isAllowedNativeScheme(
+function isAllowedNativeScheme(
   scheme: string,
   request: NextRequest,
 ): boolean {
@@ -50,7 +50,7 @@ export function isAllowedNativeScheme(
   return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
 }
 
-export function isLocalRequest(request: NextRequest): boolean {
+function isLocalRequest(request: NextRequest): boolean {
   const hostHeader = request.headers.get("host");
   const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";

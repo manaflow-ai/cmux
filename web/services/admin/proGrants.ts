@@ -40,7 +40,7 @@ import {
   type StripeBillingStatus,
 } from "../billing/pro";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
@@ -184,7 +184,7 @@ export async function searchAdminUsers(
   );
 }
 
-export async function loadAdminUser(
+async function loadAdminUser(
   userId: string,
   options: {
     readonly app?: AdminStackApp;
@@ -433,7 +433,7 @@ async function memberCount(team: AdminStackTeam): Promise<number | null> {
   }
 }
 
-export function adminTeamRow(
+function adminTeamRow(
   team: AdminStackTeam,
   stripe: StripeBillingStatus,
   members: number | null,
@@ -773,7 +773,7 @@ async function supersedeOpenGrantsForEmail(
 }
 
 /** A claim older than this is treated as abandoned and may be re-claimed. */
-export const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
+const ADMIN_GRANT_CLAIM_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Revokes an open grant. If a sign-in had claimed the row but never finalized

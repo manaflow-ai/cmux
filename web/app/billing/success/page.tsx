@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import type Stripe from "stripe";
 
 import type { Locale } from "../../../i18n/routing";
@@ -70,7 +70,7 @@ export default async function BillingSuccessPage({
     firstParam(params.cmux_scheme),
     request,
   );
-  let session: Stripe.Checkout.Session;
+  let session: Stripe.Checkout.Session | null = null;
   try {
     session = await stripe().checkout.sessions.retrieve(sessionId, {
       expand: ["subscription", "customer"],
@@ -80,8 +80,9 @@ export default async function BillingSuccessPage({
       route: "/billing/success",
       hasSessionId: Boolean(sessionId),
     });
-    redirect("/pricing?billing=error");
+    unstable_rethrow(error);
   }
+  if (!session) redirect("/pricing?billing=error");
   if (!isCmuxCheckoutSession(session, expandedSubscription(session))) {
     redirect("/pricing?billing=error");
   }
@@ -198,6 +199,8 @@ export default async function BillingSuccessPage({
 
         <footer className="flex flex-wrap gap-x-6 gap-y-2 pt-5 text-sm text-muted">
           {/* The handler owns a full-document auth-settings transition. */}
+          {/* The auth-settings handler performs a full-document transition. */}
+          {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a className="underline decoration-border underline-offset-4 hover:text-foreground" href="/handler/account-settings">
             {messages.manageSignInMethods}

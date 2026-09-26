@@ -51,7 +51,7 @@ export function makeClaudeAccountHandlers(
     const teamId = resolved.value.team.teamId;
     try {
       const account = await dependencies.update(teamId, accountId, patch, access);
-      if (!account) return notFound();
+      if (!account) return notFoundResponse();
       addCoderouterBreadcrumb("account", "Claude upstream account updated", {
         ...(patch.state ? { state: patch.state } : {}),
         relabeled: patch.label !== undefined,
@@ -80,7 +80,7 @@ export function makeClaudeAccountHandlers(
       reportCoderouterFailure("rds", error, { operation: "remove_claude_account" });
       return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream account. Nothing was changed; retry shortly.");
     }
-    if (!result.removed) return notFound();
+    if (!result.removed) return notFoundResponse();
     captureCoderouterEvent({
       event: "coderouter_claude_upstream_removed",
       userId: resolved.value.user.id,
@@ -94,7 +94,7 @@ export function makeClaudeAccountHandlers(
   return { PATCH, DELETE };
 }
 
-function notFound(): Response {
+function notFoundResponse(): Response {
   return Response.json(
     { error: "not_found", message: "This team has no Claude upstream account with that id.", retryable: false },
     { status: 404, headers: { "cache-control": "no-store" } },

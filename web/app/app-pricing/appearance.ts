@@ -18,11 +18,11 @@ export function appPricingFirstParam(
   return value ?? null;
 }
 
-export function appPricingAppearance(params: SearchParams): "light" | "dark" {
+function appPricingAppearance(params: SearchParams): "light" | "dark" {
   return appPricingFirstParam(params.appearance) === "dark" ? "dark" : "light";
 }
 
-export function appPricingPageBackground(
+function appPricingPageBackground(
   params: SearchParams,
   appearance: "light" | "dark",
 ): string {

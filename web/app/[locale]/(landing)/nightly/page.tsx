@@ -1,4 +1,5 @@
 import { useTranslations } from "next-intl";
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { landingPageSeoCopy } from "@/i18n/audited-seo";
@@ -48,7 +49,7 @@ export default function NightlyPage() {
       <main className="w-full max-w-2xl mx-auto px-6 py-10">
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
-          <img
+          <Image
             src="/logo-nightly.png"
             alt="cmux NIGHTLY icon"
             width={48}

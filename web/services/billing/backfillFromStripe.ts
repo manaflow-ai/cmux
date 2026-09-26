@@ -30,7 +30,7 @@ export type StripeBackfillDependencies = {
   readonly log?: (line: string) => void;
 };
 
-export function isCmuxSubscription(subscription: Stripe.Subscription): boolean {
+function isCmuxSubscription(subscription: Stripe.Subscription): boolean {
   return subscription.metadata?.app === "cmux";
 }
 
