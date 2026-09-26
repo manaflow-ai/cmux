@@ -93,6 +93,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
     )
 
+    /// Whether creating a split rebalances the panes along the new split's
+    /// axis so they share the space evenly. Defaults to off, which keeps the
+    /// halve-the-source-pane behavior.
+    public let equalizeSplitsOnCreate = DefaultsKey<Bool>(
+        id: "app.equalizeSplitsOnCreate",
+        defaultValue: false,
+        userDefaultsKey: "equalizeSplitsOnCreate"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",

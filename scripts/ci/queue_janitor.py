@@ -86,6 +86,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import GitHub as PoolClient  # noqa: E402
+import owned_warm_state  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -431,8 +433,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
     of failed jobs publishes none, so with the variable off attempt 2 costs
     no listing. Later attempts never hold one. Its other macOS jobs say nothing:
-    swift-package-tests always runs on a Blacksmith pool beside a run on an
-    owned one.
+    swift-package-tests usually runs on a Blacksmith pool beside a run on an
+    owned one (only a run that builds no Release helper places it there).
     """
     if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
         return False
@@ -1431,11 +1433,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     capability = capability_marker(run, names)
                     if capability:
                         capability_markers[run["id"]] = capability
-        args.pool_load.write_text(
-            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
-                                          capability_markers=capability_markers),
-                       indent=2) + "\n",
-            encoding="utf-8")
+        snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
+                                      capability_markers=capability_markers)
+        # Warm affinity on: which root runner kept a build of which main
+        # commits (owned_warm_state.py). A failure leaves `warm` out, and the
+        # picker then routes admission by the root label as before.
+        if os.environ.get("OWNED_WARM", "").strip() == "1":
+            try:
+                snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
+            except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
+                print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
+        args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

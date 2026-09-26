@@ -4622,6 +4622,256 @@
           }
         }
       }
+    },
+    "settings.app.filePreviewVimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Navigation in File Previews"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التنقل بأسلوب Vim في معاينات الملفات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-Navigation in Dateivorschauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegación Vim en vistas previas de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigation Vim dans les aperçus de fichiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルプレビューの Vim ナビゲーション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 미리보기에서 Vim 탐색"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件预览中的 Vim 导航"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案預覽中的 Vim 導覽"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim navigacija u pregledima datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-navigation i filforhåndsvisninger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigazione Vim nelle anteprime dei file"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរុករក Vim ក្នុងការមើលឯកសារជាមុន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-navigasjon i filforhåndsvisninger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nawigacja Vim w podglądzie plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegação Vim nas prévias de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навигация Vim в предпросмотре файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การนำทางแบบ Vim ในตัวอย่างไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya Önizlemelerinde Vim Gezinmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Навігація Vim у попередньому перегляді файлів"
+          }
+        }
+      }
+    },
+    "settings.app.filePreviewVimKeys.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use read-only Vim movement, search, selection, and yank in text file previews."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم التنقل والبحث والتحديد والنسخ بأسلوب Vim للقراءة فقط في معاينات الملفات النصية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-Bewegungen, Suche, Auswahl und Kopieren in Textdateivorschauen ohne Änderungen verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa los movimientos, la búsqueda, la selección y la copia de Vim en modo de solo lectura en las vistas previas de archivos de texto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez les déplacements, la recherche, la sélection et la copie Vim en lecture seule dans les aperçus de fichiers texte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストファイルのプレビューで、読み取り専用の Vim 移動、検索、選択、コピーを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 파일 미리보기에서 읽기 전용 Vim 이동, 검색, 선택 및 복사를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文本文件预览中使用只读的 Vim 移动、搜索、选择和复制功能。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文字檔案預覽中使用唯讀的 Vim 移動、搜尋、選取和複製功能。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite Vim kretanje, pretragu, odabir i kopiranje samo za čitanje u pregledima tekstualnih datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug Vim-bevægelse, søgning, markering og kopiering i skrivebeskyttede forhåndsvisninger af tekstfiler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa movimento, ricerca, selezione e copia Vim in sola lettura nelle anteprime dei file di testo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើការផ្លាស់ទី ការស្វែងរក ការជ្រើសរើស និងការចម្លងរបស់ Vim ក្នុងរបៀបបានតែអាន សម្រាប់ការមើលឯកសារអត្ថបទជាមុន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk Vim-bevegelse, søk, markering og kopiering i skrivebeskyttede forhåndsvisninger av tekstfiler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj ruchów, wyszukiwania, zaznaczania i kopiowania Vim w podglądzie plików tekstowych tylko do odczytu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use movimentos, pesquisa, seleção e cópia do Vim em modo somente leitura nas prévias de arquivos de texto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте перемещение, поиск, выделение и копирование Vim в режиме только для чтения при предпросмотре текстовых файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้การเคลื่อนที่ การค้นหา การเลือก และการคัดลอกแบบ Vim ในโหมดอ่านอย่างเดียวสำหรับตัวอย่างไฟล์ข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin dosyası önizlemelerinde salt okunur Vim hareketlerini, aramayı, seçimi ve kopyalamayı kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте переміщення, пошук, виділення та копіювання Vim у режимі лише для читання під час попереднього перегляду текстових файлів."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
