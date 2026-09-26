@@ -72,7 +72,7 @@ struct AgentFeedView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .unavailable where items.isEmpty:
-                AgentFeedUnavailableView()
+                AgentFeedUnavailableView(retry: { Task { await actions.refresh() } })
             case .requiresMacUpdate where items.isEmpty:
                 AgentFeedRequiresMacUpdateView()
             default:
@@ -105,6 +105,11 @@ struct AgentFeedView: View {
 
     private var feedList: some View {
         List {
+            if !items.isEmpty, status == .unavailable || status == .requiresMacUpdate {
+                Section {
+                    AgentFeedAvailabilityBanner(status: status)
+                }
+            }
             Section {
                 if visibleItems.isEmpty {
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -269,20 +274,73 @@ private struct AgentFeedEmptyView: View {
 }
 
 private struct AgentFeedUnavailableView: View {
+    let retry: @MainActor () -> Void
+
     var body: some View {
-        ContentUnavailableView(
-            String(
-                localized: "mobile.agentFeed.unavailable.title",
-                defaultValue: "Feed Unavailable",
-                bundle: .module
-            ),
-            systemImage: "wifi.slash",
-            description: Text(String(
+        ContentUnavailableView {
+            Label(
+                String(
+                    localized: "mobile.agentFeed.unavailable.title",
+                    defaultValue: "Feed Unavailable",
+                    bundle: .module
+                ),
+                systemImage: "wifi.slash"
+            )
+        } description: {
+            Text(String(
                 localized: "mobile.agentFeed.unavailable.description",
                 defaultValue: "Connect to a Mac to see its agent activity.",
                 bundle: .module
             ))
-        )
+        } actions: {
+            Button(String(
+                localized: "mobile.agentFeed.retry",
+                defaultValue: "Try Again",
+                bundle: .module
+            ), action: retry)
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("MobileAgentFeedRetry")
+        }
+        .accessibilityIdentifier("MobileAgentFeedUnavailable")
+    }
+}
+
+/// Shown above cached rows when the Feed cannot refresh, so stale activity is
+/// never mistaken for live activity.
+private struct AgentFeedAvailabilityBanner: View {
+    let status: MobileNotificationFeedStatus
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: status == .requiresMacUpdate ? "arrow.down.circle" : "wifi.slash")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileAgentFeedAvailabilityBanner")
+    }
+
+    private var title: String {
+        status == .requiresMacUpdate
+            ? String(localized: "mobile.agentFeed.update.title",
+                     defaultValue: "Update cmux on your Mac", bundle: .module)
+            : String(localized: "mobile.agentFeed.offline.title",
+                     defaultValue: "Feed is offline", bundle: .module)
+    }
+
+    private var detail: String {
+        status == .requiresMacUpdate
+            ? String(localized: "mobile.agentFeed.update.inlineBody",
+                     defaultValue: "Some paired Macs can’t stream agent activity yet.", bundle: .module)
+            : String(localized: "mobile.agentFeed.offline.inlineBody",
+                     defaultValue: "Showing the latest activity synced from your Macs.", bundle: .module)
     }
 }
 
