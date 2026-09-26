@@ -3032,6 +3032,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.cloud_vm_bind":
             return v2Result(id: id, self.v2WorkspaceCloudVMBind(params: params))
+        case "session.agent_recovery.list":
+            return v2Result(id: id, self.v2AgentRecoveryList(params: params))
+        case "session.agent_recovery.restore":
+            return v2Result(id: id, self.v2AgentRecoveryRestore(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
         case "surface.sync_codex_native_title":

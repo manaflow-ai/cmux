@@ -129,6 +129,18 @@ enum GhosttyCrashBreadcrumb {
         return wasUnclean
     }
 
+    /// When the prior process that left its sentinel behind was launched (the
+    /// sentinel's write time), or nil when there is no sentinel. Read it
+    /// before ``captureSessionLaunchState`` overwrites the file.
+    nonisolated static func priorSessionLaunchStartDate(
+        fileManager: FileManager = .default,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Date? {
+        let url = sessionLaunchSentinelURL(homeDirectory: homeDirectory, environment: environment)
+        return (try? fileManager.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
     /// Returns true when a prior process left its launch sentinel behind. The
     /// sentinel is scoped by bundle identifier so tagged development builds do
     /// not classify one another's exits as crashes.

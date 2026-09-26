@@ -28,6 +28,10 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     public var capturedAt: TimeInterval?
     /// The capture source.
     public var source: String?
+    /// The outer launcher that started the agent, when it was not a shell
+    /// (for example `["sr", "claude", "proxy", "--account", "x"]`). Recovery
+    /// resumes through it so the session keeps its account routing.
+    public var launcherPrefix: [String]?
 
     /// Creates a structured captured launch.
     ///
@@ -41,6 +45,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     ///   - verificationHome: The launch home used only for provider-state verification.
     ///   - capturedAt: The capture timestamp.
     ///   - source: The capture source.
+    ///   - launcherPrefix: The outer launcher argv, when one was captured.
     public init(
         launcher: String? = nil,
         externalLauncher: String? = nil,
@@ -50,7 +55,8 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         environment: [String: String]? = nil,
         verificationHome: String? = nil,
         capturedAt: TimeInterval? = nil,
-        source: String? = nil
+        source: String? = nil,
+        launcherPrefix: [String]? = nil
     ) {
         self.launcher = launcher
         self.externalLauncher = externalLauncher
@@ -61,6 +67,7 @@ public struct AgentLaunchCommand: Codable, Hashable, Sendable {
         self.verificationHome = verificationHome
         self.capturedAt = capturedAt
         self.source = source
+        self.launcherPrefix = launcherPrefix
     }
 }
 

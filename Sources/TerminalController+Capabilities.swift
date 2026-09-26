@@ -221,6 +221,8 @@ extension TerminalController {
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
             "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
+            "session.agent_recovery.list",
+            "session.agent_recovery.restore",
             "settings.open",
             "feedback.open",
             "feedback.submit",

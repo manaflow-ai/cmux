@@ -1,6 +1,242 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentRecovery.alert.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore agent sessions?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد استعادة جلسات الوكيل؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar las sesiones de agente?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要還原代理工作階段嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复代理会话吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션을 복원할까요?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元しますか？"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux quit unexpectedly while agent sessions were running. Sessions to restore: %lld. Each one reopens in its own workspace and resumes where it left off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde unerwartet beendet, während Agent-Sitzungen liefen. Wiederherzustellende Sitzungen: %lld. Jede wird in einem eigenen Workspace geöffnet und dort fortgesetzt, wo sie aufgehört hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux s’est fermé de façon inattendue pendant que des sessions d’agent étaient en cours. Sessions à restaurer : %lld. Chacune rouvre dans son propre espace de travail et reprend là où elle s’était arrêtée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق cmux بشكل غير متوقع أثناء تشغيل جلسات الوكيل. الجلسات المطلوب استعادتها: %lld. تُفتح كل جلسة في مساحة عمل خاصة بها وتُستأنف من حيث توقفت."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se cerró inesperadamente mientras había sesiones de agente en ejecución. Sesiones por restaurar: %lld. Cada una se abre en su propio espacio de trabajo y continúa donde se quedó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理工作階段執行時意外結束。要還原的工作階段：%lld。每個工作階段都會在各自的工作區重新開啟，並從中斷處繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 在代理会话运行时意外退出。要恢复的会话：%lld。每个会话都会在各自的工作区重新打开，并从中断处继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션이 실행 중일 때 cmux가 예기치 않게 종료되었습니다. 복원할 세션: %lld. 각 세션은 자체 워크스페이스에서 다시 열리고 중단된 곳에서 이어집니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションの実行中に cmux が予期せず終了しました。復元するセッション: %lld。各セッションは専用のワークスペースで再び開き、中断したところから再開します。"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Agent Sessions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Sitzungen wiederherstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les sessions d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة جلسات الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar sesiones de agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原代理工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 복원"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを復元"
+          }
+        }
+      }
+    },
+    "agentRecovery.alert.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稍後"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以后再说"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {
@@ -231257,23 +231493,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "오픈코드"
-          }
-        }
-      }
-    },
-    "machines.agent.pi": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pi"
           }
         }
       }
@@ -558421,6 +558640,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
+          }
+        }
+      }
+    },
+    "machines.agent.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }
