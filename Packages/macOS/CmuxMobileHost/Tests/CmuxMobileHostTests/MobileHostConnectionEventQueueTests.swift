@@ -87,4 +87,41 @@ struct MobileHostConnectionEventQueueTests {
         #expect(queue.consumeOverflow())
         #expect(!queue.finishDrain())
     }
+
+    @Test("Each lane dequeues in arrival order through grid replacement churn")
+    func laneOrderSurvivesReplacementChurn() {
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1_000, maximumByteCount: 1_000_000)
+        queue.updateSubscribedTopics(["device.terminal.grid", "terminal.bytes", "terminal.render_grid"])
+        queue.enableSurfaceLanes(limit: 2)
+        var expectedShared: [UInt8] = []
+        var expectedSurface: [UInt8] = []
+        for step in 0..<200 {
+            let value = UInt8(step % 251)
+            // Replacing the same Mac grid leaves stale IDs behind in both the
+            // global and shared lane orders, enough to force compaction.
+            _ = queue.enqueue(topic: "device.terminal.grid", coalesceKey: "mac", isFullRenderGridFrame: false, frame: Data([255]))
+            if step.isMultiple(of: 2) {
+                #expect(queue.enqueue(topic: "terminal.bytes", coalesceKey: nil, isFullRenderGridFrame: false, frame: Data([value])).admitted)
+                expectedShared.append(value)
+            } else {
+                let result = queue.enqueue(topic: "terminal.render_grid", coalesceKey: "s1", isFullRenderGridFrame: true, frame: Data([value]))
+                #expect(result.admitted)
+                #expect(result.drainLane == .surface("s1"))
+                expectedSurface.append(value)
+            }
+        }
+        var surface: [UInt8] = []
+        while let event = queue.dequeue(lane: .surface("s1")) {
+            surface.append(event.frame[0])
+        }
+        #expect(surface == expectedSurface)
+        var shared: [UInt8] = []
+        while let event = queue.dequeue(lane: .shared) {
+            if event.topic == "device.terminal.grid" { continue }
+            shared.append(event.frame[0])
+        }
+        #expect(shared == expectedShared)
+        #expect(queue.count == 0)
+        #expect(queue.byteCount == 0)
+    }
 }

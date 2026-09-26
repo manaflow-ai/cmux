@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxGit
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileHost
 import CmuxMobileTransport
 import CmuxSettings
@@ -665,7 +666,7 @@ final class MobileHostService {
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             // An overflow is closed by the drain, which consumes it first.
             if result.startDrain {
-                connection.startEventDrain()
+                connection.startEventDrain(lane: result.drainLane)
             }
         }
         if !resyncSurfaceIDs.isEmpty {
@@ -1399,6 +1400,8 @@ actor MobileHostConnection {
         let topics: Set<String>
         let transport: MobileHostEventTransport
         let clientID: String?
+        /// Render-grid frames for this stream ride per-surface lanes.
+        var surfaceEventLanes = false
     }
 
     private struct ResponseTask: Sendable {
@@ -1458,10 +1461,27 @@ actor MobileHostConnection {
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
-    /// The drain the queue's claim admitted, kept so `close()` cancels it.
-    private nonisolated let eventDrainTask = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+    private struct EventDrainTask: Sendable {
+        let token: UInt64
+        let task: Task<Void, Never>
+    }
+
+    private struct EventDrainTasks: Sendable {
+        var nextToken: UInt64 = 0
+        var tasksByLane: [MobileHostEventLane: EventDrainTask] = [:]
+    }
+
+    /// The drain each lane's queue claim admitted, kept so `close()` cancels
+    /// it. Tokens let a finished drain clear only its own handle.
+    private nonisolated let eventDrainTasks = OSAllocatedUnfairLock(initialState: EventDrainTasks())
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
+    /// Whether the event queue currently routes render-grid frames onto
+    /// per-surface lanes (mirrors the subscriptions that negotiated them).
+    private var surfaceEventLanesActive = false
+    /// Last surface this connection wrote terminal input to; its output lane
+    /// is scheduled first so keystroke echo never waits behind other surfaces.
+    private var lastInteractiveSurfaceKey: String?
     private var didDecodeFirstFrame = false
     private var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
@@ -1607,10 +1627,13 @@ actor MobileHostConnection {
         // payload. A drain parked in a write is cancelled rather than left to
         // outlive the connection; one between writes exits on its own.
         eventQueue.close()
-        eventDrainTask.withLock { task -> Task<Void, Never>? in
-            defer { task = nil }
-            return task
-        }?.cancel()
+        let drainTasks = eventDrainTasks.withLock { state -> [Task<Void, Never>] in
+            defer { state.tasksByLane.removeAll() }
+            return state.tasksByLane.values.map { $0.task }
+        }
+        for task in drainTasks {
+            task.cancel()
+        }
         let tasks = responseTasks.values.map(\.task)
         responseTasks.removeAll()
         for task in tasks {
@@ -1712,6 +1735,7 @@ actor MobileHostConnection {
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
             let surfaceKey = request.orderedInputSurfaceKey
+            noteInteractiveSurface(surfaceKey)
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
                     frameByteCount: frame.count,
@@ -1987,11 +2011,17 @@ actor MobileHostConnection {
             guard !isClosed else {
                 return .failure(MobileHostRPCError(code: "unavailable", message: "connection closed"))
             }
+            let grantsSurfaceEventLanes = selectedTransport == .irohServerEvents
+                && topics.contains(MobileHostEventTopicPolicy().renderGridTopic)
+                && request.params[IrxSurfaceEventLaneProtocol().subscribeParameterKey] as? String
+                    == IrxSurfaceEventLaneProtocol().subscribeParameterValue
+                && (independentEventWriter?.maximumSurfaceEventLaneCount ?? 0) > 0
             await subscribe(
                 streamID: streamID,
                 topics: topics,
                 transport: selectedTransport,
-                clientID: request.params["client_id"] as? String
+                clientID: request.params["client_id"] as? String,
+                surfaceEventLanes: grantsSurfaceEventLanes
             )
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
@@ -2007,12 +2037,17 @@ actor MobileHostConnection {
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
-            return .ok([
+            var acknowledgement: [String: Any] = [
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
                 "already_subscribed": alreadySubscribed,
                 "event_transport": selectedTransport.rawValue,
-            ])
+            ]
+            if subscriptions[streamID]?.surfaceEventLanes == true {
+                acknowledgement[IrxSurfaceEventLaneProtocol().subscribeParameterKey] =
+                    IrxSurfaceEventLaneProtocol().subscribeParameterValue
+            }
+            return .ok(acknowledgement)
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
             let removed = await unsubscribe(streamID: streamID)
@@ -2129,13 +2164,15 @@ actor MobileHostConnection {
         streamID: String,
         topics: Set<String>,
         transport: MobileHostEventTransport = .control,
-        clientID: String? = nil
+        clientID: String? = nil,
+        surfaceEventLanes: Bool = false
     ) async {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
             transport: transport,
-            clientID: clientID
+            clientID: clientID,
+            surfaceEventLanes: surfaceEventLanes
         )
         if let usableEventSubscription,
            usableEventSubscription.streamID == streamID,
@@ -2147,6 +2184,7 @@ actor MobileHostConnection {
             previousTopics: previousTopics,
             nextTopics: topics
         )
+        await syncSurfaceEventLanes()
         if currentSubscribedTopics().contains(MobileHostEventTopicPolicy().simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
         }
@@ -2167,6 +2205,7 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        await syncSurfaceEventLanes()
         if !subscriptions.values.contains(where: {
             $0.transport == .irohServerEvents
         }) {
@@ -2234,7 +2273,7 @@ actor MobileHostConnection {
             return false
         }
         if result.startDrain {
-            startEventDrain()
+            startEventDrain(lane: result.drainLane)
         }
         return result.admitted
     }
@@ -2271,8 +2310,8 @@ actor MobileHostConnection {
         independentEventNegotiationInProgress = true
         defer {
             independentEventNegotiationInProgress = false
-            if eventQueue.claimDrain() {
-                startEventDrain()
+            for lane in eventQueue.claimDrains() {
+                startEventDrain(lane: lane)
             }
         }
         let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
@@ -2292,42 +2331,62 @@ actor MobileHostConnection {
             await resetIndependentEventWriter()
         }
         downgradeIndependentSubscriptionsToControl()
+        await syncSurfaceEventLanes()
         return false
     }
 
-    /// Starts the drain a queue claim admitted and keeps its handle. The claim
-    /// admits one drain at a time, so this replaces only the handle of a drain
-    /// that already released its claim.
-    nonisolated func startEventDrain() {
-        eventDrainTask.withLock { task in
-            task = Task { [weak self] in await self?.drainQueuedEvents() }
+    /// Starts the drain a queue claim admitted for `lane` and keeps its handle
+    /// so `close()` can cancel it. The claim admits one drain per lane at a
+    /// time; the handle is cleared when that drain returns, unless a newer
+    /// drain for the lane already replaced it.
+    nonisolated func startEventDrain(lane: MobileHostEventLane) {
+        eventDrainTasks.withLock { state in
+            state.nextToken &+= 1
+            let token = state.nextToken
+            state.tasksByLane[lane] = EventDrainTask(
+                token: token,
+                task: Task { [weak self] in
+                    await self?.drainQueuedEvents(lane: lane)
+                    self?.finishEventDrainTask(lane: lane, token: token)
+                }
+            )
         }
     }
 
-    /// Single-writer drain loop: at most one instance runs per connection
-    /// (enforced by the queue's drain claim), pulling from the bounded queue
-    /// and writing to the negotiated lane. Exits when the queue is empty, the
-    /// connection closes, lane negotiation pauses delivery, or a delivery
-    /// fails (which closes the unusable control session).
-    func drainQueuedEvents() async {
+    private nonisolated func finishEventDrainTask(lane: MobileHostEventLane, token: UInt64) {
+        eventDrainTasks.withLock { state in
+            if state.tasksByLane[lane]?.token == token {
+                state.tasksByLane.removeValue(forKey: lane)
+            }
+        }
+    }
+
+    /// Single-writer drain loop per lane: at most one instance runs per lane
+    /// (enforced by the queue's drain claim), pulling that lane's events from
+    /// the bounded queue and writing them to the lane's stream. Lanes drain
+    /// independently, so a write stalled on one surface's stream never delays
+    /// another lane. Exits when the lane is empty, the connection closes, lane
+    /// negotiation pauses delivery, or a delivery fails (which closes the
+    /// unusable control session).
+    func drainQueuedEvents(lane: MobileHostEventLane = .shared) async {
         while true {
             if isClosed {
-                eventQueue.abandonDrain()
+                eventQueue.abandonDrain(lane: lane)
                 return
             }
-            // Fan-out that overflows while this drain runs cannot start
-            // another one, so the running drain owns the close. Check it
-            // before yielding to lane negotiation, which can wait out a probe.
+            // Fan-out that overflows while a drain runs cannot start another
+            // one, so a running drain owns the close. Check it before yielding
+            // to lane negotiation, which can wait out a probe.
             if eventQueue.consumeOverflow() {
                 await close(reason: "event queue overflow")
                 return
             }
             if independentEventNegotiationInProgress {
-                eventQueue.abandonDrain()
+                eventQueue.abandonDrain(lane: lane)
                 return
             }
-            guard let event = eventQueue.dequeue() else {
-                if eventQueue.finishDrain() { continue }
+            guard let event = eventQueue.dequeue(lane: lane) else {
+                if eventQueue.finishDrain(lane: lane) { continue }
                 return
             }
             guard eventQueue.isSubscribed(topic: event.topic) else { continue }
@@ -2335,7 +2394,7 @@ actor MobileHostConnection {
             let latencyWriteStart = event.stateSeq == nil ? nil : HostLatencyTrace.captureTime()
             #endif
             guard await deliverQueuedEvent(event) else {
-                eventQueue.abandonDrain()
+                eventQueue.abandonDrain(lane: lane)
                 return
             }
             #if DEBUG
@@ -2379,6 +2438,10 @@ actor MobileHostConnection {
     }
 
     private func deliverQueuedEvent(_ event: MobileHostConnectionEventQueue.QueuedEvent) async -> Bool {
+        if case .surface(let surfaceID) = event.lane {
+            await deliverSurfaceEvent(event, surfaceID: surfaceID)
+            return true
+        }
         let prefersIndependent = subscriptions.values.contains {
             $0.transport == .irohServerEvents && $0.topics.contains(event.topic)
         }
@@ -2389,6 +2452,7 @@ actor MobileHostConnection {
             } catch {
                 independentEventRevision &+= 1
                 downgradeIndependentSubscriptionsToControl()
+                await syncSurfaceEventLanes()
                 await independentEventWriter.reset()
                 // Deliver the event that exposed the dead/backpressured lane on
                 // control immediately. Subsequent events also use control.
@@ -2396,6 +2460,82 @@ actor MobileHostConnection {
             }
         }
         return await sendEventControlFrame(event.frame)
+    }
+
+    /// Writes one render-grid frame onto its surface's own stream. A failed or
+    /// stalled stream is retired for that surface only: its lost frames break
+    /// the surface's chain, so the queue poisons it and the producer re-emits a
+    /// full frame, which opens a fresh stream. The connection stays up.
+    private func deliverSurfaceEvent(
+        _ event: MobileHostConnectionEventQueue.QueuedEvent,
+        surfaceID: String
+    ) async {
+        guard let independentEventWriter else { return }
+        do {
+            try await independentEventWriter.sendSurfaceEvent(
+                event.frame,
+                surfaceID: surfaceID,
+                generation: event.laneGeneration
+            )
+            eventQueue.noteSurfaceLaneDelivered(surfaceID: surfaceID)
+        } catch {
+            let resync = eventQueue.retireSurfaceLane(
+                surfaceID: surfaceID,
+                generation: event.laneGeneration
+            )
+            mobileHostLog.info(
+                "mobile host retired surface event lane \(surfaceID, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            if !resync.isEmpty {
+                MobileTerminalRenderObserver.requestRenderGridFullResync(
+                    surfaceIDStrings: resync
+                )
+            }
+        }
+    }
+
+    /// Aligns the queue's render-grid routing and the writer's surface lanes
+    /// with the subscriptions that negotiated them. Surface lanes stay active
+    /// only while a render-grid subscription still uses the independent
+    /// events path; a fallback to control returns every surface to the shared
+    /// lane and re-bases each chain with a full frame.
+    private func syncSurfaceEventLanes() async {
+        guard let independentEventWriter, !isClosed else { return }
+        let desired = subscriptions.values.contains {
+            $0.surfaceEventLanes
+                && $0.transport == .irohServerEvents
+                && $0.topics.contains(MobileHostEventTopicPolicy().renderGridTopic)
+        }
+        guard desired != surfaceEventLanesActive else { return }
+        // Flip the flag and the queue's routing before any suspension so a
+        // reentrant sync always observes and applies the latest decision; the
+        // writer's own enable calls reach its actor in the same order.
+        surfaceEventLanesActive = desired
+        if desired {
+            eventQueue.enableSurfaceLanes(
+                limit: independentEventWriter.maximumSurfaceEventLaneCount
+            )
+            let focusedSurfaceKey = lastInteractiveSurfaceKey
+            await independentEventWriter.setSurfaceEventLanesEnabled(true)
+            if let focusedSurfaceKey {
+                await independentEventWriter.noteInteractiveSurface(focusedSurfaceKey)
+            }
+        } else {
+            let resync = eventQueue.disableSurfaceLanes()
+            if !resync.isEmpty {
+                MobileTerminalRenderObserver.requestRenderGridFullResync(
+                    surfaceIDStrings: resync
+                )
+            }
+            await independentEventWriter.setSurfaceEventLanesEnabled(false)
+        }
+    }
+
+    private func noteInteractiveSurface(_ surfaceKey: String) {
+        guard !surfaceKey.isEmpty, lastInteractiveSurfaceKey != surfaceKey else { return }
+        lastInteractiveSurfaceKey = surfaceKey
+        guard surfaceEventLanesActive, let independentEventWriter else { return }
+        Task { await independentEventWriter.noteInteractiveSurface(surfaceKey) }
     }
 
     /// Writes one serialized frame until the transport completes or fails.
@@ -2411,7 +2551,8 @@ actor MobileHostConnection {
             subscriptions[streamID] = EventSubscription(
                 topics: subscription.topics,
                 transport: .control,
-                clientID: subscription.clientID
+                clientID: subscription.clientID,
+                surfaceEventLanes: false
             )
         }
         if let usableEventSubscription,

@@ -1011,6 +1011,8 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
     private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
+    /// Finds the AppKit content view for terminal and browser panes; other panel
+    /// types use Bonsplit geometry when zoomed rather than a stale split rect.
     static func tmuxWorkspacePaneExactRect(
         for panel: any Panel,
         in contentView: NSView
@@ -1028,6 +1030,8 @@ struct ContentView: View {
         return tmuxWorkspacePaneExactRect(for: targetView, in: contentView)
     }
 
+    /// Measures a hosted pane against the overlay's installation reference,
+    /// which may differ from `window.contentView` when window glass is active.
     static func tmuxWorkspacePaneExactRect(
         for targetView: NSView,
         in contentView: NSView
@@ -1045,26 +1049,7 @@ struct ContentView: View {
         return rectInContent
     }
 
-    static func preferredTmuxWorkspacePaneWindowOverlayRect(
-        exactRect: CGRect?,
-        paneRect: CGRect?
-    ) -> CGRect? {
-        guard let paneRect else { return exactRect }
-        guard let exactRect,
-              exactRect.width > 1,
-              exactRect.height > 1 else {
-            return paneRect
-        }
-
-        let tolerance: CGFloat = 0.5
-        let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
-        return exactFitsWithinPane ? exactRect : paneRect
-    }
-
+    /// Builds window-overlay geometry in the same coordinate space as its canvas.
     private func tmuxWorkspacePaneWindowOverlayState(
         for window: NSWindow,
         unreadSnapshot explicitUnreadSnapshot: SidebarUnreadSnapshot? = nil
@@ -1080,7 +1065,10 @@ struct ContentView: View {
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
             liveSnapshot: workspace.bonsplitController.layoutSnapshot()
         )
-        let contentView = window.contentView
+        let contentView = WindowTmuxWorkspacePaneOverlayController.controller(
+            for: window,
+            createIfNeeded: true
+        )?.coordinateReferenceView ?? window.contentView
 
         let unreadRects: [CGRect]
         if usesWorkspacePaneOverlay {
@@ -1112,7 +1100,7 @@ struct ContentView: View {
                         paneId: workspace.paneId(forPanelId: panelId)
                     )
                     let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                    return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                    return WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                         exactRect: exactRect,
                         paneRect: paneRect
                     )
@@ -1138,7 +1126,7 @@ struct ContentView: View {
                     paneId: workspace.paneId(forPanelId: panelId)
                 )
                 let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
-                flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                flashRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                     exactRect: exactRect,
                     paneRect: paneRect
                 )
@@ -1161,9 +1149,16 @@ struct ContentView: View {
                 paneId: workspace.paneId(forPanelId: panelId)
             )
             let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
-            activePaneBorderRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+            let isSplitZoomed = workspace.bonsplitController.isSplitZoomed
+            // Bonsplit's zoomed container covers the visible pane; hosted terminal
+            // views can include a tab-chrome offset during the zoom transition.
+            activePaneBorderRect = WorkspaceContentView.tmuxPaneOverlayGeometry.preferredWindowOverlayRect(
                 exactRect: exactRect,
-                paneRect: paneRect
+                paneRect: paneRect,
+                isSplitZoomed: isSplitZoomed,
+                zoomedContainerRect: isSplitZoomed
+                    ? WorkspaceContentView.tmuxPaneOverlayGeometry.zoomedWindowOverlayRect(layoutSnapshot: layoutSnapshot)
+                    : nil
             )
         } else {
             activePaneBorderRect = nil

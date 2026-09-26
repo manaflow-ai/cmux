@@ -602,7 +602,7 @@ class OwnedPools(unittest.TestCase):
         choice = owned_choice(fleet(busy=0), live_owned={MINI: 5}, jobs=1, routed=routed)
         # 5 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(3) = 0 < 1: Blacksmith.
         self.assertEqual(choice.runner, LARGE)
-        self.assertEqual(windows[1], (NOW - dt.timedelta(minutes=pool.LIVE_WINDOW_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        self.assertEqual(windows[1], (NOW - dt.timedelta(minutes=pool.DEFAULT_JOB_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"))
         windows.clear()
         self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 6}, jobs=1, routed=routed).runner, MINI)
 
@@ -1321,22 +1321,25 @@ class QueueBehindBusyRunners(unittest.TestCase):
         snap["pools"][SMALL]["queued"] = 10
         self.assertEqual(choose(snap, queue_rounds="").runner, OLD)
 
-    def test_a_busy_fleet_queues_while_its_wait_is_under_blacksmiths(self):
+    def test_a_busy_fleet_queues_within_its_rounds_whatever_blacksmiths_wait(self):
         # Every mini busy; this run's 3 jobs would wait 9 minutes on 12vcpu, 25 on 6vcpu.
         busy = fleet(busy=11, small=21, large=6, old=4)
         self.assertEqual(owned_choice(busy, queue_rounds="0").runner, LARGE)
         choice = owned_choice(busy, queue_rounds="")
-        # 9 minutes over 11 minis of 10-minute jobs: 9 queue places.
+        # One round (10 minutes) over 11 minis of 10-minute jobs: 11 queue places.
         self.assertEqual((choice.runner, choice.owned_budget), (MINI, 3))
-        self.assertIn("0 of 11 owned machines free and 9 queue places within 9 min "
+        self.assertIn("0 of 11 owned machines free and 11 queue places within 10 min "
                       "(Blacksmith's expected wait 9 min)", choice.reason)
-        # 7 already queued leave 2 places, too few for 3 jobs.
-        fuller = fleet(busy=11, queued=7, small=21, large=6, old=4)
+        # 9 already queued leave 2 places, too few for 3 jobs.
+        fuller = fleet(busy=11, queued=9, small=21, large=6, old=4)
         self.assertEqual(owned_choice(fuller, queue_rounds="").runner, LARGE)
         split = owned_choice(fuller, queue_rounds="", split="1")
         self.assertEqual((split.runner, split.owned_budget), (MINI, 2))
-        # A free Blacksmith machine means no wait: a busy fleet takes nothing.
-        self.assertEqual(owned_choice(fleet(busy=11, large=0), queue_rounds="").runner, LARGE)
+        # Fleet first: a free Blacksmith machine does not send the run off
+        # minis that free up within the round (Blacksmith is overflow).
+        idle_blacksmith = owned_choice(fleet(busy=11, large=0), queue_rounds="")
+        self.assertEqual((idle_blacksmith.runner, idle_blacksmith.owned_budget), (MINI, 3))
+        self.assertIn("(Blacksmith's expected wait 0 min)", idle_blacksmith.reason)
         # And never more than CI_PR_POOL_QUEUE_ROUNDS job lengths, however long Blacksmith's queue.
         jammed = fleet(busy=11, queued=10, small=90, large=60, old=90)
         self.assertEqual(owned_choice(jammed, queue_rounds="").runner, LARGE)
@@ -1369,16 +1372,17 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertIn("0 of 14 root runners free", old.reason)
         self.assertNotIn("-4 of", old.reason)
         choice = owned_choice(snap, queue_rounds="", **kwargs)
-        self.assertEqual((choice.runner, choice.root_runner, choice.root_budget), (MINI, ROOT_MINI, 4))
-        # Newer runs younger than a job hold only admission and side lanes (3 of their 7).
+        self.assertEqual((choice.runner, choice.root_runner, choice.root_budget), (MINI, ROOT_MINI, 10))
+        # Newer runs younger than a job hold only admission and side lanes (3 of
+        # their 7); the bound still counts their peaks.
         young = dict(kwargs, routed=pool.Routed(owned={MINI: 7}, owned_now={MINI: 3}))
-        self.assertEqual(owned_choice(snap, queue_rounds="", **young).root_budget, 8)
-        # Root runners all busy: they queue only within Blacksmith's wait for
-        # this run's 2 jobs (8 min: 11 places over 14 root runners).
+        self.assertEqual(owned_choice(snap, queue_rounds="", **young).root_budget, 10)
+        # Root runners all busy: they queue a round (14 places over 14 root
+        # runners), whatever Blacksmith's wait (8 min for this run's 2 jobs).
         snap = fleet(busy=14, small=21, large=6, old=4)
         snap["pools"][ROOT_MINI] = {"queued": 0, "running": 14}
         busy = owned_choice(snap, machines=36, owned_slots=slots, jobs=2, root_jobs=2, queue_rounds="")
-        self.assertEqual((busy.runner, busy.root_budget), (MINI, 11))
+        self.assertEqual((busy.runner, busy.root_budget), (MINI, 14))
         self.assertEqual(owned_choice(snap, machines=36, owned_slots=slots, jobs=2, root_jobs=2,
                                       queue_rounds="0").runner, LARGE)
 
@@ -1420,45 +1424,52 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(routed.owned, {MINI: 22})
         self.assertEqual(routed.owned_now, {MINI: pool.REPLAYED_RUN_JOBS + 11})
 
-    def test_a_replayed_run_is_compared_at_the_jobs_it_has(self):
-        # 11 minis busy with 1 queued; 12vcpu full (5 running). Compared at one
-        # job, Blacksmith's wait is 1 minute: 1 queue place, none left, so the
-        # replayed run was put on 12vcpu and charged nothing on the busy minis.
-        # Compared at REPLAYED_RUN_JOBS (3 minutes, 3 places) it takes the minis.
-        snap = fleet(busy=11, queued=1, small=21, large=0, old=4)
+    def test_a_replayed_run_takes_the_busy_fleet_within_the_rounds(self):
+        # 11 minis busy with 6 queued; 12vcpu full (5 running) with a 1-minute
+        # wait. The replayed run takes the minis however it is compared with
+        # Blacksmith: 5 of the round's 11 places are left.
+        snap = fleet(busy=11, queued=6, small=21, large=0, old=4)
         snap["pools"][LARGE]["running"] = 5
         load = {label: pool.pool(snap, label, {MINI: 11}) for label in (MINI, LARGE, SMALL)}
         added = {label: 0 for label in load}
         order = [MINI, LARGE, SMALL]
-        self.assertEqual(pool.pick(load, added, order, 0, jobs=1, queue_rounds=1).label, LARGE)
+        self.assertEqual(pool.pick(load, added, order, 0, jobs=1, queue_rounds=1).label, MINI)
         self.assertEqual(pool.pick(load, added, order, 0, jobs=1, queue_rounds=1,
                                    compared_jobs=pool.REPLAYED_RUN_JOBS).label, MINI)
-        # So the replay charges the minis, and this run finds them full.
+        # So the replay charges the minis REPLAYED_RUN_JOBS, and this run's 3
+        # jobs find 2 places left.
         self.assertIn("after replaying 1 newer run", owned_choice(snap, routed=1, queue_rounds="").reason)
         self.assertEqual(owned_choice(snap, routed=1, queue_rounds="").runner, LARGE)
 
-    def test_live_busy_fleet_queues_within_blacksmiths_wait(self):
+    def test_live_busy_fleet_queues_within_its_rounds(self):
         busy = fleet(busy=0, small=21, large=6, old=4)
-        # Every runner busy, the API cannot see a queue: 9 places within 9 minutes.
+        # Every runner busy, the API cannot see a queue: a round is 11 places.
         choice = owned_choice(busy, live_owned={MINI: 0}, queue_rounds="")
         self.assertEqual((choice.runner, choice.owned_budget), (MINI, 3))
         self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="0").runner, LARGE)
-        # Runs of the live window hold 7 jobs there: 2 places left.
+        # Runs of the live window hold 7 jobs there: 4 places left, then 2.
         recent = pool.Routed(owned={MINI: 7})
+        self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="", routed=recent).runner, MINI)
+        recent = pool.Routed(owned={MINI: 9})
         self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="", routed=recent).runner, LARGE)
-        # Older runs since the snapshot may still be queued where no runner is idle.
+        # Older runs since the snapshot may still have their admission queued
+        # where no runner is idle: one job per run, never their peaks.
         windows = []
 
         def routed(since):
             windows.append(since)
-            return pool.Routed(owned={MINI: 7}) if len(windows) == 1 else pool.Routed()
+            return pool.Routed(owned={MINI: 7}, owned_runs={MINI: 7}) if len(windows) == 1 else pool.Routed()
 
-        self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="", routed=routed).runner, LARGE)
+        self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="", routed=routed).runner, MINI)
+        windows.clear()
+        self.assertEqual(owned_choice(busy, live_owned={MINI: 0}, queue_rounds="", jobs=5, routed=routed).runner,
+                         LARGE)
         # An idle runner means that label has no queue: they are running.
         windows.clear()
-        self.assertEqual(owned_choice(busy, live_owned={MINI: 1}, queue_rounds="", routed=routed).runner, MINI)
-        # No Blacksmith wait, no queue.
-        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 0}, queue_rounds="").runner, LARGE)
+        self.assertEqual(owned_choice(busy, live_owned={MINI: 1}, queue_rounds="", jobs=5, routed=routed).runner,
+                         MINI)
+        # Fleet first: a free Blacksmith machine does not beat a round's queue.
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 0}, queue_rounds="").runner, MINI)
 
     def test_forks_read_the_rounds_the_janitor_copied(self):
         snap = backlog(small=12, large=8, old=30, settings={**FORK_SETTINGS, "queue_rounds": "0"})
@@ -3092,6 +3103,128 @@ class IOSWiring(unittest.TestCase):
                         self.assertTrue(later, f"{path.name} {job_name}: {secret} is never removed")
                         checked.add(path.name)
         self.assertTrue({"ios-streamed-validate.yml", "iroh-release-gate.yml"} <= checked, checked)
+
+
+class LiveIdleRunners(unittest.TestCase):
+    """With the runners read live, idle runners decide and in-flight peaks are only the fallback."""
+
+    SLOTS = json.dumps({MINI: 40, ROOT_MINI: 19})
+
+    def test_live_roots_ignore_committed_peaks(self):
+        # The shape of run 36172350539 (2026-09-25): a full suite needing 9 root
+        # runners found all of them busy, and in-flight full suites' peaks
+        # (here 57 committed) filled the bound, so its root jobs went to Blacksmith.
+        snap = fleet(busy=40, small=0, large=0, old=0)
+        snap["pools"][MINI]["committed"] = 60
+        snap["pools"][ROOT_MINI] = {"queued": 0, "running": 19, "committed": 57}
+        kwargs = dict(machines=40, owned_slots=self.SLOTS, jobs=10, root_jobs=9, queue_rounds="2",
+                      split="1")
+        # Snapshot counts (no runners API): the committed peaks fill the bound.
+        fallback = owned_choice(snap, **kwargs)
+        self.assertEqual((fallback.runner, fallback.root_budget), (MINI, 0))
+        # Live: 0 idle, but only what runs now holds the label, so a full
+        # suite's 9 root jobs queue within the rounds instead of Blacksmith.
+        live = owned_choice(snap, live_owned={MINI: 0, ROOT_MINI: 0}, live_online={MINI: 40, ROOT_MINI: 19},
+                            **kwargs)
+        self.assertEqual((live.runner, live.root_runner, live.owned_budget), (MINI, ROOT_MINI, 10))
+        self.assertGreaterEqual(live.root_budget, 9)
+        self.assertIn("0 of 19 root runners free", live.reason)
+
+    def test_a_failed_snapshot_download_leaves_the_owned_pools_to_the_live_runners(self):
+        windows = []
+
+        def routed(since):
+            windows.append(since)
+            return pool.Routed()
+
+        def fail():
+            raise RuntimeError("artifact download failed (503)")
+
+        live = owned_choice(None, fetch=fail, live_owned={MINI: 6}, routed=routed)
+        self.assertEqual(live.runner, MINI)
+        self.assertIn("no janitor snapshot (could not read the pool snapshot (artifact download failed (503)))",
+                      live.reason)
+        # Only the live window is counted: the snapshot's window does not exist.
+        self.assertEqual(windows, [pool.iso(NOW - dt.timedelta(minutes=pool.DEFAULT_JOB_MINUTES))])
+        # Without the runners it keeps every job's default, as before.
+        self.assertEqual(owned_choice(None, fetch=fail).runner, "")
+        # A retry never reads the fleet off the live runners alone.
+        self.assertEqual(owned_choice(None, fetch=fail, live_owned={MINI: 6}, attempt=2).runner, "")
+
+    def test_a_stale_or_missing_snapshot_does_not_skip_idle_minis(self):
+        for snap in (fleet(busy=11, age=120), None, {"generated_at": pool.iso(NOW)}):
+            live = owned_choice(snap, live_owned={MINI: 5})
+            self.assertEqual(live.runner, MINI, snap)
+            self.assertIn("Blacksmith's queues are unknown", live.reason)
+            self.assertEqual(owned_choice(snap).runner, "", snap)
+        # Nothing idle and no queue known: the run queues a round on the fleet.
+        self.assertEqual(owned_choice(None, live_owned={MINI: 0}, queue_rounds="").runner, MINI)
+        # Past the round (11 machines, 11 places), overflow keeps every job's
+        # default: Blacksmith's queues are unknown, so no pool of it is picked.
+        full = owned_choice(None, live_owned={MINI: 0}, queue_rounds="", jobs=3,
+                            routed=pool.Routed(owned={MINI: 20}))
+        self.assertEqual(full.runner, "")
+        self.assertIn("no readable pool snapshot; no owned pool has room", full.reason)
+        # A stale snapshot's warm keys are kept for warm affinity.
+        stale = fleet(busy=11, age=120)
+        stale["warm"] = {"runners": {"cmux1-glaeda": {"keys": ["pr-7"]}}}
+        _, snap = pool.choose(
+            event="pull_request", repo="manaflow-ai/cmux", head_repo="manaflow-ai/cmux", default_runner=SMALL,
+            overflow="", order="", max_queued="", xcode_pins=OWNED_PINS, owned="1",
+            owned_slots=json.dumps({MINI: 11}), jobs=3, fetch=lambda: stale, now=NOW, live_owned={MINI: 4})
+        self.assertEqual((snap["source"], snap["warm"]), ("live", stale["warm"]))
+
+    def test_runs_younger_than_a_job_bound_the_queue_by_their_peaks(self):
+        # A full suite that took the minis 5 minutes ago: its admission and
+        # side lanes run (3 of the 11 busy runners), its 8 later jobs are on
+        # the way. They count toward the bound, not toward the wait.
+        routed = pool.Routed(owned={MINI: 11}, owned_now={MINI: 3}, live_now={}, live_runs={}, live_unknown=0)
+        busy = fleet(busy=0)
+        kwargs = dict(live_owned={MINI: 0}, live_online={MINI: 11}, queue_rounds="", jobs=4, routed=routed)
+        # The fake returns the run for the snapshot's window too, so its
+        # admission may still be queued (older than the live window): 11 x
+        # (1 + 1) - 11 busy - 1 queued - 8 on the way = 2 places, too few for 4.
+        self.assertEqual(owned_choice(busy, **kwargs).runner, LARGE)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, jobs=2)).runner, MINI)
+        # Without that run: a round of 11 places.
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=pool.Routed())).runner, MINI)
+        # Runs past the live window whose route is unknown are not replayed:
+        # their jobs are on the runners already.
+        unknown = pool.Routed(unknown=4, live_now={}, live_runs={}, live_unknown=0)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=unknown)).runner, MINI)
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=dataclasses.replace(unknown, live_unknown=3))).runner,
+                         LARGE)
+        # A fork run still needs the janitor's copied settings.
+        self.assertEqual(choose(None, head="someone/cmux", default="", pins={}, live_owned={MINI: 9}).runner, "")
+
+    def test_the_summary_says_the_owned_pools_were_read_live(self):
+        choice, snap = pool.choose(
+            event="pull_request", repo="manaflow-ai/cmux", head_repo="manaflow-ai/cmux", default_runner=SMALL,
+            overflow="", order="", max_queued="", xcode_pins=OWNED_PINS, owned="1",
+            owned_slots=json.dumps({MINI: 11}), jobs=3, fetch=lambda: None, now=NOW, live_owned={MINI: 4})
+        text = pool.summary(choice, snap, now=NOW, owned_slots={MINI: 11})
+        self.assertIn("No janitor snapshot: owned pools read live", text)
+        self.assertIn(f"{MINI}: 0 queued, 7 running of 11 slots", text)
+        self.assertNotIn("Queue seen by the janitor", text)
+
+    def test_routes_count_the_runs_on_each_owned_pool(self):
+        client = pool.GitHub("t", "manaflow-ai/cmux")
+        repo = {"id": 1}
+        runs = [{"id": number, "run_attempt": 1, "status": "in_progress", "event": "pull_request",
+                 "head_repository": repo, "repository": repo,
+                 "created_at": pool.iso(NOW - dt.timedelta(minutes=minutes))} for number, minutes in ((1, 1), (2, 6))]
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "run_route", return_value=(MINI, 11)):
+            routed = client.pull_request_routes_since("x", exclude_run_id=None, now=NOW)
+        self.assertEqual((routed.owned, routed.runs()), ({MINI: 22}, {MINI: 2}))
+        # Only the run younger than LIVE_WINDOW_MINUTES holds machines toward the live wait.
+        self.assertEqual((routed.live_now, routed.live_runs), ({MINI: pool.REPLAYED_RUN_JOBS}, {MINI: 1}))
+        # An unreadable route is unknown, and counted in the live window only while young.
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "run_route", return_value=None):
+            routed = client.pull_request_routes_since("x", exclude_run_id=None, now=NOW)
+        self.assertEqual((routed.unknown, routed.live_unknown), (2, 1))
+        self.assertEqual(pool.Routed(owned={MINI: 7, LIGHT: 0}).runs(), {MINI: 1})
 
 
 if __name__ == "__main__":
