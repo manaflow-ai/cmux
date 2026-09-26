@@ -268,6 +268,68 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     @MainActor
+    func testTilingModeEqualizesCurrentAndFutureSplits() throws {
+        let workspace = Workspace()
+        let firstPane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: firstPane,
+                orientation: .vertical,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        let firstSplit = try XCTUnwrap(splitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
+        let firstSplitId = try XCTUnwrap(UUID(uuidString: firstSplit.id))
+        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.8, forSplit: firstSplitId))
+
+        workspace.toggleTilingMode()
+
+        XCTAssertTrue(workspace.isTilingModeEnabled)
+        let currentPositions = splitDividerPositions(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(currentPositions.count, 1)
+        XCTAssertEqual(currentPositions[0], 0.5, accuracy: 0.0001)
+
+        let secondPane = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        _ = try XCTUnwrap(
+            workspace.splitPaneWithNewTerminal(
+                targetPane: secondPane,
+                orientation: .vertical,
+                insertFirst: false,
+                workingDirectory: nil,
+                initialInput: nil
+            )
+        )
+
+        let futurePositions = splitDividerPositions(in: workspace.bonsplitController.treeSnapshot()).sorted()
+        XCTAssertEqual(futurePositions.count, 2)
+        XCTAssertEqual(futurePositions[0], 1.0 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(futurePositions[1], 0.5, accuracy: 0.0001)
+    }
+
+    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+        }
+    }
+
+    private func splitDividerPositions(in node: ExternalTreeNode) -> [Double] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            return [split.dividerPosition]
+                + splitDividerPositions(in: split.first)
+                + splitDividerPositions(in: split.second)
+        }
+    }
+
+    @MainActor
     func testMoveFocusRoutesSpatiallyInCanvasMode() throws {
         let workspace = Workspace()
         let firstPanelId = try XCTUnwrap(workspace.orderedPanelIds.first)

@@ -49,6 +49,15 @@ public struct PaneLayoutService {
         return SplitEqualizeResult(foundSplit: plan.foundSplit, allSucceeded: allSucceeded)
     }
 
+    /// Applies the even-pane layout used by tiling mode.
+    @discardableResult
+    public func tileSplits(
+        in node: ExternalTreeNode,
+        controller: BonsplitController
+    ) -> SplitEqualizeResult {
+        equalizeSplits(in: node, controller: controller)
+    }
+
     /// Resizes the pane's controlling divider by `amountPixels` in
     /// `direction`, applying the planned clamped position to `controller`.
     /// Returns whether a divider was found and the move was accepted.

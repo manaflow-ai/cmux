@@ -4,6 +4,39 @@ import CmuxSettings
 import Foundation
 
 extension Workspace {
+    /// Changes whether split creation automatically keeps pane sizes even.
+    func setTilingMode(_ enabled: Bool) {
+        guard enabled != isTilingModeEnabled else { return }
+        isTilingModeEnabled = enabled
+        if enabled {
+            _ = applyTilingMode()
+        }
+    }
+
+    /// Toggles automatic equal sizing for this workspace's split tree.
+    func toggleTilingMode() {
+        setTilingMode(!isTilingModeEnabled)
+    }
+
+    /// Applies the current tiling policy to every split in the workspace.
+    @discardableResult
+    func applyTilingMode() -> Bool {
+        let result = PaneLayoutService().tileSplits(
+            in: bonsplitController.treeSnapshot(),
+            controller: bonsplitController
+        )
+        if result.foundSplit {
+            didProgrammaticallyChangeSplitGeometry()
+        }
+        return result.didFullyEqualize
+    }
+
+    /// Rebalances the tree after a split when tiling mode is enabled.
+    func applyTilingModeIfNeeded() {
+        guard isTilingModeEnabled else { return }
+        _ = applyTilingMode()
+    }
+
     func didProgrammaticallyChangeSplitGeometry() {
         splitTabBar(bonsplitController, didChangeGeometry: bonsplitController.layoutSnapshot())
     }

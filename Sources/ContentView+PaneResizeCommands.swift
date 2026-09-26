@@ -9,6 +9,15 @@ extension ContentView {
         var contributions: [CommandPaletteCommandContribution] = []
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleTilingMode",
+                title: { _ in String(localized: "command.toggleTilingMode.title", defaultValue: "Toggle Tiling Mode") },
+                subtitle: subtitle,
+                keywords: ["split", "pane", "tile", "tiling", "equal", "layout"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
                 title: { _ in String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits") },
                 subtitle: subtitle,
