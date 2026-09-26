@@ -3622,11 +3622,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func finishPreparingStartupSessionSnapshot() {
-        installSessionSnapshotOverwriteGuardIfNeeded()
+        // Decode the primary once: the archive, the `-previous` sync, and the
+        // restore below all read it, and none of them rewrites it.
+        let primaryOutcome = sessionSnapshotStore.defaultSnapshotFileURL().map {
+            sessionSnapshotStore.loadOutcome(fileURL: $0)
+        }
+        installSessionSnapshotOverwriteGuardIfNeeded(primaryOutcome: primaryOutcome)
         syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-            preserveExistingBackup: previousSessionLaunchWasUnclean
+            preserveExistingBackup: previousSessionLaunchWasUnclean,
+            primaryOutcome: primaryOutcome
         )
-        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
+            primaryOutcome: primaryOutcome
+        )
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
@@ -3635,11 +3643,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Archives the on-disk snapshot and installs the overwrite guard once per
     /// process, before the first `-previous` sync or primary write. Skipped
     /// under XCTest so tests never archive into real Application Support.
-    func installSessionSnapshotOverwriteGuardIfNeeded() {
+    func installSessionSnapshotOverwriteGuardIfNeeded(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) {
         guard sessionSnapshotOverwriteGuard == nil,
               !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
               !isRunningUnderXCTestCached else { return }
-        archiveSessionSnapshotAndInstallOverwriteGuard()
+        archiveSessionSnapshotAndInstallOverwriteGuard(primaryOutcome: primaryOutcome)
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3652,9 +3662,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
-    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) -> AppSessionSnapshot? {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
             if let prunedSnapshot = SessionPersistencePolicy
                 .pruningCmuxCrashDiagnosticWindows(from: snapshot)

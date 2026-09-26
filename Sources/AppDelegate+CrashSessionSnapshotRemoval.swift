@@ -18,13 +18,14 @@ extension AppDelegate {
     /// yet represent a partially completed restore; keeping the prior copy gives
     /// the user a rollback path and avoids destroying the only intact snapshot.
     func syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-        preserveExistingBackup: Bool = false
+        preserveExistingBackup: Bool = false,
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
     ) {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
               let backupURL = sessionSnapshotStore.manualRestoreSnapshotFileURL() else {
             return
         }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
             Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
             guard let prunedSnapshot = SessionPersistencePolicy
@@ -53,14 +54,20 @@ extension AppDelegate {
     /// before the manual-restore sync and before any save, so every launch's
     /// starting layout is kept even if this launch restores nothing and is
     /// relaunched again right away.
-    func archiveSessionSnapshotAndInstallOverwriteGuard(now: Date = Date()) {
+    func archiveSessionSnapshotAndInstallOverwriteGuard(
+        now: Date = Date(),
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) {
         var baseline = SessionSnapshotRichness.empty
+        let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL()
         let candidates = [
-            sessionSnapshotStore.defaultSnapshotFileURL(),
+            primaryURL,
             sessionSnapshotStore.manualRestoreSnapshotFileURL(),
         ].compactMap { $0 }
         for fileURL in candidates {
-            guard case .loaded(let snapshot) = sessionSnapshotStore.loadOutcome(fileURL: fileURL) else { continue }
+            let outcome = (fileURL == primaryURL ? primaryOutcome : nil)
+                ?? sessionSnapshotStore.loadOutcome(fileURL: fileURL)
+            guard case .loaded(let snapshot) = outcome else { continue }
             baseline = snapshot.richness
             sessionSnapshotStore.archiveSnapshotToHistory(
                 fileURL: fileURL,
