@@ -40,8 +40,8 @@ variable, so MACOS_RUNNER_IOS keeps meaning what it meant.
 
 Queue rounds. The pool rule is pull request CI's with its
 vars.CI_PR_POOL_QUEUE_ROUNDS (`--queue-rounds`): an owned pool takes the run
-while its jobs start there within that many job lengths and no later than on
-the best Blacksmith pool, and the queue stays within machines x (1 + rounds)
+while its jobs start there within that many job lengths, whatever
+Blacksmith's wait, and the queue stays within machines x (1 + rounds)
 (pr_runner_pool.owned_room()). Without the rounds the picker used the kill
 switch rule, which counts every in-flight run's whole future peak (the
 janitor's `committed`) as taken now: on 2026-09-25 (run 36136190497) that read
