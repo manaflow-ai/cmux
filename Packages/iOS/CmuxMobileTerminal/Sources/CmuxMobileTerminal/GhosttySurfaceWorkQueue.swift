@@ -92,21 +92,10 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         enqueue(work, priority: true)
     }
 
-    /// Enqueue a surface's teardown, even when the queue is full. A refused
-    /// teardown leaks the surface. Each surface is torn down once, so this
-    /// admits at most one item per surface past the limit.
-    func asyncTeardown(_ work: @escaping @Sendable () -> Void) {
-        _ = enqueue(work, priority: false, admitsOverLimit: true)
-    }
-
-    private func enqueue(
-        _ work: @escaping @Sendable () -> Void,
-        priority: Bool,
-        admitsOverLimit: Bool = false
-    ) -> Bool {
+    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) -> Bool {
         pendingLock.lock()
         let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
-        if !admitsOverLimit, pendingCount >= Self.maximumPendingOperations {
+        if pendingCount >= Self.maximumPendingOperations {
             pendingLock.unlock()
             return false
         }
