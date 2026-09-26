@@ -12,9 +12,11 @@ import Testing
 struct DefaultsValueModelStoredPresenceTests {
     @Test func setMarksTheValueStoredBeforeTheWriteLands() async {
         let suiteName = "defaults-value-model-stored-presence-\(UUID().uuidString)"
+        // The store takes its own instance; this one inspects and cleans up
+        // the same suite without sharing a non-Sendable object with the actor.
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
         let key = SettingCatalog().sidebar.showPorts
         let model = DefaultsValueModel(store: store, key: key)
 
@@ -39,7 +41,7 @@ struct DefaultsValueModelStoredPresenceTests {
         let key = SettingCatalog().sidebar.showLog
         defaults.set(false, forKey: key.userDefaultsKey)
 
-        let model = DefaultsValueModel(store: UserDefaultsSettingsStore(defaults: defaults), key: key)
+        let model = DefaultsValueModel(store: UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!), key: key)
 
         #expect(model.hasStoredValue == true)
         #expect(model.current == false)
