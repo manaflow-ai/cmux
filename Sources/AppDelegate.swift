@@ -1271,6 +1271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         qos: .utility
     )
     private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
+    /// Holds back primary snapshot writes from a launch that restored less
+    /// than it started from; installed by startup snapshot preparation or the
+    /// first save, whichever comes first.
+    var sessionSnapshotOverwriteGuard: SessionSnapshotOverwriteGuard?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -3625,13 +3629,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func finishPreparingStartupSessionSnapshot() {
+        // Decode the primary once: the archive, the `-previous` sync, and the
+        // restore below all read it, and none of them rewrites it.
+        let primaryOutcome = sessionSnapshotStore.defaultSnapshotFileURL().map {
+            sessionSnapshotStore.loadOutcome(fileURL: $0)
+        }
+        installSessionSnapshotOverwriteGuardIfNeeded(primaryOutcome: primaryOutcome)
         syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-            preserveExistingBackup: previousSessionLaunchWasUnclean
+            preserveExistingBackup: previousSessionLaunchWasUnclean,
+            primaryOutcome: primaryOutcome
         )
-        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
+            primaryOutcome: primaryOutcome
+        )
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    /// Archives the on-disk snapshot and installs the overwrite guard once per
+    /// process, before the first `-previous` sync or primary write. Skipped
+    /// under XCTest so tests never archive into real Application Support.
+    func installSessionSnapshotOverwriteGuardIfNeeded(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) {
+        guard sessionSnapshotOverwriteGuard == nil,
+              !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
+              !isRunningUnderXCTestCached else { return }
+        archiveSessionSnapshotAndInstallOverwriteGuard(
+            primaryOutcome: primaryOutcome,
+            recoversMissingPrimary: Self.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: previousSessionLaunchWasUnclean,
+                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker()
+            )
+        )
     }
 
     private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
@@ -3644,9 +3675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
-    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics(
+        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
+    ) -> AppSessionSnapshot? {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
             if let prunedSnapshot = SessionPersistencePolicy
                 .pruningCmuxCrashDiagnosticWindows(from: snapshot)
@@ -5055,6 +5088,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         synchronously: Bool,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        installSessionSnapshotOverwriteGuardIfNeeded()
+        let snapshot = snapshotAllowedByOverwriteGuard(snapshot)
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         // Persistence can outlive its main-actor owner; retain only the Sendable
