@@ -14,7 +14,7 @@ checked as a workflow_run event's run would be.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
-(`macos-pool-persistent-<run id>-<attempt>-<jobs>-<pool>`, the jobs and pool
+(`macos-pool-persistent-<run id>-<attempt>-<jobs>p<placed>-<pool>`, the counts and pool
 for the janitor's count); no marker means the run is on an
 ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
@@ -173,7 +173,7 @@ and the picker keeps that queue within machines x (1 + rounds) by every
 run's peak. So any owned job of a CI run may wait up to about that long, and
 its budget is the pool's expected wait plus a margin:
 CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round
-(queue_seconds(), 930 seconds by default), under the watch limit so a stuck
+(queue_seconds(), 900 seconds by default, so 990 in all), under the watch limit so a stuck
 job is still moved. With the rounds at 0 the picker takes an owned pool
 only with machines free now, and the budget is the configured one. A
 test-ios.yml or test-e2e.yml run's picker queues by the same rounds, so it
@@ -530,12 +530,18 @@ class GitHub:
         return self.request("GET", f"/pulls/{number}")
 
     def newer_unfinished_runs(self, path: str, run_id: int, branch: str) -> list[int]:
-        """Ids of `path`'s runs on `branch` newer than `run_id` that have not finished (one request)."""
+        """Ids of `path`'s push runs on `branch` newer than `run_id` that have not finished (one request).
+
+        Push runs only: those build the app. A schedule run may be the
+        six-hourly cache seed, and a dispatch a seed-only or fast one, which
+        build no app, and the API does not tell them apart, so none of them
+        counts as replacing this run's build.
+        """
         workflow = path.rsplit("/", 1)[-1]
         data = self.request("GET", f"/actions/workflows/{workflow}/runs?branch={branch}&per_page=20")
         return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
-                      and run.get("status") != "completed")
+                      and run.get("status") != "completed" and run.get("event") == "push")
 
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
@@ -753,7 +759,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
                 owned = [job for job in jobs if job_pool(job)]
-                if target.attempt > 1 and owned and all(accepted(job, seen_at) for job in owned):
+                # A full re-run's shards exist only after its admission, so
+                # its watch goes on until the run finishes.
+                if (target.attempt > 1 and not target.full_rerun and owned
+                        and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
                 if target.side and owned and all(accepted(job, seen_at) for job in owned):
@@ -822,7 +831,7 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
-           deadline: dt.datetime | None = None, refused: bool | None = None) -> str:
+           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
@@ -830,16 +839,20 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     `refused` (default `failed_only`) is whether a run that already finished
     may be re-run: an E2E run stuck in the queue that then finished was
     likely cancelled by a newer dispatch, which re-running it would cancel.
+    `refusal` is whether the fleet refused a job (not merely left it queued).
     """
     # Main's run is re-run after a refusal whether or not main moved: the
     # refusal is the fleet's, and a red run would open main's red-CI issue.
-    keep_main = target.main and failed_only
+    # A stuck later attempt re-runs its failed jobs too, but is no refusal.
+    keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved and (target.main or target.nightly):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
         # the new HEAD.
         run = read(lambda: api.run(target.run_id), sleep, log)
+        if int(run.get("run_attempt") or 0) != target.attempt:
+            return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             return f"not rescued: {moved}"
         api.cancel(target.run_id)
@@ -1019,7 +1032,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         failed_only = outcome == "refused" or target.attempt > 1 or target.e2e or target.side
         result = rescue(client, target, now=clock, sleep=rescue_sleep, log=log, failed_only=failed_only,
                         deadline=rescue_deadline,
-                        refused=(outcome == "refused") if target.e2e or target.side else None)
+                        refused=(outcome == "refused") if target.e2e or target.side else None,
+                        refusal=outcome == "refused")
         log(result)
         # A side lane's re-run never takes an owned label, so there is nothing more to watch.
         if target.side or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
