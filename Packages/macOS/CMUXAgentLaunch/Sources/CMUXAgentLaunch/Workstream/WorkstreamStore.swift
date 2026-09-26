@@ -42,7 +42,7 @@ public final class WorkstreamStore {
     private let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
     let workstreamIDNormalizer: @Sendable (String, String) -> String
-    private var oldestLoadedPersistenceOffset: UInt64?
+    private var oldestLoadedPersistenceCursor: WorkstreamPersistence.Cursor?
 
     /// Last known conversational context for each workstream. Tool hooks
     /// usually arrive without the surrounding user prompt, so the store
@@ -90,7 +90,7 @@ public final class WorkstreamStore {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
                 items = page.items.map(normalizedWorkstreamItem)
                 hasMorePersistedItems = page.hasMoreBefore
-                oldestLoadedPersistenceOffset = page.startOffset
+                oldestLoadedPersistenceCursor = page.startCursor
                 rebuildContextIndex()
             }
         }
@@ -109,7 +109,7 @@ public final class WorkstreamStore {
 
     public func loadOlderItems() async {
         guard !isLoadingOlderItems, hasMorePersistedItems else { return }
-        guard let persistence, let oldestLoadedPersistenceOffset else {
+        guard let persistence, let oldestLoadedPersistenceCursor else {
             hasMorePersistedItems = false
             return
         }
@@ -118,7 +118,7 @@ public final class WorkstreamStore {
         defer { isLoadingOlderItems = false }
 
         guard let page = try? await persistence.loadPage(
-            endingBefore: oldestLoadedPersistenceOffset,
+            endingBefore: oldestLoadedPersistenceCursor,
             limit: historyPageSize
         ), !page.items.isEmpty else {
             hasMorePersistedItems = false
@@ -132,7 +132,7 @@ public final class WorkstreamStore {
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
         }
-        self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
+        self.oldestLoadedPersistenceCursor = page.startCursor ?? oldestLoadedPersistenceCursor
         hasMorePersistedItems = page.hasMoreBefore
         rebuildContextIndex()
     }
