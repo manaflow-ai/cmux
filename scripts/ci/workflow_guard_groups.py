@@ -87,6 +87,8 @@ PATH_OWNERS = {
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
     "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+    # test_ci_package_bisect.py loads it by path.
+    "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
     # these by path; the receipt test also reads its workflow and fixtures.
     "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
@@ -94,6 +96,22 @@ PATH_OWNERS = {
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
+    # test_ci_catch_up_pr.py runs the catch-up script, which runs these three
+    # resolvers, and reads the workflow that calls it. The workflow also
+    # answers to the preflight runner guard (test_ci_self_hosted_guard.sh).
+    "scripts/ci/catch_up_pr.py": frozenset(("ci",)),
+    ".github/workflows/pr-catch-up.yml": frozenset(("preflight", "ci")),
+    "scripts/merge-xcstrings.py": frozenset(("ci",)),
+    "scripts/normalize-pbxproj.py": frozenset(("ci",)),
+    "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_ci_merge_main.py runs merge-main end to end: the green-base
+    # selection, the catch-up merge above, and the guard runner it reruns
+    # failed steps with (test_ci_run_guards.py also imports the runner).
+    "scripts/merge-main.sh": frozenset(("ci",)),
+    "scripts/ci/merge_main.py": frozenset(("ci",)),
+    "scripts/ci/last_green_base.py": frozenset(("ci",)),
+    "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
@@ -124,6 +142,8 @@ PATH_OWNERS = {
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
     "scripts/ci/select_package_tests.py": frozenset(("ci",)),
+    # test_ci_delta_since_green.py imports it; ci.yml runs the base copy.
+    "scripts/ci/delta_since_green.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),

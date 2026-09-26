@@ -79,14 +79,17 @@ on its root runners. With the rounds at 0 every run counts its whole peak
 against the machines, as before (owned_free()). An owned pool is
 skipped when it has no slot count, and like every pool when the snapshot is
 older than MAX_SNAPSHOT_MINUTES. With the org route App's token, the runners
-API gives the idle runners carrying each label, and every other runner
-counts as busy (live_pools()); a label with no idle runner is charged the
+API (this repository's and the org's glaeda-minis group, GitHub.runners())
+gives the online runners carrying each label, its capacity, and the
+idle ones among them; every other online runner counts as busy
+(live_pools()); a label with no idle runner is charged the
 snapshot's queue and the runs since it, since the API shows no queue.
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
 job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 (QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
-run to Blacksmith (owned_pool_rescue.py). An offline machine still counts
-as a slot; what that gets wrong, ci-owned-pool-rescue.yml catches: a run whose
+run to Blacksmith (owned_pool_rescue.py). Without the runners API an
+offline machine still counts toward capacity; what that gets wrong,
+ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
 `retry_runner`, the Blacksmith pool every macOS job takes from attempt 2 on. The owned order is `std` (48 GB minis),
@@ -115,15 +118,18 @@ than the consumer's, so a drift fails closed instead of crashing in dlopen.
 With the split off, a run takes an owned pool only when all its
 owned-eligible jobs fit.
 
-Root jobs: glaeda gives compile admission, the app-host shards,
-tests-build-and-lag and cli-product-tests (and any job it does not know) the
-mini's one canonical-root token, and refuses such a job on a mini whose token
-is taken. GitHub hands a pool-label job to any free runner, so a root job on
-the pool label could land on a mini whose root was busy and cost a rescue
-re-run. glaeda also labels one runner per mini
-`glaeda-root-<class>-xcode-<version>` (root_label()), and a root job on that
-label waits for a free root instead. CI_OWNED_POOL_SLOTS gives the root
-runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
+Root jobs: compile admission, the app-host shards, tests-build-and-lag and
+cli-product-tests (and any job glaeda does not know) each hold one of a
+mini's canonical roots. A class has `canonicalRoots` of them per mini (two on
+a std mini, root-1 and root-2), and a compile takes any free root. The first
+`canonicalRoots` runners of each mini are its root runners and carry
+`glaeda-root-<class>-xcode-<version>` (root_label()); the others are its side
+runners. GitHub hands a pool-label job to any free runner, so a root job on
+the pool label could land on a mini whose roots were all taken and cost a
+rescue re-run; on the root label it waits for a free root runner instead.
+Two compiles can still share one mini's roots (see "Spread-first admission"
+below). CI_OWNED_POOL_SLOTS gives the root runners' count beside the pool's
+(`{"std": 40, "root-std": 20}`). A pool with
 a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
 output, and place() puts no more of them there than its root runners have
 room for, by the same expected wait; a
@@ -141,17 +147,36 @@ mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
 mini's only compile. A pool without a root count keeps the pool label.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
-(owned_build_state.py), and ci-owned-warm-labels.yml labels its root runner
-`glaeda-warm-<sha12>` for each main commit that build starts from cheaply
-(owned_warm_labels.py). When admission is placed on a pool with a root count
-and the runners were read live, the picker looks for an idle root runner of
-that pool carrying the label of this run's merge base (MERGED_ONTO, the merge
-commit's first parent) and, if one does, writes `admission_runner`, the JSON
-array `["<root label>", "glaeda-warm-<sha12>"]`, which admission's attempt 1
-takes as its runs-on. Otherwise it is empty and admission takes the root
-label. The match is exact: v1 does not rank runners by commit distance. A
-warm runner taken between the pick and the queue leaves admission waiting on
-the label, and ci-owned-pool-rescue.yml moves it to Blacksmith.
+(owned_build_state.py), and the queue janitor's snapshot carries `warm`: for
+each root runner, the main commits its kept build starts from cheaply
+(owned_warm_state.py, from the `owned-warm-keys` artifact admission uploads).
+When `vars.CI_OWNED_WARM == '1'`, admission is placed on a pool with a root
+count and the runners were read live, the picker looks for an idle runner of
+that root label that the snapshot calls warm for this run's merge base
+(MERGED_ONTO, the merge commit's first parent), or failing that for this
+pull request (`pr-<PR_NUMBER>`, a re-push), and that carries its own
+static label, `glaeda-runner-<runner name>` (glaeda-cmux-runner gives every
+root runner one at install). If one does, it writes `admission_runner`, the
+JSON array `["<root label>", "glaeda-runner-<name>"]`, which admission's
+attempt 1 takes as its runs-on. Otherwise it is empty and admission takes the
+root label. Nothing writes a runner label at job time, so the routing App
+needs only "Self-hosted runners: Read-only". The match is exact: v1 does not
+rank runners by commit distance. A warm runner taken between the pick and
+the queue leaves admission waiting on its label, and
+ci-owned-pool-rescue.yml moves it to Blacksmith.
+
+Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
+std mini has two root runners and a compile takes either free root, so two
+compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
+mini's root runners sit idle. This picker only names the warm runners, by
+tier (`admission_warm`, warm_tiers(): the merge base's, then the pull
+request's); ci-macos.yml's admission-placement job, which admission waits
+for, re-reads the runners just before admission queues and pins it to an
+idle root runner on a mini none of whose root runners is busy
+(spread_admission_runner(), admission_placement.py), preferring a warm mini.
+With no such mini it takes an idle warm runner, then the root label. Picking
+there instead of here keeps other runs' late placement from taking the pinned
+runner between the pick and the queue.
 
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
@@ -189,8 +214,7 @@ owned Mac lands on Blacksmith for the same reason. One exception, off unless
 `vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
 a `light` owned pool, the next fleet tier, when its whole owned peak is free
 there by the same rule as attempt 1, and only when github-actions[bot]
-started it (GITHUB_TRIGGERING_ACTOR, the same gate as ci.yml's runs-on for
-pr_refused_retry_runner). That attempt is the full re-run the
+started it (GITHUB_TRIGGERING_ACTOR). That attempt is the full re-run the
 rescue starts for a job stuck queued on `std`, which picks again; the rescue
 watches it, and a job stuck or refused there goes to Blacksmith on attempt
 3. The order is std, then light, then Blacksmith. The `persistent` output
@@ -225,6 +249,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import hashlib
 import io
 import json
 import os
@@ -234,7 +259,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
 DEFAULT_RUNNER = "blacksmith-6vcpu-macos-26"
@@ -252,8 +277,9 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
-# `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
-# `glaeda-side-...` are the other runners: the light side-lane workflows take it
+# `glaeda-root-...` are each mini's root runners, the `canonicalRoots` runners
+# (two on a std mini) that may take a root job (ROOT_JOBS).
+# `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
 OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
@@ -265,9 +291,15 @@ SIDE_PREFIX = "glaeda-side-"
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
-# `glaeda-warm-<sha12>`: a root runner whose kept build starts from that main commit.
-WARM_PREFIX = "glaeda-warm-"
-WARM_KEY = re.compile(r"[0-9a-f]{12}")
+# A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
+# `pr-<number>` for a kept build of that pull request.
+WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
+# `glaeda-runner-<runner name>`: the static label naming one root runner
+# (glaeda-cmux-runner runner_label()), which warm affinity puts in runs-on.
+RUNNER_LABEL_PREFIX = "glaeda-runner-"
+# A glaeda runner's name: `<member>-glaeda` or `<member>-glaeda-<K>`, where
+# the member is the mini it runs on (runner_member()).
+GLAEDA_RUNNER_NAME = re.compile(r"(?P<member>.+)-glaeda(?:-[0-9]+)?")
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -279,10 +311,11 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# ci.yml sends attempt 2's owned-eligible jobs to pr_refused_retry_runner (the
-# light label on a light pick) only when this actor started it: the rescue's
-# re-run. A human re-run sends them to pr_retry_runner, so the picker must not
-# take light (or publish its marker) for one.
+# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
+# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
+# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
+# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
+# a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
 RESCUE_ACTOR = "github-actions[bot]"
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
@@ -379,6 +412,8 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
+# The org runner group holding the glaeda minis (glaeda#1222 moved them there).
+RUNNER_GROUP = "glaeda-minis"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -937,33 +972,169 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
     return free
 
 
-def warm_label(commit: str | None) -> str:
-    """The warm label for a commit (its first 12 hex digits), or "" for anything else."""
-    key = (commit or "").strip().lower()[:12]
-    return WARM_PREFIX + key if WARM_KEY.fullmatch(key) else ""
+def warm_key(commit: str | None) -> str:
+    """A commit's warm key (its first 12 hex digits), a `pr-<n>` key as is, or "" for anything else."""
+    key = (commit or "").strip().lower()
+    key = key if key.startswith("pr-") else key[:12]
+    return key if WARM_KEY.fullmatch(key) else ""
 
 
-def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None) -> str:
-    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else ""."""
-    warm = warm_label(merged_onto)
-    if not warm or not root.startswith(ROOT_PREFIX):
-        return ""
-    for runner in runners:
-        if runner.get("status") != "online" or runner.get("busy"):
+def pr_warm_key(number: str | None) -> str:
+    """The warm key of pull request NUMBER, or ""."""
+    return warm_key(f"pr-{(number or '').strip()}")
+
+
+def runner_label(name: str) -> str:
+    """The static label only runner `name` carries: glaeda-cmux-runner's runner_label()."""
+    return RUNNER_LABEL_PREFIX + re.sub(r"[^a-z0-9._-]+", "-", name.lower())
+
+
+def warm_tiers(merged_onto: str | None, warm: Any, pr_number: str | None = None) -> list[list[str]]:
+    """The runners the snapshot's `warm` (owned_warm_state.py) calls warm for this run, best first.
+
+    One tier per key, in warm affinity's order: those whose keys hold
+    `merged_onto`'s key, then those holding this pull request's `pr-<n>` (a
+    re-push starts from the previous push's build). A runner is listed once,
+    in its best tier; empty tiers are dropped.
+    """
+    kept = warm.get("runners") if isinstance(warm, Mapping) else None
+    if not isinstance(kept, Mapping):
+        return []
+    tiers: list[list[str]] = []
+    seen: set[str] = set()
+    for key in (warm_key(merged_onto), pr_warm_key(pr_number)):
+        if not key:
             continue
-        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
-        if root in names and warm in names:
-            return json.dumps([root, warm], separators=(",", ":"))
+        tier = sorted(str(name) for name, entry in kept.items()
+                      if isinstance(entry, Mapping) and key in (entry.get("keys") or []) and str(name) not in seen)
+        seen.update(tier)
+        if tier:
+            tiers.append(tier)
+    return tiers
+
+
+def runner_labels(runner: Mapping[str, Any]) -> set[str]:
+    return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+
+
+def pinned_admission(root: str, name: str) -> str:
+    """Admission's runs-on labels as JSON: `root` and the static label only runner `name` carries."""
+    return json.dumps([root, runner_label(name)], separators=(",", ":"))
+
+
+def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, tiers: Sequence[Collection[str]]) -> str:
+    """The first online, idle `root` runner of the best tier (warm_tiers()) with its own runner_label(), or ""."""
+    if not root.startswith(ROOT_PREFIX):
+        return ""
+    for tier in tiers:
+        for runner in runners:
+            if runner.get("status") != "online" or runner.get("busy"):
+                continue
+            name = str(runner.get("name") or "")
+            names = runner_labels(runner)
+            if name and name in tier and root in names and runner_label(name) in names:
+                return name
     return ""
 
 
+def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
+                          warm: Any, pr_number: str | None = None) -> str:
+    """Admission's runs-on labels as JSON when an idle `root` runner is warm for this run, else "".
+
+    Warm for this run: its keys hold `merged_onto`'s key, or else this pull
+    request's `pr-<n>` key (a re-push starts from the previous push's build).
+    `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
+    carry its own runner_label(), or a job naming it would wait forever.
+    """
+    name = idle_warm_runner(runners, root, warm_tiers(merged_onto, warm, pr_number))
+    return pinned_admission(root, name) if name else ""
+
+
+def runner_member(name: str) -> str:
+    """The mini a glaeda runner runs on: its name less `-glaeda` or `-glaeda-<K>`, or "" for another name."""
+    match = GLAEDA_RUNNER_NAME.fullmatch(name or "")
+    return match.group("member") if match else ""
+
+
+def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str,
+                            tiers: Sequence[Collection[str]] = (), *, seed: str = "") -> tuple[str, bool]:
+    """Admission's runs-on labels as JSON for an idle `root` runner on a mini running no `root` job.
+
+    A std mini has two root runners, and a compile takes either free root, so
+    two compiles (8 to 10 of the mini's 14 cores each) can share a mini while
+    another mini's root runners sit idle. This picks an empty mini, one none
+    of whose online `root` runners is busy, then an idle root runner on it
+    that carries its own runner_label().
+
+    Warmth is the mini's: a runner's warm keys cover every root of its mini
+    (owned_build_state.py warm-keys), and glaeda's job-started hook gives an
+    admission the free root whose stamp is warm for it, whichever root runner
+    took the job. So an empty mini with any root runner in the best tier of
+    `tiers` (warm_tiers()) comes first, then the next tier's, then any; that
+    runner itself when it is idle, else another idle root runner there.
+    Among the candidate minis `seed` (the run ID) picks, so runs picking at
+    once land on different minis and a mini with more root runners is not
+    favored. Returns the labels ("" when no mini is empty) and whether the
+    mini is warm.
+    """
+    if not root.startswith(ROOT_PREFIX):
+        return "", False
+    busy: set[str] = set()
+    idle: dict[str, list[str]] = {}
+    listed: dict[str, set[str]] = {}
+    for runner in runners:
+        name = str(runner.get("name") or "")
+        member = runner_member(name)
+        names = runner_labels(runner)
+        if not member or root not in names:
+            continue
+        listed.setdefault(member, set()).add(name)
+        if runner.get("status") != "online":
+            continue
+        if runner.get("busy"):
+            busy.add(member)
+        elif runner_label(name) in names:
+            idle.setdefault(member, []).append(name)
+    empty = {member: sorted(names) for member, names in idle.items() if member not in busy}
+    if not empty:
+        return "", False
+    tier: Collection[str] = ()
+    members: list[str] = []
+    for tier in tiers:
+        members = sorted(member for member in empty if listed[member] & set(tier))
+        if members:
+            break
+    warm = bool(members)
+    members = members or sorted(empty)
+    member = members[int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(members) if seed else 0]
+    name = next((name for name in empty[member] if warm and name in tier), empty[member][0])
+    return pinned_admission(root, name), warm
+
+
+def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> dict[str, int]:
+    """Runners online and carrying each owned label, busy or idle: its live capacity."""
+    online = {label: 0 for label in labels}
+    for runner in runners:
+        if runner.get("status") != "online":
+            continue
+        names = runner_labels(runner)
+        for label in labels:
+            if label in names:
+                online[label] += 1
+    return online
+
+
 def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts: Mapping[str, int],
-               older: Mapping[str, int]) -> tuple[Mapping[str, Any], dict[str, int]]:
+               older: Mapping[str, int], online: Mapping[str, int] | None = None,
+               ) -> tuple[Mapping[str, Any], dict[str, int]]:
     """The snapshot with each owned label's counts read live, and the owned capacities.
 
-    A label's capacity is its slot count (CI_OWNED_POOL_SLOTS), or its idle
-    runners when those are more (a label without a count). What is not idle
-    is running, an offline machine included. The runners API shows no queue:
+    A label's capacity is its online runners (`online`, live_online()): the
+    hand-set CI_OWNED_POOL_SLOTS drifts from what is registered, and an
+    offline runner takes no job. Without `online` it is the variable's count,
+    or the idle runners when those are more (a label without a count), and
+    an offline machine counts as running. What is not idle is running. The
+    runners API shows no queue:
     a label with an idle runner has none, and one without counts the
     snapshot's queue plus the peaks of the runs that took the pool since the
     snapshot and before the live window (`older`), which errs high.
@@ -980,7 +1151,10 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         if label.startswith(ROOT_PREFIX) and label not in slot_counts:
             continue
         free = max(0, int(count))
-        capacity[label] = max(int(slot_counts.get(label) or 0), free)
+        if online is not None and label in online:
+            capacity[label] = max(int(online[label]), free)
+        else:
+            capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
         older_peaks = older.get(pool_label(label), 0)
         queued = 0 if free else int(seen.get("queued") or 0) + older_peaks
@@ -1103,7 +1277,8 @@ def decide(
 
     `routed_since` runs were created after the snapshot and each already took
     a pool by this rule; they are replayed first. `placed` counts runs created
-    since the snapshot whose pool is already known (an E2E run names it), one
+    since the snapshot whose pool is already known (an E2E run naming a
+    Blacksmith pool; e2e_runner_pool passes owned ones as `owned_since`), one
     job each. `auto_xcode` (a fork run, which has no pins) lets every pool
     fall back to each job selecting its pool's newest SDK 26 Xcode.
     `choose_from` limits the final pick to some pools of the order (E2E stays
@@ -1303,6 +1478,7 @@ def choose(
     now: dt.datetime,
     run_attempt: int = 1,
     live_owned: Mapping[str, int] | None = None,
+    live_online: Mapping[str, int] | None = None,
     shards: int = 0,
     queue_rounds: str | None = None,
     ref: str = "",
@@ -1410,7 +1586,7 @@ def choose(
         # are running (so busy below) or still queued, which the runners API
         # cannot show.
         older = {label: max(0, count - recent.owned.get(label, 0)) for label, count in before.owned.items()}
-        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older)
+        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online)
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
@@ -1516,7 +1692,12 @@ class GitHub:
         }
 
     def get(self, path: str) -> Any:
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", headers=self.headers)
+        """GET a path under this repository."""
+        return self.get_api(f"/repos/{self.repo}{path}")
+
+    def get_api(self, path: str) -> Any:
+        """GET any API path (an org endpoint, for one)."""
+        request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         with urllib.request.urlopen(request, timeout=15) as response:
             return json.loads(response.read())
 
@@ -1610,10 +1791,36 @@ class GitHub:
         return None
 
     def runners(self) -> list[Mapping[str, Any]]:
-        """This repository's self-hosted runners (needs administration:read)."""
+        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
+
+        The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
+        the repository endpoint does not list. Listing that group needs the
+        App's organization permission "Self-hosted runners: read" (ci.yml
+        mints the token with it). Raises when the group cannot be read, so
+        each caller falls back to the snapshot instead of counting every
+        mini as busy.
+        """
+        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        owner, _, name = self.repo.partition("/")
+        try:
+            groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
+                                  f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            group = next((group for group in groups
+                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP
+                          and isinstance(group.get("id"), int)), None)
+            if group is None:
+                raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
+            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
+                               "App needs the organization permission Self-hosted runners: read") from error
+        found.update((runner.get("id"), runner) for runner in org)
+        return list(found.values())
+
+    def _runner_pages(self, path: str) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
         for page in range(1, 6):
-            batch = self.get(f"/actions/runners?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+            batch = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
             if len(batch) < PAGE_SIZE:
                 break
@@ -1712,7 +1919,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # The org App's token (ci.yml mints it for same-repository pull requests
     # only) reads which owned runners are idle now. Without it, or on any
     # error, the slot counts and the snapshot decide as before.
-    live_owned = None
+    live_owned = online = None
     live_runners: list[Mapping[str, Any]] | None = None
     route_token = (env.get("ROUTE_TOKEN") or "").strip()
     if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
@@ -1722,9 +1929,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             labels += tuple(root_label(label) for label in labels)
             live_runners = GitHub(route_token, repo).runners() if labels else None
             live_owned = live_owned_free(live_runners, labels) if live_runners is not None else None
+            online = live_online(live_runners, labels) if live_runners is not None else None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
-            live_owned = live_runners = None
+            live_owned = online = live_runners = None
     choice, snapshot = choose(
         event=event,
         ref=ref,
@@ -1749,6 +1957,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
         live_owned=live_owned,
+        live_online=online,
         shards=sum(1 for key in plan.after if key.startswith("shard-")),
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
     )
@@ -1768,13 +1977,21 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
                         if persistent(choice.runner) else ((), plan.peak))
     # Admission on a root runner whose kept build is of this run's merge base
-    # (see "Warm affinity" above); attempt 1 only, since only it is placed.
+    # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
+    # ci-macos.yml reads both outputs on attempt 1 only.
     admission_runner = ""
-    # CI_OWNED_WARM_LABELS off ignores labels already set, so the switch alone
-    # turns affinity off without clearing them.
-    if (env.get("WARM_LABELS") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
-            and live_runners is not None):
-        admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"))
+    admission_warm: list[list[str]] = []
+    # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
+    # turns affinity off.
+    if (attempt in ("", "1") and env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
+            and snapshot):
+        # The warm runners' names by tier (merge base, then this pull request),
+        # for ci-macos.yml's admission-placement, which re-reads the runners
+        # just before admission queues.
+        admission_warm = warm_tiers(env.get("MERGED_ONTO"), snapshot.get("warm"), env.get("PR_NUMBER"))
+        if live_runners is not None:
+            admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
+                                                     snapshot.get("warm"), env.get("PR_NUMBER"))
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
@@ -1799,8 +2016,13 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
-                         # and the warm label of this run's merge base, or "".
+                         # and the static label of the runner warm for this
+                         # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
+                         # JSON tiers of the names of the root runners warm for
+                         # this run's merge base, then its pull request, or ""
+                         # (admission_placement.py).
+                         f"admission_warm={json.dumps(admission_warm, separators=(',', ':')) if admission_warm else ''}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")
