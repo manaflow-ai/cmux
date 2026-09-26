@@ -82,6 +82,8 @@ DISPATCH_TIMEOUT_SECONDS = 8 * 60
 TEST_STEP = "Run selected tests"
 # ...except test-e2e.yml's selector resolution, which fails when the built
 # tests do not include the selector: the test does not exist at that commit.
+# test-e2e.yml runs both inside one action, so both of its steps fail when a
+# selector does not resolve, and this one decides.
 RESOLVE_STEP = "Resolve selectors against the built tests"
 # Kept under GitHub's 65,536-character comment limit with room for one more
 # dispatch's worth of state.
@@ -475,10 +477,10 @@ def classify(run: Mapping[str, object], failed_steps: Callable[[], list[str]]) -
         return "pass"
     if run.get("conclusion") == "failure":
         failed = failed_steps()
-        if TEST_STEP in failed:
-            return "fail"
         if RESOLVE_STEP in failed:
             return "absent"
+        if TEST_STEP in failed:
+            return "fail"
     return "error"
 
 
