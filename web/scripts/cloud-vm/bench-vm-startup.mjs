@@ -12,7 +12,7 @@ import { writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields, summarizeStages } from "./benchStats.mjs";
+import { CREATE_ADMISSION_BUDGET_MS, elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeCreateAdmission, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
 const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
@@ -879,6 +879,10 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     succeeded: ok.length,
     failed: results.length - ok.length,
     stages: summarizeFields(measured, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    // Admission is intentionally separate from createMs: it measures the
+    // request's fast acknowledgement boundary, while createMs includes the
+    // provider allocation and guest boot that follow it.
+    createAdmission: summarizeCreateAdmission(measured.map((trial) => trial.createStages?.admission), CREATE_ADMISSION_BUDGET_MS),
     attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,

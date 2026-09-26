@@ -159,3 +159,17 @@ export function pollBoundedFetch({ fetchTimeoutMs, pollDeadlineMs, abandoned = n
   };
   return { fetch, abandoned };
 }
+/** The request-admission budget excludes provider allocation and guest boot. */
+export const CREATE_ADMISSION_BUDGET_MS = 200;
+
+/** Summarize the fast, user-visible admission phase separately from readiness. */
+export function summarizeCreateAdmission(values, budgetMs = CREATE_ADMISSION_BUDGET_MS) {
+  const summary = summarize(values);
+  const finite = finiteNumbers(values);
+  return {
+    ...summary,
+    budgetMs,
+    withinBudget: finite.filter((value) => value <= budgetMs).length,
+    overBudget: finite.filter((value) => value > budgetMs).length,
+  };
+}

@@ -267,6 +267,15 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
+      // This is the honest sub-200 ms target: the user request has passed all
+      // validation, entitlement, image and option checks and is about to enter
+      // the durable create workflow. Provider allocation and guest readiness
+      // remain measured separately because they cannot fit in this budget.
+      const admissionMs = performance.now() - routeStartedAtMs;
+      timing.record("admission", admissionMs);
+      span.setAttribute("cmux.vm.create.admission_budget_ms", 200);
+      span.setAttribute("cmux.vm.create.admission_within_budget", admissionMs <= 200);
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.

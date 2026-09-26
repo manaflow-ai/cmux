@@ -7,6 +7,7 @@ import {
   percentile,
   pollBoundedFetch,
   providerCredentialsFromEnv,
+  summarizeCreateAdmission,
   summarize,
   summarizeFields,
   summarizeStages,
@@ -46,6 +47,32 @@ describe("summarize", () => {
   test("an empty sample has only a count", () => {
     expect(summarize([])).toEqual({ n: 0 });
     expect(summarize([undefined, null, "12"])).toEqual({ n: 0 });
+  });
+});
+
+describe("summarizeCreateAdmission", () => {
+  test("counts the samples that meet the fast acknowledgement budget", () => {
+    expect(summarizeCreateAdmission([80, 210, 140, Number.NaN])).toEqual({
+      n: 3,
+      min: 80,
+      p50: 140,
+      p90: 210,
+      p95: 210,
+      max: 210,
+      mean: 143.3,
+      budgetMs: 200,
+      withinBudget: 2,
+      overBudget: 1,
+    });
+  });
+
+  test("has no false success when the stage is absent", () => {
+    expect(summarizeCreateAdmission([undefined, null])).toEqual({
+      n: 0,
+      budgetMs: 200,
+      withinBudget: 0,
+      overBudget: 0,
+    });
   });
 });
 

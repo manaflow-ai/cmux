@@ -44,6 +44,14 @@ removed. The gap between today and the target is almost entirely serialized,
 duplicated guest work and control-plane round trips (section 6), not
 provider time.
 
+The request-admission target is now measured separately. The create route emits
+an `admission` Server-Timing stage after authentication, entitlement, image and
+option validation and immediately before durable provisioning begins. The
+budget is 200 ms. `createMs` still includes provider allocation and guest boot,
+so an admission sample inside the budget never claims that a fresh machine is
+ready inside 200 ms. `bench-vm-startup.mjs` writes `createAdmission` with p50,
+p95, and counts inside and outside that budget.
+
 **Recommended design (ranked in section 8):** (1) collapse the attach path
 to one guest exec and stop re-installing baked components on every attach;
 (2) bake the guest shim and resource reporter and accept `displayName` at
