@@ -22,6 +22,9 @@
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-error: #ff5f56;
+  --cmux-diff-renamed-light: #a26300;
+  --cmux-diff-renamed-dark: #ffd166;
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
   /* The native browser panel behind the WebView owns the themed fill. Keep the
@@ -486,7 +489,7 @@ body {
   text-align: center;
 }
 .base-picker-status-error {
-  color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
+  color: color-mix(in lab, var(--cmux-diff-error) 70%, var(--cmux-diff-fg));
 }
 .base-picker-group-header {
   padding: 8px 8px 3px;
@@ -849,7 +852,7 @@ body[data-status-only="true"] #files-sidebar {
   --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
   --trees-status-added-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
   --trees-status-modified-override: var(--cmux-diff-accent);
-  --trees-status-renamed-override: light-dark(#a26300, #ffd166);
+  --trees-status-renamed-override: light-dark(var(--cmux-diff-renamed-light), var(--cmux-diff-renamed-dark));
   --trees-status-deleted-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
 }
 body[data-loading="false"] .diff-loading-placeholder {
@@ -1132,7 +1135,7 @@ body[data-loading="true"] #status::before {
   animation: cmuxDiffPendingSpin 800ms linear infinite;
 }
 #status[data-error="true"] {
-  color: light-dark(#b42318, #ff8a80);
+  color: color-mix(in lab, var(--cmux-diff-error) 75%, var(--cmux-diff-fg));
 }
 @keyframes cmuxDiffPendingSpin {
   to { transform: rotate(360deg); }

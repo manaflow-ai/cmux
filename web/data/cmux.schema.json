@@ -1770,6 +1770,22 @@
           "default": "unified",
           "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
           "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
+        },
+        "cssVariables": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Hex color overrides for the diff viewer's documented CSS custom properties.",
+          "descriptionKey": "schemaDescriptions.diffViewer.cssVariables",
+          "properties": {
+            "--cmux-diff-accent": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-error": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-renamed-light": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-renamed-dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-addition-fg-light": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-addition-fg-dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-deletion-fg-light": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+            "--cmux-diff-deletion-fg-dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+          }
         }
       }
     },
