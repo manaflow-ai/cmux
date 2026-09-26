@@ -44,6 +44,7 @@ LOG=/tmp/dragtmux-$TAG.log
 cli() { CMUX_QUIET=1 CMUX_TAG="$TAG" "$REPO/scripts/cmux-debug-cli.sh" "$@"; }
 
 fail() { echo "FAIL: $1"; exit 2; }
+command -v tmux >/dev/null 2>&1 || fail "tmux is not installed"
 
 # Re-reads an observable until the given command succeeds, bounded by a
 # deadline. $1=seconds, $2=description, rest = the predicate command.
@@ -118,7 +119,7 @@ if [ -z "$R1" ] || [ "$R1" = "$R2" ]; then
 fi
 
 # tmux, in its own server, is the thing that repaints after each resize. It has
-# to run the way t-claude configures it: smcup@/rmcup@ keeps it off the alternate
+# to run off the alternate screen: smcup@/rmcup@ keeps it off the alternate
 # screen and indn@ makes it scroll with plain newlines, so its output lands in
 # ghostty's own scrollback. On the alternate screen there is no history to push
 # rows into and the resize path under test is never reached.
