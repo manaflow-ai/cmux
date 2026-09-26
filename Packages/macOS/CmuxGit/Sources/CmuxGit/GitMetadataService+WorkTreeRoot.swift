@@ -2,6 +2,9 @@ import Dispatch
 import Foundation
 
 extension GitMetadataService {
+    /// Serializes work-tree-root walks so a hung mount parks at most one thread.
+    private static let workTreeRootRunner = BoundedBlockingRunner(label: "com.cmux.git-work-tree-root")
+
     /// Returns the root of the work tree that contains `directory`, found by
     /// walking up for the nearest `.git` directory or `gitdir:` pointer file,
     /// without spawning `git`.
@@ -13,35 +16,24 @@ extension GitMetadataService {
     /// rather than resolving symlinks, and it does not special-case paths
     /// inside a `.git` directory.
     ///
-    /// The walk runs on a user-initiated global queue, off the cooperative
-    /// executor, and stops once `timeout` has elapsed so a stalled network
-    /// mount cannot hold the caller indefinitely.
+    /// The walk runs on a dedicated serial queue, one at a time. The caller
+    /// waits at most `timeout`, even if a probe on a hung network mount never
+    /// returns, and a call made while an earlier walk is still stuck returns
+    /// `nil` immediately.
     ///
     /// - Parameters:
     ///   - directory: An absolute path to start from. A path to a file is
     ///     treated as its containing directory.
-    ///   - timeout: How long the walk may take before it returns `nil`.
+    ///   - timeout: The longest the caller waits.
     /// - Returns: The work-tree root, or `nil` when `directory` is not inside
-    ///   a git repository or the walk timed out.
+    ///   a git repository, the walk timed out, or an earlier walk is still
+    ///   running.
     public nonisolated func workTreeRoot(
         forDirectory directory: String,
         timeout: Duration = .seconds(5)
     ) async -> String? {
-        let components = timeout.components
-        let nanoseconds = Double(components.seconds) * 1_000_000_000
-            + Double(components.attoseconds) / 1_000_000_000
-        let boundedNanoseconds = Int(min(max(0, nanoseconds), Double(Int32.max) * 1_000))
-        let deadline = DispatchTime.now() + .nanoseconds(boundedNanoseconds)
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard deadline > DispatchTime.now() else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                continuation.resume(
-                    returning: Self.resolveGitRepository(containing: directory, deadline: deadline)?.workTreeRoot
-                )
-            }
+        await Self.workTreeRootRunner.run(timeout: timeout) { deadline in
+            Self.resolveGitRepository(containing: directory, deadline: deadline)?.workTreeRoot
         }
     }
 }

@@ -2,7 +2,9 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-@Suite struct GitWorkTreeRootTests {
+// workTreeRoot shares one serial runner that refuses overlapping walks, so
+// these tests must not run in parallel with each other.
+@Suite(.serialized) struct GitWorkTreeRootTests {
     @Test func nestedDirectoryResolvesToCheckoutRoot() async throws {
         let fixture = try GitRepositoryFixture()
         let nested = fixture.root.appendingPathComponent("Sources/App", isDirectory: true)
@@ -43,9 +45,7 @@ import Testing
 
         #expect(root == nil)
     }
-}
 
-@Suite struct GitWorkTreeRootDeadlineTests {
     @Test func expiredDeadlineReturnsNilInsteadOfWalking() async throws {
         let fixture = try GitRepositoryFixture()
 

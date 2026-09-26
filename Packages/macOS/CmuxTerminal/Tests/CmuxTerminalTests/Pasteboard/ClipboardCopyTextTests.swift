@@ -93,12 +93,12 @@ struct TerminalCopyClipboardWriteTests {
         standard.clearContents()
         standard.setString("user copied this later", forType: .string)
 
-        let didWrite = await service.copyToStandardClipboard(
+        let status = await service.copyToStandardClipboard(
             "/tmp/project",
             ifUnchangedSince: startedAt
         )
 
-        #expect(didWrite == false)
+        #expect(status == .conditionNotMet)
         #expect(standard.string(forType: .string) == "user copied this later")
     }
 
@@ -113,12 +113,12 @@ struct TerminalCopyClipboardWriteTests {
         standard.setString("old", forType: .string)
         let startedAt = service.standardClipboardChangeCount
 
-        let didWrite = await service.copyToStandardClipboard(
+        let status = await service.copyToStandardClipboard(
             "/tmp/project",
             ifUnchangedSince: startedAt
         )
 
-        #expect(didWrite)
+        #expect(status == .written)
         #expect(standard.string(forType: .string) == "/tmp/project")
     }
 }

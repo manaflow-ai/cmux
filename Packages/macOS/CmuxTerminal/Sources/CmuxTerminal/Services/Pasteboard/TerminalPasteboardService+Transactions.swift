@@ -170,25 +170,25 @@ extension TerminalPasteboardService {
     /// it since `changeCount` was read.
     ///
     /// Use this when the text is computed asynchronously: a copy the user made
-    /// in the meantime wins, and this late write is dropped.
+    /// in the meantime wins, and this late write is dropped with
+    /// ``TerminalPasteboardMutationResult/Status/conditionNotMet``.
     ///
     /// - Parameters:
     ///   - text: The already-normalized text to copy.
     ///   - changeCount: ``standardClipboardChangeCount`` read when the copy
     ///     action started.
-    /// - Returns: `true` when the text was published, `false` when there was
-    ///   nothing to copy, the clipboard changed, or the write was rejected.
+    /// - Returns: The write's outcome, or `nil` when there was nothing to copy.
     public func copyToStandardClipboard(
         _ text: String?,
         ifUnchangedSince changeCount: Int
-    ) async -> Bool {
-        guard let payload = text?.nonBlankClipboardText else { return false }
+    ) async -> TerminalPasteboardMutationResult.Status? {
+        guard let payload = text?.nonBlankClipboardText else { return nil }
         let item = NSPasteboardItem()
-        guard item.setString(payload, forType: .string) else { return false }
+        guard item.setString(payload, forType: .string) else { return .writeFailed }
         return await replaceContentsAndWait(
             of: standardPasteboard,
             with: [item],
             expectedChangeCount: changeCount
-        ).didWrite
+        ).status
     }
 }

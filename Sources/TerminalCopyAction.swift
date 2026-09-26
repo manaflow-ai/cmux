@@ -40,23 +40,33 @@ struct TerminalCopyDirectoryTarget: Equatable {
 }
 
 extension Workspace {
-    /// The directory a copy action targets for the terminal `panelId`, or
-    /// `nil` when `panelId` is not a terminal in this workspace or its
-    /// directory is unknown.
+    /// The terminal a copy action reads for `panelId`, resolved the way
+    /// keyboard input is: a remote-tmux window container projects to its
+    /// active inner pane, and any other terminal panel is itself. `nil` when
+    /// `panelId` is missing or is not a terminal.
+    func copyActionTerminal(panelId: UUID?) -> (surfaceID: UUID, panel: TerminalPanel)? {
+        guard let panelId else { return nil }
+        return terminalInputTarget(forPanelID: panelId)
+    }
+
+    /// The directory a copy action targets for `panelId`, or `nil` when
+    /// `panelId` is not a terminal in this workspace or its directory is
+    /// unknown.
     ///
     /// Uses the same provenance rules as the sidebar
     /// (``effectivePanelDirectory(panelId:localFallback:)``): a remote, cloud,
-    /// or remote-tmux panel only yields a directory its host reported, never
+    /// or remote-tmux pane only yields a directory its host reported, never
     /// this Mac's workspace directory. There is deliberately no fallback to
     /// another panel's or the workspace's directory.
     func copyActionDirectoryTarget(panelId: UUID?) -> TerminalCopyDirectoryTarget? {
-        guard let panelId, terminalPanel(for: panelId) != nil,
-              let path = effectivePanelDirectory(panelId: panelId) else {
+        guard let surfaceID = copyActionTerminal(panelId: panelId)?.surfaceID,
+              let path = effectivePanelDirectory(panelId: surfaceID) else {
             return nil
         }
         return TerminalCopyDirectoryTarget(
             path: path,
-            isLocal: allowsLocalDirectoryFallback(panelId: panelId)
+            isLocal: remoteTmuxControlPane(surfaceID: surfaceID) == nil
+                && allowsLocalDirectoryFallback(panelId: surfaceID)
         )
     }
 }
@@ -83,7 +93,7 @@ enum TerminalCopyActionRunner {
     ///   to copy.
     @discardableResult
     static func run(_ action: TerminalCopyAction, workspace: Workspace?, panelId: UUID?) -> Bool {
-        guard let workspace, let panelId, let terminalPanel = workspace.terminalPanel(for: panelId) else {
+        guard let workspace, let terminal = workspace.copyActionTerminal(panelId: panelId) else {
             NSSound.beep()
             return false
         }
@@ -105,18 +115,23 @@ enum TerminalCopyActionRunner {
             let startedAt = pasteboard.standardClipboardChangeCount
             Task { @MainActor in
                 let root = await GitMetadataService().workTreeRoot(forDirectory: target.path)
-                // A copy the user made while the walk ran wins over this one.
-                if !(await pasteboard.copyToStandardClipboard(
+                let status = await pasteboard.copyToStandardClipboard(
                     root ?? target.path,
                     ifUnchangedSince: startedAt
-                )) {
+                )
+                switch status {
+                case .written?, .conditionNotMet?:
+                    // conditionNotMet: the user copied something newer while
+                    // the walk ran. Their copy wins, and that is not an error.
+                    break
+                default:
                     NSSound.beep()
                 }
             }
             return true
         case .visibleScreen:
             let text = TerminalController.shared.readTerminalTextForSnapshot(
-                terminalPanel: terminalPanel,
+                terminalPanel: terminal.panel,
                 includeScrollback: false,
                 allowVTExport: false
             )
