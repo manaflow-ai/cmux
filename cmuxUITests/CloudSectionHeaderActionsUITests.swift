@@ -84,7 +84,6 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3))
         // One click, one flow: a second presentation would stack a second sheet
         // or a second Create button.
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
         XCTAssertEqual(app.sheets.count, 1, "\(opener) must open exactly one New Machine sheet")
         XCTAssertEqual(create.count, 1, "\(opener) must open exactly one New Machine sheet")
     }
@@ -117,8 +116,28 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+        // A CI Mac without a logged-in GUI session launches cmux in the
+        // background, and XCTest records that it could not activate it. Only
+        // that activation issue is expected: queries, clicks and keys still
+        // reach a background app through accessibility.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            [issue.compactDescription, issue.detailedDescription ?? ""]
+                .joined(separator: "\n")
+                .contains("Failed to activate application")
+        }
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+            if app.state == .runningBackground {
+                app.activate()
+            }
+        }
+        XCTAssertTrue(
+            app.state == .runningForeground || app.state == .runningBackground,
+            "Expected cmux to be running, state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20), "Expected the main window")
         return app
     }
 

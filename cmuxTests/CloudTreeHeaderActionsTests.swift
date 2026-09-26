@@ -3,6 +3,7 @@ import AppKit
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -115,6 +116,44 @@ struct CloudTreeHeaderActionsTests {
         #expect(controls?.isHidden ?? true)
     }
 
+    /// Fading is visual only: VoiceOver still finds both controls at rest,
+    /// with their roles and labels.
+    @Test("Faded header actions stay in the accessibility tree with their labels")
+    func fadedHeaderActionsStayAccessible() async throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let tree = try Tree(fixture: fixture, width: 380, canCreateCloudMachine: true)
+        let plusHost = try #require(try Self.controls(in: tree.cell(for: tree.cloudSection)) as? CloudTreeRowControlsHostingView)
+        let menuHost = try #require(
+            try Self.controls(in: tree.cell(for: tree.devicesSection)) as? CloudTreeRowControlsHostingView
+        )
+        // An in-process test has no assistive client to turn on SwiftUI's
+        // accessibility output for these hosted controls.
+        for host in [plusHost, menuHost] {
+            host.rootView = AnyView(host.rootView.environment(\.accessibilityEnabled, true))
+        }
+        #expect(plusHost.alphaValue == 0)
+        #expect(menuHost.alphaValue == 0)
+
+        var plus: NSObject?
+        var menu: NSObject?
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            fixture.container.layoutSubtreeIfNeeded()
+            fixture.window.displayIfNeeded()
+            plus = Self.accessibilityElement("CloudMachinesNewMachineButton", in: plusHost)
+            menu = Self.accessibilityElement("DevicesOptionsMenu", in: menuHost)
+            return plus != nil && menu != nil
+        }
+        try #require(published, "Faded header controls must stay in the accessibility tree")
+        let plusElement = try #require(plus)
+        let menuElement = try #require(menu)
+        #expect(Self.accessibilityAttribute(.role, getter: "accessibilityRole", of: plusElement) as? String == NSAccessibility.Role.button.rawValue)
+        #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: plusElement) as? String == "New Machine")
+        #expect(Self.accessibilityAttribute(.description, getter: "accessibilityLabel", of: menuElement) as? String == "Manage My Devices")
+        #expect(plusHost.alphaValue == 0)
+        #expect(menuHost.alphaValue == 0)
+    }
+
     @Test("Both header actions share one trailing slot: same size, trailing edge, and vertical center", arguments: [220.0, 380.0])
     func headerActionsAlign(width: Double) throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -201,6 +240,41 @@ struct CloudTreeHeaderActionsTests {
     static func display(in cell: CloudTreeCellView) throws -> NSView {
         try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
     }
+
+    /// The element an assistive client reaches for `identifier`, found through
+    /// accessibility children rather than the view hierarchy.
+    static func accessibilityElement(_ identifier: String, in root: NSView) -> NSObject? {
+        var pending: [NSObject] = [root]
+        var visited = Set<ObjectIdentifier>()
+        while !pending.isEmpty {
+            let element = pending.removeFirst()
+            guard visited.insert(ObjectIdentifier(element)).inserted else { continue }
+            if element !== root,
+               accessibilityAttribute(.identifier, getter: "accessibilityIdentifier", of: element) as? String == identifier {
+                return element
+            }
+            let children = accessibilityAttribute(.children, getter: "accessibilityChildren", of: element) as? [Any]
+            pending += NSAccessibility.unignoredChildren(from: children ?? []).compactMap { $0 as? NSObject }
+        }
+        return nil
+    }
+
+    /// Reads an attribute the way `SidebarAccessibilityTreeWalk` does: SwiftUI
+    /// nodes answer either the modern getter or the legacy attribute API.
+    static func accessibilityAttribute(_ attribute: NSAccessibility.Attribute, getter: String, of element: NSObject) -> Any? {
+        let modern = NSSelectorFromString(getter)
+        if element.responds(to: modern), let value = element.perform(modern)?.takeUnretainedValue() {
+            return value
+        }
+        let names = NSSelectorFromString("accessibilityAttributeNames")
+        let legacy = NSSelectorFromString("accessibilityAttributeValue:")
+        guard element.responds(to: names), element.responds(to: legacy),
+              let attributes = element.perform(names)?.takeUnretainedValue() as? [String],
+              attributes.contains(attribute.rawValue) else { return nil }
+        return element.perform(legacy, with: attribute.rawValue)?.takeUnretainedValue()
+    }
+
+    /// Presses `element` as VoiceOver would, through whichever API it answers.
 
     /// `count` other Macs that are online and trusted, as the device catalog lists them.
     static func onlineMacs(_ count: Int) -> [SurfaceMachineInfo] {
