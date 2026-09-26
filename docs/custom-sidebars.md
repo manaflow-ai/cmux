@@ -189,7 +189,10 @@ Rules of the runtime:
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
-  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). The menu
+  opens only over the view it is attached to, so put it on the row's outer
+  HStack when right-clicking anywhere on the row, including the empty space a
+  Spacer fills, should open it. Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`

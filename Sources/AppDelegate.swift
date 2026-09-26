@@ -3714,7 +3714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
             return
         }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+        defaults.setIfChanged(data, forKey: Self.persistedWindowGeometryDefaultsKey)
     }
 
     private nonisolated static func encodedPersistedWindowGeometryData(
@@ -3727,7 +3727,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: frame,
             display: display
         )
-        return try? JSONEncoder().encode(payload)
+        // Sorted keys keep the bytes stable so autosave can skip unchanged writes.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(payload)
     }
 
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
@@ -3741,7 +3744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func removeLegacyPersistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -5076,9 +5079,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Persistence can outlive its main-actor owner; retain only the Sendable
         // store so finishing a write cannot destroy AppDelegate on this queue.
         let writeBlock = { [sessionSnapshotStore] in
+            // Autosave runs every few seconds. Only write defaults that changed:
+            // each set/remove posts didChangeNotification even when it is a no-op,
+            // waking every defaults observer and SwiftUI's @AppStorage lock.
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
-                UserDefaults.standard.set(
+                UserDefaults.standard.setIfChanged(
                     persistedGeometryData,
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
@@ -6548,6 +6554,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             publishCmuxWindowLifecycle(name: "window.focused", windowId: windowId, origin: "focus_request")
         }
         return didFocus
+    }
+
+    /// Resizes a main window, keeping its top-left corner fixed: a height change grows or
+    /// shrinks downward, a width change rightward. The dimensions set and returned are
+    /// the window FRAME size (title bar and chrome included), not the content
+    /// rect. Passing nil for both dimensions reads the frame without changing it.
+    ///
+    /// A height change is the input to the terminal's no-reflow resize path, and
+    /// nothing else in the debug surface can produce one: splits change the
+    /// layout inside a fixed window, and driving the real window from a script
+    /// needs Accessibility permission the automation host does not have. Tests
+    /// for resize behavior have to be able to say "make this window shorter".
+    func resizeMainWindow(windowId: UUID, width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let window = windowForMainWindowId(windowId) else { return nil }
+        // Both dimensions nil is a read. setFrame is still a mutation even when the frame is
+        // unchanged -- it posts the frame-change notifications observers act on -- so the
+        // read path must not call it.
+        guard width != nil || height != nil else { return window.frame.size }
+        var frame = window.frame
+        let top = frame.maxY
+        // AppKit does not apply minSize to setFrame, only to interactive resizing, so a
+        // caller asking for 1x1 would otherwise get it. Clamp to the same floor a person
+        // dragging the frame would hit.
+        if let width { frame.size.width = max(width, window.minSize.width) }
+        if let height { frame.size.height = max(height, window.minSize.height) }
+        frame.origin.y = top - frame.size.height
+        window.setFrame(frame, display: true)
+        return window.frame.size
     }
 
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
@@ -17995,14 +18029,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let currentPid = ProcessInfo.processInfo.processIdentifier
-        var terminatedPids: [String] = []
+        let environment = ProcessInfo.processInfo.environment
+        var quitRequestedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
-            terminatedPids.append(String(app.processIdentifier))
-            app.terminate()
-            if !app.isTerminated {
-                _ = app.forceTerminate()
+            switch SingleInstanceConflictPolicy(environment: environment).action(
+                currentBundleURL: Bundle.main.bundleURL,
+                existingBundleURL: app.bundleURL
+            ) {
+            case .yieldToExisting:
+                // Another bundle sharing this id (a local Release build, a
+                // tool-launched copy) must not kill the user's running app.
+                // Exit without a session save: both share the snapshot file.
+                StartupBreadcrumbLog.append(
+                    "singleInstance.enforce.yield",
+                    fields: [
+                        "bundleIdentifier": bundleId,
+                        "existingPid": String(app.processIdentifier),
+                        "existingBundlePath": app.bundleURL?.path ?? "nil"
+                    ]
+                )
+                NSLog(
+                    "cmux: another instance with bundle id %@ is running from %@; exiting instead of replacing it (set %@=1 to replace)",
+                    bundleId,
+                    app.bundleURL?.path ?? "an unknown path",
+                    SingleInstanceConflictPolicy.allowReplacingEnvironmentKey
+                )
+                app.activate(options: [.activateAllWindows])
+                // _exit: skip atexit handlers and static teardown while
+                // Ghostty and Sentry threads are still running.
+                _exit(0)
+            case .replaceExisting:
+                quitRequestedPids.append(String(app.processIdentifier))
+                // Graceful quit first so the older instance saves its session;
+                // force only if it is still running after the timeout.
+                app.terminate()
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + SingleInstanceConflictPolicy.gracefulTerminationTimeout
+                ) {
+                    if !app.isTerminated {
+                        _ = app.forceTerminate()
+                    }
+                }
             }
         }
         StartupBreadcrumbLog.append(
@@ -18010,7 +18079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fields: [
                 "bundleIdentifier": bundleId,
                 "currentPid": String(currentPid),
-                "terminatedPids": terminatedPids.joined(separator: ",")
+                "quitRequestedPids": quitRequestedPids.joined(separator: ",")
             ]
         )
     }
@@ -18045,6 +18114,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    .standardizedFileURL
                    .resolvingSymlinksInPath(),
                executableURL == embeddedCLIURL {
+                return
+            }
+            // A relaunch of this same bundle is meant to replace us (its
+            // enforceSingleInstance asks us to quit gracefully); let it live.
+            if let launchedBundleURL = app.bundleURL,
+               SingleInstanceConflictPolicy(environment: [:]).action(
+                   currentBundleURL: launchedBundleURL,
+                   existingBundleURL: Bundle.main.bundleURL
+               ) == .replaceExisting {
+                StartupBreadcrumbLog.append(
+                    "singleInstance.observe.sameBundleRelaunch",
+                    fields: ["duplicatePid": String(app.processIdentifier)]
+                )
                 return
             }
 

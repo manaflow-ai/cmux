@@ -35,10 +35,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "SidebarHiddenPresentationTests/visibilityToggleKeepsAppKitTableContainerMounted()": {
-      "classification": "product bug",
-      "issue": 13931
-    },
     "TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway()": {
       "classification": "host/display dependency",
       "issue": 13948
