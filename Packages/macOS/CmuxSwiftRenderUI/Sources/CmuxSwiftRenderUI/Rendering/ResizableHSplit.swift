@@ -9,6 +9,7 @@ import SwiftUI
 /// across launches. Each column scrolls independently.
 struct ResizableHSplit: View {
     let columns: [RenderNode]
+    let contextMenuPath: [Int]
 
     @AppStorage("cmux.customSidebar.splitFraction") private var fraction: Double = 0.5
     @State private var dragStartFraction: Double?
@@ -16,6 +17,11 @@ struct ResizableHSplit: View {
 
     private let minColumnWidth: CGFloat = 80
     private let handleWidth: CGFloat = 10
+
+    init(columns: [RenderNode], contextMenuPath: [Int] = []) {
+        self.columns = columns
+        self.contextMenuPath = contextMenuPath
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -25,20 +31,20 @@ struct ResizableHSplit: View {
             let leadingWidth = CGFloat(clamped) * total
 
             HStack(spacing: 0) {
-                column(columns.first)
+                column(columns.first, index: 0)
                     .frame(width: leadingWidth)
                 divider(total: total)
-                column(columns.count > 1 ? columns[1] : nil)
+                column(columns.count > 1 ? columns[1] : nil, index: 1)
                     .frame(maxWidth: .infinity)
             }
         }
     }
 
     @ViewBuilder
-    private func column(_ node: RenderNode?) -> some View {
+    private func column(_ node: RenderNode?, index: Int) -> some View {
         if let node {
             ScrollView {
-                RenderNodeView(node: node)
+                RenderNodeView(node: node, contextMenuPath: contextMenuPath + [index])
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(8)
             }
