@@ -12,6 +12,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private let isEnabled: @Sendable () -> Bool
     private var current: CloudMachineLink?
     private var connecting: Task<CloudMachineLink.Connected, Error>?
+    private var checking: Task<Void, Error>?
     private var browser: CloudBrowserProxyProcess?
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
 
@@ -39,12 +40,21 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         // started during the check keeps its own budget.
         let deadline = ContinuousClock.now + .seconds(180)
         if preflight {
-            // Only the open waits on its check. A restore arriving meanwhile
-            // starts or joins the carrier on its own, and an open behind a
-            // restore's retrying carrier still fails in seconds.
-            try await SSHTuiPreflight(connection: connection).run()
+            // Opens share one check, so a route asks for one login at a time.
+            // Only opens wait on it: a restore arriving meanwhile starts or
+            // joins the carrier on its own, and an open behind a restore's
+            // retrying carrier still fails in seconds.
+            let check = checking ?? Task { try await SSHTuiPreflight(connection: connection).run() }
+            checking = check
+            defer { if checking == check { checking = nil } }
+            let failure: Error?
+            do { try await check.value; failure = nil } catch { failure = error }
+            try Task.checkCancellation()
             guard isEnabled() else { await disconnect(); throw CancellationError() }
+            // A carrier that logged in meanwhile answers the open, whatever
+            // the check reported before it.
             if let current, await current.isConnected, let ready = await current.connected { return ready }
+            if let failure { throw failure }
         }
         if let connecting { return try await connecting.value }
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
@@ -103,6 +113,8 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         let attempt = connecting
         connecting = nil
         attempt?.cancel()
+        checking?.cancel()
+        checking = nil
         browserStarting?.cancel()
         browserStarting = nil
         let proxy = browser
