@@ -38,6 +38,15 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
+    private func tearDownHostedTerminal(_ hosted: HostedTerminalWindow) {
+        // Deinitialization queues native surface frees on the shared teardown
+        // coordinator. Release the test surface synchronously so this suite
+        // cannot leave an in-flight free for the portal leak guard or the next
+        // app-host test.
+        hosted.surface.releaseSurfaceForTesting()
+        hosted.window.orderOut(nil)
+    }
+
     private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
@@ -229,8 +238,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
                 KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
-                window.orderOut(nil)
-                withExtendedLifetime(terminalSurface) {}
+                tearDownHostedTerminal(hostedTerminal)
             }
 
             KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
@@ -281,8 +289,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
                 KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
                 cjkIMEInterpretKeyEventsHook = previousInterpretHook
-                window.orderOut(nil)
-                withExtendedLifetime(terminalSurface) {}
+                tearDownHostedTerminal(hostedTerminal)
             }
 
             let probes = [
@@ -625,8 +632,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 else { defaults.removeObject(forKey: key) }
                 GhosttyNSView.debugTextInputEventHandler = previousHandler
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver
-                hosted.window.orderOut(nil)
-                withExtendedLifetime(hosted.surface) {}
+                tearDownHostedTerminal(hosted)
             }
             GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
             var actions: [ghostty_input_action_e] = []
@@ -682,8 +688,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
                 }
                 GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
                 GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-                window.orderOut(nil)
-                withExtendedLifetime(terminalSurface) {}
+                tearDownHostedTerminal(hostedTerminal)
             }
 
             defaults.set(true, forKey: "terminal.macosPressAndHold")
