@@ -46,6 +46,26 @@ struct CloudPortRecoveryTests {
         await provider.stop()
     }
 
+    @Test("An SSH machine's loopback route admits demand-driven discovery")
+    func sshLoopbackRouteAdmitsDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
+        let connection = SSHTuiConnection(configuration: WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: nil,
+            preserveAfterTerminalExit: true
+        ))
+        let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
+        catalog.register(provider)
+        #expect(provider.info.privateAddress == "127.0.0.1")
+        #expect(provider.info.portDiscoveryState == .notRequested)
+        provider.requestPortDiscovery()
+        #expect(provider.portDiscovery.mayScan)
+        #expect(provider.info.portDiscoveryState == .loading)
+        await provider.stop()
+    }
+
     @Test("A metadata result from before retirement cannot revive a provider")
     func lateMetadataIsRejected() async throws {
         let catalog = SurfaceCatalog()

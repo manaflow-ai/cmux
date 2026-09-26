@@ -57,6 +57,24 @@ struct CloudPortsVPNAffordanceTests {
         }, "VPN guidance must remain visible beside discovered ports")
     }
 
+    @Test("SSH Ports route over the SSH link and never suggest Cloud VPN setup")
+    func sshPortsOmitVPNGuidance() {
+        let machine = SurfaceMachineID.ssh("vpn-guidance-ssh")
+        let info = SurfaceMachineInfo(id: machine, name: "ssh host", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: "127.0.0.1", portDiscoveryState: .available)
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000,
+            directURL: "http://127.0.0.1:3000")
+        let children = CloudTreeNodeBuilder.portChildren(machine: machine, info: info, resources: [port],
+            projectionIndex: CloudTreeNodeBuilder.LocalProjectionIndex(
+                snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: [])
+            ),
+            showsCloudVPNWarning: true)
+        #expect(children.contains { if case .port(let value, _, _) = $0.kind { value.id == port.id } else { false } })
+        #expect(!children.contains { $0.id.hasSuffix("/ports/vpn-guidance") })
+    }
+
     @Test("Empty Ports rows expose contextual status and actions",
           arguments: [SurfaceLinkState.connected, .notApplicable, .connecting, .error, .asleep, .unavailable])
     func discoveryRowsStayUnchanged(link: SurfaceLinkState) {
