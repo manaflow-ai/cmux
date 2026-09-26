@@ -360,10 +360,14 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         return .clear
 
-    case .solidFill:
+    case .solidFill, .border:
         if isActive {
+            // Border mode keeps the workspace color visible and uses the
+            // outline as the active-state cue.
             return SidebarWorkspaceRowBackgroundStyle(
-                color: selectedBackground,
+                color: activeTabIndicatorStyle == .border
+                    ? (customBackground ?? selectedBackground)
+                    : selectedBackground,
                 opacity: 1
             )
         }
@@ -378,4 +382,41 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         return .clear
     }
+}
+
+func sidebarWorkspaceRowActiveBackgroundNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    customColorHex: String?,
+    colorScheme: ColorScheme,
+    sidebarSelectionColorHex: String?
+) -> NSColor {
+    sidebarWorkspaceRowBackgroundStyle(
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        isActive: true,
+        isMultiSelected: false,
+        customColorHex: customColorHex,
+        colorScheme: colorScheme,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    ).color ?? sidebarSelectedWorkspaceBackgroundNSColor(
+        for: colorScheme,
+        sidebarSelectionColorHex: sidebarSelectionColorHex
+    )
+}
+
+func sidebarWorkspaceRowActiveForegroundNSColor(
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle,
+    customColorHex: String?,
+    colorScheme: ColorScheme,
+    sidebarSelectionColorHex: String?,
+    opacity: CGFloat
+) -> NSColor {
+    sidebarSelectedWorkspaceForegroundNSColor(
+        on: sidebarWorkspaceRowActiveBackgroundNSColor(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            customColorHex: customColorHex,
+            colorScheme: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex
+        ),
+        opacity: opacity
+    )
 }
