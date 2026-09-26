@@ -1097,8 +1097,9 @@ async function vmCreateCleanupPendingResponse(locale: Locale): Promise<Response>
 }
 
 function vmProviderOperationErrorResponse(error: VmProviderOperationError): Response {
-  const providerCause = providerCauseSummary(error.cause);
   const phase = vmPhaseForOperation(error.operation);
+  // Status failures retain generic retry guidance without exposing provider details.
+  const providerCause = phase === "status" ? null : providerCauseSummary(error.cause);
   if (providerImageNotFound(error.cause)) {
     // The provider rejected the resolved image (e.g. a provider IMAGE_NOT_FOUND):
     // nothing was created and retrying cannot help until an operator
