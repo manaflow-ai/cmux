@@ -63,7 +63,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         for (key, value) in decoderUserInfo {
             decoder.userInfo[key] = value
         }
-        guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
+        guard let snapshot = try? SessionSnapshotCodingStack.run({
+            try decoder.decode(SnapshotValue.self, from: data)
+        }) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
         return .loaded(snapshot)
@@ -95,7 +97,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private func encodedSnapshotData(_ snapshot: SnapshotValue) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(snapshot)
+        return try SessionSnapshotCodingStack.run { try encoder.encode(snapshot) }
     }
 
     public func removeSnapshot(fileURL: URL? = nil) {
