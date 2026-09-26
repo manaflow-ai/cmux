@@ -79,6 +79,21 @@ import UIKit
         #expect(abs(fixture.screenY(of: "workspace-22") - neighborBefore) < 0.5)
     }
 
+    @Test func notificationBelowASliverOfTheRowAboveKeepsItsNeighborsInPlace() throws {
+        let ids = (0..<40).map { "workspace-\($0)" }
+        let fixture = Fixture(ids: ids)
+        let overlap = try fixture.scroll(row: 19, overlappingTopBy: fixture.pixel / 2)
+        try #require(overlap > 0 && overlap < fixture.pixel)
+        let neighborBefore = fixture.screenY(of: "workspace-22")
+
+        // Anchoring the sliver of workspace-19 would pull workspace-22 up by
+        // the height of the row that left from between them.
+        fixture.update(ids: ["workspace-20"] + ids.filter { $0 != "workspace-20" })
+
+        #expect(fixture.renderedIDs().first == "workspace-20")
+        #expect(abs(fixture.screenY(of: "workspace-22") - neighborBefore) < 0.5)
+    }
+
     @Test func listRestingAtTheTopShowsRowsInsertedAboveIt() throws {
         let ids = (0..<40).map { "workspace-\($0)" }
         let fixture = Fixture(ids: ids)
