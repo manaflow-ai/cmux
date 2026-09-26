@@ -259,6 +259,8 @@ export async function POST(request: Request): Promise<Response> {
       const homeVolumeRequested = optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length === 0;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
+        "cmux.vm.home_volume_requested": candidate.persistentHome === true || candidate.perMachineHome === true,
+        "cmux.vm.home_volume_dropped": optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length > 0,
         "cmux.vm.ignored_create_fields": optionPolicy.kind === "accept" ? optionPolicy.ignoredFields.join(",") : "",
         "cmux.vm.image_set": image.length > 0,
         "cmux.vm.image_version": imageSelection.imageVersion,
