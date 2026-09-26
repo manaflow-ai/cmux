@@ -276,7 +276,25 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"])), "fail")
         self.assertEqual(MODULE.classify(failed, steps(["Build the app-host and UI test product"])), "error")
         self.assertEqual(MODULE.classify(failed, steps(["Resolve selectors against the built tests"])), "absent")
+        # test-e2e.yml's action fails both steps when a selector does not resolve.
+        self.assertEqual(MODULE.classify(failed, steps(["Run selected tests", "Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
+
+    def test_every_e2e_job_that_runs_tests_names_both_steps(self):
+        # The jobs API lists only top-level steps, never an action's own.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())["jobs"]
+        action = yaml.safe_load((ROOT / ".github/actions/e2e-run-tests/action.yml").read_text())
+        for job in ("build", "test"):
+            with self.subTest(job=job):
+                steps = {step.get("name"): step for step in jobs[job]["steps"]}
+                self.assertEqual(steps[MODULE.TEST_STEP]["uses"], "./.e2e-workflow/.github/actions/e2e-run-tests")
+                self.assertEqual(steps[MODULE.TEST_STEP]["id"], "tests")
+                resolve = steps[MODULE.RESOLVE_STEP]
+                self.assertIn("steps.tests.outcome == 'failure'", resolve["if"])
+                self.assertIn("cmux-e2e-selectors-unresolved", resolve["run"])
+        marker = next(step for step in action["runs"]["steps"] if "cmux-e2e-selectors-unresolved" in str(step.get("run")))
+        self.assertIn("steps.resolve-selectors.outcome == 'failure'", marker["if"])
 
 
 class MarkerTests(unittest.TestCase):

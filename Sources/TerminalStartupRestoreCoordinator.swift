@@ -32,21 +32,19 @@ final class TerminalStartupRestoreCoordinator {
     ///
     /// - Parameters:
     ///   - requestedPolicy: Timing policy selected by the terminal creation path.
-    ///   - willRunStartupCommand: Whether a restored agent command will run.
     ///   - willRunStartupInput: Whether a restored agent selector will be queued.
     ///   - awaitsDeferredAgentResume: Whether the ownership scan must decide
     ///     the first runtime's resume command after topology commit.
     /// - Returns: The requested policy with a restore gate when one is required.
     nonisolated func runtimeSpawnPolicy(
         requestedPolicy: TerminalSurfaceRuntimeSpawnPolicy,
-        willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
         awaitsDeferredAgentResume: Bool = false
     ) -> TerminalSurfaceRuntimeSpawnPolicy {
         if awaitsDeferredAgentResume {
             return requestedPolicy.requiringDeferredAgentResumeAdmission()
         }
-        return willRunStartupCommand || willRunStartupInput
+        return willRunStartupInput
             ? requestedPolicy.requiringStartupRestoreAdmission()
             : requestedPolicy
     }
@@ -62,7 +60,6 @@ final class TerminalStartupRestoreCoordinator {
     ///   - snapshot: Persisted agent launch data, when one is available.
     ///   - resumeBinding: Hook-owned fallback identity for snapshots without an agent payload.
     ///   - manualResumeAvailable: Whether the terminal retains a manual continuation.
-    ///   - willRunStartupCommand: Whether an agent restore starts as a terminal command.
     ///   - willRunStartupInput: Whether an agent restore selector is queued as terminal input.
     ///   - resumeWorkingDirectory: Working directory owned by the resumed agent launch.
     ///   - chatWorkingDirectory: Working directory used to resolve the resumed transcript.
@@ -75,7 +72,6 @@ final class TerminalStartupRestoreCoordinator {
         snapshot: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         manualResumeAvailable: Bool,
-        willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
         resumeWorkingDirectory: String?,
         chatWorkingDirectory: String? = nil,
@@ -88,7 +84,6 @@ final class TerminalStartupRestoreCoordinator {
             stagedWorkspaceID: panel.workspaceId,
             snapshot: snapshot,
             manualResumeAvailable: manualResumeAvailable,
-            willRunStartupCommand: willRunStartupCommand,
             willRunStartupInput: willRunStartupInput,
             defersStartupRestoreAdmission: defersStartupRestoreAdmission,
             resumeWorkingDirectory: resumeWorkingDirectory,
@@ -108,7 +103,6 @@ final class TerminalStartupRestoreCoordinator {
                 "agent": snapshot?.kind.rawValue ?? resumeBinding?.kind ?? "none",
                 "session": String((snapshot?.sessionId ?? resumeBinding?.checkpointId ?? "none").prefix(8)),
                 "binding": resumeBinding == nil ? "0" : "1",
-                "startupCommand": willRunStartupCommand ? "1" : "0",
                 "startupInput": willRunStartupInput ? "1" : "0",
                 "deferred": defersStartupRestoreAdmission ? "1" : "0"
             ]
@@ -181,7 +175,6 @@ final class TerminalStartupRestoreCoordinator {
                 panelId: panelID,
                 snapshot: pending.snapshot,
                 manualResumeAvailable: pending.manualResumeAvailable,
-                willRunStartupCommand: pending.willRunStartupCommand,
                 willRunStartupInput: pending.willRunStartupInput,
                 resumeWorkingDirectory: pending.resumeWorkingDirectory
             )
