@@ -128,7 +128,6 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
-          permission-contents: read
           permission-pull-requests: read
 
       - name: Watch runs on persistent pools
