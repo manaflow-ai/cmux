@@ -2,6 +2,7 @@ import CmuxCloud
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxHive
+import CmuxSettings
 import CmuxSettingsUI
 import CmuxSurfaceCatalogModel
 import Foundation
