@@ -200,6 +200,8 @@ export default function CustomCommandsPage() {
         <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
         <li><code>&quot;workspace&quot;</code>: {t("actionTypeWorkspace")}</li>
+        <li><code>&quot;setting&quot;</code>: {t("actionTypeSetting")}</li>
+        <li><code>&quot;settingPreset&quot;</code>: {t("actionTypeSettingPreset")}</li>
       </ul>
       <DocsHeading level={3} id="action-fields">{t("actionFields")}</DocsHeading>
       <ul>
@@ -218,6 +220,51 @@ export default function CustomCommandsPage() {
           palette: (chunks) => <code>{chunks}</code>,
           commands: (chunks) => <code>{chunks}</code>,
           newTerminal: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={3} id="setting-actions">{t("settingActions")}</DocsHeading>
+      <p>
+        {renderRawRich(t.raw("settingActionsDesc"), {
+          path: inlineCode,
+          set: inlineCode,
+          toggle: inlineCode,
+          cycle: inlineCode,
+          unset: inlineCode,
+          presets: inlineCode,
+        })}
+      </p>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">{`{
+  "actions": {
+    "scroll.cycle": {
+      "type": "setting",
+      "title": "Cycle Scroll Speed",
+      "path": "terminal.scrollSpeed",
+      "cycle": [1.0, 1.4, 1.8]
+    },
+    "editor.wrap": {
+      "type": "setting",
+      "title": "Toggle Editor Word Wrap",
+      "path": "fileEditor.wordWrap",
+      "toggle": true
+    },
+    "sidebar.quiet": {
+      "type": "settingPreset",
+      "title": "Quiet Sidebar",
+      "preset": "sidebar.quiet"
+    }
+  },
+  "settingPresets": {
+    "sidebar.quiet": {
+      "sidebar": { "showPorts": false, "showPullRequests": false, "showLog": false }
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {renderRawRich(t.raw("settingActionsCli"), {
+          set: inlineCode,
+          toggle: inlineCode,
+          preset: inlineCode,
         })}
       </p>
 

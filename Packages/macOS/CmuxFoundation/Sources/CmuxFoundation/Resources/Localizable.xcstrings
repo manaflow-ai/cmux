@@ -4955,6 +4955,360 @@
           }
         }
       }
+    },
+    "config.settingChange.unknownPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't a cmux setting. Run `cmux docs settings` to list them."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist keine cmux-Einstellung. Führe `cmux docs settings` aus, um alle aufzulisten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est pas un réglage cmux. Exécutez `cmux docs settings` pour les lister."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس إعدادًا في cmux. شغّل `cmux docs settings` لعرض الإعدادات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es un ajuste de cmux. Ejecuta `cmux docs settings` para ver la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 cmux 設定。執行 `cmux docs settings` 可列出所有設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 cmux 设置。运行 `cmux docs settings` 可列出所有设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) cmux 설정이 아닙니다. `cmux docs settings`를 실행해 목록을 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は cmux の設定ではありません。`cmux docs settings` を実行すると一覧を表示できます。"
+          }
+        }
+      }
+    },
+    "config.settingChange.notASetting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't a setting. Edit that section of cmux.json directly."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist keine Einstellung. Bearbeite diesen Abschnitt von cmux.json direkt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est pas un réglage. Modifiez directement cette section de cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس إعدادًا. عدّل هذا القسم من cmux.json مباشرةً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es un ajuste. Edita esa sección de cmux.json directamente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是設定。請直接編輯 cmux.json 的該區段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是设置。请直接编辑 cmux.json 的该部分。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) 설정이 아닙니다. cmux.json의 해당 섹션을 직접 편집하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は設定ではありません。cmux.json の該当セクションを直接編集してください。"
+          }
+        }
+      }
+    },
+    "config.settingChange.notBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't true or false, so it can't be toggled."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist nicht true oder false und kann daher nicht umgeschaltet werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est ni true ni false et ne peut donc pas être basculé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس true أو false، لذا لا يمكن تبديله."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es true ni false, así que no se puede alternar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 true 或 false,因此無法切換。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 true 或 false,因此无法切换。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) true나 false가 아니므로 전환할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は true でも false でもないため、切り替えられません。"
+          }
+        }
+      }
+    },
+    "config.settingChange.emptyCycle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycling '%@' needs at least one value."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Durchschalten von '%@' ist mindestens ein Wert nötig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire défiler '%@' nécessite au moins une valeur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب التنقّل بين قيم '%@' قيمة واحدة على الأقل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para alternar entre valores de '%@' se necesita al menos un valor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "循環切換 '%@' 至少需要一個值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "循环切换 '%@' 至少需要一个值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 값을 순환하려면 값이 하나 이상 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' を順に切り替えるには、少なくとも 1 つの値が必要です。"
+          }
+        }
+      }
+    },
+    "config.settingChange.unknownPreset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No setting preset named '%@'. Add it under settingPresets in ~/.config/cmux/cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es gibt keine Einstellungsvorlage namens '%@'. Füge sie unter settingPresets in ~/.config/cmux/cmux.json hinzu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun préréglage nommé '%@'. Ajoutez-le sous settingPresets dans ~/.config/cmux/cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد إعداد مسبق باسم '%@'. أضفه ضمن settingPresets في ~/.config/cmux/cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún preajuste llamado '%@'. Añádelo en settingPresets en ~/.config/cmux/cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為 '%@' 的設定預設組。請在 ~/.config/cmux/cmux.json 的 settingPresets 下新增。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为 '%@' 的设置预设。请在 ~/.config/cmux/cmux.json 的 settingPresets 下添加。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'(이)라는 설정 프리셋이 없습니다. ~/.config/cmux/cmux.json의 settingPresets 아래에 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' という名前の設定プリセットはありません。~/.config/cmux/cmux.json の settingPresets に追加してください。"
+          }
+        }
+      }
+    },
+    "config.settingChange.invalidPreset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting preset '%@' must be an object of settings, for example {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsvorlage '%@' muss ein Objekt mit Einstellungen sein, zum Beispiel {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le préréglage '%@' doit être un objet de réglages, par exemple {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون الإعداد المسبق '%@' كائنًا من الإعدادات، مثل {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El preajuste '%@' debe ser un objeto de ajustes, por ejemplo {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定預設組 '%@' 必須是設定物件,例如 {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置预设 '%@' 必须是设置对象,例如 {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 프리셋 '%@'은(는) 설정 객체여야 합니다. 예: {\"sidebar\": {\"showPorts\": false}}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定プリセット '%@' は設定のオブジェクトである必要があります。例: {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

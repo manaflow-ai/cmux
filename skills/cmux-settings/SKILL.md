@@ -37,6 +37,8 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 
 `--file <path>` overrides the target file. Scope is inferred from the real global paths and the project config discovered from the current directory; use `--scope global|project` to override that inference for an arbitrary file.
 
+The installed `cmux` CLI covers the common edits without the helper: `cmux config get|set|unset|toggle|cycle <path>` and `cmux config preset <name>` validate against the same schema, keep comments, and write `~/.config/cmux/cmux.json`. They share one write path with `"type": "setting"` and `"type": "settingPreset"` actions, which put the same edits on a tab bar button, shortcut, or Command Palette entry. Use the helper when you need `--preview`, receipts, `undo`, or a file other than the global config.
+
 ## Workflow
 
 1. Look up the key when the user named a setting in plain English:
