@@ -4021,7 +4021,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     /// The alternate-screen state read on the last gesture press, reused by its
     /// auto-repeats so a held chord does not serialize the viewport per repeat.
-    private var textEditingGestureAlternateScreenAtPress: Bool?
+    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -6356,11 +6356,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // answer from the press that started it.
         if !textEditingGesturesInFullScreenApps {
             let onAlternateScreen: Bool
-            if event.isARepeat, let cached = textEditingGestureAlternateScreenAtPress {
-                onAlternateScreen = cached
+            if event.isARepeat,
+               let cached = textEditingGestureAlternateScreenAtPress,
+               cached.keyCode == event.keyCode {
+                onAlternateScreen = cached.onAlternateScreen
             } else {
                 onAlternateScreen = terminalSurface?.isAlternateScreenActive() == true
-                textEditingGestureAlternateScreenAtPress = onAlternateScreen
+                textEditingGestureAlternateScreenAtPress = (event.keyCode, onAlternateScreen)
             }
             guard !onAlternateScreen else { return false }
         }
@@ -6670,6 +6672,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -6782,6 +6785,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
+            textEditingGestureAlternateScreenAtPress = nil
             desiredFocus = false
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
@@ -7054,6 +7058,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        // A fresh press invalidates the gesture's alternate-screen answer before
+        // any early return, so a later repeat never reuses one from another key.
+        if !event.isARepeat { textEditingGestureAlternateScreenAtPress = nil }
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
