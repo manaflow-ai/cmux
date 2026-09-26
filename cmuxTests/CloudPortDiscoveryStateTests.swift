@@ -38,6 +38,20 @@ struct CloudPortDiscoveryStateTests {
         #expect(CmuxTuiSurfaceProvider.portScan(from: VMExecResult(exitCode: 127, stdout: "", stderr: "missing")) == nil)
     }
 
+    @Test("System loopback aliases such as systemd-resolved's stub are not other-interface services")
+    func loopbackAliasesAreIgnored() throws {
+        let resolved = """
+        LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*
+        LISTEN 0 4096 127.0.0.54:53 0.0.0.0:*
+        """
+        let idle = try #require(CloudPortScanResult(socketListing: resolved))
+        #expect(idle.otherBindingPorts == [])
+        #expect(idle.state == .empty(.noListeningService))
+        let zoned = try #require(CloudPortScanResult(socketListing: resolved + "\nLISTEN 0 128 127.0.0.1%lo:3000 0.0.0.0:*"))
+        #expect(zoned.ports == [3000])
+        #expect(zoned.state == .loopbackOnly)
+    }
+
     @Test("No scan runs without demand; first demand publishes loading before a result")
     func demandAndCompletion() {
         var discovery = readyDiscovery()
