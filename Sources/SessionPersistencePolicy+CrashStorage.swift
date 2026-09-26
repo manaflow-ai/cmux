@@ -72,13 +72,16 @@ extension SessionPersistencePolicy {
         var removedAny = false
         var pathCache: [String: Bool] = [:]
         var windows: [SessionWindowSnapshot] = []
+        var phantomWindowCount = 0
         for window in snapshot.windows {
             // A window with no workspaces and no window Dock is a phantom "empty
             // shell" (seen after an unclean shutdown, #6646). Restoring it still
             // builds a real NSWindow, and several at launch have been reported to
             // wedge the WindowServer, so it is never persisted or replayed.
+            // Dropping one is not crash-diagnostic data: `removedAny` stays false
+            // so save paths do not delete the primary or set the crash-only marker.
             guard !window.isPhantomSessionWindow else {
-                removedAny = true
+                phantomWindowCount += 1
                 continue
             }
             let result = pruningCmuxCrashDiagnosticWorkspaces(
@@ -92,7 +95,7 @@ extension SessionPersistencePolicy {
             }
         }
 
-        if windows.count != snapshot.windows.count {
+        if windows.count + phantomWindowCount != snapshot.windows.count {
             removedAny = true
         }
         guard !windows.isEmpty else {

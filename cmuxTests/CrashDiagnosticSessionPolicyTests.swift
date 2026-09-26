@@ -168,7 +168,7 @@ struct CrashDiagnosticSessionPolicyTests {
 
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: mixed)
 
-        #expect(pruned.removedAny)
+        #expect(!pruned.removedAny)
         #expect(pruned.snapshot?.windows.count == 2)
         #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
         #expect(pruned.snapshot?.windows.last?.dock != nil)
@@ -180,7 +180,8 @@ struct CrashDiagnosticSessionPolicyTests {
             windows: [window(workspaces: []), window(workspaces: []), window(workspaces: [])]
         )
         let prunedAllPhantom = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: allPhantom)
-        #expect(prunedAllPhantom.removedAny)
+        // Not crash-diagnostic data: callers must not treat it as such.
+        #expect(!prunedAllPhantom.removedAny)
         #expect(prunedAllPhantom.snapshot == nil)
     }
 
