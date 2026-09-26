@@ -1277,7 +1277,8 @@ def decide(
 
     `routed_since` runs were created after the snapshot and each already took
     a pool by this rule; they are replayed first. `placed` counts runs created
-    since the snapshot whose pool is already known (an E2E run names it), one
+    since the snapshot whose pool is already known (an E2E run naming a
+    Blacksmith pool; e2e_runner_pool passes owned ones as `owned_since`), one
     job each. `auto_xcode` (a fork run, which has no pins) lets every pool
     fall back to each job selecting its pool's newest SDK 26 Xcode.
     `choose_from` limits the final pick to some pools of the order (E2E stays
