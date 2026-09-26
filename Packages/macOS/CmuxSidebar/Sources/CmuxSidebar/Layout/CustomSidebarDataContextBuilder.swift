@@ -134,14 +134,19 @@ public struct CustomSidebarDataContextBuilder {
             ])
         }
         if !workspace.agents.isEmpty {
-            fields["agents"] = .array(workspace.agents.map(agentValue(_:)))
+            fields["agents"] = .array(workspace.agents.map {
+                agentValue($0, workspaceId: workspace.id)
+            })
         }
         return .object(fields)
     }
 
     /// Projects one agent-session snapshot into the interpreter value tree
     /// (`workspaces[i].agents[j]`). Optional fields are omitted when absent.
-    public func agentValue(_ agent: CustomSidebarAgentSnapshot) -> SwiftValue {
+    public func agentValue(
+        _ agent: CustomSidebarAgentSnapshot,
+        workspaceId: UUID? = nil
+    ) -> SwiftValue {
         var fields: [String: SwiftValue] = [
             "id": .string(agent.sessionId),
             "kind": .string(agent.kind),
@@ -149,6 +154,9 @@ public struct CustomSidebarDataContextBuilder {
             "status": .string(agent.status),
             "lastActivityAt": .int(Int(agent.lastActivityAt.timeIntervalSince1970)),
         ]
+        if let workspaceId {
+            fields["workspaceId"] = .string(workspaceId.uuidString)
+        }
         if let since = agent.stateSince {
             fields["sinceEpoch"] = .int(Int(since.timeIntervalSince1970))
         }

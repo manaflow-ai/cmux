@@ -298,20 +298,23 @@ with:
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
   the workspace's terminals, most recent first; omitted when none). Each
-  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
-  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
-  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
-  current working/needs-input state began), `title` (first user prompt),
-  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
-  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
-  session, oldest first; omitted when none). Each `children[k]` has `id`
-  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
-  when available it adds `label` and `endedEpoch` (set when the child
-  settles; settled children are pruned after a short retention). Headless
-  OMP/Pi subagents run inside the parent's process, so they appear here via
-  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
-  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  `agents[j]` always has `id`, `workspaceId` (the containing workspace's
+  stable id), `kind` (`claude`/`codex`/raw source), `name` (display name),
+  `status` (`idle`|`working`|`needs_input`|`ended`), and `lastActivityAt`
+  (epoch); when available it adds `sinceEpoch` (when the current
+  working/needs-input state began), `title` (first user prompt), `panelId`
+  (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting tab's
+  `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `transcriptPath`, and `pid`. Use `workspaceId` as the roster key when a
+  session may restart: `id` identifies the current agent session and can
+  change after a restart. Each agent may also include `children` (nested
+  subagent runs under the session, oldest first; omitted when none). Each
+  `children[k]` has `id` (stable for the child's lifetime), `running` (Bool),
+  and `startedEpoch`; when available it adds `label` and `endedEpoch` (set
+  when the child settles; settled children are pruned after a short
+  retention). Headless OMP/Pi subagents run inside the parent's process, so
+  they appear here via `cmux hooks omp|pi subagent-start|subagent-stop` with
+  JSON `{"session_id": "<parent session>", "agent_id": "<stable child id>",
   "description": "<child label>"}`: start opens the child on the parent
   record, stop closes it by `agent_id` (or the oldest running child when the
   id is absent).

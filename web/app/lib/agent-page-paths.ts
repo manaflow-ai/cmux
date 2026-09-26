@@ -12,6 +12,7 @@ import {
   fallbackContentLocales,
   jobsContentLocales,
   featureWorkflowContentLocales,
+  customSidebarDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
@@ -207,6 +208,7 @@ export const agentReadablePages = [
   { path: "/docs/vault", title: "Vault", locales: featureWorkflowContentLocales },
   { path: "/docs/task-manager", title: "Task Manager", locales: featureWorkflowContentLocales },
   { path: "/docs/custom-commands", title: "Custom Commands" },
+  { path: "/docs/custom-sidebars", title: "Custom Sidebars", locales: customSidebarDocsLocales },
   { path: "/docs/dock", title: "Dock" },
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
   { path: "/docs/api", title: "CLI Reference" },

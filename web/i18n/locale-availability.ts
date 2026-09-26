@@ -15,6 +15,11 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+export const customSidebarDocsLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
 export const managedPoliciesDocsLocales = [
   "en",
   "ja",
