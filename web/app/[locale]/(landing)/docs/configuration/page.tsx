@@ -484,6 +484,7 @@ working-directory = ~/code`}</CodeBlock>
           <code>filePreviewTextEditorFocus</code>, <code>simulatorFocus</code>,{" "}
           <code>terminalFocus</code>,{" "}
           <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
+          <code>terminalAlternateScreen</code>,{" "}
           <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>
         <li>
