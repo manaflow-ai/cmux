@@ -154,6 +154,7 @@ extension MobileShellComposite {
         agentFeedSnapshotsByMac = [:]
         agentFeedPendingReplyRequestIDs = []
         agentFeedPendingTerminalReplyItemIDs = []
+        agentFeedFailedTerminalReplies = [:]
         agentFeedLocalRepliesByItemID = [:]
         agentFeedTriageOverridesByItemID = [:]
         agentFeedItems = []
@@ -440,15 +441,23 @@ extension MobileShellComposite {
               item.userReply == nil,
               agentFeedLocalRepliesByItemID[item.id] == nil,
               let workspaceID = item.remoteWorkspaceID,
-              let surfaceID = item.remoteSurfaceID,
-              let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {
+              let surfaceID = item.remoteSurfaceID else {
             return false
         }
         guard !agentFeedPendingTerminalReplyItemIDs.contains(item.id) else { return false }
+        guard let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {
+            // The owning Mac is not connected: nothing was typed.
+            agentFeedFailedTerminalReplies[item.id] = MobileAgentFeedFailedReply(
+                text: trimmed, delivery: .notSent
+            )
+            return false
+        }
+        agentFeedFailedTerminalReplies[item.id] = nil
         agentFeedPendingTerminalReplyItemIDs.insert(item.id)
         defer { agentFeedPendingTerminalReplyItemIDs.remove(item.id) }
+        let request: Data
         do {
-            let request = try MobileCoreRPCClient.requestData(
+            request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.paste",
                 params: [
                     "workspace_id": workspaceID,
@@ -460,10 +469,20 @@ extension MobileShellComposite {
                     "feed_event_id": item.itemID,
                 ]
             )
+        } catch {
+            agentFeedFailedTerminalReplies[item.id] = MobileAgentFeedFailedReply(
+                text: trimmed, delivery: .notSent
+            )
+            return false
+        }
+        do {
             let responseData = try await target.client.sendRequest(request)
             guard try MobileTerminalPasteResponse.decode(responseData).submitted else {
                 agentFeedLog.error(
                     "terminal reply accepted text but submit key failed mac=\(item.macDeviceID, privacy: .public)"
+                )
+                agentFeedFailedTerminalReplies[item.id] = MobileAgentFeedFailedReply(
+                    text: trimmed, delivery: .unconfirmed
                 )
                 return false
             }
@@ -478,6 +497,10 @@ extension MobileShellComposite {
         } catch {
             agentFeedLog.error(
                 "terminal reply failed mac=\(item.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .private)"
+            )
+            // The request may have reached the Mac before the error.
+            agentFeedFailedTerminalReplies[item.id] = MobileAgentFeedFailedReply(
+                text: trimmed, delivery: .unconfirmed
             )
             return false
         }

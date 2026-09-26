@@ -447,6 +447,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var agentFeedPendingReplyRequestIDs: Set<String> = []
     /// Completed-turn rows with a terminal reply currently being delivered.
     public internal(set) var agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID> = []
+    /// Terminal replies that failed, keyed by row, until the user retries or
+    /// a later send to that row succeeds.
+    public internal(set) var agentFeedFailedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
     var agentFeedKnownRevisionsByMac: [String: Int] = [:]
     /// Free-text terminal replies this device sent, keyed by the replied row,

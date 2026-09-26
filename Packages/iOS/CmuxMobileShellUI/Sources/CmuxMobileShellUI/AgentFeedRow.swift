@@ -13,6 +13,8 @@ struct AgentFeedActions {
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
     /// Opens the X-style reply composer sheet; rows never host a keyboard.
     var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
+    /// Reopens the reply composer with a failed reply's text.
+    var retryTerminalReply: @MainActor (MobileAgentFeedItem, String) -> Void = { _, _ in }
     /// Opens the event's current tab when available, or its workspace when it
     /// has no live tab target. The menu intentionally presents one action for
     /// both destinations.
@@ -96,6 +98,8 @@ struct AgentFeedRow: View, Equatable {
     /// Settings > Display > Show Tab in Feed: append the event's tab to its
     /// workspace in the author line.
     var showsTab = false
+    /// This row's last terminal reply, when it failed to send.
+    var failedReply: MobileAgentFeedFailedReply?
     let actions: AgentFeedActions
 
     /// Rows re-render only when their item, pending flag, time reference, or
@@ -106,6 +110,7 @@ struct AgentFeedRow: View, Equatable {
             && lhs.now == rhs.now
             && lhs.bubbleQuotes == rhs.bubbleQuotes
             && lhs.showsTab == rhs.showsTab
+            && lhs.failedReply == rhs.failedReply
     }
 
     var body: some View {
@@ -160,7 +165,11 @@ struct AgentFeedRow: View, Equatable {
                             reference: model.presentation.replyReferenceSnippet
                         )
                     }
-                    replyButton
+                    if let failedReply, model.item.userReply == nil, !isReplyPending {
+                        failedReplyLine(failedReply)
+                    } else {
+                        replyButton
+                    }
                 }
             }
         }
@@ -381,6 +390,47 @@ struct AgentFeedRow: View, Equatable {
         .disabled(isReplyPending || model.item.userReply != nil)
         .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
+    }
+
+    /// A reply that did not finish. The user's text is kept for Retry. When
+    /// the reply may already be in the terminal, the row says so and offers
+    /// the terminal first, so a retry never types the text twice unseen.
+    private func failedReplyLine(_ failure: MobileAgentFeedFailedReply) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label {
+                Text(failure.delivery == .notSent
+                    ? String(localized: "mobile.agentFeed.reply.failed.notSent",
+                             defaultValue: "Reply not sent.", bundle: .module)
+                    : String(localized: "mobile.agentFeed.reply.failed.unconfirmed",
+                             defaultValue: "Couldn’t confirm your reply was sent. Check the terminal before retrying.",
+                             bundle: .module))
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.circle")
+            }
+            .font(.footnote)
+            .foregroundStyle(.red)
+            HStack(spacing: 20) {
+                Button(String(localized: "mobile.agentFeed.retry",
+                              defaultValue: "Try Again", bundle: .module)) {
+                    actions.retryTerminalReply(model.item, failure.text)
+                }
+                .accessibilityIdentifier("MobileAgentFeedReplyRetry")
+                if failure.delivery == .unconfirmed, canOpenDestination {
+                    Button(String(localized: "mobile.agentFeed.reply.failed.openTerminal",
+                                  defaultValue: "Open Terminal", bundle: .module)) {
+                        actions.openDestination(model.item)
+                    }
+                    .accessibilityIdentifier("MobileAgentFeedReplyOpenTerminal")
+                }
+            }
+            .font(.footnote.weight(.medium))
+            .buttonStyle(.borderless)
+            .frame(minHeight: 44, alignment: .leading)
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentFeedReplyFailed")
     }
 
     private var replyButtonTitle: String {

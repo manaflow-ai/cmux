@@ -113,6 +113,10 @@ struct MobileAgentFeedTerminalReplyTests {
         #expect(store.agentFeedItems.first?.userReply == nil)
         #expect(store.agentFeedPendingTerminalReplyItemIDs.isEmpty)
         #expect(await router.pastes.count == 1)
+        // The text reached the terminal, so the row must not offer a silent
+        // resend; it keeps the text and reports that delivery is unconfirmed.
+        #expect(store.agentFeedFailedTerminalReplies[row.id]
+            == MobileAgentFeedFailedReply(text: "Continue", delivery: .unconfirmed))
     }
 
     @Test("A stale row cannot submit a second reply after success")
@@ -180,5 +184,7 @@ struct MobileAgentFeedTerminalReplyTests {
         #expect(await store.submitAgentFeedTerminalReply(row, text: "Continue") == false)
         #expect(await router.pastes.isEmpty)
         #expect(store.agentFeedItems.first?.userReply == nil)
+        #expect(store.agentFeedFailedTerminalReplies[row.id]
+            == MobileAgentFeedFailedReply(text: "Continue", delivery: .notSent))
     }
 }

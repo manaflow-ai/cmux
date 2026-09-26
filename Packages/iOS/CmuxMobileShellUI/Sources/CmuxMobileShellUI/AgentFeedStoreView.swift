@@ -21,6 +21,7 @@ struct AgentFeedStoreView: View {
             status: status,
             pendingReplyRequestIDs: pendingReplyRequestIDs,
             pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
+            failedTerminalReplies: store.agentFeedFailedTerminalReplies,
             refreshesOnAppear: true,
             actions: actions,
             searchText: searchCoordinator.searchDestinationText(for: .feed)

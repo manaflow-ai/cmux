@@ -13,6 +13,8 @@ struct AgentFeedComposeContext: Identifiable {
 
     let item: MobileAgentFeedItem
     let kind: Kind
+    /// Text to start from, such as a failed reply being retried.
+    var initialDraft = ""
 
     var id: String {
         "\(item.id.macDeviceID)|\(item.id.macInstanceTag ?? "")|\(item.id.itemID)|\(kind)"
@@ -48,6 +50,9 @@ struct AgentFeedReplyComposer: View {
                 .padding(.top, 12)
             }
             .scrollDismissesKeyboard(.interactively)
+            .onAppear {
+                if draft.isEmpty { draft = context.initialDraft }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

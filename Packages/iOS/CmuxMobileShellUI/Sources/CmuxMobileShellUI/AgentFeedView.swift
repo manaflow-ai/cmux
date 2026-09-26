@@ -16,6 +16,7 @@ struct AgentFeedView: View {
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
+    var failedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
     let refreshesOnAppear: Bool
     let actions: AgentFeedActions
     var searchText: String = ""
@@ -30,6 +31,9 @@ struct AgentFeedView: View {
         var rowActions = actions
         rowActions.beginCompose = { item, kind in
             composeContext = AgentFeedComposeContext(item: item, kind: kind)
+        }
+        rowActions.retryTerminalReply = { item, text in
+            composeContext = AgentFeedComposeContext(item: item, kind: .terminalReply, initialDraft: text)
         }
         rowActions.viewFullText = { readingItem = $0 }
         return rowActions
@@ -128,6 +132,7 @@ struct AgentFeedView: View {
                             now: now,
                             bubbleQuotes: displaySettings.feedBubbleQuotes,
                             showsTab: displaySettings.feedShowsTab,
+                            failedReply: failedTerminalReplies[item.id],
                             actions: rowActions
                         )
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
