@@ -3687,7 +3687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
             return
         }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+        defaults.setIfChanged(data, forKey: Self.persistedWindowGeometryDefaultsKey)
     }
 
     private nonisolated static func encodedPersistedWindowGeometryData(
@@ -3700,7 +3700,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: frame,
             display: display
         )
-        return try? JSONEncoder().encode(payload)
+        // Sorted keys keep the bytes stable so autosave can skip unchanged writes.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(payload)
     }
 
     nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
@@ -3714,7 +3717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func removeLegacyPersistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) {
-        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
+        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObjectIfPresent(forKey: $0) }
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -5046,9 +5049,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Persistence can outlive its main-actor owner; retain only the Sendable
         // store so finishing a write cannot destroy AppDelegate on this queue.
         let writeBlock = { [sessionSnapshotStore] in
+            // Autosave runs every few seconds. Only write defaults that changed:
+            // each set/remove posts didChangeNotification even when it is a no-op,
+            // waking every defaults observer and SwiftUI's @AppStorage lock.
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
-                UserDefaults.standard.set(
+                UserDefaults.standard.setIfChanged(
                     persistedGeometryData,
                     forKey: Self.persistedWindowGeometryDefaultsKey
                 )
