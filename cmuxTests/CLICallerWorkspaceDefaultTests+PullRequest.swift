@@ -7,7 +7,7 @@ extension CLICallerWorkspaceDefaultTests {
 
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "linked-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "fake-git-directory", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "linked-worktree", "sibling-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "fake-git-directory", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -113,7 +113,7 @@ extension CLICallerWorkspaceDefaultTests {
                     }
                 }
                 return fake.path
-            case "linked-worktree":
+            case "linked-worktree", "sibling-worktree":
                 return linkedWorktree.path
             default:
                 return worktreePath
@@ -136,7 +136,7 @@ extension CLICallerWorkspaceDefaultTests {
                 return Self.v2Response(id: id, ok: true, result: ["windows": [["id": Self.focusedWorkspaceId]]])
             case "workspace.list":
                 var rows = [["id": Self.otherWorkspaceId, "current_directory": workspaceDirectory, "remote": ["enabled": false]] as [String: Any]]
-                if ["ambiguous", "nested-valid", "nested-child-valid"].contains(scenario) {
+                if ["ambiguous", "nested-valid", "nested-child-valid", "sibling-worktree"].contains(scenario) {
                     rows.append(["id": Self.focusedWorkspaceId, "current_directory": worktreePath])
                 }
                 return Self.v2Response(id: id, ok: true, result: ["workspaces": rows])
@@ -153,7 +153,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "fork-number": environment["GH_FORK"] = "1"
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
-        case "worktree", "linked-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "fake-git-directory", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        case "worktree", "linked-worktree", "sibling-worktree", "missing-directory", "nested-repository", "nested-valid", "nested-child", "nested-child-valid", "fake-git-directory", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.hexWindowId.lowercased()]
         case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.focusedWorkspaceId]
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
@@ -192,7 +192,7 @@ extension CLICallerWorkspaceDefaultTests {
         #expect(mutations.count == 1)
         let expected = ["explicit", "tty", "window", "worktree", "linked-worktree", "fake-git-directory"].contains(scenario)
             ? Self.otherWorkspaceId
-            : (["nested-valid", "nested-child-valid"].contains(scenario) ? Self.focusedWorkspaceId : Self.callerWorkspaceId)
+            : (["nested-valid", "nested-child-valid", "sibling-worktree"].contains(scenario) ? Self.focusedWorkspaceId : Self.callerWorkspaceId)
         #expect(mutation.contains("--tab=\(expected)"))
         if scenario == "clear" {
             #expect(mutation.contains("clear_workspace_pr"))
