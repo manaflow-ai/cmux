@@ -479,7 +479,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+    func testDefaultFreestyleCloudSplitRoutesToCloudAndRepairsRawSSHStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -507,13 +507,29 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        let splitPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        // The workspace's startup command is repaired from the raw `ssh` form to the
+        // default-freestyle `vm-pty-attach` attach for every local terminal it spawns.
+        let repairedCommand = try XCTUnwrap(
+            workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration)
         )
-        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
-        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
-        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
-        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+        XCTAssertTrue(repairedCommand.contains("vm-pty-attach"), repairedCommand)
+        XCTAssertTrue(repairedCommand.contains("--default-freestyle-sshd"), repairedCommand)
+        XCTAssertFalse(repairedCommand.contains("ssh -p 22"), repairedCommand)
+
+        // A split from the managed-Cloud SSH pane is Cloud-owned (fa5dc4cc10): it routes
+        // to the machine's provider and fails closed without one, never spawning a local
+        // shell next to the remote pane.
+        XCTAssertEqual(workspace.machineOwningSurface(remotePanelId), .cloud("71smiccrg35sw9pydt8k"))
+        let panelIdsBeforeSplit = Set(workspace.panels.keys)
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: remotePanelId, orientation: .horizontal, focus: false
+        )
+        XCTAssertFalse(outcome.isAccepted)
+        XCTAssertNil(outcome.panel)
+        XCTAssertEqual(Set(workspace.panels.keys), panelIdsBeforeSplit)
+        let failure = try XCTUnwrap(workspace.cloudPaneCreationFailureStore.failure)
+        XCTAssertEqual(failure.machine, .cloud("71smiccrg35sw9pydt8k"))
+        XCTAssertEqual(failure.sourcePanelID, remotePanelId)
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
@@ -2164,10 +2180,28 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
+        // A workspace's LAST surface is not closed by the shortcut at all: with
+        // the close-on-last-surface preference enabled (its default) the close
+        // is escalated to the window-close path, which a window-less test
+        // TabManager cannot perform, so nothing closes and nothing is cleared.
+        // Give the workspace a second surface so the shortcut closes the
+        // surface itself, which is what this test is about.
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected workspace with two terminal surfaces")
             return
+        }
+        workspace.focusPanel(initialPanelId)
+        // Close confirmation is orthogonal to notification clearing, and the
+        // ambient warn-before-closing default would otherwise decide whether
+        // the surface closes at all.
+        initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        manager.confirmCloseHandler = { _, _, _ in
+            XCTFail("Close confirmation must not be required for this surface")
+            return false
         }
 
         store.addNotification(
@@ -2183,6 +2217,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
+        XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 
@@ -2461,7 +2496,7 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
     }
 
-    func testClosingSelectedTabInZoomedPaneClearsSplitZoomBeforeSelectingNextTab() {
+    func testClosingSelectedTabInZoomedPaneKeepsZoomAndFocusesNextTab() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let firstPanelId = workspace.focusedPanelId,
@@ -2481,15 +2516,18 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected the surviving tab in the pane to become focused")
-        XCTAssertFalse(
+        // The zoomed pane outlives the close, so it keeps filling the window
+        // (https://github.com/manaflow-ai/cmux/issues/8363). Zoom state itself
+        // is covered by WorkspaceSplitZoomTabCloseTests.
+        XCTAssertTrue(
             workspace.bonsplitController.isSplitZoomed,
-            "Closing the selected tab that owns zoom must not transfer the maximized layout to the next tab"
+            "Closing one tab of a zoomed pane that still has tabs must keep the pane zoomed"
         )
         XCTAssertTrue(
             workspace.toggleSplitZoom(panelId: firstPanelId),
-            "The surviving tab should still be zoomable on demand"
+            "The surviving tab should still control the zoom"
         )
-        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
     }
 
     func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
@@ -3167,6 +3205,119 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
         XCTAssertEqual(leftStack.dividerPosition, 0.5, accuracy: 0.000_1)
         XCTAssertEqual(topRow.orientation, "horizontal")
         XCTAssertEqual(topRow.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+}
+
+/// `app.equalizeSplitsOnCreate` (issue #731): creating a split rebalances the
+/// panes along the new split's axis instead of halving the source pane.
+@MainActor
+final class TabManagerEqualizeSplitsOnCreateTests: XCTestCase {
+    private let defaultsKey = SettingCatalog().app.equalizeSplitsOnCreate.userDefaultsKey
+    private var savedValue: Any?
+
+    override func setUp() {
+        super.setUp()
+        savedValue = UserDefaults.standard.object(forKey: defaultsKey)
+    }
+
+    override func tearDown() {
+        if let savedValue {
+            UserDefaults.standard.set(savedValue, forKey: defaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: defaultsKey)
+        }
+        super.tearDown()
+    }
+
+    func testCreateSplitHalvesSourcePaneWhenSettingIsOff() throws {
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        let root = try makeThreeColumnRoot()
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 0.5, accuracy: 0.000_1)
+        let inner = try XCTUnwrap(splitNode(root.second))
+        XCTAssertEqual(inner.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
+    func testCreateSplitEqualizesSameAxisPanesWhenSettingIsOn() throws {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let root = try makeThreeColumnRoot()
+        XCTAssertEqual(root.orientation, "horizontal")
+        XCTAssertEqual(root.dividerPosition, 1.0 / 3.0, accuracy: 0.000_1)
+        let inner = try XCTUnwrap(splitNode(root.second))
+        XCTAssertEqual(inner.orientation, "horizontal")
+        XCTAssertEqual(inner.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
+    func testCreateSplitOnlyEqualizesTheNewSplitsOrientation() throws {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let top = try XCTUnwrap(workspace.focusedPanelId)
+        let bottom = try XCTUnwrap(manager.createSplit(tabId: workspace.id, surfaceId: top, direction: .down))
+
+        let verticalRoot = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        XCTAssertEqual(verticalRoot.orientation, "vertical")
+        let verticalSplitId = try XCTUnwrap(UUID(uuidString: verticalRoot.id))
+        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.3, forSplit: verticalSplitId, fromExternal: true))
+
+        let middle = try XCTUnwrap(manager.createSplit(tabId: workspace.id, surfaceId: bottom, direction: .right))
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: middle, direction: .right))
+
+        let root = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        XCTAssertEqual(root.orientation, "vertical")
+        XCTAssertEqual(root.dividerPosition, 0.3, accuracy: 0.000_1, "A horizontal split must not move vertical dividers")
+        let bottomRow = try XCTUnwrap(splitNode(root.second))
+        XCTAssertEqual(bottomRow.orientation, "horizontal")
+        XCTAssertEqual(bottomRow.dividerPosition, 1.0 / 3.0, accuracy: 0.000_1)
+    }
+
+    func testCreateSplitLeavesUnrelatedRowsAlone() throws {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let top = try XCTUnwrap(workspace.focusedPanelId)
+        let bottom = try XCTUnwrap(manager.createSplit(tabId: workspace.id, surfaceId: top, direction: .down))
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: top, direction: .right))
+
+        let beforeRoot = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        let topRow = try XCTUnwrap(splitNode(beforeRoot.first))
+        XCTAssertEqual(topRow.orientation, "horizontal")
+        let topRowId = try XCTUnwrap(UUID(uuidString: topRow.id))
+        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.2, forSplit: topRowId, fromExternal: true))
+
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: bottom, direction: .right))
+
+        let root = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        let topRowAfter = try XCTUnwrap(splitNode(root.first))
+        XCTAssertEqual(topRowAfter.dividerPosition, 0.2, accuracy: 0.000_1, "A split in the bottom row must not reset the top row")
+        let bottomRow = try XCTUnwrap(splitNode(root.second))
+        XCTAssertEqual(bottomRow.dividerPosition, 0.5, accuracy: 0.000_1)
+    }
+
+    func testExplicitDividerPositionWinsOverEqualizeOnCreate() throws {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let first = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertNotNil(manager.newSplit(tabId: workspace.id, surfaceId: first, direction: .right, initialDividerPosition: 0.25))
+
+        let root = try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+        XCTAssertEqual(root.dividerPosition, 0.25, accuracy: 0.000_1)
+    }
+
+    /// Splits right twice from the initial pane, the Cmd+D sequence in #731.
+    private func makeThreeColumnRoot() throws -> ExternalSplitNode {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let first = try XCTUnwrap(workspace.focusedPanelId)
+        let second = try XCTUnwrap(manager.createSplit(tabId: workspace.id, surfaceId: first, direction: .right))
+        XCTAssertNotNil(manager.createSplit(tabId: workspace.id, surfaceId: second, direction: .right))
+        return try XCTUnwrap(splitNode(workspace.bonsplitController.treeSnapshot()))
+    }
+
+    private func splitNode(_ node: ExternalTreeNode) -> ExternalSplitNode? {
+        if case .split(let split) = node { return split }
+        return nil
     }
 }
 

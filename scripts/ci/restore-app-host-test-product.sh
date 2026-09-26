@@ -1,9 +1,81 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export CMUX_RESTORE_STARTED_NS="$(python3 -c 'import time; print(time.monotonic_ns())')"
+report_restore_measurement() {
+  local status="$?"
+  set +e
+  CMUX_RESTORE_STATUS="$status" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import time
+
+archive = Path(os.environ["RUNNER_TEMP"]) / "app-host-products/app-host-products.tar.gz"
+layer_hit = os.environ.get("CMUX_LAYER_RESTORED") == "true"
+elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_NS"])) / 1_000_000_000)
+# Compile admission restoring the archive it just packaged, for the changed
+# suites it runs itself: no transport was involved.
+producer_hit = os.environ.get("CMUX_PRODUCT_FROM_PRODUCER") == "true"
+local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
+peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
+r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
+parallel_hit = os.environ.get("CMUX_PARALLEL_PRODUCT_HIT") == "true"
+record = {
+    "outcome": "success" if os.environ.get("CMUX_RESTORE_STATUS") == "0" else "failure",
+    "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "disabled",
+    "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+    "repository": os.environ["GITHUB_REPOSITORY"],
+    # test-e2e.yml's build job on an owned Mac restores its own archive
+    # before it uploads it, so there is no artifact yet.
+    "artifact_id": int(os.environ["ARTIFACT_ID"]) if os.environ.get("ARTIFACT_ID") else None,
+    "provider_digest": os.environ.get("ARTIFACT_PROVIDER_DIGEST") or None,
+    "archive_sha256": os.environ["EXPECTED_SHA256"],
+    "product_contract": os.environ["CMUX_PRODUCT_CONTRACT"],
+    "source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"],
+    "producer_run_id": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ID"]),
+    "producer_run_attempt": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT"]),
+    "archive_bytes": archive.stat().st_size if archive.is_file() else 0,
+    "layer_hit": layer_hit,
+    "elapsed_seconds": round(elapsed, 6),
+    "lookup_source": (
+        "producer" if producer_hit else
+        "local" if local_hit else
+        "peer" if peer_hit else
+        "layers-github" if layer_hit else
+        "r2" if r2_hit else
+        "github-parallel" if parallel_hit else
+        "github"
+    ),
+    "local_hit": local_hit,
+    "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
+    "peer_hit": peer_hit,
+    "peer_lookup_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_LOOKUP_SECONDS") or 0),
+    "peer_transfer_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_TRANSFER_SECONDS") or 0),
+    "peer_bytes_transferred": int(os.environ.get("CMUX_PEER_PRODUCT_BYTES") or 0),
+    "parallel_hit": parallel_hit,
+    "parallel_transfer_seconds": float(os.environ.get("CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS") or 0),
+    "run_id": os.environ.get("GITHUB_RUN_ID"),
+    "job": os.environ.get("GITHUB_JOB"),
+    "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
+    "runner_name": os.environ.get("RUNNER_NAME"),
+}
+record["route"] = record["lookup_source"]
+print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
+summary = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary:
+    with open(summary, "a") as handle:
+        handle.write("### Compiled test product restore\n\n```json\n")
+        handle.write(json.dumps(record, indent=2, sort_keys=True))
+        handle.write("\n```\n")
+PY
+  return "$status"
+}
+trap report_restore_measurement EXIT
 archive="$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
-echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
-tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
+if [ "${CMUX_LAYER_RESTORED:-}" != "true" ]; then
+  echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+  tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
+fi
 products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
 stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
 stable_system="/private/tmp/cmux-app-host-package-frameworks"
@@ -22,29 +94,30 @@ test -n "$framework_source"
 rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
-python3 - <<'PY'
-import json
-import os
-from pathlib import Path
-import time
-
-archive = Path(os.environ["RUNNER_TEMP"]) / "app-host-products/app-host-products.tar.gz"
-elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_NS"])) / 1_000_000_000)
-record = {
-    "archive_bytes": archive.stat().st_size,
-    "elapsed_seconds": round(elapsed, 6),
-    "local_hit": os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true",
-    "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
-    "run_id": os.environ.get("GITHUB_RUN_ID"),
-    "job": os.environ.get("GITHUB_JOB"),
-    "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
-    "runner_name": os.environ.get("RUNNER_NAME"),
-}
-print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
-summary = os.environ.get("GITHUB_STEP_SUMMARY")
-if summary:
-    with open(summary, "a") as handle:
-        handle.write("### Compiled test product restore\n\n```json\n")
-        handle.write(json.dumps(record, indent=2, sort_keys=True))
-        handle.write("\n```\n")
-PY
+# Tests also read fixtures via compiled #filePath; manifest relocation alone
+# cannot repair those strings when the product was built at the canonical root.
+# The receipt's `derived` is the DerivedData the product was compiled into,
+# <root>/derived-data-compile-admission, at /private/tmp/cmux-ci or, for an
+# owned Mac's second compile slot, /private/tmp/cmux-ci-<n>. Packaging
+# re-stamps the receipt from the job's workspace, so its `checkout` never
+# names the root, but `derived` is the same path at both stamps. The
+# product's #filePath strings point at that root, so alias this checkout
+# there rather than at this runner's own.
+producer_derived="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("derived", ""))' \
+  "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json")"
+case "$producer_derived" in
+  /private/tmp/cmux-ci/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9]/derived-data-compile-admission \
+  | /private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission)
+    export CMUX_CI_CANONICAL_ROOT="${producer_derived%/derived-data-compile-admission}"
+    ;;
+esac
+# On an owned Mac several jobs share the canonical roots, and the alias below
+# replaces <root>/src. glaeda's helper holds that root's lock for the rest of
+# this job (released when it ends), so a consumer never swaps the tree of a
+# compile running there. Ephemeral runners have no helper and no neighbours.
+root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+if [ -x "$root_lock" ]; then
+  "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 1800 >/dev/null
+fi
+scripts/ci/canonical-build-root.sh --runtime-source "$PWD"

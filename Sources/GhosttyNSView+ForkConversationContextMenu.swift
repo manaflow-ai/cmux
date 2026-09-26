@@ -148,7 +148,8 @@ extension GhosttyNSView {
         let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return .emptyResumeCommand }
 
-        return TerminalController.shared.controlSurfaceResumeSet(
+        // User-initiated, so the approval prompt may be shown here.
+        return TerminalController.shared.setSurfaceResumeBinding(
             routing: currentSurfaceResumeRouting(surfaceID: surfaceID),
             explicitTargetID: surfaceID,
             hasResolvedWindowID: false,
@@ -164,9 +165,9 @@ extension GhosttyNSView {
                 launchCommand: nil,
                 permissionMode: nil,
                 autoResume: false,
-                remoteWorkspaceID: nil,
-                remoteRelayParameters: nil
-            )
+                remoteWorkspaceID: nil
+            ),
+            origin: .userInterface
         )
     }
 

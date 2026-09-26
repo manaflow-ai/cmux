@@ -18,13 +18,17 @@ permissions:
 
 jobs:
   web-subarea-scope:
-    if: ${{ inputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       db: ${{ steps.scope.outputs.db }}
+      diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
       instant: ${{ steps.scope.outputs.instant }}
+      production_build: ${{ steps.scope.outputs.production_build }}
       react_apps: ${{ steps.scope.outputs.react_apps }}
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -39,8 +43,11 @@ jobs:
         run: python3 scripts/ci/web_subareas.py route
 
   web-typecheck:
-    if: ${{ inputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
@@ -81,8 +88,9 @@ jobs:
           exit "$status"
 
   web-production-build:
-    if: ${{ inputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -114,13 +122,14 @@ jobs:
         run: bun run vercel-build
 
   web-tests:
-    if: ${{ inputs.web == 'true' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' }}
     name: Web tests (${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -145,7 +154,7 @@ jobs:
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -186,7 +195,9 @@ jobs:
   react-apps-check:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -195,6 +206,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Verify generated webviews assets
         run: ./scripts/build-webviews-app.sh --check
@@ -219,9 +232,10 @@ jobs:
         run: bun run react-doctor:ci
 
   diff-sidecar-check:
-    # Generated protocol and streaming benchmarks also cover webview-only diffs.
-    if: ${{ inputs.macos == 'true' || inputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Generated protocol and streaming benchmarks only run for their owned inputs.
+    needs: web-subarea-scope
+    if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -234,6 +248,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -258,7 +274,9 @@ jobs:
   web-db-migrations:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches web-production-build and diff-sidecar-check, the other 15s here.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -282,6 +300,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -307,7 +327,7 @@ jobs:
 
   agent-session-web-resources:
     if: ${{ inputs.agent_session_web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -315,6 +335,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Build and test Agent Session web resources
         run: |
@@ -337,7 +359,7 @@ jobs:
       - web-db-migrations
       - agent-session-web-resources
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed web jobs
@@ -358,26 +380,35 @@ jobs:
                   sys.exit(1)
 
           scope = needs["web-subarea-scope"]
-          if inputs["web"] == "true":
+          scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
+          if scope_required:
               if scope["result"] != "success":
                   print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
                   sys.exit(1)
               subareas = scope.get("outputs", {})
-              for name in ("db", "instant", "react_apps"):
+              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
                   if subareas.get(name) not in {"true", "false"}:
                       print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
                       sys.exit(1)
           else:
-              subareas = {"db": "false", "instant": "false", "react_apps": "false"}
+              subareas = {
+                  "db": "false",
+                  "diff_sidecar": "false",
+                  "instant": "false",
+                  "production_build": "false",
+                  "react_apps": "false",
+                  "typecheck": "false",
+                  "unit_tests": "false",
+              }
 
           required = {
-              "web-subarea-scope": inputs["web"] == "true",
-              "web-typecheck": inputs["web"] == "true",
-              "web-production-build": inputs["web"] == "true",
-              "web-tests": inputs["web"] == "true",
+              "web-subarea-scope": scope_required,
+              "web-typecheck": inputs["web"] == "true" and subareas["typecheck"] == "true",
+              "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
+              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
               "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
-              "diff-sidecar-check": inputs["macos"] == "true" or inputs["web"] == "true",
+              "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
               "agent-session-web-resources": inputs["agent_session_web"] == "true",
           }

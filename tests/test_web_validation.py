@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class WebValidationTests(unittest.TestCase):
@@ -27,6 +28,22 @@ class WebValidationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(gate.requires_web([path, "README.md"]))
         self.assertFalse(gate.requires_web(["README.md", "docs/cli.md", "Sources/AppDelegate.swift"]))
+
+    def test_native_artifact_transport_does_not_select_web(self):
+        paths = [
+            ".github/workflows/ci-artifact-transport.yml",
+            ".github/workflows/ci-macos.yml",
+            "scripts/ci/app_host_layer_transport.py",
+            "scripts/ci/parallel_artifact_download.py",
+            "scripts/ci/restore-app-host-test-product.sh",
+            "tests/test-execution.toml",
+            "tests/test_ci_change_areas.py",
+            "tests/test_ci_parallel_artifact_transport.py",
+            "tests/test_ci_selective_layer_wiring.py",
+        ]
+        self.assertFalse(gate.requires_web(paths))
+        self.assertTrue(gate.requires_web(paths + ["web/app/page.tsx"]))
+        self.assertTrue(gate.requires_web(["scripts/ci/future_unknown_helper.py"]))
 
     def test_pull_request_routes_from_the_merge_parent_when_the_event_base_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -125,6 +142,20 @@ class WebValidationTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertTrue(gate.classify_files([path]).web)
+
+    def test_pr_and_merge_group_workflow_delegation_uses_one_cheap_status_job(self):
+        workflow = (ROOT / ".github/workflows/web-validation.yml").read_text()
+        changes = workflow[workflow.index("  changes:"):workflow.index("\n  build:")]
+        status = workflow[workflow.index("  web-validation:"):]
+
+        delegated = "github.event_name == 'pull_request' || github.event_name == 'merge_group'"
+        standalone = "github.event_name != 'pull_request' && github.event_name != 'merge_group'"
+
+        self.assertIn(standalone, changes)
+        self.assertIn("Accept CI-owned pull-request validation", status)
+        self.assertIn(delegated, status)
+        self.assertGreaterEqual(status.count(standalone), 2)
+        self.assertIn("required ci-status check", status)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

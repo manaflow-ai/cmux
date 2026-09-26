@@ -254,6 +254,9 @@ extension CMUXCLI {
         list-windows
         current-window
         comments list [--repo <path>] [--all] [--json]
+        review list [--repo <path>] [--json]
+        review show [<id|latest>] [--repo <path>] [--json]
+        review findings [<id|latest>] [--repo <path>] [--all] [--json]
         vault sessions [--agent <id>] [--folder <path>] [--limit <n>] [--json]
         vault search <query> [--limit <n>] [--json]
         vault checkpoints --agent <id> --session <id> [--json]
@@ -386,7 +389,7 @@ extension CMUXCLI {
         ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
-        ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
+        ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus] [--new-window]
         ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
         ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
         ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

@@ -35,6 +35,8 @@ public actor V2ControlService {
     var cooldowns: [String: Date] = [:]
     var retiredAttempts: [String: Int] = [:]
     var forceStackOnNextSetup = false
+    /// Invalidates an in-flight enrollment when a newer revocation arrives.
+    var authorityRevocationGeneration: UInt64 = 0
     var httpMode = false
     var loaded = false
     var ticketTaskID: UUID?
@@ -256,13 +258,13 @@ public actor V2ControlService {
 
     func perform<Request: Encodable & Sendable, Response: Decodable & Sendable>(
         _ request: Request, requestID: String, schemaID: String, response: Response.Type,
-        run: UUID, canRefreshAuth: Bool = true
+        run: UUID, canRefreshAuth: Bool = true, recoveryGeneration: UInt64? = nil
     ) async throws -> Response {
         let data = try codec.encode(request)
         do {
             let reply = try await exchange(data: data, requestID: requestID, schemaID: schemaID, run: run)
             try assertCurrent(run)
-            guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+            try validateReplyAuthority(recoveryGeneration: recoveryGeneration)
             let result = try JSONDecoder().decode(Response.self, from: reply)
             cooldowns.removeValue(forKey: schemaID)
             retiredAttempts.removeValue(forKey: schemaID)
@@ -271,23 +273,29 @@ public actor V2ControlService {
             if isAuthenticationFailure(error), canRefreshAuth {
                 _ = try await refreshAPITicket(forceAuthRefresh: true)
                 try assertCurrent(run)
-                return try await perform(request, requestID: requestID, schemaID: schemaID, response: response, run: run, canRefreshAuth: false)
+                return try await perform(request, requestID: requestID, schemaID: schemaID, response: response, run: run, canRefreshAuth: false, recoveryGeneration: recoveryGeneration)
             }
             if permitsHTTPRecovery(error) {
                 let reply = try await sendHTTP(data: data, requestID: requestID, schema: schemaID, run: run)
                 try assertCurrent(run)
-                guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+                try validateReplyAuthority(recoveryGeneration: recoveryGeneration)
                 return try JSONDecoder().decode(Response.self, from: reply)
             }
             throw error
         } catch is URLError {
             let reply = try await sendHTTP(data: data, requestID: requestID, schema: schemaID, run: run)
             try assertCurrent(run)
-            guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+            try validateReplyAuthority(recoveryGeneration: recoveryGeneration)
             return try JSONDecoder().decode(Response.self, from: reply)
         } catch is DecodingError {
             throw V2ControlFailure.invalidWireData
         }
+    }
+
+    func validateReplyAuthority(recoveryGeneration: UInt64?) throws {
+        if let recoveryGeneration {
+            guard recoveryGeneration == authorityRevocationGeneration else { throw V2ControlFailure.stopped }
+        } else if cache.authorityRevoked { throw V2ControlFailure.stopped }
     }
 
     func checkCooldown(_ schema: String) throws {

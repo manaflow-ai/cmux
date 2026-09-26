@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Combine
 import CmuxFoundation
 import CmuxSettings
@@ -623,6 +624,16 @@ final class CmuxSettingsFileStore {
             if let value = jsonBool(section[setting.jsonKey]) {
                 snapshot.managedUserDefaults[setting.defaultsKey] = .bool(value)
             }
+        }
+        if section.keys.contains("workspaceDescriptionColor"),
+           let value = parseNullableHex(
+               section["workspaceDescriptionColor"],
+               path: "sidebar.workspaceDescriptionColor",
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[
+                SidebarCatalogSection().workspaceDescriptionColorHex.userDefaultsKey
+            ] = .nullableString(value)
         }
         if let raw = jsonString(section["branchLayout"]) {
             if let value = SidebarSettingsFileMapping.branchLayoutStoredValue(raw) {

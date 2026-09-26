@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -8,7 +10,10 @@ extension CmuxTuiSurfaceProvider {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) else { continue }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
-                    if let url = URL(string: raw) { configureBrowser(browser, url: url) }
+                    if let url = URL(string: raw) {
+                        let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: url), resourceID: resource.id)
+                        if configured { browser.pendingCloudRestoreURL = nil }
+                    }
                 case .unsupported(let message):
                     browser.cloudAccess.showUnavailable(message)
                 }
@@ -34,7 +39,7 @@ extension CmuxTuiSurfaceProvider {
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
             guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }
-            configureBrowser(browser, url: url)
+            configureBrowser(browser, url: url, resourceID: resource.id)
         case .unsupported(let message):
             browser.cloudAccess.showUnavailable(message)
         }
@@ -42,25 +47,94 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Bind the page to its machine proxy without activating a system VPN.
-    func configureBrowser(_ browser: BrowserPanel, url: URL) {
+    @discardableResult
+    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
+                          preserveCurrentNavigation: Bool = false) -> Bool {
+        let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
+            SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
+        } else {
+            SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(requestedPort)")
+        }
+        let projectedResource = catalog.projectionRecord(forPanel: browser.id).flatMap {
+            $0.resource.machine.isLocal ? nil : $0.resource
+        }
+        let retainedResource = browser.cloudAccess.resourceID ?? projectedResource
+        let explicitResource: SurfaceResourceID?
+        if let resourceID {
+            explicitResource = resourceID
+        } else if let retainedResource,
+                  Self.port(for: retainedResource, catalog: catalog) == nil
+                    || Self.port(for: retainedResource, catalog: catalog) == requestedPort {
+            explicitResource = retainedResource
+        } else {
+            // A URL that changes the service port must resolve to the requested
+            // catalog slot instead of carrying the old display identity forward.
+            explicitResource = nil
+        }
+        if let explicitResource,
+           let expectedPort = Self.port(for: explicitResource, catalog: catalog),
+           expectedPort != requestedPort {
+            browser.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+            return false
+        }
+        if explicitResource == nil, fallbackID.kind == .display,
+           fallbackID.key != SurfaceResourceID.desktopDisplayKey,
+           catalog.resources[fallbackID] == nil {
+            browser.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+            return false
+        }
+        let resourceID = explicitResource ?? fallbackID
+        let isGlobalDock = DockSplitStore.liveStore(containingPanel: browser.id)?.scope == .global
+        let destinationOwned = isGlobalDock
+            || (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil
+        guard resourceID.machine == machine,
+              browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
+              destinationOwned else {
+            browser.cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message)
+            return false
+        }
         guard let address = info.privateAddress,
-              let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
+              let privateURL = CloudPortRoutePolicy().privateURL(url.absoluteString, address: address, allowLoopback: machine.isSSH) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
-            return
+            return false
         }
         // Check the VM origin before rewriting it to localhost. Otherwise the
         // implicit localhost allowance could bypass a private-origin deny rule.
         guard browserPolicy().allowsTrustedInternalURL(privateURL) else {
             browser.cloudAccess.showUnavailable(String(localized: "browser.error.urlAllowlist.userMessage", defaultValue: "This URL is not allowed by the embedded-browser URL policy."))
-            return
+            return false
+        }
+        if let existing = catalog.projectionRecord(forPanel: browser.id), existing.resource != resourceID {
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
-        browser.webView.stopLoading()
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
-        browser.cloudAccess.configure(model: model, url: privateURL)
-        browser.prepareCloudBrowserStore(machineID: machineID)
-        browser.showCloudAddress(privateURL)
-        model.connect()
+        browser.retainTransferredSurfaceMachine(machine)
+        if preserveCurrentNavigation {
+            browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.bindCloudBrowserNavigation()
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+            model.connect()
+        } else {
+            browser.configureCloudBrowser(model: model, url: privateURL, resourceID: resourceID)
+        }
+        materializedPanels.insert(browser.id)
+        return true
+    }
+
+    private static func port(for resource: SurfaceResourceID, catalog: SurfaceCatalog) -> Int? {
+        if let port = catalog.resources[resource]?.port { return port }
+        if resource.kind == .display,
+           let number = Int(resource.key.split(separator: ":").last ?? ""), (1...16).contains(number) {
+            return 6900 + number
+        }
+        if resource.kind == .browser, resource.key.hasPrefix("port:"),
+           let port = Int(resource.key.dropFirst("port:".count)) {
+            return port
+        }
+        return nil
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
@@ -135,12 +209,23 @@ extension CmuxTuiSurfaceProvider {
         for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
             for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
-                      isCurrentLifecycleGeneration(generation) else { continue }
-                materializedPanels.insert(projection.panelID)
+                      isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
-                    if let url = URL(string: raw) { configureBrowser(browser, url: url) }
-                case .unsupported(let message): browser.cloudAccess.showUnavailable(message)
+                    guard let url = URL(string: raw) else { continue }
+                    let configured = configureBrowser(
+                        browser,
+                        url: browser.cloudRestoreURL(on: url),
+                        resourceID: resource.id
+                    )
+                    if configured {
+                        browser.pendingCloudRestoreURL = nil
+                        materializedPanels.insert(projection.panelID)
+                    }
+                case .unsupported:
+                    // Keep the placeholder eligible for a later explicit display
+                    // discovery; its target may be supplied by the guest catalog.
+                    continue
                 }
             }
         }

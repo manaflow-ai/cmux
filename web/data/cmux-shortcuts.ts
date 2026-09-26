@@ -176,6 +176,15 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "フォーカスを戻す/進めるはブラウザペイン外で Cmd+[ / Cmd+] を使い、ブラウザペイン内では同じキーでブラウザの戻る/進むが動作します。ターミナル側で使うには、フォーカスを戻す/進めるの割り当てを解除します。",
         },
       },
+      {
+        id: "focusHistoryLast",
+        combos: [],
+        description: { en: "Focus last", ja: "直前のフォーカスへ切り替え" },
+        note: {
+          en: "unbound by default; toggles between the current position and the one focus last left, so pressing it twice returns where you started",
+          ja: "デフォルトでは未割り当て。現在の位置と直前にフォーカスしていた位置を切り替えるため、2回押すと元の位置に戻ります",
+        },
+      },
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
@@ -356,6 +365,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["⌘", "S"]],
         description: { en: "Save file preview", ja: "ファイルプレビューを保存" },
         note: { en: "focused text preview", ja: "フォーカス中のテキストプレビュー" },
+      },
+      {
+        id: "toggleFileEditorWordWrap",
+        combos: [["⌥", "Z"]],
+        description: {"en": "Toggle File Editor Word Wrap", "ja": "ファイルエディタの行折り返しを切り替え", "de": "Zeilenumbruch im Dateieditor umschalten", "fr": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers", "ar": "تبديل التفاف الكلمات في محرر الملفات", "es": "Alternar el ajuste de línea del editor de archivos", "zh-TW": "切換檔案編輯器自動換行", "zh-CN": "切换文件编辑器自动换行", "ko": "파일 편집기 자동 줄 바꿈 전환", "bs": "Uključi ili isključi prelamanje redova u uređivaču datoteka", "da": "Slå linjeombrydning i fileditoren til eller fra", "it": "Attiva o disattiva il ritorno a capo nell’editor di file", "km": "បិទឬបើកការរុំបន្ទាត់ក្នុងកម្មវិធីកែសម្រួលឯកសារ", "no": "Slå linjebryting i filredigereren av eller på", "pl": "Przełącz zawijanie wierszy w edytorze plików", "pt-BR": "Alternar quebra de linha no editor de arquivos", "ru": "Переключить перенос строк в редакторе файлов", "th": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์", "tr": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir", "uk": "Перемкнути перенесення рядків у редакторі файлів"},
+        note: {"en": "focused file editor", "ja": "フォーカス中のファイルエディタ", "de": "fokussierter Dateieditor", "fr": "éditeur de fichiers actif", "ar": "محرر الملفات المركّز", "es": "editor de archivos enfocado", "zh-TW": "焦點所在的檔案編輯器", "zh-CN": "焦点所在的文件编辑器", "ko": "포커스된 파일 편집기", "bs": "fokusirani uređivač datoteka", "da": "fokuseret fileditor", "it": "editor di file attivo", "km": "កម្មវិធីកែសម្រួលឯកសារដែលកំពុងផ្តោត", "no": "fokusert filredigerer", "pl": "aktywny edytor plików", "pt-BR": "editor de arquivos em foco", "ru": "редактор файлов в фокусе", "th": "ตัวแก้ไขไฟล์ที่โฟกัสอยู่", "tr": "odaktaki dosya düzenleyicisi", "uk": "редактор файлів у фокусі"},
       },
     ],
   },

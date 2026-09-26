@@ -26,7 +26,7 @@ extension ControlCommandCoordinator {
         return source == "process-detected" ? "manual" : source
     }
     // MARK: - resume.set
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
@@ -77,7 +77,6 @@ extension ControlCommandCoordinator {
             permissionMode: optionalTrimmedRawString(params, "permission_mode"),
             autoResume: source == "agent-hook" ? (bool(params, "auto_resume") ?? false) : false,
             remoteWorkspaceID: remoteWorkspaceID,
-            remoteRelayParameters: remoteWorkspaceID == nil ? nil : params,
             resumeEvidenceProvenance: optionalTrimmedRawString(params, "resume_evidence_provenance")
         )
         return surfaceResumeResult(
@@ -210,9 +209,8 @@ extension ControlCommandCoordinator {
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }

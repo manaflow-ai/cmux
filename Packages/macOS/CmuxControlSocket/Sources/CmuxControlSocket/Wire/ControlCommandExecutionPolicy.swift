@@ -32,8 +32,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
 #if DEBUG
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
             || method == "remote.tmux.test_perturb_divider"
-            || method == "remote.tmux.root_frames"
-            || method == "remote.tmux.window" {
+            || method == "remote.tmux.root_frames" {
             self = .socketWorker(mainThreadCallable: false)
             return
         }
@@ -125,8 +124,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
+        // `mobile.panel.artifact.fetch` is deliberately absent: it needs the
+        // authenticated mobile RPC execution context, so the local control
+        // socket answers method_not_found instead of bypassing
+        // artifact-transfer authorization (the worker switch has no case for it).
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
@@ -173,7 +175,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
-        "workspace.remote.pty_sessions",
+        "workspace.ssh.open", "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",
@@ -189,7 +191,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        "remote.tmux.mirror", "remote.tmux.window",
+        "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

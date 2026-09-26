@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   reachable:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The provider key lives in this environment, not in a repo-wide secret,
     # so only a job that names it can read it. No reviewers and no branch
     # policy, or the daily run and PR runs could not use it; fork PRs get no

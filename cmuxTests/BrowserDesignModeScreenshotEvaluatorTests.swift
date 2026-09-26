@@ -20,7 +20,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     private static let pageLoadTimeout: Duration = .seconds(30)
 
     /// Awaits the load signal, or returns false once `pageLoadTimeout` elapses.
-    private static func awaitPageLoad(_ stream: AsyncStream<Void>) async -> Bool {
+    static func awaitPageLoad(_ stream: AsyncStream<Void>) async -> Bool {
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 var iterator = stream.makeAsyncIterator()
@@ -414,9 +414,16 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         guard didLoad else { return }
         webView.pageZoom = 2
 
+        // Each stitched tile scrolls and then waits for two animation frames.
+        // This web view is never on screen in the test host, so no frame ever
+        // arrives and every one of the ~20 tiles waits out the settle bound
+        // instead. Shorten that bound; the tiling, stitching, and bounded
+        // output sizes under test are unchanged.
+        #expect(BrowserScreenshotWebViewSnapshotter.defaultScrollSettleTimeout == 0.25)
         let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(
             timeout: 10,
-            cleanupTimeout: 2
+            cleanupTimeout: 2,
+            scrollSettleTimeout: 0.05
         )
         let overview = try await screenshotEvaluator.captureFullPage(from: webView)
         let selection = try await screenshotEvaluator.captureDocumentRect(
@@ -430,55 +437,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         #expect(selectionRep.pixelsWide * selectionRep.pixelsHigh <= 4_194_304)
         #expect(selection.size.width > 0)
         #expect(selection.size.height > 0)
-        _ = navigationDelegate
-    }
-
-    @Test func smoothScrollingPageCapturesRequestedRegionAndRestoresOffset() async throws {
-        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
-        let window = hostSnapshotWebView(webView)
-        defer { window.close() }
-        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
-        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
-            loadedContinuation.yield()
-            loadedContinuation.finish()
-        }
-        webView.navigationDelegate = navigationDelegate
-        webView.loadHTMLString(
-            """
-            <style>
-              html { scroll-behavior: smooth; }
-              html, body { margin: 0; width: 640px; height: 2000px; }
-              .top { height: 1000px; background: red; }
-              .bottom { height: 1000px; background: blue; }
-            </style>
-            <div class="top"></div>
-            <div class="bottom"></div>
-            """,
-            baseURL: nil
-        )
-        let didLoad = await Self.awaitPageLoad(loaded)
-        #expect(didLoad, "WebKit never finished loading the test page")
-        guard didLoad else { return }
-
-        let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(timeout: 10, cleanupTimeout: 2)
-        let image = try await screenshotEvaluator.captureDocumentRect(
-            NSRect(x: 0, y: 1_500, width: 640, height: 100),
-            from: webView
-        )
-        let tiffData = try #require(image.tiffRepresentation)
-        let bitmap = try #require(NSBitmapImageRep(data: tiffData))
-        let sampledColor = bitmap.colorAt(
-            x: Int(image.size.width / 2),
-            y: Int(image.size.height / 2)
-        )
-        let color = try #require(sampledColor?.usingColorSpace(.deviceRGB))
-        let restoredOffset = try #require(
-            try await webView.evaluateJavaScript("window.scrollY") as? Double
-        )
-
-        #expect(color.blueComponent > 0.9)
-        #expect(color.redComponent < 0.1)
-        #expect(abs(restoredOffset) < 1)
         _ = navigationDelegate
     }
 
@@ -912,7 +870,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
     }
 }
 
-private final class BrowserDesignModeTestNavigationDelegate: NSObject, WKNavigationDelegate {
+final class BrowserDesignModeTestNavigationDelegate: NSObject, WKNavigationDelegate {
     private let onFinish: () -> Void
 
     init(onFinish: @escaping () -> Void) {

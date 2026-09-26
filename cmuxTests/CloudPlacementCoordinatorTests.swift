@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -41,8 +44,8 @@ struct CloudPlacementCoordinatorTests {
     }
 
     /// A catalog whose local workspace `bound` mirrors `ws_api`; every other local workspace is a viewer.
-    private static func harness(bound: UUID) -> (SurfaceCatalog, CloudPlacementTestProvider) {
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
+    private static func harness(bound: UUID, live: LiveWorkspaceFixture? = nil) -> (SurfaceCatalog, CloudPlacementTestProvider) {
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: live?.renameService ?? CloudWorkspaceRenameService(), cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
             id == bound ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api") : nil
         }, workspaceExists: { _, remoteID in remoteID == "ws_api" ? true : nil }))
         let provider = CloudPlacementTestProvider(machine: machine)
@@ -383,6 +386,11 @@ struct CloudPlacementCoordinatorTests {
         // graph install; an empty view list means the move must project a
         // fresh tab rather than move a stale one.
         catalog.upsert(term, from: provider)
+        // The daemon's projection reply is fenced by its mutation cursor
+        // (`CmuxTuiSnapshotParser.placedTab` requires one). When the lane drains it
+        // reconciles against the installed graph above, which predates the new tab;
+        // the cursor is what keeps that older graph from clearing the new tab ID.
+        provider.projectCursor = CloudVMCursor(generation: "g", revision: 21)
         catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: stateSnapshot, machine: Self.machine))
         catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
@@ -394,8 +402,10 @@ struct CloudPlacementCoordinatorTests {
     }
 
     @Test func openingIntoABoundWorkspaceUsesTheSharedPlacementPath() async throws {
-        let bound = UUID()
-        let (catalog, provider) = Self.harness(bound: bound)
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let bound = live.id()
+        let (catalog, provider) = Self.harness(bound: bound, live: live)
         let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
         catalog.replaceResources([term], on: Self.machine)
         _ = try await catalog.project(term.id, into: .tab(workspaceID: bound, paneID: UUID().uuidString, index: nil), focus: false, reuseExisting: false)

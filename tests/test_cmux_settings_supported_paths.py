@@ -7,6 +7,7 @@ or be replaced by the path inventory. See test_cli_config_doctor.py.
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,8 @@ SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
 # descendant paths beneath these roots (for example shortcuts.bindings).
 SETTINGS_SECTIONS = (
     "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
-    "workspaceColors", "automation", "browser", "shortcuts",
+    "workspaceColors", "automation", "browser", "markdown", "fileEditor",
+    "fileExplorer", "diffViewer", "shortcuts",
 )
 
 
@@ -91,6 +93,10 @@ class SupportedPathsTests(unittest.TestCase):
         result = self.run_helper(script, "list-supported")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("app.workspaceInheritWorkingDirectory", result.stdout.splitlines())
+        self.assertIn("app.openSupportedFilesInCmux", result.stdout.splitlines())
+        self.assertIn("app.preferredEditor", result.stdout.splitlines())
+        self.assertIn("markdown.fontSize", result.stdout.splitlines())
+        self.assertIn("diffViewer.defaultLayout", result.stdout.splitlines())
         self.assertNotIn("app.notARealSetting", result.stdout.splitlines())
 
     def test_list_supported_matches_schema_settings_paths(self):
@@ -119,6 +125,61 @@ class SupportedPathsTests(unittest.TestCase):
                 self.assertIn("terminal.copyOnSelect", result.stdout.splitlines())
                 self.assertIn("browser.urlAllowlist", result.stdout.splitlines())
                 self.assertEqual(result.stderr, "")
+
+    def test_lists_viewer_settings_paths_in_both_layouts(self):
+        expected = (
+            "markdown.fontSize",
+            "markdown.fontFamily",
+            "markdown.maxWidth",
+            "fileEditor.wordWrap",
+            "fileEditor.syntaxHighlighting",
+            "fileExplorer.doubleClickAction",
+            "diffViewer.defaultLayout",
+        )
+        for layout in ("checkout", "installed"):
+            with self.subTest(layout=layout):
+                result = self.run_helper(self.helper(layout), "list-supported")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                actual = set(result.stdout.splitlines())
+                self.assertTrue(set(expected).issubset(actual), sorted(set(expected) - actual))
+                self.assertEqual(result.stderr, "")
+
+
+class ShortcutActionReferenceTests(unittest.TestCase):
+    """The shortcut reference must list exactly the schema's action ids.
+
+    skills/cmux-keyboard-shortcuts/SKILL.md tells agents to validate action ids
+    against this reference, so an id the schema accepts but the file omits reads
+    as invented. Drift here silently blocks a real binding.
+    """
+
+    def test_reference_lists_every_schema_action(self):
+        schema = json.loads(
+            (REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text()
+        )
+        enum = schema["properties"]["shortcuts"]["properties"]["bindings"][
+            "propertyNames"
+        ]["enum"]
+        reference = (
+            REPO_ROOT
+            / "skills"
+            / "cmux-settings"
+            / "references"
+            / "shortcut-actions.md"
+        ).read_text()
+        listed = set(
+            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9-]+)`", reference, re.M)
+        )
+        self.assertEqual(
+            sorted(set(enum) - listed),
+            [],
+            "shortcut-actions.md is missing action ids the schema accepts",
+        )
+        self.assertEqual(
+            sorted(listed - set(enum)),
+            [],
+            "shortcut-actions.md lists action ids the schema rejects",
+        )
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ cd "$ROOT_DIR"
 
 LOG="$TMP_DIR/build.log"
 BUDGET="$TMP_DIR/budget.tsv"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 GUARD_FILE="$ROOT_DIR/.github/workflows/ci-guards.yml"
 
 python3 - "$CI_FILE" "$GUARD_FILE" <<'PY'
@@ -19,7 +19,8 @@ import sys
 ci_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 guard_text = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 required_ci_tokens = {
-    "build log path": "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log",
+    "build log path": "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/$first_scheme-build.log",
+    "first scheme lookup": "python3 scripts/ci/product_input_identity.py schemes",
     "budget script": "scripts/swift_warning_budget.py",
     "budget log argument": "--log",
 }

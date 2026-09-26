@@ -9,19 +9,37 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOWS = [
-    ROOT / ".github/workflows/ci.yml",
-    ROOT / ".github/workflows/test-e2e.yml",
-]
+WORKFLOW_DIR = ROOT / ".github/workflows"
+APP_HOST_LAUNCHER = "run-app-host-xcodebuild.sh"
 CONSOLE_WRAPPER = ROOT / "scripts/ci/run-in-console-session.sh"
 CAPTURE_WRAPPER = ROOT / "scripts/ci/run-and-capture.sh"
 
 
+def workflows_launching_app_host():
+    """Every workflow that runs the app-host launcher, read from the workflows.
+
+    This used to be a two-entry list naming ci.yml and test-e2e.yml. The
+    app-host jobs moved to ci-macos.yml and the list did not follow, so the
+    guard scanned a workflow with no launches at all and passed while the
+    workflow that actually builds the app host went unchecked. Asking the
+    directory cannot drift that way. Composite actions count too: test-e2e.yml
+    runs its tests through .github/actions/e2e-run-tests.
+    """
+    candidates = sorted(WORKFLOW_DIR.glob("*.y*ml")) + sorted(
+        (WORKFLOW_DIR.parent / "actions").glob("*/action.y*ml")
+    )
+    return [
+        path for path in candidates
+        if APP_HOST_LAUNCHER in path.read_text(encoding="utf-8")
+    ]
+
+
 def named_step_blocks(text: str):
     lines = text.splitlines()
+    # Workflow job steps sit at six spaces, composite action steps at four.
     starts = [
         index for index, line in enumerate(lines)
-        if line.startswith("      - name:")
+        if line.startswith("      - name:") or line.startswith("    - name:")
     ]
     starts.append(len(lines))
     for pos in range(len(starts) - 1):
@@ -49,10 +67,17 @@ def validate_common_capture_boundary() -> None:
 
 def validate_workflows() -> int:
     checked = 0
-    for path in WORKFLOWS:
+    e2e_checked = False
+    workflows = workflows_launching_app_host()
+    if not workflows:
+        raise SystemExit(
+            f"no workflow under {WORKFLOW_DIR} runs {APP_HOST_LAUNCHER}; "
+            "the launcher was renamed or this guard is scanning the wrong place"
+        )
+    for path in workflows:
         text = path.read_text(encoding="utf-8")
         for block in named_step_blocks(text):
-            if "run-app-host-xcodebuild.sh" not in block:
+            if APP_HOST_LAUNCHER not in block:
                 continue
             checked += 1
             if "| tee" in block or "PIPESTATUS[" in block:
@@ -70,13 +95,16 @@ def validate_workflows() -> int:
                 raise SystemExit(
                     f"{path}: app-host xcodebuild step bypasses file-backed capture"
                 )
-        if path.name == "test-e2e.yml":
+        if path.parent.name == "e2e-run-tests":
             if "bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log" not in text:
                 raise SystemExit(
-                    "test-e2e.yml must use file-backed xcodebuild capture"
+                    "test-e2e.yml's test steps must use file-backed xcodebuild capture"
                 )
+            e2e_checked = True
     if checked == 0:
         raise SystemExit("no app-host xcodebuild workflow steps were found")
+    if not e2e_checked:
+        raise SystemExit("test-e2e.yml's test steps (e2e-run-tests) were not scanned")
     return checked
 
 

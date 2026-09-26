@@ -5,9 +5,8 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
-#if DEBUG
+import CmuxControlSocket
 import Bonsplit
-#endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
@@ -500,136 +499,302 @@ final class WindowTerminalHostView: NSView {
 #endif
 }
 
-private final class SplitDividerOverlayView: NSView {
-    private struct DividerSegment {
-        let rect: NSRect
-        let color: NSColor
-        let isVertical: Bool
+enum PaneSwapSelectionCancellationReason: Equatable {
+    case escapeKey
+    case secondaryClick
+    case abandonedInteraction
+    case windowDeactivated
+    case layoutChanged
+}
+
+enum PaneSwapSelectionEvent: Equatable {
+    case hover(UUID?)
+    case primaryClick
+    case cancel(PaneSwapSelectionCancellationReason)
+}
+
+enum PaneSwapSelectionEffect: Equatable {
+    case none
+    case commit(sourcePaneID: UUID, targetPaneID: UUID)
+    case cancel(PaneSwapSelectionCancellationReason)
+}
+
+struct PaneSwapSelectionState: Equatable {
+    let sourcePaneID: UUID
+    private(set) var targetPaneID: UUID?
+
+    init(sourcePaneID: UUID) {
+        self.sourcePaneID = sourcePaneID
     }
 
-    override var isOpaque: Bool { false }
-    override var acceptsFirstResponder: Bool { false }
+    mutating func handle(_ event: PaneSwapSelectionEvent) -> PaneSwapSelectionEffect {
+        switch event {
+        case .hover(let paneID):
+            targetPaneID = paneID == sourcePaneID ? nil : paneID
+            return .none
+        case .primaryClick:
+            guard let targetPaneID else { return .none }
+            self.targetPaneID = nil
+            return .commit(sourcePaneID: sourcePaneID, targetPaneID: targetPaneID)
+        case .cancel(let reason):
+            targetPaneID = nil
+            return .cancel(reason)
+        }
+    }
+}
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+private struct PaneSwapSelectionCandidate {
+    let paneID: UUID
+    let frame: NSRect
+}
+
+private final class PaneSwapSelectionOverlayView: NSView {
+    var candidateAtWindowPoint: ((NSPoint) -> PaneSwapSelectionCandidate?)?
+    var onEffect: ((PaneSwapSelectionEffect) -> Void)?
+
+    private(set) var state: PaneSwapSelectionState?
+    private var sourceFrame: NSRect = .zero
+    private var targetFrame: NSRect?
+    private var trackingArea: NSTrackingArea?
+
+    override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
+
+    deinit {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let next = NSTrackingArea(
+            rect: .zero,
+            options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(next)
+        trackingArea = next
+        super.updateTrackingAreas()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isHidden ? nil : self
+    }
+
+    func begin(sourcePaneID: UUID, sourceFrame: NSRect) {
+        state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+        self.sourceFrame = sourceFrame
+        targetFrame = nil
+        isHidden = false
+        needsDisplay = true
+        updateTrackingAreas()
+    }
+
+    func end() {
+        state = nil
+        targetFrame = nil
+        isHidden = true
+        needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateTarget(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard var state else { return }
+        _ = state.handle(.hover(nil))
+        self.state = state
+        targetFrame = nil
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        updateTarget(with: event)
+        guard var state else { return }
+        let effect = state.handle(.primaryClick)
+        self.state = state
+        if effect != .none {
+            onEffect?(effect)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        cancel(.secondaryClick)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            cancel(.escapeKey)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancel(.escapeKey)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign, state != nil {
+            cancel(.abandonedInteraction)
+        }
+        return didResign
+    }
+
+    private func updateTarget(with event: NSEvent) {
+        guard var state else { return }
+        let candidate = candidateAtWindowPoint?(event.locationInWindow)
+        _ = state.handle(.hover(candidate?.paneID))
+        self.state = state
+        targetFrame = state.targetPaneID == candidate?.paneID ? candidate?.frame : nil
+        needsDisplay = true
+    }
+
+    private func cancel(_ reason: PaneSwapSelectionCancellationReason) {
+        guard var state else { return }
+        let effect = state.handle(.cancel(reason))
+        self.state = state
+        onEffect?(effect)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let window, let rootView = window.contentView else { return }
+        guard state != nil else { return }
 
-        var dividerSegments: [DividerSegment] = []
-        collectDividerSegments(in: rootView, into: &dividerSegments)
-        guard !dividerSegments.isEmpty else { return }
-        let hostedFrames = hostedFramesLikelyToOccludeDividers()
-        let visibleSegments = dividerSegments.filter { shouldRenderOverlay(for: $0, hostedFrames: hostedFrames) }
-        guard !visibleSegments.isEmpty else { return }
+        drawHighlight(
+            frame: sourceFrame,
+            color: .controlAccentColor,
+            title: CmuxPaneSwapStrings().source,
+            dirtyRect: dirtyRect
+        )
+        if let targetFrame {
+            drawHighlight(
+                frame: targetFrame,
+                color: .systemGreen,
+                title: CmuxPaneSwapStrings().swapHere,
+                dirtyRect: dirtyRect
+            )
+        }
+    }
+
+    private func drawHighlight(
+        frame: NSRect,
+        color: NSColor,
+        title: String,
+        dirtyRect: NSRect
+    ) {
+        let rect = frame.insetBy(dx: 4, dy: 4)
+        guard !rect.isEmpty, rect.intersects(dirtyRect) else { return }
 
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
 
-        // Keep separators visible above portal-hosted surfaces while matching each split view's
-        // native divider color (avoids visible color shifts at tiny pane sizes).
-        for segment in visibleSegments where segment.rect.intersects(dirtyRect) {
-            segment.color.setFill()
-            let rect = segment.rect
-            let pixelAligned = NSRect(
-                x: floor(rect.origin.x),
-                y: floor(rect.origin.y),
-                width: max(1, round(rect.size.width)),
-                height: max(1, round(rect.size.height))
-            )
-            NSBezierPath(rect: pixelAligned).fill()
-        }
-    }
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        color.withAlphaComponent(0.16).setFill()
+        path.fill()
+        color.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 2
+        path.stroke()
 
-    private func collectDividerSegments(in view: NSView, into result: inout [DividerSegment]) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            let dividerColor = overlayDividerColor(for: splitView)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let thickness = max(splitView.dividerThickness, 1)
-                let dividerRectInSplit: NSRect
-                if splitView.isVertical {
-                    dividerRectInSplit = NSRect(
-                        x: first.maxX,
-                        y: 0,
-                        width: thickness,
-                        height: splitView.bounds.height
-                    )
-                } else {
-                    dividerRectInSplit = NSRect(
-                        x: 0,
-                        y: first.maxY,
-                        width: splitView.bounds.width,
-                        height: thickness
-                    )
-                }
-
-                let dividerRectInWindow = splitView.convert(dividerRectInSplit, to: nil)
-                let dividerRectInOverlay = convert(dividerRectInWindow, from: nil)
-                if dividerRectInOverlay.intersects(bounds) {
-                    result.append(
-                        DividerSegment(
-                            rect: dividerRectInOverlay,
-                            color: dividerColor,
-                            isVertical: splitView.isVertical
-                        )
-                    )
-                }
-            }
-        }
-
-        for subview in view.subviews {
-            collectDividerSegments(in: subview, into: &result)
-        }
-    }
-
-    private func hostedFramesLikelyToOccludeDividers() -> [NSRect] {
-        guard let hostView = superview else { return [] }
-        return hostView.subviews.compactMap { subview -> NSRect? in
-            guard let hosted = subview as? GhosttySurfaceScrollView else { return nil }
-            guard !hosted.isHidden, hosted.window != nil else { return nil }
-            return hosted.frame
-        }
-    }
-
-    private func shouldRenderOverlay(for segment: DividerSegment, hostedFrames: [NSRect]) -> Bool {
-        // Draw only when a hosted surface actually intrudes across the divider centerline.
-        // This preserves tiny-pane visibility fixes without darkening regular dividers.
-        let axisEpsilon: CGFloat = 0.01
-        let axis = segment.isVertical ? segment.rect.midX : segment.rect.midY
-        let extentRect = segment.rect.insetBy(
-            dx: segment.isVertical ? 0 : -1,
-            dy: segment.isVertical ? -1 : 0
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = (title as NSString).size(withAttributes: attributes)
+        let badgeRect = NSRect(
+            x: rect.minX + 8,
+            y: rect.minY + 8,
+            width: labelSize.width + 16,
+            height: labelSize.height + 8
         )
+        color.withAlphaComponent(0.95).setFill()
+        NSBezierPath(roundedRect: badgeRect, xRadius: 6, yRadius: 6).fill()
+        (title as NSString).draw(
+            at: NSPoint(x: badgeRect.minX + 8, y: badgeRect.minY + 4),
+            withAttributes: attributes
+        )
+    }
+}
 
-        for frame in hostedFrames where frame.intersects(extentRect) {
-            if segment.isVertical {
-                if frame.minX < axis - axisEpsilon && frame.maxX > axis + axisEpsilon {
-                    return true
-                }
-            } else if frame.minY < axis - axisEpsilon && frame.maxY > axis + axisEpsilon {
-                return true
-            }
+@MainActor
+struct PaneSwapSelectionController {
+    func canBegin(from terminalSurface: TerminalSurface?) -> Bool {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id else {
+            return false
         }
+        return canBegin(workspace: workspace, sourcePaneID: sourcePaneID)
+    }
+
+    @discardableResult
+    func begin(from terminalSurface: TerminalSurface?, in window: NSWindow?) -> Bool {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id,
+              let window else {
+            return false
+        }
+        return begin(workspace: workspace, sourcePaneID: sourcePaneID, in: window)
+    }
+
+    @discardableResult
+    func beginFocused(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              workspace.terminalPanel(for: panelID) != nil,
+              let sourcePaneID = workspace.paneId(forPanelId: panelID)?.id,
+              let window = tabManager.window else {
+            return false
+        }
+        return begin(workspace: workspace, sourcePaneID: sourcePaneID, in: window)
+    }
+
+    @discardableResult
+    func commit(sourcePaneID: UUID, targetPaneID: UUID) -> Bool {
+        let resolution = TerminalController.shared.controlPaneSwap(
+            sourcePaneID: sourcePaneID,
+            targetPaneID: targetPaneID,
+            requestedFocus: false
+        )
+        if case .swapped = resolution {
+            return true
+        }
+        NSSound.beep()
         return false
     }
 
-    private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {
-        let divider = splitView.dividerColor.usingColorSpace(.deviceRGB) ?? splitView.dividerColor
-        let alpha = divider.alphaComponent
-        guard alpha < 0.999 else { return divider }
-
-        guard let bgColor = splitView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
-              let bgRGB = bgColor.usingColorSpace(.deviceRGB) else {
-            return divider
+    private func canBegin(workspace: Workspace, sourcePaneID: UUID) -> Bool {
+        guard workspace.remoteTmuxControlPane(paneID: sourcePaneID) == nil else {
+            return false
         }
 
-        let opaqueBG = bgRGB.withAlphaComponent(1)
-        let opaqueDivider = divider.withAlphaComponent(1)
-        return opaqueBG.blended(withFraction: alpha, of: opaqueDivider) ?? divider
+        return workspace.bonsplitController.allPaneIds.contains { paneID in
+            guard paneID.id != sourcePaneID,
+                  workspace.remoteTmuxControlPane(paneID: paneID.id) == nil,
+                  let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneID),
+                  let panelID = workspace.panelIdFromSurfaceId(selectedTab.id) else {
+                return false
+            }
+            return workspace.terminalPanel(for: panelID) != nil
+        }
+    }
+
+    private func begin(workspace: Workspace, sourcePaneID: UUID, in window: NSWindow) -> Bool {
+        guard canBegin(workspace: workspace, sourcePaneID: sourcePaneID) else {
+            return false
+        }
+        return TerminalWindowPortalRegistry.beginPaneSwapSelection(
+            sourceWorkspaceID: workspace.id,
+            sourcePaneID: sourcePaneID,
+            in: window
+        )
     }
 }
 
@@ -655,7 +820,18 @@ final class WindowTerminalPortal: NSObject {
     weak var window: NSWindow?
     let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
+    private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+
+#if DEBUG
+    /// Compile-checked overlays for the divider z-order regression tests.
+    /// fileprivate-in-product visibility reached only through @testable.
+    var dividerOverlayForTesting: NSView { dividerOverlayView }
+    var paneSwapOverlayForTesting: NSView { paneSwapOverlayView }
+#endif
     private let chromeComposition = AppWindowChromeComposition()
+    private var paneSwapSelectionObservers: [NSObjectProtocol] = []
+    private var paneSwapSourceWorkspaceID: UUID?
+    private weak var paneSwapPreviousFirstResponder: NSResponder?
     private weak var installedContainerView: NSView?
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
@@ -706,6 +882,8 @@ final class WindowTerminalPortal: NSObject {
         var needsSettledCommit: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+        /// A model-projected frame held until the anchor re-asserts geometry.
+        var provisionalGeometry: ProvisionalPaneGeometry?
     }
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -729,6 +907,9 @@ final class WindowTerminalPortal: NSObject {
             NotificationCenter.default.removeObserver(observer)
         }
         for observer in referenceGeometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        for observer in paneSwapSelectionObservers {
             NotificationCenter.default.removeObserver(observer)
         }
         // Adoption clears each hosted view's autoresizing mask (see bind) and
@@ -761,6 +942,15 @@ final class WindowTerminalPortal: NSObject {
         hostView.autoresizingMask = [.width, .height]
         dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
         dividerOverlayView.autoresizingMask = [.width, .height]
+        paneSwapOverlayView.translatesAutoresizingMaskIntoConstraints = true
+        paneSwapOverlayView.autoresizingMask = [.width, .height]
+        paneSwapOverlayView.isHidden = true
+        paneSwapOverlayView.candidateAtWindowPoint = { [weak self] point in
+            self?.paneSwapSelectionCandidate(atWindowPoint: point)
+        }
+        paneSwapOverlayView.onEffect = { [weak self] effect in
+            self?.handlePaneSwapSelectionEffect(effect)
+        }
         installGeometryObservers(for: window)
         _ = ensureInstalled(syncLayout: syncLayout)
     }
@@ -770,7 +960,7 @@ final class WindowTerminalPortal: NSObject {
     /// re-arm the portal's own sync. Only genuinely external geometry —
     /// notifications arriving with no portal write on the stack — schedules
     /// a pass.
-    private func performSelfFrameWrite<T>(_ body: () -> T) -> T {
+    func performSelfFrameWrite<T>(_ body: () -> T) -> T {
         selfFrameWriteDepth += 1
         defer { selfFrameWriteDepth -= 1 }
         return body()
@@ -973,10 +1163,7 @@ final class WindowTerminalPortal: NSObject {
                     shouldFlushLatestNow = self.pendingExternalGeometrySyncRequiresImmediate
                 }
                 if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.hostView.inLiveResize
-                }
-                if !shouldFlushLatestNow {
-                    shouldFlushLatestNow = self.window?.inLiveResize == true
+                    shouldFlushLatestNow = self.isWindowLiveResizeActive
                 }
                 if !shouldFlushLatestNow {
                     shouldFlushLatestNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -1010,11 +1197,11 @@ final class WindowTerminalPortal: NSObject {
             if !shouldPerformNow {
                 shouldPerformNow = self.pendingExternalGeometrySyncRequiresImmediate
             }
+            // Same live-resize predicate as the anchor callback that queued
+            // this pass, so a live resize flushes on this hop instead of
+            // trailing the window edge by another runloop turn.
             if !shouldPerformNow {
-                shouldPerformNow = self.hostView.inLiveResize
-            }
-            if !shouldPerformNow {
-                shouldPerformNow = self.window?.inLiveResize == true
+                shouldPerformNow = self.isWindowLiveResizeActive
             }
             if !shouldPerformNow {
                 shouldPerformNow = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: self.window)
@@ -1213,19 +1400,131 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
+    /// Keeps the overlay above the hosted views, repainting only if that
+    /// re-placement actually moved something.
+    ///
+    /// The repaint is not cheap: `SplitDividerOverlayView.draw` walks the whole
+    /// window view tree from `contentView` looking for split views before it
+    /// consults `dirtyRect`, so a one-pixel dirty region costs a full-hierarchy
+    /// traversal. This used to invalidate unconditionally on every hosted-view
+    /// sync, and in a 20-second sample of an idle app that walk was the
+    /// heaviest cmux frame on the main thread.
+    ///
+    /// Placement only, and deliberately cheap: this runs twice per
+    /// `synchronizeHostedView` (once through `ensureInstalled`, once at the
+    /// end), and `synchronizeAllHostedViews` runs that per entry. Anything
+    /// O(entries) in here is O(entries squared) for the batch, and a session
+    /// of mirrored tmux windows carries dozens of surfaces. The geometry
+    /// comparison lives in `refreshDividerOverlayIfGeometryChanged`, which the
+    /// batch calls once at its boundary.
     private func ensureDividerOverlayOnTop() {
+        var placementChanged = false
+
         if dividerOverlayView.superview !== hostView {
             dividerOverlayView.frame = hostView.bounds
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        } else if hostView.subviews.last !== dividerOverlayView {
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+            placementChanged = true
+        } else if let topHosted = dividerOverlayReferenceInHost() {
+            // "Above the hosted views", NOT "last subview": markDividerOverlayNeedingDisplay
+            // hoists paneSwapOverlayView above this overlay, so demanding last place here
+            // made the two swap every sync and repaint forever. Panorama: the stable state
+            // is divider above the hosted views; paneSwap may keep sitting above it.
+            if !Self.isView(dividerOverlayView, above: topHosted, in: hostView) {
+                hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: topHosted)
+                placementChanged = true
+            }
         }
 
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
             dividerOverlayView.frame = hostView.bounds
+            placementChanged = true
         }
-        dividerOverlayView.needsDisplay = true
+
+        guard placementChanged else { return }
+        markDividerOverlayNeedingDisplay()
     }
+
+    /// The divider overlay's placement reference: the HIGHEST-hosted-index
+    /// sibling in the host's subview order. Any hosted view above the divider
+    /// means the divider needs to move; the reference returned is the topmost
+    /// hosted view overall, so ONE re-add clears every inversion at once.
+    /// Cost: no scan at all when the divider is already the last subview, else
+    /// a single back-to-front pass that stops at the first hosted view it
+    /// finds from the top — the settled case never walks entries, and even the
+    /// churn case is one subviews pass, kept out of an entries-squared
+    /// per-batch blowup.
+    private func dividerOverlayReferenceInHost() -> NSView? {
+        let subviews = hostView.subviews
+        // Fast path: divider is the last subview. No hosted view can be above
+        // it, and pane-swap/render helpers are the only things it should ever
+        // sit below; nothing to do without scanning.
+        if subviews.last === dividerOverlayView {
+            return subviews.last { $0 is GhosttySurfaceScrollView }
+        }
+        guard let dividerIndex = subviews.firstIndex(of: dividerOverlayView) else {
+            // Divider not installed yet: re-add above the topmost hosted view.
+            return subviews.last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+        }
+        // Hosted view above the divider? Take the TOPMOST (highest index), so
+        // one re-add above it clears every hosted view at or beyond that index.
+        return subviews[(dividerIndex + 1)...].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+            ?? subviews[..<dividerIndex].last { $0 is GhosttySurfaceScrollView || entryForHostedView($0) != nil }
+    }
+
+    private func entryForHostedView(_ view: NSView) -> Entry? {
+        entriesByHostedId[ObjectIdentifier(view)]
+    }
+
+
+
+    /// Repaints the overlay when what it would paint has changed.
+    ///
+    /// `SplitDividerOverlayView.draw` walks the whole window view tree from
+    /// `contentView` before it consults `dirtyRect`, so an invalidation that
+    /// changes nothing still costs a full traversal. The comparison asks the
+    /// overlay for its own render inputs rather than reusing the portal's
+    /// geometry signature, because the two are not the same set: the overlay
+    /// paints a segment only where a hosted surface crosses the divider
+    /// centerline, and it drops hidden and windowless surfaces when deciding
+    /// that. Dragging a divider resizes the surfaces beside it, and both
+    /// bounds and those frames are window-relative, so moving the window by
+    /// its titlebar still costs nothing.
+    private func refreshDividerOverlayIfGeometryChanged() {
+        let inputs = dividerOverlayView.renderInputs()
+        guard lastDividerOverlayRenderInputs != inputs else { return }
+        lastDividerOverlayRenderInputs = inputs
+        markDividerOverlayNeedingDisplay()
+    }
+
+    private func markDividerOverlayNeedingDisplay() {
+#if DEBUG
+        RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
+#endif
+        dividerOverlayView.needsDisplay = true
+
+        if paneSwapOverlayView.superview !== hostView {
+            paneSwapOverlayView.frame = hostView.bounds
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: dividerOverlayView)
+        } else if hostView.subviews.last !== paneSwapOverlayView {
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: nil)
+        }
+
+        if !Self.rectApproximatelyEqual(paneSwapOverlayView.frame, hostView.bounds) {
+            paneSwapOverlayView.frame = hostView.bounds
+        }
+        paneSwapOverlayView.needsDisplay = true
+    }
+
+    /// Render inputs the divider overlay was last painted for. Deliberately
+    /// not `ExternalGeometrySignature`: that one answers a different question
+    /// for the layout-sync path, and its contents are tuned for terminating
+    /// the sync echo chain.
+    private var lastDividerOverlayRenderInputs: SplitDividerOverlayView.RenderInputs?
+
+    /// Set while `synchronizeAllHostedViews` is walking its entries, so the
+    /// per-entry syncs skip the geometry comparison and the batch pays for it
+    /// once.
+    private var isBatchSynchronizingHostedViews = false
 
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
@@ -1320,14 +1619,14 @@ final class WindowTerminalPortal: NSObject {
         return false
     }
 
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+    static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
+    static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
         guard rect.origin.x.isFinite,
               rect.origin.y.isFinite,
               rect.size.width.isFinite,
@@ -1346,7 +1645,8 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+    private static func isView(_ view: NSView, above reference: NSView?, in container: NSView) -> Bool {
+        guard let reference else { return true }
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
             return false
@@ -1391,7 +1691,7 @@ final class WindowTerminalPortal: NSObject {
     /// SwiftUI/AppKit hosting layers can report an anchor bounds wider than its split pane when
     /// intrinsic-size content overflows; intersecting through ancestor bounds gives the effective
     /// visible rect that should drive portal geometry.
-    private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
+    func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
         var frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
         var current = anchorView.superview
         while let ancestor = current {
@@ -1428,7 +1728,7 @@ final class WindowTerminalPortal: NSObject {
         return intersection
     }
 
-    private func seededFrameInHost(for anchorView: NSView) -> NSRect? {
+    func seededFrameInHost(for anchorView: NSView) -> NSRect? {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
@@ -1500,6 +1800,7 @@ final class WindowTerminalPortal: NSObject {
         entry.hostedView?.clearPortalGeometry()
         entry.needsSettledCommit = false
         entry.transientRecoveryRetriesRemaining = 0
+        entry.provisionalGeometry = nil
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
@@ -1647,7 +1948,8 @@ final class WindowTerminalPortal: NSObject {
             visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
             needsSettledCommit: previousEntry?.needsSettledCommit ?? false,
             zPriority: zPriority,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: 0,
+            provisionalGeometry: previousEntry?.anchorView === anchorView ? previousEntry?.provisionalGeometry : nil
         )
 
         let didChangeAnchor: Bool = {
@@ -1678,7 +1980,7 @@ final class WindowTerminalPortal: NSObject {
 
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
-        if let seededFrame = seededFrameInHost(for: anchorView),
+        if let seededFrame = seededFrameInHost(for: anchorView, hostedId: hostedId),
            seededFrame.width > 0,
            seededFrame.height > 0 {
             performSelfFrameWrite {
@@ -1838,7 +2140,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String, transition: TerminalWorkContext.Transition) {
+    func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String, transition: TerminalWorkContext.Transition) {
         guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView else { return }
         let frame = hostedView.frame
         guard lastDeferredSurfaceRefreshFrames[hostedId].map({ !Self.rectApproximatelyEqual($0, frame) }) ?? true else {
@@ -1878,6 +2180,13 @@ final class WindowTerminalPortal: NSObject {
         }
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
+        // One geometry comparison for the whole batch. Per entry it would be
+        // O(entries) work inside an O(entries) loop.
+        isBatchSynchronizingHostedViews = true
+        defer {
+            isBatchSynchronizingHostedViews = false
+            refreshDividerOverlayIfGeometryChanged()
+        }
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
             // Hidden entries retain their last frame until they become visible.
@@ -1944,6 +2253,19 @@ final class WindowTerminalPortal: NSObject {
         deferDividerOverlay: Bool = false
     ) {
         guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
+        // Every exit path compares the overlay's render inputs, not just the
+        // fallthrough: early returns here (missing anchor/window, anchor on
+        // another window) hide hosted views, and the overlay's render inputs
+        // exclude hidden ones, so skipping the comparison on those paths left
+        // divider pixels painted for a view that is no longer visible.
+        defer {
+            if !deferDividerOverlay {
+                ensureDividerOverlayOnTop()
+                if !isBatchSynchronizingHostedViews {
+                    refreshDividerOverlayIfGeometryChanged()
+                }
+            }
+        }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2032,7 +2354,12 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
-        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let frameInHost = anchorTargetFrame(
+            honoringProvisionalGeometryFor: hostedId,
+            entry: &entry,
+            anchorFrameInWindow: frameInWindow,
+            anchorFrameInHost: Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        )
 #if DEBUG
         logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
 #endif
@@ -2318,8 +2645,6 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
-        if !deferDividerOverlay { ensureDividerOverlayOnTop() }
     }
 
     private func updatePresentationState(
@@ -2410,6 +2735,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func tearDown() {
+        endPaneSwapSelection(restoreResponder: false)
         removeGeometryObservers()
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
@@ -2421,6 +2747,163 @@ final class WindowTerminalPortal: NSObject {
         hostView.removeFromSuperview()
         installedContainerView = nil
         installedReferenceView = nil
+    }
+
+    @discardableResult
+    func beginPaneSwapSelection(sourceWorkspaceID: UUID, sourcePaneID: UUID) -> Bool {
+        endPaneSwapSelection(restoreResponder: true)
+        guard let window,
+              ensureInstalled(),
+              let source = hostedPanePresentation(
+                workspaceID: sourceWorkspaceID,
+                paneID: sourcePaneID
+              ) else {
+            return false
+        }
+
+        paneSwapSourceWorkspaceID = sourceWorkspaceID
+        paneSwapPreviousFirstResponder = window.firstResponder ?? source.responder
+        paneSwapOverlayView.begin(sourcePaneID: sourcePaneID, sourceFrame: source.frame)
+        installPaneSwapSelectionObservers(for: window)
+        ensureDividerOverlayOnTop()
+
+        guard window.makeFirstResponder(paneSwapOverlayView) else {
+            endPaneSwapSelection(restoreResponder: true)
+            return false
+        }
+        return true
+    }
+
+    private func installPaneSwapSelectionObservers(for window: NSWindow) {
+        removePaneSwapSelectionObservers()
+        let center = NotificationCenter.default
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.windowDeactivated)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.windowDeactivated)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.layoutChanged)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak window] notification in
+            MainActor.assumeIsolated {
+                guard let splitView = notification.object as? NSSplitView,
+                      splitView.window === window else {
+                    return
+                }
+                self?.cancelPaneSwapSelection(.layoutChanged)
+            }
+        })
+    }
+
+    private func removePaneSwapSelectionObservers() {
+        for observer in paneSwapSelectionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        paneSwapSelectionObservers.removeAll(keepingCapacity: false)
+    }
+
+    private func cancelPaneSwapSelection(_ reason: PaneSwapSelectionCancellationReason) {
+        guard var state = paneSwapOverlayView.state else { return }
+        let effect = state.handle(.cancel(reason))
+        handlePaneSwapSelectionEffect(effect)
+    }
+
+    private func handlePaneSwapSelectionEffect(_ effect: PaneSwapSelectionEffect) {
+        switch effect {
+        case .none:
+            break
+        case .cancel(let reason):
+            endPaneSwapSelection(restoreResponder: reason != .abandonedInteraction)
+        case .commit(let sourcePaneID, let targetPaneID):
+            endPaneSwapSelection(restoreResponder: true)
+            _ = PaneSwapSelectionController().commit(
+                sourcePaneID: sourcePaneID,
+                targetPaneID: targetPaneID
+            )
+        }
+    }
+
+    private func endPaneSwapSelection(restoreResponder: Bool) {
+        let previousFirstResponder = paneSwapPreviousFirstResponder
+        paneSwapPreviousFirstResponder = nil
+        paneSwapSourceWorkspaceID = nil
+        removePaneSwapSelectionObservers()
+        paneSwapOverlayView.end()
+
+        if restoreResponder,
+           let window,
+           let previousFirstResponder {
+            _ = window.makeFirstResponder(previousFirstResponder)
+        }
+    }
+
+    private func hostedPanePresentation(
+        workspaceID: UUID,
+        paneID: UUID
+    ) -> (frame: NSRect, responder: NSResponder?)? {
+        for subview in hostView.subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  let entry = entriesByHostedId[ObjectIdentifier(hostedView)],
+                  entry.visibleInUI,
+                  !hostedView.isHidden,
+                  let identity = paneIdentity(for: hostedView),
+                  identity.workspaceID == workspaceID,
+                  identity.paneID == paneID else {
+                continue
+            }
+
+            let center = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.midY)
+            return (
+                frame: hostedView.frame,
+                responder: hostedView.terminalViewForDrop(at: center)
+            )
+        }
+        return nil
+    }
+
+    private func paneSwapSelectionCandidate(atWindowPoint windowPoint: NSPoint) -> PaneSwapSelectionCandidate? {
+        guard let sourceWorkspaceID = paneSwapSourceWorkspaceID,
+              let hit = hostedScrollViewAtWindowPoint(windowPoint),
+              let identity = paneIdentity(for: hit.view),
+              identity.workspaceID == sourceWorkspaceID else {
+            return nil
+        }
+        return PaneSwapSelectionCandidate(paneID: identity.paneID, frame: hit.view.frame)
+    }
+
+    private func paneIdentity(for hostedView: GhosttySurfaceScrollView) -> (workspaceID: UUID, paneID: UUID)? {
+        let center = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.midY)
+        guard let terminalView = hostedView.terminalViewForDrop(at: center),
+              let terminalSurface = terminalView.terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let paneID = workspace.paneId(forPanelId: terminalSurface.id)?.id else {
+            return nil
+        }
+        return (workspace.id, paneID)
     }
 
     private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {
@@ -2668,6 +3151,18 @@ enum TerminalWindowPortalRegistry {
         return portalsByWindowId[ObjectIdentifier(window)]
     }
 
+    @discardableResult
+    static func beginPaneSwapSelection(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID,
+        in window: NSWindow
+    ) -> Bool {
+        portal(for: window).beginPaneSwapSelection(
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePaneID: sourcePaneID
+        )
+    }
+
     static func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -2751,6 +3246,22 @@ enum TerminalWindowPortalRegistry {
 
     static func endInteractiveGeometryResize(in window: NSWindow?) {
         endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
+    }
+    /// The window of the pointer event AppKit is dispatching, for scoping a
+    /// divider drag. `NSApp.currentEvent` keeps the last event AppKit
+    /// dequeued, which can be an unrelated `appKitDefined` event from another
+    /// window, so only mouse events count; callers fall back to the window
+    /// that hosts their terminals.
+    static func pointerEventWindow() -> NSWindow? {
+        guard let event = NSApp.currentEvent else { return nil }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp,
+             .rightMouseDown, .rightMouseDragged, .rightMouseUp,
+             .otherMouseDown, .otherMouseDragged, .otherMouseUp:
+            return event.window
+        default:
+            return nil
+        }
     }
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)

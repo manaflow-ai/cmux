@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -1306,43 +1307,86 @@ final class CMUXOpenCommandTests: XCTestCase {
             XCTAssertFalse(html.contains("\\u001b"), html, file: file, line: line)
         }
 
-        try runGit(["init"], in: repoURL)
-        try runGit(["checkout", "-b", "main"], in: repoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
-        try runGit(["config", "color.ui", "always"], in: repoURL)
-        try runGit(["config", "color.diff", "always"], in: repoURL)
-        try runGit(["remote", "add", "origin", rootURL.appendingPathComponent("origin.git").path], in: repoURL)
+        // The fixture writes config, refs and branch heads directly instead of
+        // spawning one git process per setting: identical on-disk state, and
+        // the git subprocesses that remain are the ones that must be real
+        // (object creation and commits). Those handwritten loose refs and the
+        // in-process SHA-1 blob ids assume the classic repository layout, so
+        // pin it: a user's `init.defaultObjectFormat=sha256` or
+        // `init.defaultRefFormat=reftable` must not change what the fixture is.
+        try runGit(Self.classicLayoutGitInitArguments, in: repoURL)
+        // Same unborn-branch state `git checkout -b main` leaves behind.
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: repoURL)
+        try appendGitConfig(
+            """
+            [user]
+            \tname = cmux tests
+            \temail = cmux@example.invalid
+            [color]
+            \tui = always
+            \tdiff = always
+            [remote "origin"]
+            \turl = \(rootURL.appendingPathComponent("origin.git").path)
+            \tfetch = +refs/heads/*:refs/remotes/origin/*
+
+            """,
+            in: repoURL
+        )
         try "one\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "initial"], in: repoURL)
         let initialCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try runGit(["update-ref", "refs/remotes/origin/main", initialCommit], in: repoURL)
-        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: repoURL)
+        try writeGitRef("refs/remotes/origin/main", commit: initialCommit, in: repoURL)
+        try writeGitSymbolicRef("refs/remotes/origin/HEAD", target: "refs/remotes/origin/main", in: repoURL)
 
         let siblingRepoURL = rootURL.appendingPathComponent("other-repo", isDirectory: true)
         let siblingFileURL = siblingRepoURL.appendingPathComponent("other.txt")
         try FileManager.default.createDirectory(at: siblingRepoURL, withIntermediateDirectories: true)
-        try runGit(["init"], in: siblingRepoURL)
-        try runGit(["checkout", "-b", "main"], in: siblingRepoURL)
-        try runGit(["config", "user.name", "cmux tests"], in: siblingRepoURL)
-        try runGit(["config", "user.email", "cmux@example.invalid"], in: siblingRepoURL)
+        try runGit(Self.classicLayoutGitInitArguments, in: siblingRepoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: siblingRepoURL)
+        try appendGitConfig(
+            """
+            [user]
+            \tname = cmux tests
+            \temail = cmux@example.invalid
+
+            """,
+            in: siblingRepoURL
+        )
         try "base\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "other.txt"], in: siblingRepoURL)
         try runGit(["commit", "-m", "initial"], in: siblingRepoURL)
         let siblingInitialCommit = try runGitStdout(["rev-parse", "HEAD"], in: siblingRepoURL)
-        try runGit(["update-ref", "refs/remotes/origin/main", siblingInitialCommit], in: siblingRepoURL)
-        try runGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], in: siblingRepoURL)
-        try runGit(["checkout", "-b", "feature/other"], in: siblingRepoURL)
+        try writeGitRef("refs/remotes/origin/main", commit: siblingInitialCommit, in: siblingRepoURL)
+        try writeGitSymbolicRef(
+            "refs/remotes/origin/HEAD",
+            target: "refs/remotes/origin/main",
+            in: siblingRepoURL
+        )
+        // Same state `git checkout -b feature/other` leaves behind: the new
+        // head points at the current commit and the worktree is untouched.
+        try writeGitRef("refs/heads/feature/other", commit: siblingInitialCommit, in: siblingRepoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/feature/other", in: siblingRepoURL)
         try "base\nchanged\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
 
-        try runGit(["checkout", "-b", "feature/diff-source"], in: repoURL)
+        try writeGitRef("refs/heads/feature/diff-source", commit: initialCommit, in: repoURL)
+        try writeGitSymbolicRef("HEAD", target: "refs/heads/feature/diff-source", in: repoURL)
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "story.txt"], in: repoURL)
         try runGit(["commit", "-m", "add two"], in: repoURL)
         let featureCommit = try runGitStdout(["rev-parse", "HEAD"], in: repoURL)
-        try runGit(["update-ref", "refs/remotes/origin/feature/diff-source", featureCommit], in: repoURL)
-        try runGit(["branch", "--set-upstream-to=origin/feature/diff-source"], in: repoURL)
+        try writeGitRef("refs/remotes/origin/feature/diff-source", commit: featureCommit, in: repoURL)
+        // Same upstream `git branch --set-upstream-to=origin/feature/diff-source`
+        // records; the CLI reads it back through `@{upstream}`.
+        try appendGitConfig(
+            """
+            [branch "feature/diff-source"]
+            \tremote = origin
+            \tmerge = refs/heads/feature/diff-source
+
+            """,
+            in: repoURL
+        )
         try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
         let branch = try runDiffCLIAndReadHTML(
@@ -2796,11 +2840,69 @@ final class CMUXOpenCommandTests: XCTestCase {
         return (try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue) & 0o777
     }
 
+    /// `git init` for fixtures whose refs and object ids are written by hand:
+    /// SHA-1 objects and loose-file refs. The ref format goes through `-c`
+    /// rather than `--ref-format`, which git releases before 2.45 reject; those
+    /// releases only know loose-file refs anyway. `GIT_DEFAULT_REF_FORMAT` and
+    /// `GIT_DEFAULT_HASH` would override both choices, so `runGitProcess` drops
+    /// them from the inherited environment.
+    private static let classicLayoutGitInitArguments = [
+        "-c", "init.defaultRefFormat=files",
+        "init", "-q", "--object-format=sha1"
+    ]
+
+    /// Appends config text to a fixture repository's `.git/config`, producing
+    /// the same on-disk state as the equivalent `git config` / `git remote add`
+    /// invocations without a git subprocess per setting.
+    private func appendGitConfig(_ text: String, in directory: URL) throws {
+        let configURL = directory.appendingPathComponent(".git/config", isDirectory: false)
+        let existing = try String(contentsOf: configURL, encoding: .utf8)
+        let separator = existing.hasSuffix("\n") || existing.isEmpty ? "" : "\n"
+        try (existing + separator + text).write(to: configURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes the loose ref file `git update-ref` would write for a fixture
+    /// repository (no packed refs exist in these freshly created repos).
+    private func writeGitRef(_ ref: String, commit: String, in directory: URL) throws {
+        let refURL = directory.appendingPathComponent(".git", isDirectory: true)
+            .appendingPathComponent(ref, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: refURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "\(commit)\n".write(to: refURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes the symbolic ref file `git symbolic-ref` would write.
+    private func writeGitSymbolicRef(_ ref: String, target: String, in directory: URL) throws {
+        let refURL = directory.appendingPathComponent(".git", isDirectory: true)
+            .appendingPathComponent(ref, isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: refURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "ref: \(target)\n".write(to: refURL, atomically: true, encoding: .utf8)
+    }
+
+    /// The blob object id `git hash-object --no-filters` prints for a file,
+    /// computed in process (`sha1("blob <size>\0" + contents)`) so baseline
+    /// fixtures do not pay a git subprocess per recorded untracked path.
+    private func gitBlobObjectID(forFileAt url: URL) throws -> String {
+        let contents = try Data(contentsOf: url)
+        var payload = Data("blob \(contents.count)\0".utf8)
+        payload.append(contents)
+        return Insecure.SHA1.hash(data: payload)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
     private func runGitProcess(_ arguments: [String], in directory: URL) -> ProcessRunResult {
         runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["git"] + arguments,
-            environment: ProcessInfo.processInfo.environment,
+            environment: ProcessInfo.processInfo.environment.filter { key, _ in
+                key != "GIT_DEFAULT_REF_FORMAT" && key != "GIT_DEFAULT_HASH"
+            },
             timeout: 30,
             currentDirectoryURL: directory
         )
@@ -2833,7 +2935,9 @@ final class CMUXOpenCommandTests: XCTestCase {
                 .appendingPathComponent(snapshotId, isDirectory: true)
                 .appendingPathComponent("files", isDirectory: true)
             for path in untrackedPaths {
-                let hash = try runGitStdout(["hash-object", "--no-filters", "--", path], in: repoURL)
+                let hash = try gitBlobObjectID(
+                    forFileAt: repoURL.appendingPathComponent(path, isDirectory: false)
+                )
                 let snapshotURL = snapshotRoot.appendingPathComponent(path, isDirectory: false)
                 try FileManager.default.createDirectory(
                     at: snapshotURL.deletingLastPathComponent(),
@@ -2930,22 +3034,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         if let stdinText, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(stdinText.utf8))
             stdinPipe.fileHandleForWriting.closeFile()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 
@@ -3011,14 +3110,9 @@ final class CMUXOpenCommandTests: XCTestCase {
     private func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+        if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
             kill(process.processIdentifier, SIGKILL)
-            _ = finished.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
     }
 

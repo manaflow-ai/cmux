@@ -6,6 +6,8 @@ import Foundation
 /// workspace model's alias-aware static rewrite so the package never imports
 /// `Workspace`.
 struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
+    /// Legacy per-resume MAC key. Nothing verifies it anymore, but old remote
+    /// clients may still send it, so it stays out of the signed request payload.
     static let authenticationCodeKey = "_cmux_remote_relay_authentication_code"
     static let requestAuthenticationCodeKey = "_cmux_remote_relay_request_authentication_code"
     static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
@@ -20,38 +22,13 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         workspaceAliases: [UUID: UUID],
         surfaceAliases: [UUID: UUID]
     ) -> Data {
-        let rewritten = Workspace.rewriteRemoteRelayCommandLineAndExtractMethod(
+        let rewritten = Workspace.rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: workspaceAliases,
             surfaceAliases: surfaceAliases,
             remoteWorkspaceID: remoteWorkspaceID
         )
-        // Method classification is a trust boundary; decoded JSON honors
-        // escapes that raw bytes do not. Stamp the connection and generic MAC
-        // first; the resume MAC must cover that same connection provenance.
-        var commandLine = authenticatedRemoteRelayCommandLine(rewritten.commandLine)
-        if rewritten.method == "surface.resume.set" {
-            commandLine = authenticatedRemoteResumeCommandLine(commandLine)
-        }
-        return commandLine
-    }
-
-    static func authenticatesRemoteResumeParameters(
-        _ params: [String: Any],
-        remoteRelayTokenHex: String?
-    ) -> Bool {
-        guard let remoteRelayTokenHex,
-              let authenticationCode = params[authenticationCodeKey] as? String,
-              let payload = authenticationPayload(params),
-              let relayToken = hexData(remoteRelayTokenHex),
-              let receivedCode = hexData(authenticationCode) else {
-            return false
-        }
-        return HMAC<SHA256>.isValidAuthenticationCode(
-            receivedCode,
-            authenticating: payload,
-            using: SymmetricKey(data: relayToken)
-        )
+        return authenticatedRemoteRelayCommandLine(rewritten)
     }
 
     /// Verifies the relay-wide request MAC over the canonical envelope.  The
@@ -95,28 +72,6 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         return hexString(code)
     }
 
-    private func authenticatedRemoteResumeCommandLine(_ commandLine: Data) -> Data {
-        guard let line = String(data: commandLine, encoding: .utf8),
-              let requestData = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-              var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
-              request["method"] as? String == "surface.resume.set",
-              var params = request["params"] as? [String: Any],
-              let payload = Self.authenticationPayload(params),
-              let relayToken = Self.hexData(remoteRelayTokenHex) else {
-            return commandLine
-        }
-        let authenticationCode = HMAC<SHA256>.authenticationCode(
-            for: payload,
-            using: SymmetricKey(data: relayToken)
-        )
-        params[Self.authenticationCodeKey] = Self.hexString(authenticationCode)
-        request["params"] = params
-        guard let authenticated = try? JSONSerialization.data(withJSONObject: request) else {
-            return commandLine
-        }
-        return commandLine.last == 0x0A ? authenticated + Data([0x0A]) : authenticated
-    }
-
     private func authenticatedRemoteRelayCommandLine(_ commandLine: Data) -> Data {
         guard let line = String(data: commandLine, encoding: .utf8),
               let requestData = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
@@ -142,14 +97,6 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
             return commandLine
         }
         return commandLine.last == 0x0A ? authenticated + Data([0x0A]) : authenticated
-    }
-
-    private static func authenticationPayload(_ params: [String: Any]) -> Data? {
-        var authenticatedParams = params
-        authenticatedParams.removeValue(forKey: authenticationCodeKey)
-        authenticatedParams.removeValue(forKey: requestAuthenticationCodeKey)
-        guard JSONSerialization.isValidJSONObject(authenticatedParams) else { return nil }
-        return try? JSONSerialization.data(withJSONObject: authenticatedParams, options: [.sortedKeys])
     }
 
     private static func requestAuthenticationPayload(

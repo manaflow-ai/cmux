@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxMobileHost
 import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
@@ -10,6 +12,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxSettings
 import CmuxSwiftRenderUI
@@ -28,7 +31,6 @@ import CmuxSimulator
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
-    // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
@@ -39,8 +41,9 @@ private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
 }
-// Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
-// AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
+// Agent notification gating types (AgentTurnCompleteMode / AgentNotificationMeta /
+// agentNotificationShouldDeliver) live in AgentNotificationGate.swift;
+// AgentNotifyCategory lives in the CmuxSettings package.
 #if DEBUG
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
@@ -146,6 +149,7 @@ class TerminalController {
     /// App-lifetime automation engine, attached by the composition root after
     /// the initial TabManager and notification store are ready.
     @MainActor var automationEngine: AutomationEngine?
+    @MainActor private(set) var browserDataImportCoordinator: BrowserDataImportCoordinator?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     /// Main-actor grants for the file currently displayed by each mobile panel.
     /// The live panel inventory and artifact reads share this owner so a closed
@@ -240,8 +244,6 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
@@ -254,8 +256,20 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
+    /// Stability window for a governed cap-to-cap grid change: long enough to
+    /// coalesce the pre/post keyboard-inset double report, short enough that a
+    /// legitimate keyboard resize is not felt as lag.
+    private static let mobileViewportCapApplyStabilityWindow: Duration = .milliseconds(400)
+    /// Stability window for a governed uncap. Deliberately long: an uncap only
+    /// restores the Mac pane after the last phone leaves, so nobody is hurt by
+    /// waiting, and a remount's re-apply of the same grid must arrive inside
+    /// this window (relay round trips inflate that gap to seconds) to cancel
+    /// the clear+re-apply resize flap (issue 13474).
+    private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
+    private var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
+    private var mobileViewportGovernorFlushTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -366,6 +380,7 @@ class TerminalController {
     /// composition owner and ``ControlCommandContext`` conformer. Constructed in
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
+    nonisolated let codexRestoreHookEvidence = CodexRestoreHookEvidence(storeURL: RestorableAgentKind.codex.hookStoreFileURL())
 
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
@@ -1036,6 +1051,12 @@ class TerminalController {
         self.accountFlow = accountFlow
     }
 
+    /// Injects the app-lifetime browser import coordinator before socket RPCs start.
+    @MainActor
+    func attachBrowserDataImportCoordinator(_ coordinator: BrowserDataImportCoordinator) {
+        browserDataImportCoordinator = coordinator
+    }
+
     /// Inject the app-lifetime power controller before socket or mobile calls
     /// can reach the caffeine methods.
     @MainActor
@@ -1702,7 +1723,12 @@ class TerminalController {
             }
         case "browser.import.cookies":
             return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
-                let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
+                guard let coordinator = await self.browserDataImportCoordinator else {
+                    throw BrowserImportAutomationError.noBrowsers
+                }
+                let outcome = try await BrowserImportAutomation.importCookies(
+                    params: request.params, coordinator: coordinator
+                )
                 return outcome.socketPayload
             }
         case "mobile.attach_ticket.create":
@@ -1766,14 +1792,35 @@ class TerminalController {
             }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
+        case "workspace.ssh.open":
+            return v2VmCall(id: request.id, timeoutSeconds: 190) {
+                try await self.openSSHTuiWorkspace(params: request.params)
+            }
         case "surface.ssh_session_attach.resolve":
-            return v2Result(id: request.id, v2SSHSessionAttachResolve(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.tuiSSHSessionAttachResolve(params: request.params) { return result }
+                return self.v2SSHSessionAttachResolve(params: request.params)
+            }
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
         case "workspace.remote.pty_sessions":
-            return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.tuiSSHSessions(params: request.params) {
+                    guard request.params["all_workspaces"] as? Bool == true else { return result }
+                    // The legacy transport's blocking reads stay on this worker,
+                    // outside the native graph's main-actor projection path.
+                    return self.mergeRemotePTYSessionLists(
+                        tui: result,
+                        legacy: self.v2WorkspaceRemotePTYSessions(params: request.params)
+                    )
+                }
+                return self.v2WorkspaceRemotePTYSessions(params: request.params)
+            }
         case "workspace.remote.pty_close":
-            return v2Result(id: request.id, v2WorkspaceRemotePTYClose(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 180) {
+                if let result = await self.closeTuiSSHSession(params: request.params) { return result }
+                return self.v2WorkspaceRemotePTYClose(params: request.params)
+            }
         case "workspace.remote.pty_detach":
             return v2Result(id: request.id, v2WorkspaceRemotePTYDetach(params: request.params))
         case "workspace.remote.pty_bridge":
@@ -4103,6 +4150,14 @@ class TerminalController {
     func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
+        // #2751: skip the pre-mint pass until session restore has settled.
+        // Refreshing here is only an optimization (refs otherwise mint lazily
+        // on the first list/create); iterating the half-built window/tab tree
+        // while restore is pending or in flight faults (EXC_BAD_ACCESS / arm64e
+        // ptrauth). A v2 socket command arriving within ~1s of launch can
+        // re-enter this on the main actor mid-restore, so degrade gracefully.
+        guard app.didCompleteInitialSessionRestore else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
@@ -4230,26 +4285,6 @@ class TerminalController {
 
     private func v2ResolveWorkspaceOwner(_ workspaceId: UUID) -> TabManager? {
         v2MainSync { AppDelegate.shared?.tabManagerFor(tabId: workspaceId) }
-    }
-
-    nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
-        workspaceId: UUID?,
-        error: V2CallResult?
-    ) {
-        var workspaceId: UUID?
-        var invalidWorkspaceID = false
-        v2MainSync {
-            v2RefreshKnownRefs()
-            workspaceId = v2UUID(params, "workspace_id")
-            invalidWorkspaceID = v2HasNonNullParam(params, "workspace_id") && workspaceId == nil
-        }
-        if invalidWorkspaceID {
-            return (
-                nil,
-                .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-            )
-        }
-        return (workspaceId, nil)
     }
 
     private nonisolated func v2RequestedRemotePTYSurfaceID(params: [String: Any]) -> (
@@ -4531,7 +4566,7 @@ class TerminalController {
                 guard let app = AppDelegate.shared else { return }
                 for summary in app.listMainWindowSummaries() {
                     guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                    for workspace in owner.tabs where workspace.isRemoteWorkspace {
+                    for workspace in owner.tabs where workspace.isRemoteWorkspace && !workspace.usesSSHTui {
                         targets.append(
                             RemotePTYSocketTarget(
                                 controller: workspace.remotePTYSessionControllerForSocketCommand(),
@@ -5538,6 +5573,47 @@ class TerminalController {
         case finished(V2CallResult)
         /// The raw Ghostty text and identity; the caller formats it off-main.
         case captured(ReadTextCapture)
+        /// The target terminal had no live surface and a start is pending;
+        /// the caller waits off-main and retries.
+        case surfaceStarting
+    }
+
+    /// A terminal in a workspace that was never shown has no libghostty
+    /// surface until something starts it (#1472). Socket reads start it and
+    /// wait this long for it before reporting the terminal as unreadable.
+    private nonisolated static let readTextSurfaceStartWait: TimeInterval = 2.0
+
+    /// Starts a cold terminal for a socket read. Returns true while the read
+    /// should release the main actor and retry.
+    private func readTextAwaitsSurfaceStart(_ surface: TerminalSurface, deadline: Date) -> Bool {
+        guard surface.liveSurfaceForGhosttyAccess(reason: "socket.readTerminalText.start") == nil else {
+            return false
+        }
+        // Hibernated agents and restores awaiting admission cannot start now;
+        // report them right away instead of waiting out the deadline.
+        guard surface.canCreateRuntimeSurface else { return false }
+        // A read waits on the result, so it is input demand like socket
+        // send_text, not restore-paced background priming.
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        return Date() < deadline
+    }
+
+    /// Runs `body` on the main actor until it stops reporting a pending
+    /// surface start, sleeping on the calling worker thread between tries.
+    private nonisolated func v2MainSyncAwaitingSurfaceStart<Outcome>(
+        isStarting: (Outcome) -> Bool,
+        _ body: @MainActor (Date) -> Outcome
+    ) -> Outcome {
+        // On the main thread the start task cannot run while we wait, so
+        // request it and read once.
+        let deadline = Thread.isMainThread
+            ? Date.distantPast
+            : Date().addingTimeInterval(Self.readTextSurfaceStartWait)
+        while true {
+            let outcome = v2MainSync { body(deadline) }
+            guard isStarting(outcome) else { return outcome }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
     }
 
     /// `surface.read_text` worker body (issue #5757). The former
@@ -5562,7 +5638,10 @@ class TerminalController {
 
         // Main-actor critical section: resolve the target and read the raw
         // Ghostty text. Everything after this hop runs off the main actor.
-        let outcome: ReadTextCaptureOutcome = v2MainSync {
+        let outcome: ReadTextCaptureOutcome = v2MainSyncAwaitingSurfaceStart(isStarting: {
+            if case .surfaceStarting = $0 { return true }
+            return false
+        }) { surfaceStartDeadline in
             // Mint refs for current topology so caller-supplied `kind:N` refs
             // resolve, exactly as the former main-actor dispatch did before
             // handing off to the coordinator.
@@ -5704,6 +5783,9 @@ class TerminalController {
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
             }
+            if self.readTextAwaitsSurfaceStart(terminalSurface, deadline: surfaceStartDeadline) {
+                return .surfaceStarting
+            }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
                 terminalSurface: terminalSurface,
                 includeScrollback: includeScrollback
@@ -5743,6 +5825,9 @@ class TerminalController {
         switch outcome {
         case let .finished(result):
             return result
+        case .surfaceStarting:
+            // v2MainSyncAwaitingSurfaceStart never returns this case.
+            return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
         case let .captured(capture):
             // The full-scrollback formatting stays off the main actor.
             switch Self.terminalTextPayload(
@@ -6050,7 +6135,6 @@ class TerminalController {
             )
         }
 
-        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
@@ -6073,6 +6157,7 @@ class TerminalController {
                 _ = tabManager.handlePromptSubmit(
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
+                    submittedLength: event.submittedPromptLength,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
             }
@@ -7721,6 +7806,10 @@ class TerminalController {
                   const text = labelledBy.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => __normalize(n.textContent || '')).join(' ').trim();
                   if (text) return text;
                 }
+                if (el.labels && el.labels.length) {
+                  const text = Array.from(el.labels).map((n) => __normalize(n.textContent || '')).join(' ').trim();
+                  if (text) return text;
+                }
                 if (el.tagName && String(el.tagName).toLowerCase() === 'input') {
                   const placeholder = __normalize(el.getAttribute('placeholder') || '');
                   if (placeholder) return placeholder;
@@ -8606,7 +8695,7 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "title": browserPanel.pageTitle
+                "title": browserPanel.pageTitle, "automation_readiness": browserPanel.browserAutomationReadinessPayload()
             ])
         }
     }
@@ -9767,13 +9856,16 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        // Shared with the CLI client, which sizes its socket response timeout
+        // from the same window and clamp.
+        let downloadWait = BrowserDownloadWaitTimeout.standard
         let requestedTimeoutMs = max(
             1,
             Self.v2WorkerInt(params, "timeout_ms") ??
                 Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
+                downloadWait.defaultTimeoutMilliseconds
         )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
+        let timeoutMs = downloadWait.handlerTimeoutMilliseconds(requestedMilliseconds: requestedTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
@@ -10075,81 +10167,6 @@ class TerminalController {
             }
         }
         return event
-    }
-
-    private func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
-        let scope: BrowserImportScope?
-        if params.keys.contains("scope") {
-            guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  !raw.isEmpty else {
-                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
-            }
-            switch raw {
-            case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
-                scope = .cookiesOnly
-            case "history", "historyonly", "history_only", "history-only":
-                scope = .historyOnly
-            case "cookiesandhistory", "cookies_and_history", "cookies-and-history", "all-basic":
-                scope = .cookiesAndHistory
-            case "everything", "all":
-                scope = .everything
-            default:
-                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
-            }
-        } else {
-            scope = nil
-        }
-
-        let defaultDestinationProfileID: UUID?
-        if params.keys.contains("destination_profile") {
-            guard let query = v2String(params, "destination_profile")?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !query.isEmpty else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile must be a non-empty string",
-                    data: ["param": "destination_profile"]
-                )
-            }
-            let profiles = BrowserProfileStore.shared.profiles
-            if let uuid = UUID(uuidString: query),
-               profiles.contains(where: { $0.id == uuid }) {
-                defaultDestinationProfileID = uuid
-            } else if let profile = profiles.first(where: {
-                $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
-                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
-            }) {
-                defaultDestinationProfileID = profile.id
-            } else if v2Bool(params, "create_destination_profile") == true ||
-                v2Bool(params, "create_profile") == true {
-                guard let createdProfileID = BrowserProfileStore.shared.createProfile(named: query)?.id else {
-                    return .err(
-                        code: "invalid_params",
-                        message: "destination_profile could not be created",
-                        data: ["param": "destination_profile"]
-                    )
-                }
-                defaultDestinationProfileID = createdProfileID
-            } else {
-                return .err(
-                    code: "invalid_params",
-                    message: "destination_profile does not match a cmux browser profile",
-                    data: ["param": "destination_profile"]
-                )
-            }
-        } else {
-            defaultDestinationProfileID = nil
-        }
-        Task { @MainActor in
-            BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: defaultDestinationProfileID,
-                defaultScope: scope
-            )
-        }
-        return .ok([
-            "opened": true,
-            "scope": scope.map { $0.rawValue as Any } ?? NSNull(),
-        ])
     }
 
     private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
@@ -11565,6 +11582,7 @@ class TerminalController {
     private enum ReadScreenCaptureOutcome {
         case finished(String)
         case captured(TerminalTextRawSnapshot)
+        case surfaceStarting
     }
 
     /// `read_screen` worker body — the v1 twin of `v2SurfaceReadText`
@@ -11607,7 +11625,10 @@ class TerminalController {
         }
         let trimmedSurfaceArg = options.surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let outcome: ReadScreenCaptureOutcome = v2MainSync {
+        let outcome: ReadScreenCaptureOutcome = v2MainSyncAwaitingSurfaceStart(isStarting: {
+            if case .surfaceStarting = $0 { return true }
+            return false
+        }) { surfaceStartDeadline in
             guard let tabManager = self.tabManager else {
                 return .finished("ERROR: TabManager not available")
             }
@@ -11627,6 +11648,9 @@ class TerminalController {
                   let target = tab.controlSocketTerminalInputTarget(for: panelId) else {
                 return .finished("ERROR: Terminal surface not found")
             }
+            if self.readTextAwaitsSurfaceStart(target.surface, deadline: surfaceStartDeadline) {
+                return .surfaceStarting
+            }
             guard target.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") != nil else {
                 return .finished("ERROR: Terminal surface not found")
             }
@@ -11643,6 +11667,9 @@ class TerminalController {
         switch outcome {
         case .finished(let reply):
             return reply
+        case .surfaceStarting:
+            // v2MainSyncAwaitingSurfaceStart never returns this case.
+            return "ERROR: Terminal surface not found"
         case .captured(let captured):
             snapshot = captured
         }
@@ -12708,6 +12735,7 @@ class TerminalController {
                 allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
+                tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
                 result = "OK \(panel.id.uuidString)"
             case .routedToRemote:
                 result = "OK routed-to-remote-tmux"
@@ -15081,16 +15109,24 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty || !mobileViewportApplyGovernorsBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
-        let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
+        // A lifecycle boundary (account change, test reset) bypasses the apply
+        // governor: teardown wants the uncapped size deterministically now,
+        // not after a stability window.
+        let surfaceIDs = Array(
+            Set(mobileViewportReportsBySurfaceID.keys)
+                .union(mobileViewportGenerationsBySurfaceID.keys)
+                .union(mobileViewportApplyGovernorsBySurfaceID.keys)
+        )
         mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
+            teardownMobileViewportGovernor(surfaceID: surfaceID)
             terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
         }
     }
@@ -15353,6 +15389,12 @@ class TerminalController {
             }
         }
         recordTrace("host_capture_finished")
+        // Hand the phone the host's own share of this round trip. Without it a
+        // slow replay is unattributable: the phone cannot tell a slow capture
+        // here from a slow or stalled transport between us.
+        payload["host_elapsed_ms"] = Int(
+            (DispatchTime.now().uptimeNanoseconds &- traceStartedAt) / 1_000_000
+        )
         return .ok(payload)
     }
 
@@ -15378,8 +15420,12 @@ class TerminalController {
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
+        // A client-backed clear can drop the final report and restore the
+        // uncapped surface size while returning no grid.
+        var clearedClientReport = false
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
+                clearedClientReport = true
                 reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalTarget.surfaceID,
                     clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
@@ -15397,6 +15443,15 @@ class TerminalController {
                 reason: "mobile.terminal.viewport"
             )
             allowLiveSurfaceFallback = true
+        }
+        if reportedGrid != nil || clearedClientReport {
+            // The viewport resize is a geometry change without PTY bytes. The
+            // render-grid observer must discard its old emission baseline now,
+            // before the resize-triggered render notification is flushed, so
+            // the phone receives a full frame at the settled row count.
+            MobileTerminalRenderObserver.shared.noteTerminalViewportChanged(
+                surfaceID: surfaceId
+            )
         }
 
         var payload: [String: Any] = [
@@ -15674,8 +15729,16 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalTarget.sendText(text) else {
+        let textResult = terminalTarget.sendTextResult(text)
+        switch textResult {
+        case .sent, .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
         // The paste text is already accepted by the surface above. From here on a
@@ -15718,6 +15781,7 @@ class TerminalController {
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
+            "delivery": textResult == .sent ? "delivered" : "queued",
             "submitted": submitted,
         ]
         if let submitError {
@@ -15796,11 +15860,119 @@ class TerminalController {
               let minRows = reports.values.map(\.rows).min() else {
             return nil
         }
-        return terminalTarget.surface.applyMobileViewportLimit(
-            columns: minColumns,
-            rows: minRows,
+        return governMobileViewportTarget(
+            surfaceID: terminalPanel.id,
+            target: .cap(columns: minColumns, rows: minRows),
             reason: reason
         )
+    }
+
+    /// Route one negotiated mobile viewport target through the surface's apply
+    /// governor so flapping reports cannot resize the PTY (and SIGWINCH the
+    /// foreground TUI) more than once per stability window
+    /// (https://github.com/manaflow-ai/cmux/issues/13474).
+    ///
+    /// - Returns: The grid the replay fence should expect: the fresh fit when
+    ///   the target applies now, otherwise the surface's current live grid
+    ///   (the fence must describe what capture will see now, not the deferred
+    ///   target; a deferred change converges on the phone's next replay).
+    @discardableResult
+    private func governMobileViewportTarget(
+        surfaceID: UUID,
+        target: MobileViewportApplyGovernor.Target,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        var governor = mobileViewportApplyGovernorsBySurfaceID[surfaceID] ?? MobileViewportApplyGovernor()
+        let decision = governor.request(target)
+        mobileViewportApplyGovernorsBySurfaceID[surfaceID] = governor
+        switch decision {
+        case .apply(let target):
+            return performMobileViewportTarget(surfaceID: surfaceID, target: target, reason: reason)
+        case .stage(let target, let scheduleFlush):
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.viewport.govern stage surface=\(surfaceID.uuidString.prefix(8)) " +
+                "reschedule=\(scheduleFlush ? 1 : 0) reason=\(reason)"
+            )
+            #endif
+            if scheduleFlush {
+                scheduleMobileViewportGovernorFlush(
+                    surfaceID: surfaceID,
+                    window: Self.mobileViewportStabilityWindow(for: target),
+                    reason: reason
+                )
+            }
+            return currentMobileViewportGrid(surfaceID: surfaceID)
+        case .drop:
+            return currentMobileViewportGrid(surfaceID: surfaceID)
+        }
+    }
+
+    private static func mobileViewportStabilityWindow(
+        for target: MobileViewportApplyGovernor.Target
+    ) -> Duration {
+        switch target {
+        case .cap: return mobileViewportCapApplyStabilityWindow
+        case .uncapped: return mobileViewportUncapApplyStabilityWindow
+        }
+    }
+
+    private func performMobileViewportTarget(
+        surfaceID: UUID,
+        target: MobileViewportApplyGovernor.Target,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        guard let surface = terminalSocketTarget(surfaceID: surfaceID)?.surface else { return nil }
+        switch target {
+        case .cap(let columns, let rows):
+            return surface.applyMobileViewportLimit(columns: columns, rows: rows, reason: reason)
+        case .uncapped:
+            surface.clearMobileViewportLimit(reason: reason)
+            return nil
+        }
+    }
+
+    private func currentMobileViewportGrid(surfaceID: UUID) -> (columns: Int, rows: Int)? {
+        guard let surface = terminalSocketTarget(surfaceID: surfaceID)?
+            .surface.liveSurfaceForGhosttyAccess(reason: "mobileViewportGovernor.currentGrid") else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        return (columns: max(Int(size.columns), 1), rows: max(Int(size.rows), 1))
+    }
+
+    private func scheduleMobileViewportGovernorFlush(
+        surfaceID: UUID,
+        window: Duration,
+        reason: String
+    ) {
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID]?.cancel()
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: window)
+            guard !Task.isCancelled, let self else { return }
+            self.mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = nil
+            guard var governor = self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] else { return }
+            let target = governor.flush()
+            self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] = governor
+            guard let target else { return }
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.viewport.govern flush surface=\(surfaceID.uuidString.prefix(8)) reason=\(reason)"
+            )
+            #endif
+            _ = self.performMobileViewportTarget(surfaceID: surfaceID, target: target, reason: reason)
+            if target == .uncapped {
+                // The surface is back to its uncapped size with nothing
+                // staged; the next cap is a cold attach again.
+                self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] = nil
+            }
+        }
+    }
+
+    private func teardownMobileViewportGovernor(surfaceID: UUID) {
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID]?.cancel()
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = nil
+        mobileViewportApplyGovernorsBySurfaceID[surfaceID] = nil
     }
 
     /// Remove a single client's viewport report for a surface (dedicated
@@ -15821,16 +15993,16 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
             return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            return terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
+            return governMobileViewportTarget(
+                surfaceID: surfaceID,
+                target: .cap(columns: minColumns, rows: minRows),
                 reason: reason
             )
         }
@@ -15893,16 +16065,16 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
             return
         }
 
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            _ = terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
+            governMobileViewportTarget(
+                surfaceID: surfaceID,
+                target: .cap(columns: minColumns, rows: minRows),
                 reason: reason
             )
         }

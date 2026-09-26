@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-client-install.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
+# Most assertions below are a bare `cmp`, `grep -q` or `[ ... ]`, and the
+# installer's own output is redirected into a per-case log. When one of them
+# fails, `set -e` exits 1 having printed nothing after the last PASS line, which
+# is all a CI log preserves. Name the line that failed and dump the event log.
+report_failure() { # <line>
+  local status=$?
+  echo "FAIL: assertion at $(basename "${BASH_SOURCE[0]}"):$1 exited $status" >&2
+  if [[ -n "${EVENTS:-}" && -f "${EVENTS:-}" ]]; then
+    echo "--- installer events ---" >&2
+    cat "$EVENTS" >&2
+  fi
+}
+trap 'report_failure "$LINENO"' ERR
 APP="$TEST_DIR/Test.app"
 mkdir -p "$APP/Contents"
 CLIENT="$TEST_DIR/client"
@@ -53,6 +66,8 @@ COMMIT="$(printf 'a%.0s' $(seq 1 40))"
 SIGNER="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 cp "$CLIENT" "$SERVE/cmux-tui-aarch64-apple-darwin"
 cp "$CLIENT" "$SERVE/cmux-tui-x86_64-apple-darwin"
+cp "$CLIENT" "$SERVE/cmux-tui-aarch64-unknown-linux-musl"
+cp "$CLIENT" "$SERVE/cmux-tui-x86_64-unknown-linux-musl"
 if command -v shasum >/dev/null 2>&1; then
   slice_sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 else
@@ -63,7 +78,7 @@ fi
 ARM_SHA="$(slice_sha "$SERVE/cmux-tui-aarch64-apple-darwin")"
 X64_SHA="$(slice_sha "$SERVE/cmux-tui-x86_64-apple-darwin")"
 cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA"}}
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"}}
 JSON
 cat > "$FAKEBIN/curl" <<SH
 #!/bin/bash
@@ -96,11 +111,19 @@ exit 0
 SH
 chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo"
 
+# Every case needs its own download cache: the installer skips the curl for a
+# slice already cached under the manifest's commit, and that commit is one
+# constant for the whole file. $RANDOM draws from 32768 values, so across the 25
+# calls made here two cases collided about once in a hundred runs, the second
+# silently served both slices from the first one's cache, and the `curl` and
+# `lipo` assertions below failed with no output. Number the caches instead.
+REMOTE_INSTALL_SEQ=0
 install_remote() { # <app> [installer options]
   local app="$1"; shift
   mkdir -p "$app/Contents"
   : > "$EVENTS"
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$RANDOM" /bin/bash \
+  REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
@@ -164,7 +187,7 @@ fi
 echo "PASS: --allow-unattested is the only unverified remote install path"
 
 # Architecture selection is opt-in: the existing default still fetches and
-# verifies both slices, while a native install never requests the other slice.
+# verifies both slices. Native selects only its app executable; SSH companions cover every remote platform.
 install_remote "$TEST_DIR/Universal.app" > "$TEST_DIR/universal.log" 2>&1
 grep -q 'curl .*cmux-tui-aarch64-apple-darwin$' "$EVENTS"
 grep -q 'curl .*cmux-tui-x86_64-apple-darwin$' "$EVENTS"
@@ -183,7 +206,7 @@ echo "PASS: explicit universal mode fetches both slices"
 printf '\n# Intel fixture\n' >> "$SERVE/cmux-tui-x86_64-apple-darwin"
 X64_SHA="$(slice_sha "$SERVE/cmux-tui-x86_64-apple-darwin")"
 cat > "$SERVE/manifest.json" <<JSON
-{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA"}}
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA"}}
 JSON
 for arch in arm64 x86_64; do
   if [[ "$arch" == arm64 ]]; then slice=aarch64; other=x86_64; else slice=x86_64; other=aarch64; fi
@@ -196,14 +219,15 @@ for arch in arm64 x86_64; do
   [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
   [[ "$(sed -n '3p' "$EVENTS")" == "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-$slice-apple-darwin" ]]
 
-  if grep -q "curl .*cmux-tui-$other-apple-darwin\$" "$EVENTS"; then
-    echo "FAIL: $arch fetched the unrequested slice" >&2; exit 1
-  fi
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$native_app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$target"
+  done
+  cmp "$SERVE/manifest.json" "$native_app/Contents/Resources/bin/cmux-tui-ssh/manifest.json"
   if grep -q '^lipo -create ' "$EVENTS"; then
     echo "FAIL: $arch unnecessarily created a universal binary" >&2; exit 1
   fi
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
-  echo "PASS: $arch installs only its attested, verified slice"
+  echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
 
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1
@@ -263,9 +287,7 @@ for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
     --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
   cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
   grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
-  if grep -q "curl .*cmux-tui-$rejected-apple-darwin\$" "$EVENTS"; then
-    echo "FAIL: native $scenario selected the wrong client slice" >&2; exit 1
-  fi
+  cmp "$SERVE/cmux-tui-$rejected-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-$rejected-apple-darwin"
   echo "PASS: native $scenario selects $wanted"
 done
 if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arch native > "$TEST_DIR/unknown-native.log" 2>&1; then
