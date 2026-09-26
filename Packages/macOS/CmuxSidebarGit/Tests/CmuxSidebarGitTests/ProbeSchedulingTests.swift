@@ -369,11 +369,10 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
-        for _ in 0..<500 {
-            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-            if immediateProbeSleeps >= 3 { break }
-            await Task.yield()
-        }
+        // The detached snapshot task must finish before it schedules the rerun.
+        // Wait for that scheduling signal instead of assuming a fixed number of
+        // executor yields gives the snapshot task enough time on a busy runner.
+        await clock.waitForSleeper()
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 
         #expect(immediateProbeSleeps == 3)
