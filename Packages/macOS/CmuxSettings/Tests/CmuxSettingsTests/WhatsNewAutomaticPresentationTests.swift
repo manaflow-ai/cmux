@@ -25,6 +25,14 @@ struct WhatsNewAutomaticPresentationTests {
         #expect(policy.decide(mode: .sheet, flavor: .rc, currentVersion: "0.64.26-rc.1", lastSeenVersion: nil) == .present(since: nil))
     }
 
+    @Test func freshInstallRecordsWithoutAnnouncing() {
+        for mode in WhatsNewPresentationMode.allCases {
+            #expect(policy.decide(mode: mode, flavor: .stable, currentVersion: "0.64.26", lastSeenVersion: nil, isFirstRun: true) == .recordCurrent)
+        }
+        // A first run only matters when nothing is recorded yet.
+        #expect(policy.decide(mode: .sheet, flavor: .stable, currentVersion: "0.64.26", lastSeenVersion: "0.64.25", isFirstRun: true) == .present(since: "0.64.25"))
+    }
+
     @Test func onlyOncePerVersion() {
         for mode in WhatsNewPresentationMode.allCases {
             #expect(policy.decide(mode: mode, flavor: .stable, currentVersion: "0.64.26", lastSeenVersion: "0.64.26") == .none)

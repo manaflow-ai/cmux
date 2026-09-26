@@ -139,11 +139,11 @@ public struct WhatsNewCatalog: Decodable, Equatable, Sendable {
     ///   newer than `current` (a downgrade) announces nothing.
     public func releasesToAnnounce(after lastSeen: String?, through current: String, limit: Int = 3) -> [WhatsNewRelease] {
         let matching = sortedReleases.filter { release in
-            guard WhatsNewVersion.compare(release.version, current) != .orderedDescending else { return false }
+            guard comparator.compare(release.version, current) != .orderedDescending else { return false }
             guard let lastSeen else {
-                return WhatsNewVersion.compare(release.version, current) == .orderedSame
+                return comparator.compare(release.version, current) == .orderedSame
             }
-            return WhatsNewVersion.compare(release.version, lastSeen) == .orderedDescending
+            return comparator.compare(release.version, lastSeen) == .orderedDescending
         }
         return Array(matching.prefix(max(0, limit)))
     }
@@ -153,21 +153,25 @@ public struct WhatsNewCatalog: Decodable, Equatable, Sendable {
     /// the release before it.
     public func recentReleases(through current: String, limit: Int = 3) -> [WhatsNewRelease] {
         let matching = sortedReleases.filter {
-            WhatsNewVersion.compare($0.version, current) != .orderedDescending
+            comparator.compare($0.version, current) != .orderedDescending
         }
         return Array(matching.prefix(max(0, limit)))
     }
 
+    private var comparator: WhatsNewVersionComparator { WhatsNewVersionComparator() }
+
     private var sortedReleases: [WhatsNewRelease] {
         releases
             .filter { !$0.features.isEmpty }
-            .sorted { WhatsNewVersion.compare($0.version, $1.version) == .orderedDescending }
+            .sorted { comparator.compare($0.version, $1.version) == .orderedDescending }
     }
 }
 
 /// Dotted-numeric version comparison; missing components count as zero.
-public enum WhatsNewVersion {
-    public static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+public struct WhatsNewVersionComparator: Sendable {
+    public init() {}
+
+    public func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
         let left = components(lhs)
         let right = components(rhs)
         for index in 0..<max(left.count, right.count) {
@@ -179,7 +183,7 @@ public enum WhatsNewVersion {
         return .orderedSame
     }
 
-    private static func components(_ version: String) -> [Int] {
+    private func components(_ version: String) -> [Int] {
         version.split(separator: ".").map { part in
             Int(part.prefix { $0.isASCII && $0.isNumber }) ?? 0
         }

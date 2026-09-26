@@ -16,6 +16,8 @@ public struct WhatsNewAutomaticPresentation: Sendable {
         case indicate(since: String?)
         /// Present the recap once for highlights newer than `since`.
         case present(since: String?)
+        /// A fresh install: record the current release as seen, show nothing.
+        case recordCurrent
     }
 
     public init() {}
@@ -28,17 +30,23 @@ public struct WhatsNewAutomaticPresentation: Sendable {
     ///   - currentVersion: `CFBundleShortVersionString` of the running build.
     ///   - lastSeenVersion: The release key recorded when the user last saw
     ///     (or was shown) the recap, or `nil` when nothing is recorded.
+    ///   - isFirstRun: No earlier install of cmux ran on this Mac. With
+    ///     nothing recorded, a first run is a new user, not an update, so it
+    ///     announces nothing; an earlier install is an update from a version
+    ///     that predates What's New.
     /// - Returns: The decision. `since` is the last seen release key, so the
     ///   caller shows only highlights after it.
     public func decide(
         mode: WhatsNewPresentationMode,
         flavor: BuildFlavor,
         currentVersion: String,
-        lastSeenVersion: String?
+        lastSeenVersion: String?,
+        isFirstRun: Bool = false
     ) -> Decision {
-        guard mode != .off, flavor != .dev else { return .none }
         guard let current = Self.releaseKey(currentVersion) else { return .none }
         let lastSeen = lastSeenVersion.flatMap(Self.releaseKey)
+        if lastSeen == nil, isFirstRun { return .recordCurrent }
+        guard mode != .off, flavor != .dev else { return .none }
         guard lastSeen != current else { return .none }
         switch mode {
         case .off: return .none

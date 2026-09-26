@@ -38,6 +38,10 @@ final class WhatsNewCenter {
     @ObservationIgnored private var window: NSWindow?
     @ObservationIgnored private var viewModel: WhatsNewViewModel?
     @ObservationIgnored private var windowCloseObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var modeObserver: (any NSObjectProtocol)?
+    /// Whether this launch is a new user's first run, captured at app init
+    /// before the first workspace marks the welcome as shown.
+    nonisolated(unsafe) private static var launchIsFirstRun = false
 
     init(defaults: UserDefaults = .standard, loader: WhatsNewCatalogLoader = WhatsNewCatalogLoader()) {
         self.defaults = defaults
@@ -54,11 +58,29 @@ final class WhatsNewCenter {
 
     // MARK: - Launch
 
+    /// Records whether this is a new user's first run: a Mac that never
+    /// showed the welcome is a new install, not an update. Call once from
+    /// app init, before any workspace exists.
+    nonisolated static func captureFirstRunState(defaults: UserDefaults = .standard) {
+        launchIsFirstRun = !defaults.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
+    }
+
     /// Runs the launch check once, a few seconds after launch so it never
     /// competes with window restore.
     func scheduleLaunchCheck() {
         guard !launchCheckScheduled else { return }
         launchCheckScheduled = true
+        // Switching to Off anywhere (Settings, cmux.json) clears the dot.
+        modeObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.hasUnseenHighlights, self.mode == .off else { return }
+                self.hasUnseenHighlights = false
+            }
+        }
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await self?.runLaunchCheck()
@@ -70,12 +92,16 @@ final class WhatsNewCenter {
             mode: mode,
             flavor: BuildFlavor.current,
             currentVersion: currentVersion,
-            lastSeenVersion: defaults.string(forKey: Self.lastSeenReleaseDefaultsKey)
+            lastSeenVersion: defaults.string(forKey: Self.lastSeenReleaseDefaultsKey),
+            isFirstRun: Self.launchIsFirstRun
         )
         let since: String?
         let presents: Bool
         switch decision {
         case .none:
+            return
+        case .recordCurrent:
+            markSeen()
             return
         case .indicate(let lastSeen):
             since = lastSeen
@@ -175,6 +201,10 @@ final class WhatsNewCenter {
     /// Shows the recap, reusing an open one. It opens as a sheet on the
     /// frontmost main window, or as a standalone window when there is none.
     private func showWindow(phase: WhatsNewViewModel.Phase, activates: Bool) -> WhatsNewViewModel {
+        // A sheet whose parent closed never ran its completion; drop it.
+        if let window, window.sheetParent == nil, !window.isVisible {
+            forgetWindow()
+        }
         if let window, let viewModel {
             viewModel.phase = phase
             viewModel.selectedModeID = mode.rawValue
@@ -230,14 +260,16 @@ final class WhatsNewCenter {
         return model
     }
 
+    /// The frontmost visible main terminal window without a sheet. Works
+    /// while cmux is inactive, when there is no key or main window.
     private func sheetParentCandidate() -> NSWindow? {
-        let candidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
-        return candidates.first { candidate in
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        let ordered = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+        return ordered.first { candidate in
             candidate.isVisible
+                && !candidate.isMiniaturized
                 && candidate.attachedSheet == nil
-                && candidate.sheetParent == nil
-                && !(candidate is NSPanel)
-                && candidate.styleMask.contains(.titled)
+                && appDelegate.isMainTerminalWindow(candidate)
         }
     }
 

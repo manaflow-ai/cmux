@@ -48,9 +48,10 @@ import Testing
     }
 
     @Test func versionCompareIsNumericNotLexical() {
-        #expect(WhatsNewVersion.compare("0.64.10", "0.64.9") == .orderedDescending)
-        #expect(WhatsNewVersion.compare("0.64", "0.64.0") == .orderedSame)
-        #expect(WhatsNewVersion.compare("0.63.99", "0.64.0") == .orderedAscending)
+        let comparator = WhatsNewVersionComparator()
+        #expect(comparator.compare("0.64.10", "0.64.9") == .orderedDescending)
+        #expect(comparator.compare("0.64", "0.64.0") == .orderedSame)
+        #expect(comparator.compare("0.63.99", "0.64.0") == .orderedAscending)
     }
 
     @Test func decodesTheEndpointShapeLossily() throws {

@@ -169,8 +169,8 @@ private struct WhatsNewReleaseSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 // Product name and version number: invariant across languages.
                 Text(verbatim: "cmux \(release.version)")
-                .cmuxFont(size: 11, weight: .semibold)
-                .foregroundStyle(.secondary)
+                    .cmuxFont(size: 11, weight: .semibold)
+                    .foregroundStyle(.secondary)
                 Text(release.title)
                     .cmuxFont(size: 15, weight: .semibold)
                     .fixedSize(horizontal: false, vertical: true)
