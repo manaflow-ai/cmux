@@ -70,6 +70,12 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 }
 
+/// The terminal and remote tab a create receipt bound a reservation to.
+struct CloudTerminalReservationKey: Hashable {
+    let resource: SurfaceResourceID
+    let remoteTabID: String?
+}
+
 /// A native pane that already occupies the user's requested split or tab while
 /// the machine creates the terminal behind it.
 ///

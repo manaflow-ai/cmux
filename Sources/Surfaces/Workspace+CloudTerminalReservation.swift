@@ -16,23 +16,24 @@ import GhosttyKit
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
-    /// Returns the optimistic pane reserved for exactly this terminal.
-    /// Device layout reconciliation uses the same reservation for the pane it
-    /// projects into and the pane it adopts, so the terminal lands in its final
-    /// pane instead of the focused tab first. `cloudPendingCreations` is the only
-    /// request-to-terminal record: a reservation matches only the resource its
-    /// create receipt bound, so an unbound or sibling reservation never lends
-    /// its pane or queued input to another terminal.
-    func pendingCloudTerminalReservation(
-        for resource: SurfaceResourceID,
-        remoteWorkspaceID: String,
-        remoteTabID: String?
-    ) -> CloudTerminalPaneReservation? {
-        cloudPendingCreations.values.first { reservation in
-            reservation.boundResourceID == resource
-                && reservation.remoteWorkspaceID == remoteWorkspaceID
-                && reservation.remoteTabID == remoteTabID
+    /// Indexes the optimistic panes reserved for terminals in one remote
+    /// workspace, by the exact terminal and tab each create receipt bound.
+    /// Device layout reconciliation builds this once per pass and uses the same
+    /// reservation for the pane it projects into and the pane it adopts, so the
+    /// terminal lands in its final pane instead of the focused tab first.
+    /// `cloudPendingCreations` is the only request-to-terminal record: an
+    /// unbound or sibling reservation never lends its pane or queued input to
+    /// another terminal.
+    func pendingCloudTerminalReservations(
+        remoteWorkspaceID: String
+    ) -> [CloudTerminalReservationKey: CloudTerminalPaneReservation] {
+        var index: [CloudTerminalReservationKey: CloudTerminalPaneReservation] = [:]
+        for reservation in cloudPendingCreations.values where reservation.remoteWorkspaceID == remoteWorkspaceID {
+            guard let resource = reservation.boundResourceID else { continue }
+            let key = CloudTerminalReservationKey(resource: resource, remoteTabID: reservation.remoteTabID)
+            if index[key] == nil { index[key] = reservation }
         }
+        return index
     }
 
     /// Hands a device provider the native pane without requiring a Cloud

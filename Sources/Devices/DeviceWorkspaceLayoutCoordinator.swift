@@ -479,14 +479,15 @@ final class DeviceWorkspaceLayoutCoordinator {
                           let pane = native.paneId(forPanelId: panelUUID) else { continue }
                     localPanesByRemotePane[location.paneID] = pane.id
                 }
+                let reservations = native.pendingCloudTerminalReservations(remoteWorkspaceID: target.remoteID)
                 for resourceID in wanted where !present.contains(resourceID) {
                     let view = try catalog.remoteView(for: resourceID, workspaceID: target.remoteID)
                     let location = locations[resourceID.key]
                     // Only the reservation bound to this terminal lends its pane,
-                    // and that same reservation is the one adopted.
-                    let reservation = native.pendingCloudTerminalReservation(
-                        for: resourceID, remoteWorkspaceID: target.remoteID, remoteTabID: view?.tabID
-                    )
+                    // and that same reservation is the one adopted. An earlier
+                    // projection in this pass may already have adopted it.
+                    let reservation = reservations[CloudTerminalReservationKey(resource: resourceID, remoteTabID: view?.tabID)]
+                        .flatMap { native.cloudPendingCreations[$0.panelID] === $0 ? $0 : nil }
                     let pane = location.flatMap { localPanesByRemotePane[$0.paneID] }
                         ?? reservation.flatMap { native.paneId(forPanelId: $0.panelID)?.id }
                     let destination: SurfaceDestination = pane.map {
@@ -498,7 +499,8 @@ final class DeviceWorkspaceLayoutCoordinator {
                 }
                 guard !Task.isCancelled, suspended.isEmpty, snapshots[target.remoteID] == snapshot,
                       writers[target.remoteID] == nil, pending[target.remoteID] == nil else { continue }
-                for projection in target.projections where !wanted.contains(projection.resource) {
+                let wantedSet = Set(wanted)
+                for projection in target.projections where !wantedSet.contains(projection.resource) {
                     native.performRemoteTmuxMirrorMutation {
                         SurfacePaneFactory.closeExited(panelID: projection.panelID, in: id)
                         catalog.endProjections(panelID: projection.panelID, reason: .replaced)
