@@ -111,12 +111,32 @@ import Testing
 /// The relay reads one chunk per direction and waits for it to be written:
 /// a stalled sink stops the source from being drained.
 @Suite struct TunnelRelayBackpressureTests {
+    /// Shared between the source and the sink: every read checks, at the
+    /// moment it happens, that the previous chunk's write has completed.
+    final class Ledger: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _completedWrites = 0
+        private var _readsAhead = 0
+        /// Reads that started while an earlier chunk was still unwritten.
+        var readsAhead: Int { lock.withLock { _readsAhead } }
+        func noteRead(number: Int) {
+            lock.withLock { if _completedWrites < number - 1 { _readsAhead += 1 } }
+        }
+        func noteWriteCompleted() { lock.withLock { _completedWrites += 1 } }
+    }
+
     final class CountingSource: TunnelByteStream, @unchecked Sendable {
         private let lock = NSLock()
+        private let ledger: Ledger
         private var _reads = 0
+        init(ledger: Ledger) { self.ledger = ledger }
         var reads: Int { lock.withLock { _reads } }
         func read() async throws -> Data? {
-            lock.withLock { _reads += 1 }
+            let number = lock.withLock { () -> Int in
+                _reads += 1
+                return _reads
+            }
+            ledger.noteRead(number: number)
             return Data(repeating: 1, count: 1024)
         }
         func write(_ data: Data) async throws {}
@@ -126,6 +146,8 @@ import Testing
 
     final class GatedSink: TunnelByteStream, @unchecked Sendable {
         private let lock = NSLock()
+        private let ledger: Ledger
+        init(ledger: Ledger) { self.ledger = ledger }
         private var _writes = 0
         private var gate: CheckedContinuation<Void, Never>?
         private var closed = false
@@ -138,6 +160,7 @@ import Testing
         func write(_ data: Data) async throws {
             lock.withLock { _writes += 1 }
             await withCheckedContinuation { continuation in lock.withLock { gate = continuation } }
+            ledger.noteWriteCompleted()
         }
         func openGate() {
             let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
@@ -155,11 +178,11 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1))) func aStalledSinkBoundsReads() async throws {
-        let source = CountingSource()
-        let sink = GatedSink()
+        let ledger = Ledger()
+        let source = CountingSource(ledger: ledger)
+        let sink = GatedSink(ledger: ledger)
         let relay = Task { await TunnelRelay(source, sink).run() }
         while sink.writes < 1 { try await Task.sleep(for: .milliseconds(5)) }
-        try await Task.sleep(for: .milliseconds(50))
         #expect(source.reads == 1)
         #expect(sink.writes == 1)
         sink.openGate()
@@ -168,5 +191,8 @@ import Testing
         relay.cancel()
         await sink.close()
         _ = await relay.value
+        // Checked at each read rather than after a pause: no read ever ran
+        // ahead of the stalled write before it.
+        #expect(ledger.readsAhead == 0)
     }
 }
