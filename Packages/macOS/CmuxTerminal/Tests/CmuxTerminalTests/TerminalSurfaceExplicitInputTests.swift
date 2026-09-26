@@ -98,6 +98,28 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test(arguments: [true, false])
+    func startupPasteDoesNotRecordUserInputAfterClipboardDeferral(treatsAsPaste: Bool) {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(fixture.surface.sendTextAfterExplicitInput(
+            Data(" cmux restore --surface".utf8),
+            recordsExplicitInput: false,
+            treatsAsPaste: treatsAsPaste
+        ) == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+
+        #expect(fixture.surface.pendingSocketInputBytes > 0)
+        #expect(acceptedInputCount == 0)
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
     @Test func pasteReportsClipboardDeferralAndRetainsOneReplay() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
