@@ -29,6 +29,7 @@ struct TerminalPromptSelectionTests {
             .selectAll,
             .extend(.backward, .character),
             .extend(.forward, .inputBoundary),
+            .collapse(.backward),
             .cut,
             .delete,
             .insertText,
@@ -86,7 +87,19 @@ struct TerminalPromptSelectionTests {
             snapshot: snapshot(caret: 5, selection: 4..<5),
             tracked: tracked
         )
-        #expect(action == .clearSelection)
+        #expect(action == .clearSelection(collapsed: TerminalPromptSelection(anchor: 5, head: 5)))
+    }
+
+    /// After a collapse the next Shift+arrow continues from the collapse
+    /// point, not from wherever the shell caret happens to be.
+    @Test func extendingContinuesFromACollapsedSelection() {
+        let collapsed = TerminalPromptSelection(anchor: 0, head: 0)
+        let action = terminalPromptSelectionResolve(
+            intent: .extend(.backward, .character),
+            snapshot: snapshot(caret: 2),
+            tracked: collapsed
+        )
+        #expect(action == .consume)
     }
 
     @Test func extendingPastTheInputEdgeIsConsumedWithoutChange() {
@@ -164,10 +177,34 @@ struct TerminalPromptSelectionTests {
 
     /// Cut with nothing selected in the input must not reach the clipboard.
     @Test func editsWithoutAnInputSelectionPassThrough() {
-        for intent in [TerminalPromptSelectionIntent.cut, .delete, .insertText] {
+        for intent in [TerminalPromptSelectionIntent.cut, .delete, .insertText, .collapse(.forward)] {
             let action = terminalPromptSelectionResolve(intent: intent, snapshot: snapshot(), tracked: nil)
             #expect(action == .passThrough, "\(intent)")
         }
+    }
+
+    @Test func plainArrowsCollapseTheSelectionToAnEdge() {
+        let left = terminalPromptSelectionResolve(
+            intent: .collapse(.backward),
+            snapshot: snapshot(caret: 5, selection: 1..<3),
+            tracked: nil
+        )
+        #expect(left == .edit(
+            TerminalPromptInputEdit(moveLeft: 4, moveRight: 0, deleteBackward: 0),
+            copyFirst: false,
+            thenPassThrough: false
+        ))
+
+        let right = terminalPromptSelectionResolve(
+            intent: .collapse(.forward),
+            snapshot: snapshot(caret: 0, selection: 1..<3),
+            tracked: nil
+        )
+        #expect(right == .edit(
+            TerminalPromptInputEdit(moveLeft: 0, moveRight: 3, deleteBackward: 0),
+            copyFirst: false,
+            thenPassThrough: false
+        ))
     }
 
     @Test func editCountsFollowTheCaret() {
@@ -206,22 +243,30 @@ struct TerminalPromptSelectionTests {
         )
     }
 
-    @Test func plainArrowsAndDeletionChordsDoNotMap() {
-        #expect(terminalPromptSelectionIntent(keyCode: Key.leftArrow, modifiers: [], producesText: false) == nil)
+    @Test func arrowAndDeletionKeysMap() {
+        #expect(terminalPromptSelectionIntent(keyCode: Key.leftArrow, modifiers: [], producesText: false) == .collapse(.backward))
         #expect(terminalPromptSelectionIntent(keyCode: Key.leftArrow, modifiers: [.command], producesText: false) == nil)
         #expect(terminalPromptSelectionIntent(keyCode: Key.backspace, modifiers: [.command], producesText: false) == nil)
+        #expect(terminalPromptSelectionIntent(keyCode: Key.backspace, modifiers: [.option], producesText: false) == nil)
         #expect(terminalPromptSelectionIntent(keyCode: Key.backspace, modifiers: [], producesText: false) == .delete)
+        #expect(terminalPromptSelectionIntent(keyCode: Key.backspace, modifiers: [.shift], producesText: false) == .delete)
         #expect(terminalPromptSelectionIntent(keyCode: Key.forwardDelete, modifiers: [.function], producesText: false) == .delete)
     }
 
-    /// Control and Option stay with the shell; Option word selection is not
-    /// supported until the input text is available.
-    @Test func controlAndOptionNeverMap() {
-        let modifierSets: [TerminalTextEditingModifiers] = [[.control], [.control, .shift], [.option, .shift]]
+    /// Control stays with the shell.
+    @Test func controlNeverMaps() {
+        let modifierSets: [TerminalTextEditingModifiers] = [[.control], [.control, .shift], [.control, .option]]
         for modifiers in modifierSets {
             #expect(terminalPromptSelectionIntent(keyCode: Key.leftArrow, modifiers: modifiers, producesText: false) == nil)
             #expect(terminalPromptSelectionIntent(keyCode: Key.letterA, modifiers: modifiers, producesText: true) == nil)
         }
+    }
+
+    /// Option word selection waits on the input text, but Option-typed
+    /// characters (German `@`, accents) still replace a selection.
+    @Test func optionArrowsDoNotMapButOptionTextDoes() {
+        #expect(terminalPromptSelectionIntent(keyCode: Key.leftArrow, modifiers: [.option, .shift], producesText: false) == nil)
+        #expect(terminalPromptSelectionIntent(keyCode: Key.letterA, modifiers: [.option], producesText: true) == .insertText)
     }
 
     @Test func printableTextMapsToInsertion() {

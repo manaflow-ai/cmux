@@ -65,6 +65,8 @@ public struct TerminalTextEditingChord: Equatable, Sendable {
 }
 
 /// Strips modifiers that never participate in gesture matching.
+///
+/// Shared with the prompt selection key mapping in `TerminalPromptSelection.swift`.
 func terminalTextEditingNormalizedModifiers(
     _ modifiers: TerminalTextEditingModifiers
 ) -> TerminalTextEditingModifiers {

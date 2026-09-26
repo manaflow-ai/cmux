@@ -79,6 +79,8 @@ public enum TerminalPromptSelectionIntent: Equatable, Sendable {
     case extend(TerminalPromptSelectionDirection, TerminalPromptSelectionGranularity)
     /// Cmd+X, Edit > Cut.
     case cut
+    /// Plain Left/Right, which collapses a selection to that edge.
+    case collapse(TerminalPromptSelectionDirection)
     /// Backspace or forward Delete.
     case delete
     /// A keystroke that inserts printable text.
@@ -90,6 +92,10 @@ public enum TerminalPromptSelectionIntent: Equatable, Sendable {
 /// The arrows run first, leaving the caret just after the selection, then
 /// `deleteBackward` backspaces remove it. Backspace is used for both deletion
 /// keys because every line editor binds it; forward delete is not universal.
+///
+/// This assumes an emacs-style keymap. In a vi command mode Backspace moves
+/// instead of deleting, and a Right arrow at the end of a zsh buffer accepts
+/// an autosuggestion, so an edit there does the wrong thing.
 public struct TerminalPromptInputEdit: Equatable, Sendable {
     /// Left-arrow presses to send first.
     public let moveLeft: Int
@@ -125,6 +131,20 @@ public struct TerminalPromptInputEdit: Equatable, Sendable {
             deleteBackward: range.count
         )
     }
+
+    /// The edit that only moves the caret from `caret` to `target`.
+    ///
+    /// - Parameters:
+    ///   - target: The caret stop to move to.
+    ///   - caret: The current caret, in stops.
+    /// - Returns: The arrow counts, with no deletion.
+    public static func moving(to target: Int, caret: Int) -> TerminalPromptInputEdit {
+        TerminalPromptInputEdit(
+            moveLeft: max(0, caret - target),
+            moveRight: max(0, target - caret),
+            deleteBackward: 0
+        )
+    }
 }
 
 /// What the terminal view should do with a prompt selection intent.
@@ -135,8 +155,12 @@ public enum TerminalPromptSelectionAction: Equatable, Sendable {
     case consume
     /// Select the given stops and remember the direction.
     case select(TerminalPromptSelection)
-    /// Clear the selection; the extension collapsed it to nothing.
-    case clearSelection
+    /// Clear the selection; the extension collapsed it onto its anchor.
+    ///
+    /// The caller keeps the empty `collapsed` selection as its tracked state
+    /// so the next Shift+arrow continues from there, and drops it on any
+    /// other input.
+    case clearSelection(collapsed: TerminalPromptSelection)
     /// Clear the selection and apply `edit`.
     ///
     /// When `copyFirst` is set the selection is copied before it is cleared
@@ -204,8 +228,15 @@ public func terminalPromptSelectionResolve(
         case (.forward, .inputBoundary): head = length
         }
         guard head != current.head else { return .consume }
-        guard head != current.anchor else { return .clearSelection }
+        guard head != current.anchor else {
+            return .clearSelection(collapsed: TerminalPromptSelection(anchor: head, head: head))
+        }
         return .select(TerminalPromptSelection(anchor: current.anchor, head: head))
+
+    case let .collapse(direction):
+        guard let selection else { return .passThrough }
+        let target = direction == .backward ? selection.lowerBound : selection.upperBound
+        return .edit(.moving(to: target, caret: caret), copyFirst: false, thenPassThrough: false)
 
     case .cut, .delete, .insertText:
         guard let selection else { return .passThrough }
@@ -219,17 +250,20 @@ public func terminalPromptSelectionResolve(
 
 /// The directed selection an extension starts from.
 ///
-/// The tracked selection wins while it matches the terminal. A selection
-/// cmux did not make (a mouse drag inside the input) is extended from its
-/// far end in the direction of travel. With no selection the caret is both
-/// anchor and head.
+/// The tracked selection wins while it matches the terminal, including an
+/// empty one left by a collapse. A selection cmux did not make (a mouse drag
+/// inside the input) is extended from its far end in the direction of
+/// travel. With neither, the caret is both anchor and head.
 private func terminalPromptSelectionCurrent(
     selection: Range<Int>?,
     tracked: TerminalPromptSelection?,
     caret: Int,
     direction: TerminalPromptSelectionDirection
 ) -> TerminalPromptSelection {
-    guard let selection else { return TerminalPromptSelection(anchor: caret, head: caret) }
+    guard let selection else {
+        if let tracked, tracked.range.isEmpty { return tracked }
+        return TerminalPromptSelection(anchor: caret, head: caret)
+    }
     if let tracked, tracked.range == selection { return tracked }
     switch direction {
     case .backward:
@@ -243,8 +277,13 @@ private func terminalPromptSelectionCurrent(
 ///
 /// Cmd+A and Cmd+X are not mapped here: they arrive as the Edit menu's Select
 /// All and Cut actions. Control-bearing events never map, so Ctrl+C keeps
-/// reaching the shell. Option combinations do not map yet; word-wise
-/// selection needs the input text, which Ghostty does not export.
+/// reaching the shell. Option+arrow and Option+Delete do not map;
+/// word-wise selection needs the input text, which Ghostty does not export.
+/// Option-typed text (German `@`, accented letters) does map to insertion.
+///
+/// Plain arrows and plain typing map too, but the resolver passes them
+/// through unless a selection lies inside the input, so the caller should
+/// consult it only while it holds a prompt selection.
 ///
 /// This is pure and cheap so the key path can call it before doing any
 /// terminal I/O.
@@ -261,19 +300,20 @@ public func terminalPromptSelectionIntent(
     producesText: Bool
 ) -> TerminalPromptSelectionIntent? {
     let normalized = terminalTextEditingNormalizedModifiers(modifiers)
-    guard !normalized.contains(.control), !normalized.contains(.option) else { return nil }
+    guard !normalized.contains(.control) else { return nil }
 
     switch keyCode {
     case TerminalTextEditingKeyCode.leftArrow, TerminalTextEditingKeyCode.rightArrow:
         let direction: TerminalPromptSelectionDirection =
             keyCode == TerminalTextEditingKeyCode.leftArrow ? .backward : .forward
         switch normalized {
+        case []: return .collapse(direction)
         case [.shift]: return .extend(direction, .character)
         case [.shift, .command]: return .extend(direction, .inputBoundary)
         default: return nil
         }
     case TerminalTextEditingKeyCode.backspace, TerminalTextEditingKeyCode.forwardDelete:
-        return normalized.isEmpty ? .delete : nil
+        return normalized.isSubset(of: [.shift]) ? .delete : nil
     default:
         guard producesText, !normalized.contains(.command) else { return nil }
         return .insertText
