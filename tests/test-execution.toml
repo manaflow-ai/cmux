@@ -177,6 +177,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_tmux_process_formats.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_claude_teams_trust_optin.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]

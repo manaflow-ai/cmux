@@ -23385,19 +23385,7 @@ struct CMUXCLI {
                 if let path = tmuxPathFromObject(surface) {
                     context["pane_current_path"] = path
                 }
-                let paneStartCommand = [
-                    surface["tmux_start_command"],
-                    surface["pane_start_command"],
-                    surface["initial_command"]
-                ]
-                    .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .first { !$0.isEmpty }
-                if let paneStartCommand {
-                    context["pane_start_command"] = paneStartCommand
-                    if let currentCommand = tmuxCurrentCommandName(from: paneStartCommand) {
-                        context["pane_current_command"] = currentCommand
-                    }
-                }
+                tmuxEnrichContextWithProcessFormats(&context, surface: surface)
             }
         }
 
@@ -26597,7 +26585,8 @@ struct CMUXCLI {
                         client: client
                    ) {
                     context["pane_start_command"] = legacyHudStartCommand
-                    context["pane_current_command"] = tmuxCurrentCommandName(from: legacyHudStartCommand)
+                    context["pane_current_command"] = context["pane_current_command"]
+                        ?? tmuxCurrentCommandName(from: legacyHudStartCommand)
                 }
                 let fallback = context["pane_id"] ?? paneId
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))

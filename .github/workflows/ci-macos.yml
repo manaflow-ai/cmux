@@ -2907,6 +2907,7 @@ jobs:
             -maximum-test-execution-time-allowance 300 \
             -only-testing:cmuxCLITests
           scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxCLITests"
+          CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_tmux_process_formats.py
 
       - name: Upload CLI product test log
         if: always()
