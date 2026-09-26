@@ -5001,6 +5001,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if self.panelTitles[browserPanel.id] != nextTitle {
                 self.panelTitles[browserPanel.id] = nextTitle
             }
+            NotificationCenter.default.post(
+                name: .workspaceFocusedLocationDidChange,
+                object: self,
+                userInfo: ["workspaceId": self.id, "panelId": browserPanel.id]
+            )
             let resolvedTitle = self.resolvedPanelTitle(panelId: browserPanel.id, fallback: nextTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)

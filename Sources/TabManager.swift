@@ -6995,6 +6995,7 @@ extension Notification.Name {
     /// Posted after TabManager has applied a terminal title to workspace state.
     static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
     static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
+    static let workspaceFocusedLocationDidChange = Notification.Name("cmux.workspaceFocusedLocationDidChange")
     static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
 }
 
