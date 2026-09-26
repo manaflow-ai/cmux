@@ -189,6 +189,7 @@ extension CMUXCLI {
         \(restoreCommandUsageLine)
         \(forkCommandUsageLine)
         restore-session
+        session restore [--list] [--session <id>]...
         \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
         open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
