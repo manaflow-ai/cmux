@@ -1301,3 +1301,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_owned_catch_up.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_resources_plist_unique_keys.py"
+lane = "linux-guard"
