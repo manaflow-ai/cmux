@@ -41,6 +41,10 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let workspaceCanMarkRead = CommandPaletteContextKeys(rawValue: "workspace.canMarkRead")
     /// Whether mark-unread is available for the workspace.
     public static let workspaceCanMarkUnread = CommandPaletteContextKeys(rawValue: "workspace.canMarkUnread")
+    /// Whether workspace focus history can navigate back.
+    public static let workspaceCanNavigateBack = CommandPaletteContextKeys(rawValue: "workspace.canNavigateBack")
+    /// Whether workspace focus history can navigate forward.
+    public static let workspaceCanNavigateForward = CommandPaletteContextKeys(rawValue: "workspace.canNavigateForward")
     /// Whether the sidebar matches the terminal background.
     public static let sidebarMatchTerminalBackground = CommandPaletteContextKeys(rawValue: "sidebar.matchTerminalBackground")
     /// Whether a panel has focus.

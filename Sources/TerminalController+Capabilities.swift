@@ -208,6 +208,7 @@ extension TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.last_forward",
             "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.ssh.open",
