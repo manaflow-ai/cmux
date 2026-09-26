@@ -6,6 +6,11 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
+# Every [[ == ]] below is an exact comparison (restore tokens, the generated
+# settings fast path); an inherited nocasematch (BASH_ENV, BASHOPTS) must not
+# make them case-insensitive.
+shopt -u nocasematch 2>/dev/null || true
+
 cmux_claude_wrapper_is_self_or_shim() {
     local candidate="$1"
     [[ -n "$candidate" ]] || return 1
@@ -815,6 +820,111 @@ clear_inherited_claude_session_identity_env() {
     # END GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
 }
 
+# `cmux hooks claude inject-settings` prints a fixed document and never
+# touches the app socket, so it can run while the socket ping below decides
+# whether this launch gets hooks at all. A background job runs the generator
+# under its 1 s watchdog and writes its output to a private file; the wrapper
+# either collects it (hook injection) or discards it (every passthrough). An
+# unexpected `exit` in between discards it via the EXIT trap; exec does not run
+# that trap.
+unset cmux_claude_hook_settings_file cmux_claude_hook_settings_job_pid cmux_claude_hook_settings_value
+cmux_claude_hook_settings_file=""
+cmux_claude_hook_settings_job_pid=""
+cmux_claude_hook_settings_value=""
+
+# Background job body; stdout is the collection file. The generator and its
+# watchdog are children of this job, so the job reaps the generator and stops
+# the watchdog as soon as it exits, and TERM from a discard stops both.
+cmux_claude_run_hook_settings_generator() {
+    local hook_cmux_bin="$1" generator_pid="" watchdog_pid="" generator_status
+    local term_requested=0
+    # Record a TERM that lands while the children are being spawned; act on it
+    # once both pids are known.
+    trap 'term_requested=1' TERM
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$hook_cmux_bin" hooks claude inject-settings 2>/dev/null &
+    generator_pid=$!
+    (
+        cmux_generator_timer_pid=""
+        trap 'if [[ -n "$cmux_generator_timer_pid" ]]; then kill "$cmux_generator_timer_pid" 2>/dev/null || true; fi' EXIT
+        trap 'exit 0' HUP INT TERM
+        /bin/sleep 1 &
+        cmux_generator_timer_pid=$!
+        wait "$cmux_generator_timer_pid" 2>/dev/null || exit 0
+        cmux_generator_timer_pid=""
+        trap - EXIT HUP INT TERM
+        kill -KILL "$generator_pid" 2>/dev/null || true
+    ) >/dev/null &
+    watchdog_pid=$!
+    trap 'kill -KILL "$generator_pid" 2>/dev/null; kill "$watchdog_pid" 2>/dev/null; exit 143' TERM
+    if (( term_requested )); then
+        kill -KILL "$generator_pid" 2>/dev/null
+        kill "$watchdog_pid" 2>/dev/null
+        exit 143
+    fi
+
+    wait "$generator_pid" 2>/dev/null
+    generator_status=$?
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+    exit "$generator_status"
+}
+
+cmux_claude_start_hook_settings() {
+    local hook_cmux_bin="$1"
+    cmux_claude_hook_settings_file="$(mktemp "${TMPDIR:-/tmp}/cmux-claude-hook-settings.XXXXXX" 2>/dev/null)" || {
+        cmux_claude_hook_settings_file=""
+        return 1
+    }
+    trap cmux_claude_discard_hook_settings EXIT
+    cmux_claude_run_hook_settings_generator "$hook_cmux_bin" >"$cmux_claude_hook_settings_file" &
+    cmux_claude_hook_settings_job_pid=$!
+}
+
+# Waits for the job (at most until its watchdog fires) and sets
+# cmux_claude_hook_settings_value to the generator's output. Returns the
+# generator status, or 1 when the job could not be started.
+cmux_claude_collect_hook_settings() {
+    local hook_cmux_bin="$1"
+    if [[ -z "$cmux_claude_hook_settings_job_pid" ]]; then
+        cmux_claude_start_hook_settings "$hook_cmux_bin" || return 1
+    fi
+    cmux_claude_finish_hook_settings
+}
+
+cmux_claude_finish_hook_settings() {
+    local generator_status=1
+    cmux_claude_hook_settings_value=""
+    if [[ -n "$cmux_claude_hook_settings_job_pid" ]]; then
+        wait "$cmux_claude_hook_settings_job_pid" 2>/dev/null
+        generator_status=$?
+    fi
+    if [[ $generator_status -eq 0 && -n "$cmux_claude_hook_settings_file" ]]; then
+        cmux_claude_hook_settings_value="$(<"$cmux_claude_hook_settings_file")"
+    fi
+    if [[ -n "$cmux_claude_hook_settings_file" ]]; then
+        rm -f -- "$cmux_claude_hook_settings_file"
+    fi
+    cmux_claude_hook_settings_file=""
+    cmux_claude_hook_settings_job_pid=""
+    trap - EXIT
+    return "$generator_status"
+}
+
+cmux_claude_discard_hook_settings() {
+    [[ -n "$cmux_claude_hook_settings_job_pid$cmux_claude_hook_settings_file" ]] || return 0
+    # Signal the job only while bash still lists it as running: once it has
+    # exited, bash has already reaped it and the pid may belong to someone else.
+    local newline=$'\n'
+    if [[ -n "$cmux_claude_hook_settings_job_pid" &&
+          "$newline$(jobs -rp)$newline" == *"$newline$cmux_claude_hook_settings_job_pid$newline"* ]]; then
+        kill -TERM "$cmux_claude_hook_settings_job_pid" 2>/dev/null || true
+    fi
+    cmux_claude_finish_hook_settings >/dev/null 2>&1 || true
+    cmux_claude_hook_settings_value=""
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
@@ -844,6 +954,8 @@ clear_cmux_claude_passthrough_env() {
 }
 
 exec_real_claude_passthrough() {
+    # Passthrough launches get no hooks; drop any speculative settings job.
+    cmux_claude_discard_hook_settings
     clear_cmux_claude_passthrough_env
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
@@ -1090,7 +1202,26 @@ cmux_claude_json_has_key() {
     LC_ALL=C /usr/bin/grep -Eq "\"$key\"[[:space:]]*:" "$file" 2>/dev/null
 }
 
+# The policy is read once per wrapper process: a launch asks both when it
+# reconciles skill links and when it builds the MCP config. Reset here so an
+# inherited environment variable of the same name cannot pre-answer it.
+unset cmux_claude_sideload_flags_disabled_result
+cmux_claude_sideload_flags_disabled_result=""
+
 cmux_claude_sideload_flags_disabled() {
+    case "$cmux_claude_sideload_flags_disabled_result" in
+        yes) return 0 ;;
+        no) return 1 ;;
+    esac
+    if cmux_claude_sideload_flags_disabled_uncached; then
+        cmux_claude_sideload_flags_disabled_result=yes
+        return 0
+    fi
+    cmux_claude_sideload_flags_disabled_result=no
+    return 1
+}
+
+cmux_claude_sideload_flags_disabled_uncached() {
     local base_file managed_dir remote_file plist_domain defaults_bin
     base_file="${CMUX_CLAUDE_MANAGED_SETTINGS_FILE:-/Library/Application Support/ClaudeCode/managed-settings.json}"
     managed_dir="${CMUX_CLAUDE_MANAGED_SETTINGS_DIR:-/Library/Application Support/ClaudeCode/managed-settings.d}"
@@ -1112,14 +1243,40 @@ cmux_claude_sideload_flags_disabled() {
         done
     fi
 
-    # MDM preferences domain. `defaults read <domain> <key>` prints 1 for a
-    # true boolean; a configured policyHelper dict also disqualifies.
+    # MDM preferences domain: disableSideloadFlags reading as 1, or any
+    # configured policyHelper, disqualifies. This used to be two per-key
+    # `defaults read <domain> <key>` calls; one whole-domain read answers both.
+    # Both forms read the same preferences source. The dump prints every
+    # top-level key on its own line indented by exactly four spaces (nested
+    # entries use eight; a newline inside a string prints as `\\n`), so the
+    # anchored matches below see only top-level keys.
     defaults_bin=/usr/bin/defaults
     if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
-        local v
-        v="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)"
-        [[ "$v" == "1" ]] && return 0
-        "$defaults_bin" read "$plist_domain" policyHelper >/dev/null 2>&1 && return 0
+        local domain_dump flag_value
+        local newline=$'\n'
+        local flag_prefix=$'\n    disableSideloadFlags = '
+        local escaped_newline='\\n' quoted_one='"1' quoted_end='";'
+        if domain_dump="$("$defaults_bin" read "$plist_domain" 2>/dev/null)"; then
+            domain_dump="$newline$domain_dump$newline"
+            [[ "$domain_dump" == *"$newline    policyHelper = "* ]] && return 0
+            flag_value="${domain_dump#*"$flag_prefix"}"
+            if [[ "$flag_value" != "$domain_dump" ]]; then
+                flag_value="${flag_value%%"$newline"*}"
+                # The per-key read printed `1` for true, 1, 1.0 and "1", which
+                # all dump as `1;`. It also printed `1` for "1" followed by
+                # newlines, because $(...) strips them; that dumps as
+                # `"1\\n";`, `"1\\n\\n";` and so on.
+                [[ "$flag_value" == "1;" ]] && return 0
+                if [[ "$flag_value" == "$quoted_one$escaped_newline"*"$quoted_end" ]]; then
+                    flag_value="${flag_value#"$quoted_one"}"
+                    flag_value="${flag_value%"$quoted_end"}"
+                    while [[ "$flag_value" == "$escaped_newline"* ]]; do
+                        flag_value="${flag_value#"$escaped_newline"}"
+                    done
+                    [[ -z "$flag_value" ]] && return 0
+                fi
+            fi
+        fi
     fi
 
     return 1
@@ -1453,6 +1610,21 @@ if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
       && "$cmux_claude_app_restore_launch" == "claude:$cmux_claude_resume_sid" ]]; then
     cmux_claude_app_restore_owned=1
 fi
+# Start the settings generator now so it overlaps the ping. This is only a
+# head start: hook injection collects it later and starts it then if it was
+# skipped here. Skip it where hooks are clearly not coming: re-entry forwards
+# argv unchanged, a missing socket file passes through before any ping, and
+# `--version`/`--help` or a known subcommand as the first argument pass through.
+unset cmux_claude_hook_cmux_bin
+cmux_claude_hook_cmux_bin=""
+if (( cmux_claude_wrapper_reexec_hops == 0 )) &&
+   ! claude_passthrough_option_flag "${1:-}" &&
+   ! claude_builtin_command_name "${1:-}" &&
+   [[ "$cmux_claude_app_restore_owned" == "1" ||
+      ( -n "${CMUX_SOCKET_PATH:-}" && -S "${CMUX_SOCKET_PATH:-}" ) ]]; then
+    cmux_claude_hook_cmux_bin="$(resolve_hook_cmux_bin)"
+    cmux_claude_start_hook_settings "$cmux_claude_hook_cmux_bin" || true
+fi
 if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
       && ! cmux_socket_available; then
     clear_inherited_claude_session_identity_env
@@ -1515,7 +1687,10 @@ fi
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
-export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then
+    cmux_claude_hook_cmux_bin="$(resolve_hook_cmux_bin)"
+fi
+export CMUX_CLAUDE_HOOK_CMUX_BIN="$cmux_claude_hook_cmux_bin"
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     export CMUX_AGENT_LAUNCH_KIND="claude"
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
@@ -1625,10 +1800,62 @@ CMUX_CLAUDE_LIFECYCLE_HOOKS
     return 0
 }
 
+# Sets cmux_claude_standard_hook_settings_value to the exact bytes the bundled
+# CLI prints for `cmux hooks claude inject-settings`
+# (CLI/CMUXCLI+ClaudeHookSettings.swift: JSONSerialization with sorted keys
+# and unescaped slashes). The text is fixed: it does not depend on the
+# environment, the socket, or user settings.
+cmux_claude_build_standard_hook_settings() {
+    local queued direct_cli
+    # JSON-escaped body of CMUXCLI.queuedAgentHookShellCommand(agent: "claude").
+    IFS= read -r queued <<'CMUX_CLAUDE_QUEUED_HOOK_COMMAND'
+cmux_cli=\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; agent_pid=\"${CMUX_CLAUDE_PID:-${PPID:-}}\"; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CLAUDE_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; else CMUX_CLAUDE_PID=\"$agent_pid\" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \"$cmux_cli\" hooks enqueue claude @SUBCOMMAND@ 2>/dev/null || { cat >/dev/null; echo '{}'; }; fi; else cat >/dev/null; echo '{}'; fi
+CMUX_CLAUDE_QUEUED_HOOK_COMMAND
+    direct_cli='\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\"'
+
+    local q_prefix='{"hooks":[{"command":"' q_suffix='","timeout":5,"type":"command"}],"matcher":"'
+    local notification="${queued//@SUBCOMMAND@/notification}"
+    local push_notification="${queued//@SUBCOMMAND@/push-notification}"
+    local pre_tool_use="${queued//@SUBCOMMAND@/pre-tool-use}"
+    local session_end="${queued//@SUBCOMMAND@/session-end}"
+    local session_start="${queued//@SUBCOMMAND@/session-start}"
+    local stop="${queued//@SUBCOMMAND@/stop}"
+    local feed="${queued//@SUBCOMMAND@/feed}"
+    local prompt_submit="${queued//@SUBCOMMAND@/prompt-submit}"
+
+    cmux_claude_standard_hook_settings_value='{"hooks":{'
+    cmux_claude_standard_hook_settings_value+='"Notification":['"$q_prefix$notification$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"PermissionRequest":[{"hooks":[{"command":"'"$direct_cli"' hooks feed --source claude","timeout":125,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"PostToolUse":['"$q_prefix$push_notification$q_suffix"'PushNotification"}],'
+    cmux_claude_standard_hook_settings_value+='"PreToolUse":[{"hooks":[{"command":"'"$direct_cli"' hooks claude cron-create-guard","timeout":5,"type":"command"}],"matcher":"CronCreate"},'"$q_prefix$pre_tool_use$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"SessionEnd":['"$q_prefix$session_end$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"SessionStart":['"$q_prefix$session_start$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"Stop":['"$q_prefix$stop$q_suffix"'"},'"$q_prefix$feed$q_suffix"'"},{"hooks":[{"async":true,"command":"'"$direct_cli"' hooks claude auto-name","timeout":120,"type":"command"}],"matcher":""}],'
+    cmux_claude_standard_hook_settings_value+='"SubagentStop":['"$q_prefix$feed$q_suffix"'"}],'
+    cmux_claude_standard_hook_settings_value+='"UserPromptSubmit":['"$q_prefix$prompt_submit$q_suffix"'"}]'
+    cmux_claude_standard_hook_settings_value+='},"preferredNotifChannel":"notifications_disabled"}'
+}
+
+# Fast path for the Node check below. It accepts one exact string: the
+# bundled CLI's standard document, which satisfies every Node requirement
+# (valid JSON object; synchronous cron-create-guard under the CronCreate
+# matcher; synchronous PermissionRequest feed; all five lifecycle hooks since
+# it sets notifications_disabled). Any other byte sequence, including a
+# different CLI version's output, returns 1 and takes the Node path unchanged.
+cmux_claude_generated_hook_settings_are_standard() {
+    local value="$1"
+    local cmux_claude_standard_hook_settings_value=""
+    cmux_claude_build_standard_hook_settings
+    [[ -n "$cmux_claude_standard_hook_settings_value" &&
+          "$value" == "$cmux_claude_standard_hook_settings_value" ]]
+}
+
 cmux_claude_generated_hook_settings_are_safe() {
     local value="$1"
     (( ${#value} > 0 && ${#value} <= 1048576 )) || return 1
     [[ "$value" =~ ^[[:space:]]*\{ ]] || return 1
+
+    cmux_claude_generated_hook_settings_are_standard "$value" && return 0
 
     if command -v node >/dev/null 2>&1; then
         printf '%s' "$value" | node -e '
@@ -1680,37 +1907,6 @@ catch (_) { process.exit(1); }
     return 1
 }
 
-cmux_claude_generate_hook_settings() {
-    local output_file generator_pid watchdog_pid generator_status
-    output_file="$(mktemp "${TMPDIR:-/tmp}/cmux-claude-hook-settings.XXXXXX" 2>/dev/null)" || return 1
-
-    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
-        "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude inject-settings >"$output_file" 2>/dev/null &
-    generator_pid=$!
-    (
-        cmux_generator_timer_pid=""
-        trap 'if [[ -n "$cmux_generator_timer_pid" ]]; then kill "$cmux_generator_timer_pid" 2>/dev/null || true; fi' EXIT
-        trap 'exit 0' HUP INT TERM
-        /bin/sleep 1 &
-        cmux_generator_timer_pid=$!
-        wait "$cmux_generator_timer_pid" 2>/dev/null || exit 0
-        cmux_generator_timer_pid=""
-        trap - EXIT HUP INT TERM
-        kill -KILL "$generator_pid" 2>/dev/null || true
-    ) &
-    watchdog_pid=$!
-
-    wait "$generator_pid" 2>/dev/null
-    generator_status=$?
-    kill "$watchdog_pid" 2>/dev/null || true
-    wait "$watchdog_pid" 2>/dev/null || true
-    if [[ $generator_status -eq 0 ]]; then
-        cat "$output_file"
-    fi
-    rm -f "$output_file"
-    return "$generator_status"
-}
-
 # Claude Code merges --settings additively with the user's own settings.json.
 # Generated settings also set preferredNotifChannel to disable Claude Code's OSC/terminal notification
 #   channel inside cmux so hooks are the only notification source.
@@ -1743,11 +1939,11 @@ cmux_claude_generate_hook_settings() {
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
 HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
-if CMUX_GENERATED_HOOKS_JSON="$(cmux_claude_generate_hook_settings)" \
-    && cmux_claude_generated_hook_settings_are_safe "$CMUX_GENERATED_HOOKS_JSON"; then
-    HOOKS_JSON="$CMUX_GENERATED_HOOKS_JSON"
+if cmux_claude_collect_hook_settings "$CMUX_CLAUDE_HOOK_CMUX_BIN" \
+    && cmux_claude_generated_hook_settings_are_safe "$cmux_claude_hook_settings_value"; then
+    HOOKS_JSON="$cmux_claude_hook_settings_value"
 fi
-unset CMUX_GENERATED_HOOKS_JSON
+unset cmux_claude_hook_settings_value
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #
