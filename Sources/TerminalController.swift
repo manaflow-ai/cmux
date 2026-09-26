@@ -3832,6 +3832,9 @@ class TerminalController {
             if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
             }
+            if let failure = error as? SSHTuiOpenFailure {
+                return v2Error(id: id, code: "ssh_failed", message: failure.reason)
+            }
             if let catalogError = error as? SurfaceCatalogError {
                 switch catalogError {
                 case .nothingToOpen:
