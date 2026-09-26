@@ -214,7 +214,12 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
-        self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
+        self.assertEqual(
+            missing,
+            set(),
+            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
+            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
+        )
 
 
 class SideLaneVariable(unittest.TestCase):
