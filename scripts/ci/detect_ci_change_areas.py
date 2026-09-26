@@ -550,7 +550,10 @@ def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optio
     for node in ast.walk(tree):
         if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == token for alias in node.names):
             return True
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
+        # `from scripts.ci import helper` and `from . import helper` import helper too.
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == token or any(alias.name == token for alias in node.names)
+        ):
             return True
         if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and id(node) not in docstrings and whole_name.search(node.value)):

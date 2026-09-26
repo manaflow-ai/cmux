@@ -450,9 +450,9 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     assert "CmuxSettingsUI" in packages
     # CmuxWorkspaces was missing from the list, so its tests never ran in CI.
     assert "CmuxWorkspaces" in packages
-    assert module.classify_files([
-        "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
-    ]).swift_packages is True
+    path = "Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift"
+    assert module.classify_files([path]).swift_packages is True
+    assert "CmuxWorkspaces" in module.swift_package_test_selection([path])
     # These macOS packages had test targets but were missing from the list too.
     for name in (
         "CmuxAppKitSupportUI",
@@ -2685,7 +2685,12 @@ def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run()
     ):
         assert helper_areas({".github/workflows/ci.yml": ci, "scripts/ci/caller.py": caller}) == areas(), caller
     # An import, or a path it runs, is a real call.
-    for caller in ("import helper\n", 'import subprocess\nsubprocess.run(["python3", "scripts/ci/helper.py"])\n'):
+    for caller in (
+        "import helper\n",
+        "from . import helper\n",
+        "from scripts.ci import helper\n",
+        'import subprocess\nsubprocess.run(["python3", "scripts/ci/helper.py"])\n',
+    ):
         assert helper_areas({".github/workflows/ci.yml": ci, "scripts/ci/caller.py": caller}) is None, caller
     # A comment in a routed Mac job names nothing either.
     commented = ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      # helper.py later\n      - run: echo\n"
