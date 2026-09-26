@@ -95,7 +95,11 @@ struct IrxControlStreamRepairTests {
         // which is where a silent stream leaves them.
         let hostRead = Task { try await host.receive() }
         let phoneRead = Task { try await phone.receive() }
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil {
+            let hostParked = await host.hasParkedReader
+            let phoneParked = await phone.hasParkedReader
+            return hostParked && phoneParked
+        }
 
         let outcome = await phone.repairControlStream(silentSince: .now)
         #expect(outcome == .repaired(generation: 1))
@@ -133,7 +137,7 @@ struct IrxControlStreamRepairTests {
         let cutOff = try frame(#"{"id":"cut-off","padding":"0123456789"}"#)
         try await pair.serverControl.writer.write(cutOff.prefix(cutOff.count / 2))
         let phoneRead = Task { try await phone.receive() }
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitUntil { await phone.hasParkedReader }
 
         #expect(await phone.repairControlStream(silentSince: .now) == .repaired(generation: 1))
         let whole = try frame(#"{"id":"whole"}"#)
@@ -233,10 +237,10 @@ struct IrxControlStreamRepairTests {
         try await pair.clientConnection.startClientKeepalive(
             interval: .milliseconds(50), deadline: .milliseconds(50)
         ) {}
-        try await Task.sleep(for: .milliseconds(20))
         let silentSince = ContinuousClock.now
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(await pair.clientConnection.applicationSilenceEvidence(since: silentSince) == .silent)
+        try await waitUntil {
+            await pair.clientConnection.applicationSilenceEvidence(since: silentSince) == .silent
+        }
         #expect(await phone.repairControlStream(silentSince: silentSince) == .connectionSilent)
 
         await pair.shutDown()
@@ -264,4 +268,15 @@ struct IrxControlStreamRepairTests {
         #expect(await pair.clientConnection.applicationSilenceEvidence(since: .now) == .silent)
         await pair.shutDown()
     }
+}
+
+private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async throws {
+    let reached = try await withIrxDeadline(.seconds(3), onTimeout: {}) {
+        while !Task.isCancelled {
+            if await condition() { return true }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return false
+    }
+    #expect(reached == true, "Expected the transport to reach the awaited state before the deadline")
 }

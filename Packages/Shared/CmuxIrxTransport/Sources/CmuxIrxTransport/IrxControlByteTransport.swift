@@ -80,6 +80,8 @@ public actor IrxControlByteTransport: CmxByteTransport {
     /// replaced stream's read is simply abandoned.
     private var laneRead: LaneRead?
     private var readWaiter: ReadWaiter?
+    /// Whether a `receive()` is currently parked waiting for inbound bytes.
+    var hasParkedReader: Bool { readWaiter != nil }
     /// While a replacement is being negotiated, a failure on the stream it is
     /// replacing is expected (the peer retires it) and must not terminate the
     /// session until the replacement settles.

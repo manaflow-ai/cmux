@@ -9,7 +9,7 @@ import Foundation
 /// second application has no effect, so this is an allowlist of read-only
 /// methods. Every other method, including any method added later, is failed
 /// back to its caller as a timeout (outcome unknown) instead.
-enum MobileRPCControlFrameResendPolicy {
+struct MobileRPCControlFrameResendPolicy {
     /// Read-only probe the session sends to verify a replacement stream.
     static let verificationProbeMethod = "mobile.events.probe"
 

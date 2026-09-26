@@ -124,9 +124,8 @@ import Testing
             _ = try await client.sendRequest(try request(method: "mobile.terminal.replay", id: "replay-1"))
             Issue.record("Expected the replay to fail")
         } catch {}
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil { await transport.repairCount == 1 }
         #expect(await transport.closed() == false)
-        #expect(await transport.repairCount == 1)
 
         do {
             _ = try await client.sendRequest(try request(method: "mobile.terminal.replay", id: "replay-2"))
@@ -136,4 +135,13 @@ import Testing
         #expect(await transport.waitUntilClosed())
         #expect(await transport.repairCount == 1)
     }
+}
+
+private func waitUntil(_ condition: @escaping @Sendable () async -> Bool) async throws {
+    let deadline = ContinuousClock.now + .seconds(3)
+    while ContinuousClock.now < deadline {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    Issue.record("Expected the awaited condition before the deadline")
 }
