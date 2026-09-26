@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 
@@ -7,6 +8,7 @@ import Foundation
 /// coordinator.
 struct MachineCreateRowActions {
     let retry: @MainActor (UUID) -> Void
+    let cancel: @MainActor (UUID) -> Void
     let dismiss: @MainActor (UUID) -> Void
     let showFailure: @MainActor (UUID) -> Void
     let copyFailure: @MainActor (UUID) -> Void
@@ -14,6 +16,7 @@ struct MachineCreateRowActions {
     /// Rows with nothing behind them (previews, tests).
     static let inert = MachineCreateRowActions(
         retry: { _ in },
+        cancel: { _ in },
         dismiss: { _ in },
         showFailure: { _ in },
         copyFailure: { _ in }
@@ -25,6 +28,9 @@ struct MachineCreateRowActions {
             retry: { [weak coordinator] id in
                 coordinator?.retry(id)
             },
+            cancel: { [weak coordinator] id in
+                coordinator?.cancel(id)
+            },
             dismiss: { [weak coordinator] id in
                 coordinator?.dismiss(id)
             },
@@ -33,9 +39,8 @@ struct MachineCreateRowActions {
                 presentFailure(operation: operation, output: output)
             },
             copyFailure: { [weak coordinator] id in
-                guard let output = coordinator?.operation(id: id)?.failureOutput else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(output, forType: .string)
+                guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }
+                CloudErrorCopy.copy("\(operation.statusLabel)\n\(output)")
             }
         )
     }
@@ -48,15 +53,22 @@ struct MachineCreateRowActions {
     private static func presentFailure(operation: MachineCreateOperation, output: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = operation.request.failureLabel
+        alert.messageText = operation.statusLabel
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        let lead = String(
+        let lead = operation.createdMachineID != nil && !operation.request.isBaseSetup
+            ? String(localized: "machines.notification.createdOpenFailed.body", defaultValue: "Open it from the Machines list.")
+            : String(
             format: String(localized: "machines.pending.failure.lead", defaultValue: "%@ did not get created. The command reported:"),
             operation.request.displayName
         )
         let content = CmuxAlertContent(flattenedText: "\(lead)\n\n\(output)", separatingScrollableDetails: output)
-        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        let window = CloudVMActionLauncher.presentationWindow(
+            preferred: nil,
+            key: NSApp.keyWindow,
+            main: NSApp.mainWindow
+        )
         content.apply(to: alert, presentingWindow: window)
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(content.flattenedText)")
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {

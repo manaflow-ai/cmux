@@ -77,7 +77,10 @@ examples.
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
-(`tabs[i].id` is the panel behind the tab, not interchangeable).
+(`tabs[i].id` is the stable panel identity, not interchangeable).
+For remote tmux tabs, `surfaceId` targets the window's active pane and can
+change when another pane becomes active. It is absent until the pane is ready.
+Pass the containing workspace's `id` as `workspace_id` to focus across workspaces.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -156,14 +159,40 @@ Rules of the runtime:
   drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
   shows the full pattern including cross-group drag via
   `workspace.group.add`/`workspace.group.remove`.
-- `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
+- `Reorderable({ items, key, onMove, onDragChange, spacing }, template)` is the drag-to-reorder list:
   the grabbed row lifts and follows the pointer, the other rows spring aside
-  live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
-  there to persist).
+  live, and the drop calls `onMove(id, index, extra)` (dispatch
+  `workspace.reorder` there to persist). `index` is the zero-based flat row
+  index after moving. `extra.side` is `"above"` or `"below"`: at a boundary
+  between nesting levels, the pointer's horizontal position chooses which
+  neighboring row's nesting to adopt. It is not a vertical drop direction.
+  `extra.block` is true when moving a block header with its members.
+- Optional `onDragChange(state)` reports the projected drop during a drag:
+  `{ id, index, side, block }`, using the same meanings as `onMove`. It fires
+  on lift and when the projected intent changes, not on every pointer frame.
+  `state` becomes `null` on drop (after `onMove`, if a move is needed), Escape,
+  removal of the dragged row, or disappearance of the list. Keep this state
+  in a signal to render an insertion line or nesting highlight; persist only
+  from `onMove`. For example:
+
+  ```js
+  const [drag, setDrag] = signal(null);
+  // Inside sidebar(() => ...):
+  Reorderable({
+    items: () => data.workspaces() ?? [],
+    key: w => w.id,
+    onDragChange: setDrag,
+    onMove: (id, index) => cmux("workspace.reorder", { workspace_id: id, index }),
+  }, w => Text(() => w().title)
+    .background(() => drag()?.id === w().id ? "accent" : "clear"))
+  ```
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
-  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). The menu
+  opens only over the view it is attached to, so put it on the row's outer
+  HStack when right-clicking anywhere on the row, including the empty space a
+  Spacer fills, should open it. Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
@@ -278,7 +307,17 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  session, oldest first; omitted when none). Each `children[k]` has `id`
+  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
+  when available it adds `label` and `endedEpoch` (set when the child
+  settles; settled children are pruned after a short retention). Headless
+  OMP/Pi subagents run inside the parent's process, so they appear here via
+  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
+  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes it by `agent_id` (or the oldest running child when the
+  id is absent).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -415,8 +454,10 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
             for i in 0..<workspaces.count {
                 if workspaces[i].selected {
                     for j in 0..<workspaces[i].tabs.count {
-                        Button(action: { cmux("surface.focus", surface_id: workspaces[i].tabs[j].id) }) {
-                            HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                        if let surfaceId = workspaces[i].tabs[j].surfaceId {
+                            Button(action: { cmux("surface.focus", surface_id: surfaceId, workspace_id: workspaces[i].id) }) {
+                                HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                            }
                         }
                     }
                 }

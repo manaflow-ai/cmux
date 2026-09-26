@@ -21,6 +21,13 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
     public let columns: Int?
     /// The host grid row count (debug diagnostics only).
     public let rows: Int?
+    /// Milliseconds the host spent between receiving this replay request and
+    /// finishing the capture it answers with.
+    ///
+    /// Subtracting this from the phone's own request round trip separates a
+    /// slow host capture from a slow or stalled transport. Absent on hosts
+    /// that predate the field.
+    public let hostElapsedMilliseconds: UInt32?
 
     private enum CodingKeys: String, CodingKey {
         case dataBase64 = "data_b64"
@@ -29,6 +36,7 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         case sequence = "seq"
         case columns
         case rows
+        case hostElapsedMilliseconds = "host_elapsed_ms"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,6 +49,10 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
+        hostElapsedMilliseconds = try? container.decodeIfPresent(
+            UInt32.self,
+            forKey: .hostElapsedMilliseconds
+        )
     }
 
     /// Decode a replay response from raw JSON data.

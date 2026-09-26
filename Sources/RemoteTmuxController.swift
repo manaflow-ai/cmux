@@ -273,10 +273,25 @@ final class RemoteTmuxController {
     /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
     /// abort the rest). Applies ``unmirroredSessions(_:host:)`` stable-id de-dup
     /// itself so every bulk entrypoint survives a rename race with raw input.
-    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
+    ///
+    /// `workspaceName` (`cmux ssh-tmux --name`) applies to the first
+    /// newly-mirrored session only: a bulk mirror has no unambiguous target.
+    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager, workspaceName: String? = nil) {
+        // Not loop position: an earlier session can throw or no-op
+        // (`mirrorSession` returns false), silently swallowing the name.
+        var appliedWorkspaceName = workspaceName == nil
         for session in unmirroredSessions(sessions, host: host) {
             do {
-                try mirrorSession(host: host, sessionName: session.name, sessionId: Self.tmuxSessionNumericId(session.id), into: manager)
+                let mirrored = try mirrorSession(
+                    host: host,
+                    sessionName: session.name,
+                    sessionId: Self.tmuxSessionNumericId(session.id),
+                    into: manager,
+                    customTitle: appliedWorkspaceName ? nil : workspaceName
+                )
+                if mirrored, !appliedWorkspaceName {
+                    appliedWorkspaceName = true
+                }
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session failed")
@@ -287,12 +302,15 @@ final class RemoteTmuxController {
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
     /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
+    /// `customTitle` is a local-only display title: unlike an interactive rename
+    /// of a mirrored workspace it must not `rename-session` on the remote host.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        customTitle: String? = nil
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -350,6 +368,14 @@ final class RemoteTmuxController {
                 workspaceID: workspace.id
             )
         )
+        if let customTitle, !customTitle.isEmpty {
+            tabManager.setCustomTitle(
+                tabId: workspace.id,
+                title: customTitle,
+                source: .user,
+                propagateToRemoteTmux: false
+            )
+        }
         return true
     }
 
@@ -691,7 +717,9 @@ final class RemoteTmuxController {
         var jobs: [(transport: RemoteTmuxSSHTransport, target: String)] = []
         for windowId in windowRegistry.windowsMarkedForKillOnClose() {
             guard windowRegistry.consumeKillSessionsOnClose(windowId: windowId) else { continue }
-            let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
+            let closingWorkspaceIds = Set(
+                AppDelegate.shared?.tabManagerForWindowTeardown(windowId: windowId)?.tabs.map(\.id) ?? []
+            )
             let mirrorsInWindow = sessionMirrors.filter { _, mirror in
                 mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
             }
@@ -795,6 +823,17 @@ final class RemoteTmuxController {
             return
         }
         removeCachedConnection(forKey: key)?.stop()
+    }
+
+    /// `DisableRemoteConnections` (MDM): detaches every control client and
+    /// closes each mirror workspace it drove, then exits the shared SSH
+    /// masters through ``detachAll()``. Remote tmux sessions stay alive on
+    /// their hosts; only cmux's connections to them end.
+    func detachAllForManagedPolicy() {
+        for mirror in Array(sessionMirrors.values) {
+            detach(host: mirror.host, sessionName: mirror.sessionName)
+        }
+        detachAll()
     }
 
     /// Detaches every control connection on app quit and closes the shared SSH

@@ -21,20 +21,30 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-cua` skill. Each agent wrapper repairs the app-bundled skill link in
-its agent's own discovery root before launching — `~/.claude/skills/cmux-cua`
-for Claude, `~/.agents/skills/cmux-cua` for Codex (migrating any older
-cmux-owned `~/.agents/skills/cmux-computer-use` link) — so both pickers see
-the same skill as a single plain `cmux-cua` entry. Codex's invocation-scoped
-`skills.config` injection is only a fallback for when that link cannot be
-installed; Claude has no session fallback, and the skill directory ships no
-plugin manifest — Codex treats `.claude-plugin/plugin.json` as a plugin
-manifest and would namespace the skill as `cmux-cua:cmux-cua`. No
-`npx skills add` step is required; a
-new agent session is enough after a cmux build. cmux refreshes only a symlink
-that already points at a cmux app bundle and never overwrites a user-owned
-skill directory or unrelated symlink. Set
-`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` for a strictly session-local launch.
+`$cmux-cua` skill. Neither wrapper installs global skills or adds automatic skill
+directories by default. Use your agent's normal skill installer for a persistent
+user-owned installation. Codex 0.153 treats `skills.config` paths as enable/disable
+rules, not discovery roots; cmux does not inject an ineffective session fallback.
+
+Alternatively, `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` is a per-launch
+preference for an app-managed global link: `~/.agents/skills/cmux-cua` for Codex
+or `~/.claude/skills/cmux-cua` for Claude. Export the flag for future launches
+to retain these links; they are user-global and may also appear outside cmux.
+With the flag unset or `=0`, a cmux agent launch removes only verified
+app-managed links. A same-name project or user-owned skill takes precedence:
+the wrapper does not create a competing global link or hide the existing skill.
+
+Migration of `cmux-cua`, `cmux-computer-use`, and `codex-cua` links requires an
+existing cmux bundle with a verified bundle ID, known install/build root, and
+root/current-user ownership. Real skill directories, unrelated symlinks, and
+project skills remain untouched. Unknown or dangling targets lack that proof
+and require manual review; `CMUX_CUA_DIAGNOSTICS=1` reports preserved paths
+blocking explicit install and verified managed links retired by the per-launch
+policy. Historical app-created and manually-created symlinks with identical
+verified targets cannot be distinguished retroactively; recognized app-bundle
+links are treated as cmux-managed, while unknown and dangling links remain
+preserved. No plugin manifest or temporary projection is shipped. Final picker
+rendering and selection are owned by the agent client.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes
@@ -52,8 +62,29 @@ diagnostic tools.
 cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
-The first real tool invocation opens cmux's onboarding. Its first **Allow**
-action goes directly to the matching permanent System Settings pane instead of
+The first functional `$cmux-cua` request from a current cmux agent session opens
+the existing onboarding window when setup is required. This is an explicit
+user opt-in signal, not a permission grant: the user still chooses every
+Accessibility and Screen Recording action in the window. The presentation
+boundary is `ComputerUseOnboardingCoordinator`: deliberate Settings actions
+select a step, and authenticated functional CUA requests from a locally owned
+terminal claim the runtime's first-use gate before presenting. Reading or
+discovering `$cmux-cua` does not claim that gate.
+
+Launch/resume, enabled-setting reconciliation, helper recovery, permission/TCC
+refresh, feature-flag refresh, passive workstream events, and unrelated tools
+only update state. Even when both grants are present and capture verification
+is incomplete, a refresh never opens or reopens onboarding. Retried/concurrent
+protected requests share the runtime claim and one window controller. Dismissal
+leaves the claim in place, so later requests and refreshes stay quiet; only
+disabling Computer Use, relaunching, or invalidating helper readiness resets it.
+To resume or select another permission step, use **Finish Setup…**,
+**Grant…**, or **Open System Settings** in Settings → cmux Computer Use, or the
+matching command palette action. Completed setup stays quiet unless fresh
+explicit intent needs setup again after readiness is invalidated.
+
+The Settings action uses the same onboarding flow: its first **Allow** action
+goes directly to the matching permanent System Settings pane instead of
 raising a second native TCC prompt first. If the helper is absent from the
 permission list, the compact companion supplies a draggable **cmux Computer
 Use** app tile; add it, turn it on, and let onboarding advance after the helper
@@ -63,9 +94,40 @@ over the System Settings pane mid-drag. On macOS Tahoe, turning Screen
 Recording on is followed by the system's separate direct-capture consent —
 an alert saying the helper "is attempting to bypass the system private window
 picker". This is expected; onboarding says so in place, and allowing it is
-required before setup can complete. Agents must not call a standalone helper's permission
-prompt while onboarding is active, because that creates unrelated permission
-dialogs under the wrong process identity.
+required before setup can complete. Agents must not call a standalone helper's
+permission prompt while onboarding is active, because that creates unrelated
+permission dialogs under the wrong process identity.
+
+The **Setup** row reports the host's remaining step separately from the two
+TCC grants. If both grants say **Granted**, choose **Finish Setup…** to verify
+direct capture with both helper profiles and approve macOS's capture confirmation
+if it appears. A missing helper is reported as unavailable, not as a denied grant.
+
+The runtime owns completion; closing or completing a window cannot authorize
+tools. Its version-1 completion record is one atomic preferences value scoped
+to the runtime tag and the helper's signing digest. The runtime restores it only
+for an unchanged installed helper, invalidates it before replacement or
+re-provisioning, and rejects stale capture results after disable or replacement.
+The legacy completion preference is presentation history only and never
+authorizes a helper without a fresh, identity-scoped verification. A corrupt,
+unknown-version, or mismatched record requires setup again. A crash before
+preferences flush can lose the latest completion, requiring verification again;
+a partial record never authorizes tools.
+
+`runtime/<tag>/state/` contains authenticated activity snapshots written after
+tool actions, not onboarding records. An empty directory is normal before the
+first action. The daemon starts with host readiness false; the host republishes
+verified readiness on each launch through its host-only authenticated socket
+method. `list-tools` and `check_permissions` intentionally work before admission.
+
+An already attached but unconfigured proxy can still wait for its external
+readiness milestone and then return the pinned helper's setup-required response,
+**“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then
+retry.”** That response is bounded by the helper's current 55-second poll and
+is intentionally documented here rather than bypassing permission readiness or
+silently granting access. Existing users who completed setup retain their
+helper readiness; revoked permissions invalidate that record and the next
+functional request opens setup again.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
 their normal tool approval UI for actions, and `cmux-cua` advertises the

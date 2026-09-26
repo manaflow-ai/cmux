@@ -315,6 +315,34 @@ export function App({ config, initialStatus }: ConfigProps) {
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  useEffect(() => {
+    const configuredTitle =
+      typeof payload.title === "string" ? payload.title.trim() : "";
+    if (configuredTitle === "") {
+      return;
+    }
+
+    const activeSource = resolvedSessionSource ?? activeSessionSource;
+    if (activeSource?.kind === "patch") {
+      document.title = configuredTitle;
+      return;
+    }
+
+    const repoRoot = diffSourceRepoRoot(activeSource) ?? payloadRepoRoot;
+    const repoOption = Array.isArray(payload.repoOptions)
+      ? payload.repoOptions.find((option) => option?.value === repoRoot)
+      : undefined;
+    const repoLabel =
+      typeof repoOption?.label === "string" ? repoOption.label.trim() : "";
+    document.title =
+      repoLabel === "" ? configuredTitle : `${configuredTitle} — ${repoLabel}`;
+  }, [
+    activeSessionSource,
+    payload.repoOptions,
+    payload.title,
+    payloadRepoRoot,
+    resolvedSessionSource,
+  ]);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -970,6 +998,7 @@ function SourceControls({
           onSelectSessionSource={(source) => onSelectSessionSource(
             repoSelectionWithActiveSource(source, activeSessionSource),
           )}
+          selectedOptionTitle
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
       ) : null}
@@ -1133,6 +1162,7 @@ function NavigationSelect({
   onNavigate,
   onSelectSessionSource,
   options,
+  selectedOptionTitle = false,
   selectedValue,
 }: {
   ariaLabel: string;
@@ -1141,6 +1171,7 @@ function NavigationSelect({
   onNavigate: (url: string) => void;
   onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
+  selectedOptionTitle?: boolean;
   selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
@@ -1149,12 +1180,19 @@ function NavigationSelect({
   const selected = options.find((option) => option.value === selectedValue)
     ?? options.find((option) => option.selected)
     ?? options.find((option) => !option.disabled);
+  const selectedTitle = selectedOptionTitle
+    ? (
+        typeof selected?.message === "string" && selected.message.trim() !== ""
+          ? selected.message
+          : (String(selected?.value ?? fallbackValue).trim() || ariaLabel)
+      )
+    : ariaLabel;
   return (
     <select
       id={id}
       aria-label={ariaLabel}
       value={selected?.value ?? fallbackValue}
-      title={ariaLabel}
+      title={selectedTitle}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
         if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {

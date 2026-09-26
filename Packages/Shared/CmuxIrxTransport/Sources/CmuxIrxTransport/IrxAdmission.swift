@@ -42,18 +42,44 @@ public struct IrxAdmissionDenied: Error, Equatable, Sendable {
 public typealias IrxGrantJudgment =
     @Sendable (_ grantJWS: String?, _ remoteEndpointIDHex: String) throws -> IrxAdmittedPeerInfo
 
-public enum IrxAdmission {
+public struct IrxAdmission: Sendable {
+    public init() {}
+
     /// Admission must resolve fast or fail loud; nothing here touches the
     /// network beyond the connection itself.
-    public static let deadline: Duration = .seconds(5)
+    public let deadline: Duration = .seconds(5)
 
     /// Client half: open the control lane, send the hello (grantless in
     /// list-auth mode; the optional grant exists only for legacy dialects),
     /// await the admit. A denial arrives as the connection's own termination
     /// and is rethrown with its parsed code.
-    public static func performClient(
+    public func performClient(
         connection: IrxConnection,
         grantJWS: String? = nil,
+        journal: IrxJournal
+    ) async throws -> (IrxAdmit, IrxLaneStream) {
+        do {
+            return try await clientExchange(connection: connection, grantJWS: grantJWS, journal: journal)
+        } catch let denial as IrxAdmissionDenied {
+            throw denial
+        } catch {
+            try Task.checkCancellation()
+            // A remote denial can terminate any native open/write/read stage,
+            // not just yield EOF from the admit reader. Inspect the already
+            // published close reason without waiting for a second deadline.
+            if let reason = await connection.closeReason(),
+               let code = IrxCloseCode.parse(fromRenderedCause: reason),
+               code == .admissionTimeout || IrxCloseCode.terminalForAutoRedial.contains(code) {
+                journal.record("admission", "denied", ["code": code.rawValue])
+                throw IrxAdmissionDenied(code: code)
+            }
+            throw error
+        }
+    }
+
+    private func clientExchange(
+        connection: IrxConnection,
+        grantJWS: String?,
         journal: IrxJournal
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()
@@ -61,23 +87,52 @@ public enum IrxAdmission {
         try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
         let admit: IrxAdmit?
         do {
-            admit = try await withIrxDeadline(deadline) {
-                try await control.reader.readControlFrame(IrxAdmit.self)
+            admit = try await withIrxDeadline(deadline, onTimeout: {
+                await connection.close(code: .admissionTimeout, origin: .transport)
+            }) {
+                guard let admit = try await control.reader.readControlFrame(IrxAdmit.self) else {
+                    throw IrxConnectionError.closed(await connection.termination())
+                }
+                return admit
             }
         } catch {
-            admit = nil
+            // A peer denial can surface as a native QUIC read error before
+            // the stream wrapper returns EOF. Preserve its machine-readable
+            // connection reason for the admission caller.
+            if await connection.isConnectionClosed() {
+                let termination = await connection.termination()
+                journal.record(
+                    "admission", "denied-or-timeout",
+                    ["code": termination.code]
+                )
+                if let code = IrxCloseCode(rawValue: termination.code),
+                    IrxCloseCode.admissionOutcomeCodes.contains(code)
+                {
+                    throw IrxAdmissionDenied(code: code)
+                }
+                throw IrxConnectionError.closed(termination)
+            }
+            throw error
         }
         guard let admit else {
-            // EOF or timeout: the reason, if any, is in the termination.
+            // A stalled QUIC read can outlive the deadline and ignore task
+            // cancellation. Preserve a close reason already received from the
+            // peer; otherwise close locally so the read loses its transport
+            // owner before we inspect the termination reason.
+            if await connection.closeReason() == nil {
+                await connection.close(code: .admissionTimeout, origin: .transport)
+            }
             let termination = await connection.termination()
             journal.record(
                 "admission", "denied-or-timeout",
                 ["code": termination.code]
             )
-            if let code = IrxCloseCode(rawValue: termination.code) {
+            if let code = IrxCloseCode(rawValue: termination.code),
+                IrxCloseCode.admissionOutcomeCodes.contains(code)
+            {
                 throw IrxAdmissionDenied(code: code)
             }
-            throw IrxConnectionError.admissionTimeout
+            throw IrxConnectionError.closed(termination)
         }
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
@@ -96,24 +151,40 @@ public enum IrxAdmission {
     /// judge the grant against the TLS key, admit or terminate with the
     /// denial code. On success the remote's lane credit is raised and the
     /// admit frame commits the session.
-    public static func performServer(
+    public func performServer(
         connection: IrxConnection,
         judgment: IrxGrantJudgment,
         journal: IrxJournal
     ) async -> (IrxAdmittedPeerInfo, IrxLaneStream, String)? {
         do {
-            let control = try await withIrxDeadline(deadline) {
+            let controlResult = try await withIrxDeadlineResult(deadline) {
                 await connection.acceptLane()
+            }
+            let control: IrxLaneStream?
+            switch controlResult {
+            case .operation(let value):
+                control = value
+            case .timeout:
+                await connection.close(code: .admissionTimeout, origin: .local)
+                return nil
             }
             guard let control, control.descriptor.lane == .control else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.malformedHello.rawValue])
                 await connection.close(code: .malformedHello, origin: .local)
                 return nil
             }
-            let hello = try await withIrxDeadline(deadline) {
+            let helloResult = try await withIrxDeadlineResult(deadline) {
                 try await control.reader.readControlFrame(IrxHello.self)
             }
-            guard let hello, hello.proto == IrxProtocol.alpn else {
+            let hello: IrxHello?
+            switch helloResult {
+            case .operation(let value):
+                hello = value
+            case .timeout:
+                await connection.close(code: .admissionTimeout, origin: .local)
+                return nil
+            }
+            guard let hello, hello.proto == IrxProtocol().alpn else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.protocolMismatch.rawValue])
                 await connection.close(code: .protocolMismatch, origin: .local)
                 return nil

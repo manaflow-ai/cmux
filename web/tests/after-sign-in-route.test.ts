@@ -526,6 +526,83 @@ describe("sign out and sign back in", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 
+  const publicationTransaction = "tx_0123456789abcdefghijklmnopqrstuvwxyz";
+  const publicationState = "st_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+  function publicationSignIn(access: string): string {
+    const afterSignIn = `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(access)}`;
+    return `/handler/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+  }
+
+  test("signs out and redirects into sign-in for a protected Cloud VM domain transaction", async () => {
+    const access = `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`;
+    const signIn = publicationSignIn(access);
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toMatch(/(?:^|,\s*)stack-access=;[^,]*Max-Age=0/i);
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+  });
+
+  test("signs out and redirects into sign-in for CLI authorization", async () => {
+    const confirmation = "/handler/cli-auth-confirm?login_code=test-login-code";
+    const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    expect(response.headers.get("set-cookie")).toMatch(
+      /(?:^|,\s*)stack-access=;[^,]*Max-Age=0/i,
+    );
+  });
+
+  test("rejects CLI sign-in targets that are not one exact authorization code", async () => {
+    const malformedConfirmations = [
+      "/handler/cli-auth-confirm",
+      "/handler/cli-auth-confirm?login_code=test-login-code&next=%2Fdocs",
+      "/handler/cli-auth-confirm?login_code=not.valid",
+      "https://evil.test/handler/cli-auth-confirm?login_code=test-login-code",
+    ];
+
+    for (const confirmation of malformedConfirmations) {
+      const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+      const response = await GET(switchRequest(signIn));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+  });
+
+  test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {
+    const malformed = [
+      `/cloud/access?transaction=short&state=${publicationState}`,
+      `/cloud/access?transaction=${publicationTransaction}`,
+      `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}&next=%2Fdocs`,
+      `/cloud/other?transaction=${publicationTransaction}&state=${publicationState}`,
+      `https://evil.test/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`,
+    ];
+
+    for (const access of malformed) {
+      const response = await GET(switchRequest(publicationSignIn(access)));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+
+    const extraSignInParam = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(
+      `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(`/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`)}`,
+    )}&prompt=none`;
+    const response = await GET(switchRequest(extraSignInParam));
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
   test("rejects cross-site attempts to force sign-out", async () => {
     const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;

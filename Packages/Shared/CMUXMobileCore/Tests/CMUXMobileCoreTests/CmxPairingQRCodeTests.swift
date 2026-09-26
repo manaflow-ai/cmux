@@ -37,10 +37,22 @@ import Testing
         return try #require(URLComponents(url: parsed, resolvingAgainstBaseURL: false))
     }
 
+    /// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+    /// `Bundle.main`, which in an xctest process is the test runner and not a
+    /// cmux build, so it resolves to nil whenever this target runs in an iOS
+    /// Simulator. These tests assert about the QR grammar, not about bundle
+    /// identity, so the scheme they emit is theirs to state. This is the
+    /// untagged development scheme -- the same value the macOS host fallback
+    /// produced, which is why the expected URLs below are unchanged.
+    private static let pairingScheme = CmxPairingURLScheme(
+        rawValue: "cmux-ios-dev.cmux.ios"
+    )
+
     private func encodeLegacy(_ ticket: CmxAttachTicket) -> String? {
         CmxPairingQRCode().encode(
             ticket,
-            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+            pairingURLScheme: Self.pairingScheme
         )
     }
 
@@ -58,9 +70,7 @@ import Testing
         let url = try #require(encodeLegacy(ticket))
         // The scheme is bundle-specific, so the system camera routes the QR to
         // the matching installed iOS build. The rest of the URL is unchanged.
-        let scheme = try #require(
-            CmxPairingURLSchemeResolver().resolved?.rawValue
-        )
+        let scheme = try #require(Self.pairingScheme).rawValue
         #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
@@ -167,9 +177,7 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(encodeLegacy(ticket))
-        let scheme = try #require(
-            CmxPairingURLSchemeResolver().resolved?.rawValue
-        )
+        let scheme = try #require(Self.pairingScheme).rawValue
         #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])

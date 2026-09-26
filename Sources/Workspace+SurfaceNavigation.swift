@@ -15,22 +15,25 @@ extension Workspace {
     /// Moves keyboard focus through the rendered pane hierarchy. A selected
     /// remote-tmux window owns a nested split tree, so it gets first refusal;
     /// an edge with no inner neighbor falls through to the workspace tree.
-    func moveFocus(direction: NavigationDirection) {
+    @discardableResult
+    func moveFocus(direction: NavigationDirection) -> Bool {
         if layoutMode == .canvas {
-            moveCanvasFocus(direction: direction)
-            return
+            return moveCanvasFocus(direction: direction)
         }
         if let focusedPanelId,
            let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
             switch mirror.navigateFocus(direction: direction) {
-            case .moved, .invalid:
-                return
+            case .moved:
+                return true
+            case .invalid:
+                return false
             case .edge:
                 break
             }
         }
 
         let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPaneId = bonsplitController.focusedPaneId
         if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
             previous.unfocus()
         }
@@ -40,6 +43,8 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+        return previousFocusedPanelId != focusedPanelId ||
+            previousFocusedPaneId != bonsplitController.focusedPaneId
     }
 
     /// Moves the focused surface into another pane, optionally creating a

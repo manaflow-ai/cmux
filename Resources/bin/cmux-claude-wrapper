@@ -832,7 +832,7 @@ fi
 cmux_claude_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
 unset CMUX_AGENT_RESTORE_LAUNCH
 
-exec_real_claude_passthrough() {
+clear_cmux_claude_passthrough_env() {
     if [[ "$IN_CMUX" == "1" ]]; then
         clear_inherited_claude_session_identity_env
         local cmux_key
@@ -841,6 +841,10 @@ exec_real_claude_passthrough() {
         done
         unset TERMINFO
     fi
+}
+
+exec_real_claude_passthrough() {
+    clear_cmux_claude_passthrough_env
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
@@ -848,12 +852,18 @@ exec_real_claude_passthrough() {
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # The restore preload must outlive the Claude session: every Node child
+    # loads it via NODE_OPTIONS, and macOS purges $TMPDIR under long-lived
+    # sessions (https://github.com/manaflow-ai/cmux/issues/12022). Keep it
+    # next to the other CLI shims in ~/.cmuxterm.
+    [[ -n "${HOME:-}" && "$HOME" == /* ]] || return 1
+    local guard_dir="${HOME%/}/.cmuxterm/cmux-claude-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
+    [[ ! -L "$guard_dir" && ! -L "$guard_path" ]] || return 1
     mkdir -p "$guard_dir" || return 1
+    chmod 0700 "$guard_dir" || return 1
     local temp_path
-    temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
+    temp_path="$(mktemp "$guard_dir/.restore-node-options.cjs.XXXXXX")" || return 1
     cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
 if (hadOriginalNodeOptions) {
@@ -879,9 +889,20 @@ EOF
     printf '%s' "$guard_path"
 }
 
+node_options_require_flag() {
+    local path="$1"
+    # NODE_OPTIONS splits on whitespace; quote the path when $HOME has spaces.
+    if [[ "$path" == *[[:space:]]* ]]; then
+        printf '%s' "--require=\"$path\""
+    else
+        printf '%s' "--require=$path"
+    fi
+}
+
 merge_node_options() {
     local guard_path="$1"
-    local require_flag="--require=$guard_path"
+    local require_flag
+    require_flag="$(node_options_require_flag "$guard_path")"
     local memory_flag="--max-old-space-size=4096"
     local existing="${NODE_OPTIONS:-}"
     local -a filtered=()
@@ -949,7 +970,7 @@ normalize_node_options_for_restore() {
 install_cmux_node_options() {
     local guard_path
     if guard_path="$(ensure_node_options_restore_module)"; then
-        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"--require=$guard_path"* ]]; then
+        if [[ ${NODE_OPTIONS+x} && "${NODE_OPTIONS:-}" == *"$(node_options_require_flag "$guard_path")"* ]]; then
             return 0
         fi
         if [[ ${NODE_OPTIONS+x} ]]; then
@@ -1011,6 +1032,17 @@ cmux_computer_use_json_escape() {
     value="${value//$'\r'/\\r}"
     value="${value//$'\t'/\\t}"
     printf '%s' "$value"
+}
+
+cmux_claude_load_skill_link_policy() {
+    local self_dir resource_dir policy
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    policy="$resource_dir/cmux-cua/link-policy.sh"
+    [[ -r "$policy" ]] || return 1
+    # Keep global-link ownership and collision handling identical to Codex.
+    # shellcheck source=/dev/null
+    . "$policy"
 }
 
 cmux_computer_use_resolve_client() {
@@ -1154,68 +1186,27 @@ cmux_computer_use_config() {
 }
 
 cmux_claude_global_skill_install_enabled() {
-    # Keep Claude and Codex discovery symmetric. Both pickers can only show a
-    # skill that exists in a filesystem skill root; the session-only plugin
-    # flag is not a durable picker entry. Users who want a strictly local
-    # session can opt out explicitly.
-    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
-        0|false|FALSE|no|NO) return 1 ;;
+    # A durable Claude skill link is an explicit user choice, never a side
+    # effect of starting an agent.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-0}" in
+        1|true|TRUE|yes|YES) return 0 ;;
     esac
-    return 0
+    return 1
 }
 
-cmux_claude_install_computer_use_skill() {
-    # Claude surfaces personal skills from ~/.claude/skills with a plain
-    # unqualified name; ~/.agents/skills is Codex's discovery root, not
-    # Claude's. Keep the source inside the signed cmux app and link it instead
-    # of copying stale versions. Never replace a real directory or a symlink
-    # the user owns. Returns 0 only when the cmux-cua link now points at this
-    # app bundle, so callers can skip the namespaced session-scoped fallback.
-    local home="${HOME:-}"
-    [[ "$home" = /* ]] || return 1
-    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+cmux_claude_reconcile_skill_links() {
+    local self_dir resource_dir source_dir install_requested=0
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     source_dir="$resource_dir/cmux-cua"
     [[ -f "$source_dir/SKILL.md" ]] || return 1
+    cmux_claude_global_skill_install_enabled && install_requested=1
 
-    skills_root="$home/.claude/skills"
-    destination="$skills_root/cmux-cua"
-    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
-
-    # Retire the pre-rename cmux-computer-use link (written by older wrappers
-    # into Codex's shared root) so pickers do not show two copies of the same
-    # skill. Only a symlink into a cmux app bundle is removed; user-owned
-    # paths at that name are left alone.
-    legacy="$home/.agents/skills/cmux-computer-use"
-    if [[ -L "$legacy" ]]; then
-        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
-        case "$legacy_target" in
-            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
-                /bin/rm -f "$legacy" 2>/dev/null || true
-                ;;
-        esac
+    if ! cmux_claude_load_skill_link_policy; then
+        return 0
     fi
 
-    if [[ -L "$destination" ]]; then
-        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-        case "$target" in
-            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
-                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
-                ;;
-            *)
-                return 1
-                ;;
-        esac
-    elif [[ -e "$destination" ]]; then
-        # A user-owned path wins; report not-installed so the session-scoped
-        # fallback still delivers the current bundled skill.
-        return 1
-    else
-        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
-    fi
-    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
-    [[ "$target" == "$source_dir" ]]
+    cmux_cua_skill_reconcile claude "$source_dir" "${PWD:-}" "$install_requested" || return 1
 }
 
 claude_interactive_entry_flag() {
@@ -1239,8 +1230,11 @@ claude_passthrough_option_flag() {
 }
 
 claude_builtin_command_name() {
+    # Compatibility floor for hidden commands and unavailable help. Advertised
+    # commands are also discovered below so new Claude releases need no update.
     case "$1" in
-        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|gateway|import|install|\
+        kill|logs|mcp|respawn|rm|stop|\
         experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
         ultrareview|update|upgrade)
             return 0
@@ -1248,6 +1242,127 @@ claude_builtin_command_name() {
     esac
     return 1
 }
+
+claude_discovered_command_name() (
+    # Keep discovery optional, bounded, and outside the project. Perl ships on
+    # macOS and already supplies process deadlines for the other agent wrappers.
+    [[ -x /usr/bin/perl && "${HOME:-}" == /* ]] || return 1
+    cmux_claude_wrapper_prepare_custom_path_environment "$REAL_CLAUDE"
+    clear_inherited_claude_auth_selection_env
+    clear_cmux_claude_passthrough_env
+    LC_ALL=C /usr/bin/perl - "$REAL_CLAUDE" "$1" \
+        "$HOME/Library/Caches/cmux/claude-commands-v1" 2>/dev/null <<'PERL'
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+use Digest::SHA qw(sha256_hex);
+use File::Path qw(make_path);
+use File::Temp qw(tempfile);
+use POSIX qw(setpgid);
+use Time::HiRes qw(alarm stat time);
+
+my ($executable, $candidate, $directory) = @ARGV;
+my $binary = abs_path($executable) or exit 1;
+my @metadata = stat($binary);
+exit 1 unless @metadata;
+my $identity = sha256_hex(join("\0", $binary, @metadata[0, 1, 7],
+    map { sprintf("%.9f", $_) } @metadata[9, 10]));
+my $cache = "$directory/" . sha256_hex($binary);
+my $word = qr/[a-z][a-z0-9_-]*/;
+umask 0077;
+
+# A cache is data, never shell code. Ignore malformed/partial files. Atomic
+# replacement lets concurrent launches read complete snapshots without a lock.
+if (-f $cache && !-l $cache && -s $cache <= 65536 && open(my $file, "<", $cache)) {
+    my @lines = <$file>;
+    close $file;
+    chomp @lines;
+    my ($cached_identity, $expires, @commands) = @lines;
+    if (defined($expires) && $cached_identity eq $identity &&
+        $expires =~ /^\d+$/ && $expires > time() &&
+        !grep { !/^$word$/ } @commands) {
+        exit((grep { $_ eq $candidate } @commands) ? 0 : 1);
+    }
+}
+
+pipe(my $reader, my $writer) or exit 1;
+my $pid = fork();
+exit 1 unless defined $pid;
+if ($pid == 0) {
+    # Own the probe process group so a launcher that spawns children cannot
+    # keep the pipe open or survive its deadline. Never read the terminal.
+    setpgid(0, 0) == 0 or exit 1;
+    close $reader;
+    open(STDIN, "<", "/dev/null") or exit 1;
+    open(STDOUT, ">&", $writer) or exit 1;
+    close $writer;
+    $ENV{NO_COLOR} = 1;
+    exec { $executable } $executable, "--help";
+    exit 1;
+}
+close $writer;
+my $stop_probe = sub {
+    return unless defined $pid;
+    kill "KILL", -$pid;
+    kill "KILL", $pid;
+    waitpid($pid, 0);
+    undef $pid;
+};
+$SIG{HUP} = sub { $stop_probe->(); exit 129; };
+$SIG{INT} = sub { $stop_probe->(); exit 130; };
+$SIG{TERM} = sub { $stop_probe->(); exit 143; };
+my $output = "";
+my $success = eval {
+    local $SIG{ALRM} = sub { die "help deadline\n" };
+    alarm(0.75);
+    while (1) {
+        my $read = sysread($reader, my $chunk, 8192);
+        die "help read\n" unless defined $read;
+        last unless $read;
+        $output .= $chunk;
+        die "help too large\n" if length($output) > 65536;
+    }
+    waitpid($pid, 0) == $pid or die "help wait\n";
+    my $status = $?;
+    undef $pid;
+    alarm(0);
+    $status == 0;
+};
+alarm(0);
+if (!defined $success) {
+    $stop_probe->();
+}
+close $reader;
+
+my %commands;
+if ($success) {
+    $output =~ s/\e\[[0-?]*[ -\/]*[\@-~]//g;
+    my $in_commands = 0;
+    for my $line (split /\r?\n/, $output) {
+        if ($line =~ /^Commands:\s*$/) { $in_commands = 1; next; }
+        next unless $in_commands;
+        last if $line =~ /^\S/;
+        # Only command rows, not wrapped descriptions, options, or examples.
+        if ($line =~ /^  ($word(?:\|$word)*)(?:\s|$)/) {
+            $commands{$_} = 1 for split /\|/, $1;
+        }
+    }
+}
+
+# Retry failed/empty help after a minute. Also refresh successful discovery
+# hourly: a version-manager launcher can select a new binary without changing
+# its own path/mtime. Native binary replacements still invalidate immediately.
+my $expires = int(time()) + (%commands ? 3600 : 60);
+eval {
+    make_path($directory, { mode => 0700 });
+    my ($file, $temporary) = tempfile(".commands-XXXXXX", DIR => $directory);
+    my $saved = print $file join("\n", $identity, $expires, sort keys %commands), "\n";
+    $saved = close($file) && $saved;
+    unlink $temporary unless $saved && rename($temporary, $cache);
+};
+exit(exists($commands{$candidate}) ? 0 : 1);
+PERL
+)
 
 claude_command_like_invocation() {
     local candidate="$1"
@@ -1257,13 +1372,17 @@ claude_command_like_invocation() {
             return 1
             ;;
     esac
-    claude_builtin_command_name "$candidate"
+    claude_builtin_command_name "$candidate" && return 0
+    # Empty launches, explicit session flags and multiword prompts never reach
+    # discovery. An unknown single word still gets hooks unless help names it.
+    [[ "$candidate" =~ ^[a-z][a-z0-9_-]*$ ]] || return 1
+    claude_discovered_command_name "$candidate"
 }
 
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
-    local arg
+    local arg command_status
     local skip_next=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
@@ -1287,9 +1406,14 @@ should_inject_claude_hooks() {
                 continue
                 ;;
             *)
-                if claude_command_like_invocation "$arg"; then
-                    return 1
-                fi
+                claude_command_like_invocation "$arg"
+                command_status=$?
+                case "$command_status" in
+                    0) return 1 ;;
+                    # Cancellation is not a failed lookup: do not start a
+                    # prompt session after the user interrupts discovery.
+                    129|130|143) exit "$command_status" ;;
+                esac
                 return 0
                 ;;
         esac
@@ -1399,9 +1523,196 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
 fi
 install_cmux_node_options
 
-# Build Claude settings JSON.
+# Build Claude settings JSON. The bundled CLI owns the lifecycle-hook delivery
+# contract so Claude and the installed agent integrations cannot drift. A
+# missing/older CLI or malformed output falls back atomically to decision hooks
+# only. Lifecycle telemetry is omitted in degraded mode so it cannot reintroduce
+# a blocking socket round-trip or disable Claude's native notifications.
+cmux_claude_plutil_raw() {
+    local value="$1"
+    local keypath="$2"
+    local expected_type="$3"
+    printf '%s' "$value" \
+        | /usr/bin/plutil -extract "$keypath" raw -expect "$expected_type" -o - -- - 2>/dev/null
+}
+
+cmux_claude_plutil_has_command() {
+    local value="$1"
+    local event="$2"
+    local needle="$3"
+    local required_matcher="$4"
+    local require_sync="$5"
+    local group_count group_index hook_count hook_index matcher command async_value
+
+    group_count="$(cmux_claude_plutil_raw "$value" "hooks.$event" array)" || return 1
+    [[ "$group_count" =~ ^[0-9]+$ ]] || return 1
+    group_index=0
+    while (( group_index < group_count )); do
+        if [[ -n "$required_matcher" ]]; then
+            matcher="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.matcher" string)" \
+                || {
+                    group_index=$((group_index + 1))
+                    continue
+                }
+            if [[ "$matcher" != "$required_matcher" ]]; then
+                group_index=$((group_index + 1))
+                continue
+            fi
+        fi
+
+        hook_count="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.hooks" array)" \
+            || {
+                group_index=$((group_index + 1))
+                continue
+            }
+        [[ "$hook_count" =~ ^[0-9]+$ ]] || return 1
+        hook_index=0
+        while (( hook_index < hook_count )); do
+            command="$(cmux_claude_plutil_raw "$value" "hooks.$event.$group_index.hooks.$hook_index.command" string)" \
+                || {
+                    hook_index=$((hook_index + 1))
+                    continue
+                }
+            if [[ "$command" == *"$needle"* ]]; then
+                if [[ "$require_sync" != "1" ]]; then
+                    return 0
+                fi
+                async_value="$(
+                    cmux_claude_plutil_raw \
+                        "$value" \
+                        "hooks.$event.$group_index.hooks.$hook_index.async" \
+                        bool \
+                        || true
+                )"
+                if [[ "$async_value" != "true" ]]; then
+                    return 0
+                fi
+            fi
+            hook_index=$((hook_index + 1))
+        done
+        group_index=$((group_index + 1))
+    done
+    return 1
+}
+
+cmux_claude_plutil_hook_settings_are_safe() {
+    local value="$1"
+    local preferred_channel event subcommand
+
+    cmux_claude_plutil_has_command \
+        "$value" "PreToolUse" "hooks claude cron-create-guard" "CronCreate" 1 \
+        || return 1
+    cmux_claude_plutil_has_command \
+        "$value" "PermissionRequest" "hooks feed --source claude" "" 1 \
+        || return 1
+
+    preferred_channel="$(
+        cmux_claude_plutil_raw "$value" preferredNotifChannel string || true
+    )"
+    if [[ "$preferred_channel" == "notifications_disabled" ]]; then
+        while read -r event subcommand; do
+            cmux_claude_plutil_has_command \
+                "$value" "$event" "hooks enqueue claude $subcommand" "" 0 \
+                || return 1
+        done <<'CMUX_CLAUDE_LIFECYCLE_HOOKS'
+SessionStart session-start
+Stop stop
+SessionEnd session-end
+Notification notification
+UserPromptSubmit prompt-submit
+CMUX_CLAUDE_LIFECYCLE_HOOKS
+    fi
+    return 0
+}
+
+cmux_claude_generated_hook_settings_are_safe() {
+    local value="$1"
+    (( ${#value} > 0 && ${#value} <= 1048576 )) || return 1
+    [[ "$value" =~ ^[[:space:]]*\{ ]] || return 1
+
+    if command -v node >/dev/null 2>&1; then
+        printf '%s' "$value" | node -e '
+const fs=require("fs");
+try {
+  const x=JSON.parse(fs.readFileSync(0,"utf8"));
+  if(!x||Array.isArray(x)||typeof x!=="object")process.exit(1);
+  const hooks=x.hooks;
+  if(!hooks||Array.isArray(hooks)||typeof hooks!=="object")process.exit(1);
+  const commands=(event,matcher)=>{
+    const groups=hooks[event];
+    if(!Array.isArray(groups))return [];
+    return groups.flatMap(group=>{
+      if(!group||typeof group!=="object")return [];
+      if(matcher!==undefined&&group.matcher!==matcher)return [];
+      return Array.isArray(group.hooks)?group.hooks:[];
+    });
+  };
+  const hasSyncCommand=(event,needle,matcher)=>commands(event,matcher).some(hook=>
+    hook&&typeof hook==="object"&&typeof hook.command==="string"&&
+    hook.command.includes(needle)&&hook.async!==true
+  );
+  if(!hasSyncCommand("PreToolUse","hooks claude cron-create-guard","CronCreate"))process.exit(1);
+  if(!hasSyncCommand("PermissionRequest","hooks feed --source claude"))process.exit(1);
+  if(x.preferredNotifChannel==="notifications_disabled"){
+    const lifecycle=[
+      ["SessionStart","session-start"],
+      ["Stop","stop"],
+      ["SessionEnd","session-end"],
+      ["Notification","notification"],
+      ["UserPromptSubmit","prompt-submit"],
+    ];
+    if(!lifecycle.every(([event,subcommand])=>
+      commands(event).some(hook=>
+        hook&&typeof hook==="object"&&typeof hook.command==="string"&&
+        hook.command.includes(`hooks enqueue claude ${subcommand}`)
+      )
+    ))process.exit(1);
+  }
+}
+catch (_) { process.exit(1); }
+' >/dev/null 2>&1
+        return $?
+    fi
+    if [[ -x /usr/bin/plutil ]]; then
+        cmux_claude_plutil_hook_settings_are_safe "$value"
+        return $?
+    fi
+    return 1
+}
+
+cmux_claude_generate_hook_settings() {
+    local output_file generator_pid watchdog_pid generator_status
+    output_file="$(mktemp "${TMPDIR:-/tmp}/cmux-claude-hook-settings.XXXXXX" 2>/dev/null)" || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$CMUX_CLAUDE_HOOK_CMUX_BIN" hooks claude inject-settings >"$output_file" 2>/dev/null &
+    generator_pid=$!
+    (
+        cmux_generator_timer_pid=""
+        trap 'if [[ -n "$cmux_generator_timer_pid" ]]; then kill "$cmux_generator_timer_pid" 2>/dev/null || true; fi' EXIT
+        trap 'exit 0' HUP INT TERM
+        /bin/sleep 1 &
+        cmux_generator_timer_pid=$!
+        wait "$cmux_generator_timer_pid" 2>/dev/null || exit 0
+        cmux_generator_timer_pid=""
+        trap - EXIT HUP INT TERM
+        kill -KILL "$generator_pid" 2>/dev/null || true
+    ) &
+    watchdog_pid=$!
+
+    wait "$generator_pid" 2>/dev/null
+    generator_status=$?
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+    if [[ $generator_status -eq 0 ]]; then
+        cat "$output_file"
+    fi
+    rm -f "$output_file"
+    return "$generator_status"
+}
+
 # Claude Code merges --settings additively with the user's own settings.json.
-# - preferredNotifChannel: disables Claude Code's OSC/terminal notification
+# Generated settings also set preferredNotifChannel to disable Claude Code's OSC/terminal notification
 #   channel inside cmux so hooks are the only notification source.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
@@ -1431,10 +1742,12 @@ install_cmux_node_options
 #   timeout because it may run a summarization subprocess; it gates itself
 #   on the workspaceAutoNaming setting via a socket probe, so it is a
 #   no-op when the feature is disabled.
-# `__cmux` is private merge metadata. Claude Code's settings schema permits
-# additional properties; keeping the marker in the file is what lets a later
-# wrapper pass distinguish cmux-owned hook groups from genuine user hooks.
-HOOKS_JSON='{"__cmux":{"managed":"claude-hooks","version":1},"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude auto-name","timeout":120,"async":true}]}],"SubagentStop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PostToolUse":[{"matcher":"PushNotification","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude push-notification","timeout":10,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"hooks":{"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+if CMUX_GENERATED_HOOKS_JSON="$(cmux_claude_generate_hook_settings)" \
+    && cmux_claude_generated_hook_settings_are_safe "$CMUX_GENERATED_HOOKS_JSON"; then
+    HOOKS_JSON="$CMUX_GENERATED_HOOKS_JSON"
+fi
+unset CMUX_GENERATED_HOOKS_JSON
 
 # Fold any user-provided --settings into HOOKS_JSON before launching.
 #
@@ -1629,16 +1942,13 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     fi
 fi
 
-# Keep the bundled skill discoverable by Claude's picker as well as Codex's.
-# Installation is best-effort and never replaces a user-owned path; set
-# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
-# There is deliberately no --plugin-dir fallback: a plugin manifest in the
-# skill directory makes Codex namespace the skill (cmux-cua:cmux-cua) and
-# Claude display plugin skills qualified, so the durable ~/.claude/skills
-# link is the only Claude-side delivery path.
-if cmux_claude_global_skill_install_enabled \
-      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
-    cmux_claude_install_computer_use_skill || true
+# Reconcile the bundled skill's discovery path before the session starts.
+# Normal launches clean up only links proven to be cmux-managed. Skill
+# discovery remains inert unless durable installation is explicitly requested.
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
+# user-global link.
+if cmux_claude_computer_use_enabled_for_invocation "$@"; then
+    cmux_claude_reconcile_skill_links || true
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied

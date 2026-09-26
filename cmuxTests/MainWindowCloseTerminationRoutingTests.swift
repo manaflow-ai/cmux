@@ -47,24 +47,68 @@ private extension NSApplication {
 private func evaluateCloseOutsideXCTest(
     _ body: () throws -> Bool
 ) throws -> (shouldClose: Bool, terminateCallCount: Int) {
-    let environmentKey = "XCTestConfigurationFilePath"
-    let previousConfigurationPath =
-        ProcessInfo.processInfo.environment[environmentKey]
-    unsetenv(environmentKey)
+    let environment = ProcessInfo.processInfo.environment
+    var markerKeys = [
+        "CMUX_TEST_PROCESS",
+        "XCTestConfigurationFilePath",
+        "XCTestBundlePath",
+        "XCTestSessionIdentifier",
+        "XCInjectBundle",
+        "XCInjectBundleInto",
+    ]
+    markerKeys.append(contentsOf: environment.keys.filter { $0.hasPrefix("CMUX_UI_TEST_") })
+    if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+        markerKeys.append("DYLD_INSERT_LIBRARIES")
+    }
+    let previousMarkers = Dictionary(
+        uniqueKeysWithValues: markerKeys.map { ($0, environment[$0]) }
+    )
+    for key in previousMarkers.keys {
+        unsetenv(key)
+    }
     defer {
-        if let previousConfigurationPath {
-            setenv(environmentKey, previousConfigurationPath, 1)
-        } else {
-            unsetenv(environmentKey)
+        for (key, value) in previousMarkers {
+            if let value {
+                setenv(key, value, 1)
+            } else {
+                unsetenv(key)
+            }
         }
     }
-    #expect(ProcessInfo.processInfo.environment[environmentKey] == nil)
+    #expect(ProcessInfo.processInfo.environment["CMUX_TEST_PROCESS"] == nil)
 
     try ApplicationTerminateSpy.install()
     defer { ApplicationTerminateSpy.uninstall() }
 
     let shouldClose = try body()
+    // The quit path hands NSApp.terminate to a later run-loop turn (#10788).
+    // Drain it while the spy is still installed so the real terminate never runs.
+    drainDeferredTerminate()
     return (shouldClose, ApplicationTerminateSpy.callCount)
+}
+
+/// Set from a run-loop block and read by the draining loop on the same thread.
+private final class MainRunLoopDrainFlag: @unchecked Sendable {
+    var drained = false
+}
+
+@MainActor
+private func drainDeferredTerminate() {
+    let deadline = Date(timeIntervalSinceNow: 1.0)
+    let flag = MainRunLoopDrainFlag()
+    // A run-loop block, not DispatchQueue.main.async: this test body is itself a
+    // main-queue job, so a GCD sentinel would never run from this nested loop.
+    RunLoop.main.perform(inModes: [.default]) {
+        flag.drained = true
+    }
+    while !flag.drained {
+        if Date() >= deadline {
+            Issue.record("Timed out draining main queue")
+            return
+        }
+        let sliceDeadline = min(deadline, Date(timeIntervalSinceNow: 0.001))
+        _ = RunLoop.main.run(mode: .default, before: sliceDeadline)
+    }
 }
 
 @MainActor
@@ -285,6 +329,123 @@ struct MainWindowCloseTerminationRoutingTests {
                     && $0.tabManager === recoverableManager
             }
         )
+    }
+
+    @Test("Compatibility recovery route retains and retires its supplied Dock")
+    func compatibilityRecoveryRouteRetainsAndRetiresItsSuppliedDock() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = DockSplitStore(
+            workspaceId: windowId,
+            baseDirectoryProvider: { nil }
+        )
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            if !dock.isRetired {
+                dock.retire()
+            }
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebarSnapshot: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: 280
+            ),
+            windowDock: dock
+        )
+
+        #expect(app.existingWindowDock(forWindowId: windowId) === dock)
+
+        app.forgetRecoverableMainWindowRoute(windowId: windowId)
+
+        #expect(dock.isRetired)
+        #expect(app.existingWindowDock(forWindowId: windowId) == nil)
+    }
+
+    @Test("Compatibility recovery route adopts a matching replacement context")
+    func compatibilityRecoveryRouteAdoptsMatchingReplacementContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let dock = DockSplitStore(
+            workspaceId: windowId,
+            baseDirectoryProvider: { nil }
+        )
+        let replacementWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        replacementWindow.isReleasedWhenClosed = false
+        replacementWindow.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.main.\(windowId.uuidString)"
+        )
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            if !dock.isRetired {
+                dock.retire()
+            }
+            replacementWindow.orderOut(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.rememberRecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: manager,
+            window: nil,
+            sidebarSnapshot: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: 280
+            ),
+            windowDock: dock
+        )
+
+        app.registerMainWindow(
+            replacementWindow,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(isVisible: true, persistedWidth: 280),
+            sidebarSelectionState: SidebarSelectionState(selection: .tabs),
+            fileExplorerState: FileExplorerState()
+        )
+
+        #expect(
+            app.mainWindowContexts.values.contains {
+                $0.windowId == windowId && $0.tabManager === manager
+            }
+        )
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.existingWindowDock(forWindowId: windowId) === dock)
+        #expect(!dock.isRetired)
     }
 
     @Test("Exact sole owner retains last-window quit behavior")

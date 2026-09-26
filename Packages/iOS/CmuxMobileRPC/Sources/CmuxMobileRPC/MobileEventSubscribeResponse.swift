@@ -25,10 +25,15 @@ public struct MobileEventSubscribeResponse: Decodable, Sendable {
     /// The selected event delivery path, absent on older hosts.
     public let eventTransport: String?
 
+    /// `"v1"` when the host put each terminal's render-grid output on its own
+    /// stream; absent on older hosts and whenever the host kept one lane.
+    public let surfaceEventLanes: String?
+
     private enum CodingKeys: String, CodingKey {
         case streamID = "stream_id"
         case alreadySubscribed = "already_subscribed"
         case eventTransport = "event_transport"
+        case surfaceEventLanes = "surface_event_lanes"
     }
 
     /// Decode a subscribe acknowledgement from raw JSON data.
@@ -48,5 +53,6 @@ public struct MobileEventSubscribeResponse: Decodable, Sendable {
         streamID = (try container.decodeIfPresent(String.self, forKey: .streamID)) ?? ""
         alreadySubscribed = try container.decodeIfPresent(Bool.self, forKey: .alreadySubscribed)
         eventTransport = try container.decodeIfPresent(String.self, forKey: .eventTransport)
+        surfaceEventLanes = try container.decodeIfPresent(String.self, forKey: .surfaceEventLanes)
     }
 }

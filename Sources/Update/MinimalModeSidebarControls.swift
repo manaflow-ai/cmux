@@ -45,7 +45,10 @@ enum TitlebarControlsHitRegions {
         let sidebarX = startX
         let notificationsX = sidebarX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
-        let focusBackX = newTabX + config.buttonSize + config.spacing
+        let newTabWidth = TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+        let newWorkspaceMenuX = newTabX + newTabWidth
+        let newWorkspaceMenuWidth = TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config)
+        let focusBackX = newWorkspaceMenuX + newWorkspaceMenuWidth + config.spacing
         let focusForwardX = focusBackX + config.buttonSize + config.spacing
 
         let minX: CGFloat = switch slot {
@@ -55,12 +58,21 @@ enum TitlebarControlsHitRegions {
             notificationsX
         case .newTab:
             newTabX
+        case .newWorkspaceMenu:
+            newWorkspaceMenuX
         case .focusHistoryBack:
             focusBackX
         case .focusHistoryForward:
             focusForwardX
         }
-        let width: CGFloat = config.buttonSize
+        let width: CGFloat = switch slot {
+        case .newTab:
+            newTabWidth
+        case .newWorkspaceMenu:
+            newWorkspaceMenuWidth
+        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+            config.buttonSize
+        }
         return minX...(minX + width)
     }
 
@@ -218,6 +230,12 @@ final class MinimalModeSidebarControlActionView: NSView {
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .newWorkspaceMenu:
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                anchorView: self,
+                event: event,
+                debugSource: "titlebar.minimalSidebar.newWorkspaceMenu.rightClick"
+            )
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:
