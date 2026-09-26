@@ -25,6 +25,10 @@ WORKFLOW_PATHS = [
 WORKFLOWS = [
     yaml.safe_load(path.read_text(encoding="utf-8")) for path in WORKFLOW_PATHS
 ]
+# test-e2e.yml runs its tests through this composite action, from its build
+# job or from its fallback test job.
+E2E_TEST_ACTION_PATH = ROOT / ".github/actions/e2e-run-tests/action.yml"
+ACTION_PATHS = sorted((ROOT / ".github/actions").glob("*/action.yml"))
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
 )
@@ -136,6 +140,50 @@ def require_job(job_name: str) -> dict:
     if len(matches) != 1:
         raise SystemExit(
             f"FAIL: workflow job {job_name!r} must exist in exactly one CI workflow"
+        )
+    return matches[0]
+
+
+def action_as_job(path: Path) -> dict:
+    """A composite action's steps as a job, with the env its steps publish.
+
+    An action has no job env; it exports through GITHUB_ENV, and those values
+    reach every later step, which is what a job env guarantees here.
+    """
+    action = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = ((action or {}).get("runs") or {}).get("steps") or []
+    environment: dict[str, str] = {}
+    for step in steps:
+        run = str(step.get("run", ""))
+        if "GITHUB_ENV" not in run:
+            continue
+        for match in re.finditer(
+            r'^\s*echo "(?P<key>[A-Z_][A-Z0-9_]*)=(?P<value>[^"$]*)"\s*$',
+            run,
+            re.MULTILINE,
+        ):
+            environment.setdefault(match.group("key"), match.group("value"))
+    return {"env": environment, "steps": steps}
+
+
+def every_job():
+    """Every workflow job, and every composite action as a job of its own."""
+    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            yield path.name, job_name, job
+    for path in ACTION_PATHS:
+        yield f"{path.parent.name}/action.yml", "steps", action_as_job(path)
+
+
+def require_action_step(path: Path, step_name: str) -> dict:
+    matches = [
+        step for step in action_as_job(path)["steps"]
+        if step.get("name") == step_name
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"FAIL: {path.relative_to(ROOT)} must contain exactly one "
+            f"{step_name!r} step"
         )
     return matches[0]
 
@@ -278,52 +326,59 @@ def check_every_app_host_home_is_identified_and_cleaned() -> None:
     shard that is not a decimal integer -- so every dispatch of that lane would
     have failed before running a test, with this file still green.
 
-    Check the pattern rather than the instance: find the callers.
+    Check the pattern rather than the instance: find the callers, composite
+    actions included, since test-e2e.yml's tests moved into one.
     """
-    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
-        for job_name, job in (workflow.get("jobs") or {}).items():
-            steps = job.get("steps") or []
-            prepares = [
-                step for step in steps
-                if "prepare-app-host-home.sh" in str(step.get("run", ""))
-            ]
-            if not prepares:
-                continue
-            where = f"{path.name} job {job_name}"
-            environment = job.get("env")
-            if not isinstance(environment, dict):
-                raise SystemExit(f"FAIL: {where} prepares an app-host home with no job env")
-            if environment.get("CMUX_CI_APP_HOST_ISOLATION_REQUIRED") != "1":
+    checked = set()
+    for file_name, job_name, job in every_job():
+        steps = job.get("steps") or []
+        prepares = [
+            step for step in steps
+            if "prepare-app-host-home.sh" in str(step.get("run", ""))
+        ]
+        if not prepares:
+            continue
+        checked.add(file_name)
+        where = f"{file_name} job {job_name}"
+        environment = job.get("env")
+        if not isinstance(environment, dict):
+            raise SystemExit(f"FAIL: {where} prepares an app-host home with no job env")
+        if environment.get("CMUX_CI_APP_HOST_ISOLATION_REQUIRED") != "1":
+            raise SystemExit(
+                f"FAIL: {where} must require app-host configuration isolation"
+            )
+        shard = environment.get("CMUX_APP_HOST_SHARD")
+        if not isinstance(shard, str) or not shard.strip():
+            raise SystemExit(
+                f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
+                "cmux_resolve_app_host_identity rejects an empty shard"
+            )
+        require_derived_data_under_runner_temp(where, job, steps)
+        cleanups = [
+            step for step in steps
+            if "cleanup-app-host-home.sh" in str(step.get("run", ""))
+        ]
+        if not cleanups:
+            raise SystemExit(
+                f"FAIL: {where} prepares an app-host home and never cleans it up"
+            )
+        for cleanup in cleanups:
+            gate = str(cleanup.get("if", ""))
+            if "always()" not in gate and "cancelled()" not in gate:
                 raise SystemExit(
-                    f"FAIL: {where} must require app-host configuration isolation"
+                    f"FAIL: {where} app-host cleanup must run after failures"
                 )
-            shard = environment.get("CMUX_APP_HOST_SHARD")
-            if not isinstance(shard, str) or not shard.strip():
-                raise SystemExit(
-                    f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
-                    "cmux_resolve_app_host_identity rejects an empty shard"
-                )
-            require_derived_data_under_runner_temp(where, job, steps)
-            cleanups = [
-                step for step in steps
-                if "cleanup-app-host-home.sh" in str(step.get("run", ""))
-            ]
-            if not cleanups:
-                raise SystemExit(
-                    f"FAIL: {where} prepares an app-host home and never cleans it up"
-                )
-            for cleanup in cleanups:
-                gate = str(cleanup.get("if", ""))
-                if "always()" not in gate and "cancelled()" not in gate:
-                    raise SystemExit(
-                        f"FAIL: {where} app-host cleanup must run after failures"
-                    )
+    e2e = f"{E2E_TEST_ACTION_PATH.parent.name}/action.yml"
+    if e2e not in checked:
+        raise SystemExit(
+            f"FAIL: {e2e} must prepare the app-host home test-e2e.yml's tests use"
+        )
 
 
 def check_e2e_test_derived_data_scope() -> None:
-    """Execute the E2E test job's preparation/cleanup path in a temp scope."""
-    preparation = require_step("test", "Prepare isolated DerivedData")
-    cleanup = require_step("test", "Clean owned DerivedData")
+    """Execute the E2E test steps' preparation/cleanup path in a temp scope."""
+    preparation = require_action_step(E2E_TEST_ACTION_PATH, "Prepare isolated DerivedData")
+    cleanup = require_action_step(E2E_TEST_ACTION_PATH, "Clean owned DerivedData")
     preparation_run = preparation.get("run")
     cleanup_run = cleanup.get("run")
     if not isinstance(preparation_run, str) or not isinstance(cleanup_run, str):
@@ -463,28 +518,27 @@ def check_every_test_executing_lane_pins_its_home() -> None:
     nothing for Swift code.
     """
     required = ("TEST_RUNNER_HOME", "TEST_RUNNER_CFFIXED_USER_HOME")
-    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
-        for job_name, job in (workflow.get("jobs") or {}).items():
-            for step in job.get("steps") or []:
-                run = str(step.get("run", ""))
-                if "xcodebuild test" not in run:
-                    continue
-                # Enumeration lists test identifiers without running them, so
-                # it reads no configuration and needs no home of its own.
-                if "-enumerate-tests" in run:
-                    continue
-                if "run-app-host-xcodebuild.sh" in run:
-                    continue
-                where = (
-                    f"{path.name} job {job_name} step {step.get('name')!r}"
+    for file_name, job_name, job in every_job():
+        for step in job.get("steps") or []:
+            run = str(step.get("run", ""))
+            if "xcodebuild test" not in run:
+                continue
+            # Enumeration lists test identifiers without running them, so
+            # it reads no configuration and needs no home of its own.
+            if "-enumerate-tests" in run:
+                continue
+            if "run-app-host-xcodebuild.sh" in run:
+                continue
+            where = (
+                f"{file_name} job {job_name} step {step.get('name')!r}"
+            )
+            missing = [key for key in required if key not in run]
+            if missing:
+                raise SystemExit(
+                    f"FAIL: {where} runs XCTest without {', '.join(missing)}; "
+                    "xcodebuild forwards only TEST_RUNNER_-prefixed variables "
+                    "into the test process"
                 )
-                missing = [key for key in required if key not in run]
-                if missing:
-                    raise SystemExit(
-                        f"FAIL: {where} runs XCTest without {', '.join(missing)}; "
-                        "xcodebuild forwards only TEST_RUNNER_-prefixed variables "
-                        "into the test process"
-                    )
 
 
 def main() -> int:

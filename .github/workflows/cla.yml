@@ -31,7 +31,10 @@ jobs:
           contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
         )
       )
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A fork pull request, or a comment on one, runs this job with a write
+    # token. Neither event says whether the head is a fork, so no runner
+    # variable may pick the machine: LINUX_RUNNER can name owned hosts.
+    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests
     timeout-minutes: 10
     # One run at a time per pull request so two signature events cannot write
     # the ledger from different snapshots. Independent pull requests proceed.
