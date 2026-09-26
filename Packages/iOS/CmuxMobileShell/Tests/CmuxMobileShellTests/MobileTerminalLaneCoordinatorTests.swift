@@ -127,36 +127,39 @@ struct MobileTerminalLaneCoordinatorTests {
 
     @Test
     func outputLaneDoesNotFallBackToInputOnlyProvider() async throws {
-        let outputProvider = TerminalLaneTestProvider(lanes: [])
-        let inputProvider = TerminalLaneTestProvider(lanes: [
-            TerminalLaneTestConnection(
-                frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
-                waitsAfterFrames: true
-            ),
-        ])
-        let coordinator = MobileTerminalLaneCoordinator(
-            provider: { request, surfaceID, cursor in
-                try await outputProvider.callAsFunction(request, surfaceID, cursor: cursor)
-            },
-            inputOnlyProvider: { request, surfaceID, cursor in
-                try await inputProvider.callAsFunction(request, surfaceID, cursor: cursor)
-            }
-        )
+        try await confirmation("output lanes never invoke the input-only provider", expectedCount: 0) { confirm in
+            let outputProvider = TerminalLaneTestProvider(lanes: [])
+            let inputProvider = TerminalLaneTestProvider(lanes: [
+                TerminalLaneTestConnection(
+                    frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+                    waitsAfterFrames: true
+                ),
+            ])
+            let coordinator = MobileTerminalLaneCoordinator(
+                provider: { request, surfaceID, cursor in
+                    try await outputProvider.callAsFunction(request, surfaceID, cursor: cursor)
+                },
+                inputOnlyProvider: { request, surfaceID, cursor in
+                    confirm()
+                    return try await inputProvider.callAsFunction(request, surfaceID, cursor: cursor)
+                }
+            )
 
-        await coordinator.ensure(Self.configuration(
-            providerRequest: try Self.request(),
-            cursor: { nil },
-            consume: { _ in .accepted(outputReady: true) },
-            readinessChanged: { _ in }
-        ))
-        // The output provider is the causal completion signal. Its empty lane
-        // list makes the request fail after recording the attempted selection.
-        await outputProvider.waitUntilRequested()
+            await coordinator.ensure(Self.configuration(
+                providerRequest: try Self.request(),
+                cursor: { nil },
+                consume: { _ in .accepted(outputReady: true) },
+                readinessChanged: { _ in }
+            ))
+            // The output provider is the causal completion signal. Its empty lane
+            // list makes the request fail after recording the attempted selection.
+            await outputProvider.waitUntilRequested()
 
-        #expect(await outputProvider.requestCount() > 0)
-        #expect(await inputProvider.requestCount() == 0)
-        await coordinator.deactivateAll()
-        #expect(await coordinator.isOutputReady(surfaceID: Self.surfaceID) == false)
+            #expect(await outputProvider.requestCount() > 0)
+            #expect(await inputProvider.requestCount() == 0)
+            await coordinator.deactivateAll()
+            #expect(await coordinator.isOutputReady(surfaceID: Self.surfaceID) == false)
+        }
     }
 
     @Test

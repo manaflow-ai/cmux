@@ -2745,7 +2745,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId, observedHookPID: "2")
         startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
@@ -2780,6 +2780,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"current-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
+        XCTAssertTrue(waitForMockSocketCommand(in: context.state) { AgentJournalAppendCapture.captures(in: [$0]).contains { $0.kind == "agent.turn.completed" && $0.isSubagent && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn" } }, "The late terminal monitor event must be observed before the current Stop")
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
             context: context,
@@ -9433,13 +9434,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
-    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
-        agentLaunchEnvironment(
-            context: context,
-            kind: "codex",
-            executable: "/usr/local/bin/codex",
-            arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
-        )
+    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String, observedHookPID: String? = nil) -> [String: String] {
+        var environment = agentLaunchEnvironment(context: context, kind: "codex", executable: "/usr/local/bin/codex", arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"])
+        if let observedHookPID {
+            environment["CMUX_CODEX_HOOK_PID"] = observedHookPID
+        }
+        return environment
     }
 
     private func agentLaunchEnvironment(

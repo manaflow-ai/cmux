@@ -887,7 +887,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
         }
-
+        // Await the callback instead of blocking a global-pool waiter.
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()

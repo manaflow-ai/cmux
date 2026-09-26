@@ -25,6 +25,8 @@ public enum AgentJournalEventKind: String, Codable, Sendable, CaseIterable, Equa
     /// The agent presented a plan for review and is waiting for approval.
     case planReviewRequested = "agent.plan_review.requested"
     /// The agent reported an error (stop failure, tool failure, on_error).
+    /// With pendingWork, the lifecycle remains running while the error is
+    /// surfaced as an attention signal.
     case errorReported = "agent.error.reported"
     /// Catch-all for native events with no stronger semantic mapping. Only
     /// reduces to a lifecycle phase when the event declares one explicitly.

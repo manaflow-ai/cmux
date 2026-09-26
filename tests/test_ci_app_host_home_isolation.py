@@ -228,6 +228,22 @@ def bun_setup_gate_ok(condition: object) -> bool:
     return depth == 0
 
 
+def node_setup_gate_ok(condition: object) -> bool:
+    """Whether node setup covers every notification gate shard."""
+    if not isinstance(condition, str):
+        return False
+    expression = condition.replace(" ", "")
+    prefix = "${{!cancelled()&&("
+    if not (expression.startswith(prefix) and expression.endswith(")}}")):
+        return False
+    required_terms = (
+        "matrix.shard==fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD)",
+        "matrix.shard==fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD)",
+        "contains(inputs.unit_strict_steps,'|Runagentnotificationsemantics|')",
+    )
+    return all(term in expression for term in required_terms)
+
+
 def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     """Return why a step condition is not gated on preparation, or ""."""
     if not isinstance(condition, str):
@@ -688,6 +704,14 @@ def main() -> int:
     ):
         if bun_setup_gate_ok(rejected):
             raise SystemExit(f"FAIL: Bun setup gate guard must reject {rejected}")
+
+    node_condition = require_step(
+        "app-host-unit-tests", "Ensure node for app-host wrapper regressions"
+    ).get("if")
+    if not node_setup_gate_ok(node_condition):
+        raise SystemExit(
+            "FAIL: node setup must cover CLI, focused, and notification strict shards"
+        )
 
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.

@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import Foundation
 import SwiftUI
 import CmuxCloudMachines
 import CmuxSurfaceCatalogModel
@@ -570,7 +571,6 @@ struct CloudTreeMachineMenuTests {
         )
     }
 }
-
 /// Verbs the menu items fired, so the test proves each surviving item is
 /// wired to its closure and not merely titled.
 @MainActor

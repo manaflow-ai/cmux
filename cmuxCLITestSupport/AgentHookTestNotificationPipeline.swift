@@ -1,4 +1,5 @@
 import CmuxAgentJournal
+import CmuxAgentHooks
 import CmuxSettings
 import Foundation
 import Testing
