@@ -198,6 +198,46 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func exclusionReloadReconcilesSelectionsForExcludedFilesAndParents() async throws {
+        let rootPath = "/tmp/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let excludedFilePath = "\(sourcePath)/Generated.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "\(rootPath)/README.md", isDirectory: false),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Generated.swift", path: excludedFilePath, isDirectory: false),
+            FileExplorerEntry(name: "Keep.swift", path: "\(sourcePath)/Keep.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("source children loaded") { sourceNode.children?.count == 2 }
+        let generatedNode = try #require(sourceNode.children?.first { $0.path == excludedFilePath })
+        store.select(node: generatedNode)
+
+        store.setExcludePatterns(["Sources/Generated.swift"])
+        try await waitFor("excluded file selection reconciled") {
+            sourceNode.children?.map(\.path) == ["\(sourcePath)/Keep.swift"] &&
+                store.selectedPath == sourcePath && store.selectedPaths == [sourcePath]
+        }
+
+        store.setExcludePatterns(["Sources"])
+        try await waitFor("excluded parent selection reconciled") {
+            store.rootNodes.map(\.path) == ["\(rootPath)/README.md"] &&
+                store.selectedPath == "\(rootPath)/README.md" &&
+                store.selectedPaths == ["\(rootPath)/README.md"]
+        }
+    }
+
+    @Test
     func testLoadRootPopulatesNodes() async throws {
         let provider = MockFileExplorerProvider()
         provider.listings["/home/user/project"] = .success([
