@@ -719,14 +719,16 @@ extension MobileHostAuthorizationTests {
         #expect(await session.sendEvent(topic: "terminal.updated", payload: ["seq": 1]))
         _ = await eventBlocked.next()
         // A second stream starts lane negotiation, whose probe parks behind
-        // the blocked send.
+        // the blocked send. Its topic is unique because the subscription
+        // tracker is process-wide.
+        let negotiatedTopic = "test.lane-negotiation.\(UUID().uuidString)"
         let negotiation = Task {
             await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
                 id: "subscribe-2",
                 method: "mobile.events.subscribe",
                 params: [
                     "stream_id": "events-2",
-                    "topics": ["terminal.bytes"],
+                    "topics": [negotiatedTopic],
                     "event_transport": "iroh_server_events_v1",
                 ],
                 auth: nil
@@ -754,6 +756,9 @@ extension MobileHostAuthorizationTests {
         #expect(await control.observedCloseCount() == 1)
         await independent.releaseBlockedProbe(result: false)
         _ = await negotiation.value
+        // Close already released this connection's subscriptions, so the
+        // negotiation that resumes after it must not register a new one.
+        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: negotiatedTopic))
         await session.close(reason: "test complete")
     }
 
