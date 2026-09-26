@@ -456,6 +456,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
             ),
             .init(section: .browser, id: "terminal-links", title: String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), synonyms: "Open Terminal Links in cmux Browser browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
+            .init(
+                section: .browser,
+                id: "terminal-link-split-direction",
+                title: String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction", bundle: .module),
+                detailText: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal.", bundle: .module),
+                paths: ["browser.terminalLinkSplitDirection"],
+                synonyms: "browser.terminalLinkSplitDirection terminal links browser split right down below direction pane"
+            ),
             .init(section: .browser, id: "intercept-open", title: String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), synonyms: "Intercept open http(s) in Terminal browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), synonyms: "Hosts to Open in Embedded Browser browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
             .init(section: .browser, id: "external-patterns", title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"), synonyms: "URLs to Always Open Externally browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),

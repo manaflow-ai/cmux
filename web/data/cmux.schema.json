@@ -1560,6 +1560,13 @@
           "default": true,
           "description": "Open clicked terminal links in the embedded browser."
         },
+        "terminalLinkSplitDirection": {
+          "type": "string",
+          "enum": ["right", "down"],
+          "default": "right",
+          "descriptionKey": "schemaDescriptions.browser.terminalLinkSplitDirection",
+          "description": "Split direction for terminal links opened in the embedded browser: right or down."
+        },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
           "default": true,

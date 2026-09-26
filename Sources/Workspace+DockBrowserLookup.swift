@@ -259,7 +259,7 @@ extension DockSplitStore {
         return appLinkPlacementPolicy.openNavigation(
             navigation,
             openInPreferredPane: { request, websiteDataStore in
-                guard let targetPane = BrowserRightSidePaneResolver()
+                guard let targetPane = BrowserSplitPaneResolver()
                     .preferredPane(
                         from: sourcePane,
                         in: self.bonsplitController
@@ -331,7 +331,7 @@ extension DockSplitStore {
             destinationURL,
             openInPreferredPane: { url, websiteDataStore in
                 guard let sourcePane,
-                      let targetPane = BrowserRightSidePaneResolver()
+                      let targetPane = BrowserSplitPaneResolver()
                     .preferredPane(
                         from: sourcePane,
                         in: self.bonsplitController

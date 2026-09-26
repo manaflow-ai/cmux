@@ -28,6 +28,7 @@ public struct BrowserSection: View {
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
+    @State private var terminalLinkSplitDirection: DefaultsValueModel<BrowserTerminalLinkSplitDirection>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
     @State private var external: DefaultsValueModel<String>
@@ -79,6 +80,7 @@ public struct BrowserSection: View {
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
+        _terminalLinkSplitDirection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.terminalLinkSplitDirection))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
@@ -107,7 +109,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, terminalLinkSplitDirection, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -314,6 +316,24 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Terminal Link Split Direction
+            SettingsCardRow(
+                configurationReview: .json("browser.terminalLinkSplitDirection"),
+                String(localized: "settings.browser.terminalLinkSplitDirection", defaultValue: "Terminal Link Split Direction", bundle: .module),
+                subtitle: String(localized: "settings.browser.terminalLinkSplitDirection.subtitle", defaultValue: "Choose whether terminal links open the embedded browser to the right or below the terminal.", bundle: .module),
+                controlWidth: Self.columnWidth
+            ) {
+                Picker("", selection: Binding(get: { terminalLinkSplitDirection.current }, set: { terminalLinkSplitDirection.set($0) })) {
+                    ForEach(BrowserTerminalLinkSplitDirection.allCases, id: \.self) { direction in
+                        Text(terminalLinkSplitDirectionLabel(direction)).tag(direction)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsBrowserTerminalLinkSplitDirectionPicker")
             }
             SettingsCardDivider()
 
@@ -791,6 +811,15 @@ public struct BrowserSection: View {
         case .baidu: return String(localized: "settings.browser.searchEngine.baidu", defaultValue: "Baidu")
         case .yandex: return String(localized: "settings.browser.searchEngine.yandex", defaultValue: "Yandex")
         case .custom: return String(localized: "settings.browser.searchEngine.custom", defaultValue: "Custom")
+        }
+    }
+
+    private func terminalLinkSplitDirectionLabel(_ direction: BrowserTerminalLinkSplitDirection) -> String {
+        switch direction {
+        case .right:
+            return String(localized: "settings.browser.terminalLinkSplitDirection.right", defaultValue: "Right", bundle: .module)
+        case .down:
+            return String(localized: "settings.browser.terminalLinkSplitDirection.down", defaultValue: "Down", bundle: .module)
         }
     }
 

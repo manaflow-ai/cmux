@@ -1,8 +1,21 @@
 import CmuxCloud
 import CmuxCore
 import CmuxPanes
+import CmuxSettings
 import CmuxSurfaceCatalogModel
+import Bonsplit
 import Foundation
+
+extension BrowserTerminalLinkSplitDirection {
+    var splitOrientation: SplitOrientation {
+        switch self {
+        case .right:
+            .horizontal
+        case .down:
+            .vertical
+        }
+    }
+}
 
 extension Workspace: TerminalLinkOpenContainer {
     var terminalLinkContainerDebugName: String {
@@ -74,13 +87,31 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
+        openTerminalBrowserLink(
+            url: url,
+            sourcePanelId: sourcePanelId,
+            focus: focus,
+            splitDirection: .right
+        )
+    }
+
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        focus: Bool,
+        splitDirection: BrowserTerminalLinkSplitDirection
+    ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
+        let orientation = splitDirection.splitOrientation
+        if let targetPane = preferredTargetPane(
+            fromPanelId: target.containerPanelID,
+            orientation: orientation
+        ) {
             return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
         }
         return newBrowserSplit(
             from: target.containerPanelID,
-            orientation: .horizontal,
+            orientation: orientation,
             url: url,
             focus: focus
         ) != nil

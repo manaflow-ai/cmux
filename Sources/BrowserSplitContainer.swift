@@ -128,12 +128,12 @@ enum BrowserSplitContainer {
     private func preferredRightSidePane(from sourcePane: PaneID) -> PaneID? {
         switch self {
         case .workspace(let workspace):
-            return BrowserRightSidePaneResolver().preferredPane(
+            return BrowserSplitPaneResolver().preferredPane(
                 from: sourcePane,
                 in: workspace.bonsplitController
             )
         case .dock(let dock):
-            return BrowserRightSidePaneResolver().preferredPane(
+            return BrowserSplitPaneResolver().preferredPane(
                 from: sourcePane,
                 in: dock.bonsplitController
             )

@@ -885,6 +885,12 @@ final class CmuxSettingsFileStore {
         }
         applyBooleanSettings(BrowserSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(BrowserSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let raw = jsonString(section["terminalLinkSplitDirection"]),
+           let direction = BrowserTerminalLinkSplitDirection(rawValue: raw) {
+            snapshot.managedUserDefaults[BrowserCatalogSection().terminalLinkSplitDirection.userDefaultsKey] = .string(direction.rawValue)
+        } else if section.keys.contains("terminalLinkSplitDirection") {
+            logInvalid("browser.terminalLinkSplitDirection", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["theme"]) {
             guard let mode = BrowserThemeMode(rawValue: raw) else {
                 logInvalid("browser.theme", sourcePath: sourcePath)

@@ -103,6 +103,13 @@ struct SettingCatalogTests {
         #expect(ids.contains("browser.defaultZoomLevel"))
     }
 
+    @Test func terminalLinkSplitDirectionDefaultsRightAndRoundTrips() {
+        let key = SettingCatalog().browser.terminalLinkSplitDirection
+        #expect(key.defaultValue == .right)
+        #expect(BrowserTerminalLinkSplitDirection.decodeFromJSON("down") == .down)
+        #expect(BrowserTerminalLinkSplitDirection.down.encodeForJSON() as? String == "down")
+    }
+
     @Test func equalizeSplitsOnCreateDefaultsOff() {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
     }

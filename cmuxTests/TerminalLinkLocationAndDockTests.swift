@@ -135,6 +135,63 @@ struct TerminalLinkLocationAndDockTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Terminal link split direction controls Dock browser placement")
+    @MainActor
+    func configuredTerminalLinkSplitDirectionOpensBrowserBelowTerminal() throws {
+        let defaults = makeDefaults()
+        defaults.set("down", forKey: "browserTerminalLinkSplitDirection")
+        let workspaceId = UUID()
+        let baseDirectory = FileManager.default.temporaryDirectory.path
+        let store = DockSplitStore(
+            workspaceId: workspaceId,
+            baseDirectoryProvider: { baseDirectory },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let generation = store.markConfigurationLoadInFlightForTesting(
+            rootDirectory: baseDirectory
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(DockConfigResolution(
+                controls: [DockControlDefinition(
+                    id: "terminal-link-direction",
+                    title: "Link control",
+                    command: "cat"
+                )],
+                sourceURL: nil,
+                baseDirectory: baseDirectory,
+                isProjectSource: false
+            )),
+            generation: generation,
+            replacingPanels: false
+        )
+
+        let terminalPanel = try #require(
+            store.panels.values.compactMap { $0 as? TerminalPanel }.first
+        )
+        let callbackSurfaceId = try #require(store.surfaceId(forPanelId: terminalPanel.id)).uuid
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            externalOpen: { _ in true },
+            deferOperation: { operation in operation() }
+        )
+        let url = try #require(URL(string: "http://localhost:5173/"))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: workspaceId,
+            sourcePanelId: callbackSurfaceId,
+            workingDirectory: baseDirectory
+        )))
+
+        guard case let .split(split) = store.bonsplitController.treeSnapshot() else {
+            Issue.record("Expected terminal link to create a browser split")
+            return
+        }
+        #expect(split.orientation == "vertical")
+    }
+
     @Test("path:line Cmd-click forwards the location to the preferred editor")
     @MainActor
     func pathLocationUsesPreferredEditor() async throws {

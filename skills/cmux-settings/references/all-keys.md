@@ -174,6 +174,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
 | `browser.defaultZoomLevel` | number | `1` | Default page zoom factor for newly opened browser pages (0.25–5; 1 = 100%). |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` | Open clicked terminal links in the embedded browser. |
+| `browser.terminalLinkSplitDirection` | `"right"` or `"down"` | `"right"` | Split direction for terminal links opened in the embedded browser: right or down. |
 | `browser.interceptTerminalOpenCommandInCmuxBrowser` | boolean | `true` | Intercept terminal open http(s) commands and route them through the embedded browser. |
 | `browser.hostsToOpenInEmbeddedBrowser` | array<string> | `[]` | Allowlist of hosts that should stay inside the embedded browser. |
 | `browser.urlsToAlwaysOpenExternally` | array<string> | `[]` | Rules that always open matching URLs in the system browser. |
