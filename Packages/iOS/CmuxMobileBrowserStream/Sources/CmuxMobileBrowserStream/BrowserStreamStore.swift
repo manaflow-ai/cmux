@@ -404,7 +404,10 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         // `state.latestFrame` via observation instead.
         frameTasksByPanel[panelID] = Task { @MainActor [weak self] in
             for await frame in decoder.frames {
-                guard let self else { return }
+                // Cancelling this task cannot retract a frame already handed to
+                // `next()`, so a retired decoder must not publish into a panel
+                // that was rediscovered under the same ID.
+                guard let self, self.decodersByPanel[panelID] === decoder else { return }
                 self.didDisplay(frame, for: panelID)
             }
         }

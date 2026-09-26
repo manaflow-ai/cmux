@@ -7,7 +7,6 @@ import UIKit
 struct BrowserStreamContentViewDisplayLinkTests {
     @Test func displayLinkRunsOnlyWhileAttachedToAWindow() {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.makeKeyAndVisible()
         defer { window.isHidden = true }
         let view = BrowserStreamContentView(frame: window.bounds)
         #expect(view.displayLink == nil)
@@ -27,7 +26,6 @@ struct BrowserStreamContentViewDisplayLinkTests {
 
     @Test func detachedViewDeallocates() {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        window.makeKeyAndVisible()
         defer { window.isHidden = true }
         weak var weakView: BrowserStreamContentView?
         autoreleasepool {
