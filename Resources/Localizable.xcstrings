@@ -371065,7 +371065,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Commande ou Option avec une touche fléchée permet de se déplacer par ligne ou par mot. Commande ou Option avec Supprimer efface par ligne ou par mot. Les apps de terminal en plein écran reçoivent ces combinaisons comme commandes d’édition."
+            "value": "Commande ou Option avec une touche fléchée permet de se déplacer par ligne ou par mot. Commande ou Option avec Supprimer efface par ligne ou par mot. Les apps de terminal en plein écran reçoivent ces combinaisons comme des touches d’édition."
           }
         },
         "ar": {
