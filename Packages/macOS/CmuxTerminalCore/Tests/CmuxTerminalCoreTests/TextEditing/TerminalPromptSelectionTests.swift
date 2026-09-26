@@ -102,6 +102,17 @@ struct TerminalPromptSelectionTests {
         #expect(action == .consume)
     }
 
+    /// A collapse point the input has since shrunk past is dropped.
+    @Test func collapsePointOutsideTheInputIsIgnored() {
+        let collapsed = TerminalPromptSelection(anchor: 7, head: 7)
+        let action = terminalPromptSelectionResolve(
+            intent: .extend(.backward, .character),
+            snapshot: snapshot(length: 5, caret: 5),
+            tracked: collapsed
+        )
+        #expect(action == .select(TerminalPromptSelection(anchor: 5, head: 4)))
+    }
+
     @Test func extendingPastTheInputEdgeIsConsumedWithoutChange() {
         let atStart = terminalPromptSelectionResolve(
             intent: .extend(.backward, .character),

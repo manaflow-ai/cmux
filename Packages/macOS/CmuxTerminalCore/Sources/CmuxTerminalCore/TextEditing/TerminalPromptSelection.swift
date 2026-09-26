@@ -218,6 +218,7 @@ public func terminalPromptSelectionResolve(
             selection: selection,
             tracked: tracked,
             caret: caret,
+            length: length,
             direction: direction
         )
         let head: Int
@@ -258,10 +259,12 @@ private func terminalPromptSelectionCurrent(
     selection: Range<Int>?,
     tracked: TerminalPromptSelection?,
     caret: Int,
+    length: Int,
     direction: TerminalPromptSelectionDirection
 ) -> TerminalPromptSelection {
     guard let selection else {
-        if let tracked, tracked.range.isEmpty { return tracked }
+        // Trust a collapse point only while it still lies inside the input.
+        if let tracked, tracked.range.isEmpty, tracked.head <= length { return tracked }
         return TerminalPromptSelection(anchor: caret, head: caret)
     }
     if let tracked, tracked.range == selection { return tracked }
@@ -292,7 +295,9 @@ private func terminalPromptSelectionCurrent(
 ///   - keyCode: The virtual key code.
 ///   - modifiers: The event modifiers, already mapped off AppKit.
 ///   - producesText: Whether the event inserts printable text (not a control
-///     character, not Return or Tab, not marked text).
+///     character, not Return or Tab, not marked text). Must be `false` when
+///     Option is acting as Alt (`macos-option-as-alt`), since the shell then
+///     receives a Meta chord rather than text.
 /// - Returns: The intent, or `nil` when the event is not one this layer owns.
 public func terminalPromptSelectionIntent(
     keyCode: UInt16,
