@@ -3,9 +3,8 @@ public import Foundation
 /// Emits Mac mirror dimensions only when the source terminal's actual grid changes.
 /// Global Ghostty ticks can replace named render notifications, so they sample
 /// the cached live surface IDs without sending a replay or render-grid frame.
-@MainActor
-public struct DeviceTerminalGridPublisher {
-    public nonisolated static let eventTopic = "device.terminal.grid"
+public struct DeviceTerminalGridPublisher: Sendable {
+    public static let eventTopic = "device.terminal.grid"
 
     public struct Grid: Equatable, Sendable {
         public let columns: Int

@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import CmuxMobileHost
 
-@MainActor
 @Suite("Device terminal grid publisher")
 struct DeviceTerminalGridPublisherTests {
     @Test("Publishes only changed grids and resets on a new subscriber")
