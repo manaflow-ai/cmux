@@ -1106,6 +1106,8 @@ func recordMinimalModeSidebarChromeHoverForUITest(
 /// Main-thread only, no lock needed.
 private var _windowDragHandleResolvingSiblingHitScopes = Set<ObjectIdentifier>()
 
+private let windowDragHandleHorizontalResizeEdgeInset: CGFloat = 8
+
 private func windowDragHandleSiblingHitResolutionScope(
     window: NSWindow?,
     superview: NSView
@@ -1197,6 +1199,29 @@ func windowDragHandleShouldCaptureHit(
         cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
         #endif
         return false
+    }
+
+    // A full-size-content titlebar can reach the window's horizontal edges when
+    // the right sidebar is hidden. Yield there so AppKit's native edge-resize
+    // hit path receives the mouse-down instead of starting a window drag (the
+    // main window is intentionally immovable outside explicit drag zones).
+    if let dragHandleWindow,
+       dragHandleWindow.styleMask.contains(.resizable),
+       let contentView = dragHandleWindow.contentView {
+        let pointInContent = dragHandleView.convert(point, to: contentView)
+        let edgeInset = min(
+            windowDragHandleHorizontalResizeEdgeInset,
+            contentView.bounds.width / 2
+        )
+        if pointInContent.x <= contentView.bounds.minX + edgeInset
+            || pointInContent.x >= contentView.bounds.maxX - edgeInset {
+            #if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.hitTest capture=false reason=windowResizeEdge point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+            return false
+        }
     }
 
     if let dragHandleWindow {
