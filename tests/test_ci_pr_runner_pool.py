@@ -298,7 +298,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\nshard_runner=\n"
                                               f"refused_retry_runner=\nroot_runner=\nside_runner=\ngui_runner=\n"
                                               "admission_runner=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
@@ -397,12 +397,12 @@ class JanitorSnapshot(unittest.TestCase):
                 2: [self.job(mini, "in_progress"), self.job(mini, "queued")],
                 3: []}
         # Run 1 declared 9 at its peak; run 2 has no marker; run 3 finished.
-        markers = {1: (mini, 9), 3: (mini, 11)}
+        markers = {1: (mini, 9, 9), 3: (mini, 11, 11)}
         snap = janitor.pool_load_snapshot(runs, jobs, now=NOW, markers=markers)
         self.assertEqual(snap["pools"][mini]["committed"], 9 + 2)
         self.assertEqual((snap["pools"][mini]["running"], snap["pools"][mini]["queued"]), (2, 1))
         # A marked run with no job created yet still reserves its peak.
-        snap = janitor.pool_load_snapshot([runs[0]], {1: []}, now=NOW, markers={1: (mini, 4)})
+        snap = janitor.pool_load_snapshot([runs[0]], {1: []}, now=NOW, markers={1: (mini, 4, 4)})
         self.assertEqual(snap["pools"][mini], {"queued": 0, "running": 0, "reserved_queued": 0,
                                                "oldest_queued_minutes": 0, "committed": 4})
         self.assertEqual(owned_choice(snap, machines=6, order=f"{mini},{LARGE}").runner, LARGE)
@@ -410,26 +410,42 @@ class JanitorSnapshot(unittest.TestCase):
         # Shards exist only after admission: one finished owned job of a peak
         # of 4 still reserves the peak.
         early = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
-        snap = janitor.pool_load_snapshot([runs[0]], {1: early}, now=NOW, markers={1: (mini, 4)})
+        snap = janitor.pool_load_snapshot([runs[0]], {1: early}, now=NOW, markers={1: (mini, 4, 4)})
         self.assertEqual(snap["pools"][mini]["committed"], 4)
         # Its owned jobs done, a run still busy on Blacksmith frees its minis.
         done = [*(self.job(mini, "completed") for _ in range(4)), self.job(LARGE, "in_progress")]
-        snap = janitor.pool_load_snapshot([runs[0]], {1: done}, now=NOW, markers={1: (mini, 4)})
+        snap = janitor.pool_load_snapshot([runs[0]], {1: done}, now=NOW, markers={1: (mini, 4, 4)})
         self.assertEqual(snap["pools"].get(mini, {}).get("committed", 0), 0)
         # One owned job still running keeps the whole peak reserved.
         snap = janitor.pool_load_snapshot([runs[0]], {1: [*done, self.job(mini, "queued")]}, now=NOW,
-                                          markers={1: (mini, 4)})
+                                          markers={1: (mini, 4, 4)})
         self.assertEqual(snap["pools"][mini]["committed"], 4)
+
+    def test_owned_pool_marker_holds_until_every_placed_job_finished(self):
+        # Admission and one shard placed on one machine (jobs=1, placed=2):
+        # admission finishing before its shard exists does not release it.
+        mini = "glaeda-std-xcode-26.6"
+        run = {"id": 1, "status": "in_progress", "path": ".github/workflows/ci.yml"}
+        marker = janitor.owned_marker({"id": 1, "run_attempt": 1}, [f"macos-pool-persistent-1-1-1p2-{mini}"])
+        admitted = [self.job(mini, "completed"), self.job(LARGE, "in_progress")]
+        snap = janitor.pool_load_snapshot([run], {1: admitted}, now=NOW, markers={1: marker})
+        self.assertEqual(snap["pools"][mini]["committed"], 1)
+        done = [self.job(mini, "completed"), self.job(mini, "completed"), self.job(LARGE, "in_progress")]
+        snap = janitor.pool_load_snapshot([run], {1: done}, now=NOW, markers={1: marker})
+        self.assertEqual(snap["pools"].get(mini, {}).get("committed", 0), 0)
 
     def test_owned_marker_names_this_attempts_pool_and_peak(self):
         run = {"id": 42, "run_attempt": 1}
         name = "macos-pool-persistent-42-1-5-glaeda-std-xcode-26.6"
-        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5))
+        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5, 5))
         self.assertIsNone(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
         self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-99-glaeda-std-xcode-26.6"]),
-                         ("glaeda-std-xcode-26.6", pool.MAX_RUN_JOBS))
+                         ("glaeda-std-xcode-26.6", pool.MAX_RUN_JOBS, pool.MAX_RUN_JOBS))
+        # ci.yml's marker also names the owned jobs it placed, which may exceed its peak.
+        self.assertEqual(janitor.owned_marker(run, ["macos-pool-persistent-42-1-1p2-glaeda-std-xcode-26.6"]),
+                         ("glaeda-std-xcode-26.6", 1, 2))
 
     def test_only_runs_that_may_hold_an_owned_pool_cost_a_listing(self):
         repo = {"id": 7}
@@ -1242,6 +1258,28 @@ class PerJobPlacement(unittest.TestCase):
         snap["pools"][MINI]["running"] = 11
         self.assertEqual(owned_choice(snap, owned_slots=both, split="1", jobs=4).runner, LIGHT)
 
+    def test_root_room_counts_only_for_a_run_with_root_jobs(self):
+        def counts(capacity, running):
+            return {"capacity": capacity, "running": running, "queued": 0}
+        load, added = {MINI: counts(5, 0)}, {MINI: 0}
+        # Root runners oversubscribed: a run with no root job still fits the pool.
+        roots = {MINI: counts(1, 2)}
+        self.assertEqual(pool.pick(load, added, [MINI], 0, jobs=3, roots=roots, root_jobs=0).how, "owned")
+        self.assertEqual(pool.pick(load, added, [MINI], 0, jobs=3, roots=roots, root_jobs=1).how, "fallback")
+        # Split with nothing fitting whole: the pool with a root runner free
+        # beats one with more machines and none.
+        load = {MINI: counts(5, 0), LIGHT: counts(1, 0)}
+        roots = {MINI: counts(1, 1), LIGHT: counts(1, 0)}
+        choice = pool.pick(load, {MINI: 0, LIGHT: 0}, [MINI, LIGHT], 0, jobs=6, split=True,
+                           roots=roots, root_jobs=1)
+        self.assertEqual((choice.label, choice.how), (LIGHT, "owned"))
+
+    def test_invalid_full_label_slots_are_not_replaced_by_the_class(self):
+        pin = "/Applications/Xcode_26.6.app"
+        raw = '{"std": 40, "%s": 0}' % MINI
+        self.assertEqual(pool.slots(raw, pin), {})
+        self.assertTrue(any("positive whole number" in problem for problem in pool.slot_problems(raw, pin)))
+
     def test_split_is_off_unless_1(self):
         for value in ("", "0", "true"):
             self.assertEqual(owned_choice(fleet(busy=9), split=value).runner, LARGE, value)
@@ -1797,6 +1835,8 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(outputs["owned_jobs"],
                          " admission shard-1 shard-2 shard-3 remote-daemon claude-wrapper ")
         self.assertEqual(outputs["jobs"], "5")
+        # Six owned jobs on five machines: the shards after admission reuse its machine.
+        self.assertEqual(outputs["placed"], "6")
 
     def test_the_janitor_counts_root_jobs_toward_both_labels(self):
         def job(label, status):
@@ -1805,7 +1845,7 @@ class RootRunners(unittest.TestCase):
         jobs = {1: [job(ROOT_MINI, "in_progress"), job(ROOT_MINI, "queued"), job(MINI, "in_progress"),
                     job(MINI, "completed")]}
         # The marker reserves 7 machines: 2 side lanes on the pool label, so 5 root runners.
-        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7)})
+        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7, 7)})
         self.assertEqual({key: snap["pools"][ROOT_MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 1, "committed": 5})
         self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
@@ -1813,13 +1853,13 @@ class RootRunners(unittest.TestCase):
         # Side lanes on the side label (side_runner) leave the root share the same.
         jobs = {1: [job(ROOT_MINI, "in_progress"), job(ROOT_MINI, "queued"), job(SIDE_MINI, "in_progress"),
                     job(SIDE_MINI, "completed")]}
-        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7)})
+        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7, 7)})
         self.assertEqual(snap["pools"][ROOT_MINI]["committed"], 5)
         self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 2, "committed": 7})
         # An E2E marker names the root label: one root runner, one machine.
         e2e = {"id": 2, "name": "E2E", "path": ".github/workflows/test-e2e.yml", "status": "in_progress"}
-        snap = janitor.pool_load_snapshot([e2e], {2: []}, now=NOW, markers={2: (ROOT_MINI, 1)})
+        snap = janitor.pool_load_snapshot([e2e], {2: []}, now=NOW, markers={2: (ROOT_MINI, 1, 1)})
         self.assertEqual((snap["pools"][ROOT_MINI]["committed"], snap["pools"][MINI]["committed"]), (1, 1))
 
     def test_e2e_takes_the_root_label(self):
@@ -2174,7 +2214,8 @@ class Wiring(unittest.TestCase):
         self.assertEqual(mark["if"], "${{ steps.macos-pool.outputs.persistent == 'true' }}")
         upload = next(step for step in steps if step.get("name") == "Upload the persistent pool marker")
         self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
-                                                 "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+                                                 "-${{ steps.macos-pool.outputs.jobs }}p${{ steps.macos-pool.outputs.placed }}"
+                                                 "-${{ steps.macos-pool.outputs.runner }}")
 
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
@@ -2847,7 +2888,7 @@ class IOSRouting(unittest.TestCase):
         run = {"id": 7, "name": "iOS simulator tests", "path": ".github/workflows/test-ios.yml",
                "status": "in_progress"}
         building = {7: [job([MINI], "in_progress"), job([MINI, IOS_SIM], "in_progress")]}
-        snap = janitor.pool_load_snapshot([run], building, now=NOW, markers={7: (MINI, 2)},
+        snap = janitor.pool_load_snapshot([run], building, now=NOW, markers={7: (MINI, 2, 2)},
                                           capability_markers={7: (IOS_SIM, 2)})
         # The build carries the label; the marker reserves both simulators before they exist.
         self.assertEqual({key: snap["pools"][IOS_SIM][key] for key in ("running", "committed")},
@@ -2863,7 +2904,7 @@ class IOSRouting(unittest.TestCase):
                                                     f"macos-pool-persistent-7-1-2-{IOS_SIM}"]), (IOS_SIM, 2))
         self.assertEqual(janitor.owned_marker({"id": 7, "run_attempt": 1},
                                               [f"macos-pool-persistent-7-1-2-{IOS_SIM}",
-                                               f"macos-pool-persistent-7-1-2-{MINI}"]), (MINI, 2))
+                                               f"macos-pool-persistent-7-1-2-{MINI}"]), (MINI, 2, 2))
 
     def test_e2e_still_needs_one_machine_and_its_root_label(self):
         self.assertEqual(e2e_pool.E2E_JOBS, 1)

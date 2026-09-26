@@ -42,10 +42,18 @@ class OwnedCatchUpTest(unittest.TestCase):
         self.assertEqual(result.returncode, 64)
 
     def test_a_failed_step_prints_the_result_line_and_keeps_nothing(self) -> None:
-        with tempfile.TemporaryDirectory() as state:
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as tools:
+            # A stub `defaults`, so the run never touches this Mac's Xcode defaults.
+            calls = Path(tools) / "calls"
+            stub = Path(tools) / "defaults"
+            stub.write_text(f'#!/bin/sh\necho "$*" >> "{calls}"\n')
+            stub.chmod(0o755)
             result = run("99", state, env={"CMUX_CI_XCODE_APP": "/nonexistent/Xcode.app",
-                                           "CMUX_CATCH_UP_LOG": os.path.join(state, "log")})
+                                           "CMUX_CATCH_UP_LOG": os.path.join(state, "log"),
+                                           "PATH": f"{tools}:{os.environ['PATH']}"})
             self.assertEqual(result.returncode, 1)
+            # An override a killed run left behind is cleared before anything else.
+            self.assertIn("delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges", calls.read_text())
             line = json.loads(result.stdout.strip().splitlines()[-1])
             self.assertEqual((line["kept"], line["root"], line["phase"], line["reason"]),
                              ("false", 99, "setup", "select-ci-xcode"))

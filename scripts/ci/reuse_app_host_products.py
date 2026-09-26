@@ -281,12 +281,18 @@ def switch_root(root):
         print(f"Could not move this job to {root} (take exited {result.returncode}): "
               f"{result.stderr.strip()[-300:]}; compiling here.")
         return None
+    # The job is at `root` from here: its paths follow it first, and it is
+    # reported moved even when the directories cannot be emptied, so nothing
+    # cleans the root it released, which another job may hold by now.
     derived, cache = root / DERIVED_NAME, root / CAS_NAME
-    for path in (derived, cache):
-        shutil.rmtree(path, ignore_errors=True)
-        path.mkdir(parents=True)
     with open(os.environ["GITHUB_ENV"], "a") as env:
         env.write(f"CMUX_DERIVED_DATA_PATH={derived}\nCMUX_E2E_COMPILATION_CACHE={cache}\n")
+    for path in (derived, cache):
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            print(f"Could not empty {path} ({error}).")
     print(f"Moved this job to {root}, where the product was compiled.")
     return derived
 
@@ -1183,7 +1189,9 @@ def main():
             print("Compiled-product reuse unavailable; compiling normally.")
             report["reason"] = "fallback"
             report["miss_reasons"] = "reuse_api_or_validation_error"
-            for target in (derived, *switched):
+            # Only the root this job holds: after a switch, the one it left
+            # is another job's to use.
+            for target in (switched or [derived]):
                 shutil.rmtree(target, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"hit={'true' if hit else 'false'}\n")

@@ -86,6 +86,11 @@ try: print(json.loads(sys.argv[1]).get(sys.argv[2], ""))
 except ValueError: print("")' "$1" "$2"
 }
 last_json() { grep '^{' | tail -n 1; }
+# Adoption sets this per-user Xcode default for the compile that follows it;
+# no later build on this Mac may inherit it. Cleared on every exit and kill
+# glaeda sends, and here at the start for a run a SIGKILL cut short.
+forget_inode_override() { defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges >/dev/null 2>&1 || true; }
+forget_inode_override
 
 scripts/ci/clear-dirs.sh "$dd" "$CMUX_COMPILE_ADMISSION_CAS" >>"$log" 2>&1 || fail "clear"
 CMUX_CI_XCODE_APP="$CMUX_CI_XCODE_APP" ./scripts/select-ci-xcode.sh >>"$log" 2>&1 || fail "select-ci-xcode"
@@ -115,6 +120,8 @@ CMUX_CI_MOVE_SOURCE_PACKAGES=1 scripts/ci/compile-app-host-test-product.sh canon
   "$dd" "$workspace/.ci-source-packages" >>"$log" 2>&1 || fail "resolve"
 
 phase=adopt
+trap forget_inode_override EXIT
+trap 'forget_inode_override; exit 143' TERM INT HUP
 seed_hit=false
 if [ "$warm" != true ] || [ "$prefer" = true ]; then
   seeded="$(CMUX_SEED_EXACT="$seed_key" python3 scripts/ci/seed_derived_data.py adopt "$CMUX_CI_CANONICAL_SRC" "$dd" \
@@ -133,7 +140,7 @@ status=0
 # Its output goes to the log once: the 4th argument would tee the same lines there again.
 scripts/ci/compile-app-host-test-product.sh canonical-build "$dd" "$workspace/.ci-source-packages" \
   "$CMUX_COMPILE_ADMISSION_CAS" /dev/null >>"$log" 2>&1 || status=$?
-defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges >/dev/null 2>&1 || true
+forget_inode_override
 [ "$status" = 0 ] || fail "compile exit $status"
 
 phase=keep
