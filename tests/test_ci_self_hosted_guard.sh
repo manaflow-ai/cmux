@@ -49,7 +49,7 @@ check_macos_runner() {
     # place this shard on the owned pool, the Blacksmith pool the pull
     # request picker named for a run on an owned pool (pr_retry_runner), or
     # on attempt 2 of a refused owned shard, the owned pool once more. The
-    # gui label (pr_gui_runner) is the same owned pick's GUI runners.
+    # gui label (pr_gui_runner) names the GUI runners of that owned pick.
     # On attempt 1 it may first take the root label late-placement chose (an owned
     # root runner found idle once admission finished; late_placement.py).
     in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 1 && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(github\.run_attempt == 2 && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \((inputs\.pr_gui_runner \|\| )?inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
