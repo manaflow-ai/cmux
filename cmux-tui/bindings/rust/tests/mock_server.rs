@@ -2104,6 +2104,7 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
                     "executable": "/bin/zsh",
                     "argv": ["/bin/zsh", "-l"],
                     "cwd": "/tmp",
+                    "foreground_cwd": "/tmp/subshell",
                     "children": [43]
                 }),
                 false,
@@ -2193,7 +2194,9 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
             .matched
     );
     assert_eq!(terminal.copy(CopyOptions::default()).unwrap().text, "copied");
-    assert_eq!(terminal.process().unwrap().children, vec![43]);
+    let process = terminal.process().unwrap();
+    assert_eq!(process.children, vec![43]);
+    assert_eq!(process.foreground_cwd.as_deref(), Some("/tmp/subshell"));
     assert_eq!(
         terminal.viewer_resize("terminal-lease", Size::new(100, 30).unwrap()).unwrap().size.cols,
         100

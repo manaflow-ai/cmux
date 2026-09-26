@@ -9,7 +9,7 @@ import Foundation
 /// `init(rejectedOn:…)`, which fixes `arguments` to empty; decoding resolves the
 /// one contradictory record cmux never writes in favour of the argv; and a later
 /// mutation that gives a record a usable argv drops the ground with it.
-public struct AgentLaunchCommand: Codable, Equatable, Sendable {
+public struct AgentLaunchCommand: Codable, Hashable, Sendable {
     /// The cmux launcher classification, when one was captured.
     public var launcher: String?
     /// The captured executable path.

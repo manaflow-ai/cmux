@@ -34,7 +34,11 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     /// 750ms poll only when a connected Mac does not support events.
     public var supportsServerPushEvents: Bool
     public var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+    /// Set when the provider merges per-surface event lanes (the irx hub).
+    public var independentEventsMergeSurfaceLanes: Bool
     public var terminalLaneProvider: MobileTerminalLaneProvider?
+    public var terminalInputLaneProvider: MobileTerminalLaneProvider?
+    public var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider?
     public var artifactLaneProvider: MobileArtifactLaneProvider?
 
     /// Builds the production access-token provider over an injected
@@ -145,7 +149,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
@@ -159,7 +166,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.supportsServerPushEvents = supportsServerPushEvents
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
+        self.terminalInputLaneProvider = terminalInputLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
     }
 
     public init(
@@ -174,7 +184,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         supportsServerPushEvents: Bool = true,
         independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
         terminalLaneProvider: MobileTerminalLaneProvider? = nil,
-        artifactLaneProvider: MobileArtifactLaneProvider? = nil
+        terminalInputLaneProvider: MobileTerminalLaneProvider? = nil,
+        artifactLaneProvider: MobileArtifactLaneProvider? = nil,
+        simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
@@ -187,7 +200,10 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.supportsServerPushEvents = supportsServerPushEvents
         self.independentEventByteStreamProvider = independentEventByteStreamProvider
         self.terminalLaneProvider = terminalLaneProvider
+        self.terminalInputLaneProvider = terminalInputLaneProvider
         self.artifactLaneProvider = artifactLaneProvider
+        self.simulatorStreamLaneProvider = simulatorStreamLaneProvider
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
         self.now = now
     }
 }

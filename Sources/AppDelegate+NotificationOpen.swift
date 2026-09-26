@@ -4,6 +4,47 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
+    /// Focuses a terminal surface through the same sidebar/window/tab path used by notification opens.
+    @discardableResult
+    func focusTerminal(
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        if let context = contextContainingTabId(tabId) {
+            let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+            let window = context.window
+                ?? NSApp.windows.first { $0.identifier?.rawValue == expectedIdentifier }
+            guard let window else { return false }
+            return focusTerminal(
+                tabManager: context.tabManager,
+                sidebarSelectionState: context.sidebarSelectionState,
+                window: window,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                while: effectIsCurrent
+            )
+        }
+
+        guard
+            let tabManager,
+            tabManager.tabs.contains(where: { $0.id == tabId }),
+            let window = NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })
+        else {
+            return false
+        }
+        return focusTerminal(
+            tabManager: tabManager,
+            sidebarSelectionState: sidebarSelectionState,
+            window: window,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            while: effectIsCurrent
+        )
+    }
+
     @discardableResult
     func openNotification(
         tabId: UUID,
@@ -276,6 +317,26 @@ extension AppDelegate {
         }
 #endif
         return true
+    }
+
+    private func focusTerminal(
+        tabManager: TabManager,
+        sidebarSelectionState: SidebarSelectionState?,
+        window: NSWindow,
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        sidebarSelectionState?.selection = .tabs
+        bringToFront(window)
+        guard effectIsCurrent() else { return false }
+        return tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: surfaceId,
+            effectIsCurrent: effectIsCurrent
+        )
     }
 
     private func notificationOpenCompletion(

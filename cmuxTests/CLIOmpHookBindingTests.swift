@@ -64,17 +64,19 @@ struct CLIOmpHookBindingTests {
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
-            pidTarget: nil
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
         )
         let launchPath = "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["PATH"] = launchPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = pi.path
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated([pi.path])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
-
         let result = Harness.runHookProcess(
             context: context,
             arguments: [
@@ -186,7 +188,7 @@ struct CLIOmpHookBindingTests {
             $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
         })
         let lifecycleIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("set_agent_lifecycle omp ")
+            $0.hasPrefix("agent_journal_append ") && $0.contains("\"agent_key\":\"omp\"")
         })
         let clearIndex = try #require(commands.firstIndex {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
@@ -319,6 +321,9 @@ struct CLIOmpHookBindingTests {
         let context = try Harness.makeContext(name: "generic-tty-boundary")
         defer { context.cleanup() }
         let sessionId = "codex-ambient-tty-session"
+        let transcriptURL = context.root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         let staleTTY = "ttys-ambient-stale"
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -327,9 +332,10 @@ struct CLIOmpHookBindingTests {
                 Self.leakedWorkspaceId: [Self.leakedSurfaceId],
             ],
             pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId],
             ttyRows: [
                 (tty: staleTTY, workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId)
-            ]
+            ],
         )
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
@@ -339,19 +345,40 @@ struct CLIOmpHookBindingTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/codex"])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+        // The app-host process can itself sit below another Codex fixture in
+        // the shared test runner. Pin the synthetic callback identity to a
+        // non-agent PID so nested-session ancestry detection cannot classify
+        // this foreground routing test as a Codex subagent.
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
+        environment["CMUX_CODEX_PID"] = "2"
+        environment["CMUX_CODEX_INVOCATION_ID"] = "foreground-ambient-tty-boundary"
+        environment["CMUX_CODEX_PARENT_INVOCATION_ID"] = ""
+        environment["CMUX_CODEX_TURN_LEDGER_PATH"] = context.root
+            .appendingPathComponent("codex-turn-ledger.json")
+            .path
 
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "codex", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        // The harness serves one client connection per socket round trip. Its
+        // first connection can close before the later resume publication has
+        // arrived, so wait on the behavior under test rather than the server's
+        // connection count.
+        #expect(waitForConditionBlocking(timeout: 5) {
+            !Harness.resumeBindingParams(in: context).isEmpty
+        })
         let resumeBindings = Harness.resumeBindingParams(in: context)
-        #expect(resumeBindings.count == 1)
+        #expect(
+            resumeBindings.count == 1,
+            Comment(rawValue: context.state.snapshot().joined(separator: "\n"))
+        )
         let resume = try #require(resumeBindings.first)
         #expect(resume["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resume["surface_id"] as? String == Self.liveSurfaceId)
@@ -408,6 +435,160 @@ struct CLIOmpHookBindingTests {
         let sessions = try #require(saved["sessions"] as? [String: Any])
         #expect(sessions[priorSessionId] != nil)
         #expect(sessions[currentSessionId] != nil)
+    }
+
+    @Test
+    func ompSubagentStartDispatchesFeedPushAndChildJournal() throws {
+        let context = try Harness.makeContext(name: "omp-subagent-start")
+        defer { context.cleanup() }
+        let parentSessionId = "omp-subagent-parent"
+        let childId = "kid-7"
+        let childLabel = "Probe child"
+        try Self.writePriorSession(
+            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            sessionId: parentSessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "subagent-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","agent_id":"\#(childId)","description":"\#(childLabel)","hook_event_name":"SubagentStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+
+        let event = try #require(Self.feedPushEvent(in: context, hookEventName: "SubagentStart"))
+        #expect(event["_opencode_request_id"] as? String == childId)
+        #expect((event["tool_input"] as? [String: Any])?["description"] as? String == childLabel)
+        #expect(event["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(event["surface_id"] as? String == Self.liveSurfaceId)
+        let workstream = try #require(event["session_id"] as? String)
+        let components = try #require(Self.decodeWorkstream(rawValue: workstream))
+        #expect(components.agent == "omp")
+        #expect(components.session == parentSessionId)
+
+        let journal = try #require(
+            AgentJournalAppendCapture.first(
+                in: context.state.snapshot(),
+                kind: "agent.child.spawned",
+                agentKey: "omp"
+            )
+        )
+        #expect(journal.isSubagent)
+        #expect(journal.workspaceId == Self.liveWorkspaceId)
+        #expect(journal.surfaceId == Self.liveSurfaceId)
+    }
+
+    @Test
+    func piSubagentStopDispatchesFeedPushAndChildJournal() throws {
+        let context = try Harness.makeContext(name: "pi-subagent-stop")
+        defer { context.cleanup() }
+        let parentSessionId = "pi-subagent-parent"
+        let childId = "kid-9"
+        try Self.writePriorSession(
+            to: context.root.appendingPathComponent("pi-hook-sessions.json"),
+            sessionId: parentSessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/pi"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/pi"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "pi", "subagent-stop",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","agent_id":"\#(childId)","hook_event_name":"SubagentStop"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let targetOutput = try #require(Self.jsonObject(result.stdout))
+        #expect(targetOutput["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(targetOutput["surface_id"] as? String == Self.liveSurfaceId)
+
+        let event = try #require(Self.feedPushEvent(in: context, hookEventName: "SubagentStop"))
+        #expect(event["_opencode_request_id"] as? String == childId)
+        #expect(event["tool_input"] == nil)
+        let workstream = try #require(event["session_id"] as? String)
+        let components = try #require(Self.decodeWorkstream(rawValue: workstream))
+        #expect(components.agent == "pi")
+        #expect(components.session == parentSessionId)
+
+        let journal = try #require(
+            AgentJournalAppendCapture.first(
+                in: context.state.snapshot(),
+                kind: "agent.child.completed",
+                agentKey: "pi"
+            )
+        )
+        #expect(journal.isSubagent)
+        #expect(journal.workspaceId == Self.liveWorkspaceId)
+        #expect(journal.surfaceId == Self.liveSurfaceId)
+    }
+
+    private static func feedPushEvent(
+        in context: Harness.Context,
+        hookEventName: String
+    ) -> [String: Any]? {
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        for request in requests {
+            guard request["method"] as? String == "feed.push",
+                  let params = request["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any],
+                  event["hook_event_name"] as? String == hookEventName
+            else { continue }
+            return event
+        }
+        return nil
+    }
+
+    private static func decodeWorkstream(rawValue: String) -> (agent: String, session: String)? {
+        let prefix = "cmux-feed-v1:"
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        let parts = rawValue.dropFirst(prefix.count).split(separator: ":", maxSplits: 1)
+        guard parts.count == 2,
+              let agentData = Data(base64Encoded: String(parts[0])),
+              let agent = String(data: agentData, encoding: .utf8),
+              let sessionData = Data(base64Encoded: String(parts[1])),
+              let session = String(data: sessionData, encoding: .utf8)
+        else { return nil }
+        return (agent, session)
     }
 
     private static func writePriorSession(

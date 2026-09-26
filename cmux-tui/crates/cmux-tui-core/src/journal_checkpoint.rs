@@ -40,9 +40,13 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
     mux.flush_terminal_journal()?;
-    let head_before = mux.session_journal_after(0, 1)?.head_sequence;
-    let snapshot = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
+    // The snapshot and the journal head form one consistency cut, read under
+    // a single registry + state lock hold. A journal record committed before
+    // the cut is covered by the snapshot; the fence below only has to reject
+    // writes that land after it, while terminal content is being captured.
+    let (snapshot, head_before) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
     let producers = mux.journal_producer_manifests()?;
     let hooks = mux
         .journal_hook_states()?
@@ -70,84 +74,24 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
         let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let epoch_before = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before & 1 == 0,
-            "terminal journal ingress is unsettled during checkpoint capture"
-        );
-        let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-            terminal
-                .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                .map(|replay| (terminal.cols(), terminal.rows(), replay))
-        })??;
-        let epoch_after = surface
-            .terminal_journal_capture_epoch()
-            .context("checkpoint terminal is not a PTY surface")?;
-        anyhow::ensure!(
-            epoch_before == epoch_after && epoch_after & 1 == 0,
-            "terminal changed during checkpoint capture"
-        );
-        let replay_value = json!({
-            "format":"cmux.vt-replay.v1",
-            "cols":cols,
-            "rows":rows,
-            "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
-            "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
-                "image_id":alias.image_id,
-                "image_number":alias.image_number,
-            })).collect::<Vec<_>>(),
-            "kitty_state":{
-                "limits":{
-                    "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
-                    "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
-                    "images":replay.kitty_state.limits.images.to_string(),
-                    "placements":replay.kitty_state.limits.placements.to_string(),
-                },
-                "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
-                "replay_next_image_ids":{
-                    "primary":replay.kitty_state.replay_next_image_ids.primary,
-                    "alternate":replay.kitty_state.replay_next_image_ids.alternate,
-                },
-                "next_image_ids":{
-                    "primary":replay.kitty_state.next_image_ids.primary,
-                    "alternate":replay.kitty_state.next_image_ids.alternate,
-                },
-            },
-        });
-        let uncompressed = serde_json::to_vec(&replay_value)?;
-        let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+        let blob = terminal_replay_blob(&surface, &terminal_id)?;
         total_bytes = total_bytes
-            .checked_add(uncompressed_bytes)
+            .checked_add(blob.reference.uncompressed_bytes)
             .context("checkpoint content byte count overflow")?;
         anyhow::ensure!(
             total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
             "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
         );
-        let digest = Sha256::digest(&uncompressed);
-        let digest_hex = encode_hex(digest.as_slice());
-        let compressed = gzip_deterministic(&uncompressed)?;
-        blobs.push(JournalContentBlob::verified(
-            JournalContentRef {
-                content_id: format!("jcontent_{digest_hex}"),
-                terminal_id: terminal_id.as_str().into(),
-                format: "cmux.vt-replay.v1".into(),
-                codec: "gzip".into(),
-                sha256: digest_hex,
-                uncompressed_bytes,
-                cols,
-                rows,
-            },
-            compressed,
-        )?);
+        blobs.push(blob);
     }
 
     mux.flush_terminal_journal()?;
-    let head_after = mux.session_journal_after(0, 1)?.head_sequence;
-    let cursor_after = crate::resource_api::public_session_snapshot(mux)
-        .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?["cursor"]
-        .clone();
+    // Verify against one cut as well, so a write landing between two separate
+    // head and cursor reads cannot fail a capture that was in fact stable.
+    let (verify_snapshot, head_after) =
+        crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?;
+    let cursor_after = verify_snapshot["cursor"].clone();
     anyhow::ensure!(
         head_before == head_after && snapshot["cursor"] == cursor_after,
         "session changed during checkpoint capture"
@@ -163,6 +107,80 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         }),
         blobs,
     })
+}
+
+/// Capture one terminal's bounded `cmux.vt-replay.v1` blob from its live
+/// runtime surface. The terminal's journal ingress must be settled (flush
+/// first) so the replay and the journaled output stream describe the same
+/// byte prefix; a torn capture is rejected through the per-terminal epoch.
+pub(crate) fn terminal_replay_blob(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<JournalContentBlob> {
+    let epoch_before = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before & 1 == 0,
+        "terminal journal ingress is unsettled during replay capture"
+    );
+    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
+        terminal
+            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+            .map(|replay| (terminal.cols(), terminal.rows(), replay))
+    })??;
+    let epoch_after = surface
+        .terminal_journal_capture_epoch()
+        .context("captured terminal is not a PTY surface")?;
+    anyhow::ensure!(
+        epoch_before == epoch_after && epoch_after & 1 == 0,
+        "terminal changed during replay capture"
+    );
+    let replay_value = json!({
+        "format":"cmux.vt-replay.v1",
+        "cols":cols,
+        "rows":rows,
+        "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&replay.bytes),
+        "kitty_image_aliases":replay.kitty_image_aliases.iter().map(|alias| json!({
+            "image_id":alias.image_id,
+            "image_number":alias.image_number,
+        })).collect::<Vec<_>>(),
+        "kitty_state":{
+            "limits":{
+                "image_bytes":replay.kitty_state.limits.image_bytes.to_string(),
+                "inflight_bytes":replay.kitty_state.limits.inflight_bytes.to_string(),
+                "images":replay.kitty_state.limits.images.to_string(),
+                "placements":replay.kitty_state.limits.placements.to_string(),
+            },
+            "replay_cursor_offset":replay.kitty_state.replay_cursor_offset,
+            "replay_next_image_ids":{
+                "primary":replay.kitty_state.replay_next_image_ids.primary,
+                "alternate":replay.kitty_state.replay_next_image_ids.alternate,
+            },
+            "next_image_ids":{
+                "primary":replay.kitty_state.next_image_ids.primary,
+                "alternate":replay.kitty_state.next_image_ids.alternate,
+            },
+        },
+    });
+    let uncompressed = serde_json::to_vec(&replay_value)?;
+    let uncompressed_bytes = u64::try_from(uncompressed.len())?;
+    let digest = Sha256::digest(&uncompressed);
+    let digest_hex = encode_hex(digest.as_slice());
+    let compressed = gzip_deterministic(&uncompressed)?;
+    JournalContentBlob::verified(
+        JournalContentRef {
+            content_id: format!("jcontent_{digest_hex}"),
+            terminal_id: terminal_id.as_str().into(),
+            format: "cmux.vt-replay.v1".into(),
+            codec: "gzip".into(),
+            sha256: digest_hex,
+            uncompressed_bytes,
+            cols,
+            rows,
+        },
+        compressed,
+    )
 }
 
 #[cfg(test)]
@@ -255,8 +273,8 @@ impl RestoreReducer {
 
     pub(crate) fn apply(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.sequence > self.last_sequence,
-            "journal records are not strictly ordered after checkpoint"
+            self.last_sequence.checked_add(1) == Some(record.sequence),
+            "journal records are not contiguous after checkpoint"
         );
         self.last_sequence = record.sequence;
         if record.replay != JournalReplayPolicy::Required {
@@ -280,8 +298,8 @@ impl RestoreReducer {
 
     pub(crate) fn finish(mut self, head_sequence: u64) -> anyhow::Result<Value> {
         anyhow::ensure!(
-            head_sequence >= self.last_sequence,
-            "restore preview head precedes the last reduced record"
+            head_sequence == self.last_sequence,
+            "restore preview did not reduce through the journal head"
         );
         let snapshot = self
             .state
@@ -365,7 +383,7 @@ impl RestoreReducer {
             return Ok(false);
         };
         if !self.validate_resource_changes(changes)
-            || !self.cursor_accepts(record.resource_revision)?
+            || !self.cursor_accepts(record.resource_revision, record.previous_resource_revision)?
         {
             return Ok(false);
         }
@@ -520,16 +538,43 @@ impl RestoreReducer {
         Ok(true)
     }
 
-    fn cursor_accepts(&self, revision: Option<u64>) -> anyhow::Result<bool> {
-        if revision.is_none() {
-            return Ok(true);
-        }
+    fn cursor_accepts(
+        &self,
+        revision: Option<u64>,
+        previous_revision: Option<u64>,
+    ) -> anyhow::Result<bool> {
+        let Some(revision) = revision else {
+            return Ok(false);
+        };
         let snapshot = self
             .state
             .get("session_snapshot")
             .and_then(Value::as_object)
             .context("checkpoint session_snapshot is not an object")?;
-        Ok(snapshot.get("cursor").is_none_or(|cursor| cursor.is_null() || cursor.is_object()))
+        let Some(cursor) = snapshot.get("cursor") else {
+            return Ok(false);
+        };
+        if cursor.is_null() {
+            return Ok(false);
+        }
+        let Some(cursor) = cursor.as_object() else {
+            anyhow::bail!("checkpoint cursor is not an object")
+        };
+        let Some(cursor_revision) = cursor.get("revision") else { return Ok(false) };
+        let cursor_revision = match cursor_revision {
+            Value::String(value) => value
+                .parse::<u64>()
+                .context("checkpoint cursor revision is not an unsigned integer")?,
+            Value::Number(value) => {
+                value.as_u64().context("checkpoint cursor revision is not an unsigned integer")?
+            }
+            _ => anyhow::bail!("checkpoint cursor revision is not an unsigned integer"),
+        };
+        let expected_revision = cursor_revision.checked_add(1);
+        Ok(match previous_revision {
+            Some(previous) => previous == cursor_revision && expected_revision == Some(revision),
+            None => false,
+        })
     }
 
     fn validate_resource_changes(&self, changes: &[Value]) -> bool {
@@ -806,6 +851,184 @@ mod tests {
     }
 
     #[test]
+    fn reducer_rejects_duplicate_and_gapped_sequences() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_test".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({"session_snapshot":{"cursor":{}},"journal_extensions":{"producers":[],"hooks":[]}}),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "unknown".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Never,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        };
+        assert!(restore_preview(&checkpoint, &[record.clone(), record.clone()], 4).is_err());
+        assert!(restore_preview(&checkpoint, std::slice::from_ref(&record), 5).is_err());
+        let mut gapped = record;
+        gapped.sequence = 5;
+        assert!(restore_preview(&checkpoint, &[gapped], 5).is_err());
+    }
+
+    #[test]
+    fn reducer_rejects_resource_revision_gap_and_stale_predecessor() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_invalid".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({"session_snapshot":{"cursor":{"generation":"g","revision":"1"},"workspaces":[]},"journal_extensions":{"producers":[],"hooks":[]}}),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let mut record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "workspace.create".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[{"kind":"upsert","resource":"workspace","id":"w","value":{"id":"w","index":0}}]}),
+            resource_revision: Some(3),
+            previous_resource_revision: Some(2),
+            terminal_output: None,
+        };
+        let preview = restore_preview(&checkpoint, &[record.clone()], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], false);
+        let mut missing_predecessor = record.clone();
+        missing_predecessor.resource_revision = Some(2);
+        missing_predecessor.previous_resource_revision = None;
+        let preview = restore_preview(&checkpoint, &[missing_predecessor], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], false);
+        record.previous_resource_revision = Some(1);
+        let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], false);
+    }
+
+    #[test]
+    fn reducer_rejects_revisioned_records_without_cursor_baseline() {
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_without_cursor_baseline".into(),
+            schema_version: 1,
+            kind: "workspace.create".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[{"kind":"upsert","resource":"workspace","id":"w","value":{"id":"w","index":0}}]}),
+            resource_revision: Some(101),
+            previous_resource_revision: Some(100),
+            terminal_output: None,
+        };
+        let checkpoint = |cursor: Option<Value>| {
+            let mut state = json!({
+                "session_snapshot":{"workspaces":[]},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            });
+            if let Some(cursor) = cursor {
+                state["session_snapshot"]["cursor"] = cursor;
+            }
+            JournalCheckpoint {
+                checkpoint_id: "checkpoint_without_cursor_baseline".into(),
+                source_sequence: 3,
+                reducer_version: JOURNAL_REDUCER_VERSION,
+                state,
+                content_refs: vec![],
+                sha256: "00".repeat(32),
+                created_at_ms: 1,
+            }
+        };
+
+        for cursor in [None, Some(Value::Null)] {
+            let preview =
+                restore_preview(&checkpoint(cursor), std::slice::from_ref(&record), 4).unwrap();
+            assert_eq!(preview["fully_reducible"], false);
+        }
+    }
+
+    #[test]
+    fn reducer_rejects_resource_changes_without_revision_chain() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_with_cursor_baseline".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({
+                "session_snapshot":{"cursor":{"generation":"g","revision":"1"},"workspaces":[]},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_without_revision_chain".into(),
+            schema_version: 1,
+            kind: "workspace.create".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[{
+                "kind":"upsert",
+                "resource":"workspace",
+                "id":"w",
+                "value":{"id":"w","index":0},
+            }]}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        };
+
+        let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+
+        assert_eq!(preview["fully_reducible"], false);
+    }
+
+    #[test]
     fn reducer_streams_terminal_output_and_resize_into_a_bounded_replay_summary() {
         let output = b"prompt> first line\r\n";
         let output_record = terminal_replay_record(
@@ -871,6 +1094,74 @@ mod tests {
         let first = restore_preview(&checkpoint, &[make(b"alpha")], 4).unwrap();
         let second = restore_preview(&checkpoint, &[make(b"bravo")], 4).unwrap();
         assert_ne!(first["state_sha256"], second["state_sha256"]);
+    }
+
+    /// A terminal-host reconnect creates its checkpoint while the rest of the
+    /// session keeps journaling. Capture reads the journal head and the public
+    /// session snapshot as its consistency cut; a record committed between
+    /// those two reads is a normal concurrent write, not a torn capture, and
+    /// must not abort the checkpoint with "session changed during checkpoint
+    /// capture". On a busy session that spurious abort made every reconnect
+    /// checkpoint fail and surfaced as repeated status toasts.
+    #[test]
+    fn reconnect_checkpoint_capture_tolerates_a_racing_journal_write() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-capture-race-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-race", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel::<()>(0);
+        let capture_mux = mux.clone();
+        let capture = std::thread::spawn(move || {
+            crate::resource_api::set_snapshot_before_projection_hook(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            capture_mux.create_journal_checkpoint("terminal_host_reconnect", "capture_race_1")
+        });
+        entered_rx.recv().unwrap();
+
+        // The capture thread is paused inside its snapshot cut. Commit a
+        // journal record from another writer before letting it proceed.
+        mux.put_journal_producer(
+            &JournalProducerManifest {
+                producer_id: "capture_race".into(),
+                namespace: "plugin.capture_race".into(),
+                manifest_version: 1,
+                max_sensitivity: JournalSensitivity::Metadata,
+                permissions: vec!["journal.append.plugin.capture_race".into()],
+                events: vec![JournalEventSchema {
+                    kind: "plugin.capture_race.event".into(),
+                    schema_version: 1,
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload_schema: json!({"type":"object"}),
+                }],
+            },
+            "client_test",
+            "capture_race_producer",
+        )
+        .unwrap();
+        let head_after_write = mux.session_journal_after(0, 1).unwrap().head_sequence;
+        release_tx.send(()).unwrap();
+
+        let commit = capture
+            .join()
+            .unwrap()
+            .expect("a journal write racing the snapshot cut must not abort checkpoint capture");
+        assert_eq!(
+            commit.checkpoint.source_sequence, head_after_write,
+            "the checkpoint cut must cover the racing journal write"
+        );
+        let preview = mux.journal_restore_preview("latest").unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

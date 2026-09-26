@@ -1,8 +1,10 @@
 import type { MetadataRoute } from "next";
 import {
   fallbackContentLocales,
+  jobsContentLocales,
   englishFallbackContentLocales,
   featureWorkflowContentLocales,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
@@ -34,6 +36,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/browser", lastModified: "2026-08-05", changeFrequency: "weekly" as const, priority: 0.9 },
+    { path: "/cua", lastModified: "2026-09-15", changeFrequency: "monthly" as const, priority: 0.8 },
     ...DOWNLOAD_PLATFORMS.map((platform) => ({
       path: PLATFORM_DOWNLOADS[platform].page,
       lastModified: "2026-08-04",
@@ -42,6 +45,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
     { path: "/pricing", lastModified: "2026-07-01", changeFrequency: "monthly" as const, priority: 0.9, locales: fallbackContentLocales },
     { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/support", lastModified: "2026-08-27", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/jobs", lastModified: "2026-08-27", changeFrequency: "monthly" as const, priority: 0.7, locales: jobsContentLocales },
+    { path: "/jobs/founding-designer", lastModified: "2026-08-28", changeFrequency: "monthly" as const, priority: 0.7, locales: jobsContentLocales },
+    { path: "/jobs/founding-chromium-engineer", lastModified: "2026-09-09", changeFrequency: "monthly" as const, priority: 0.7, locales: jobsContentLocales },
     { path: "/blog", lastModified: "2026-07-29", changeFrequency: "weekly" as const, priority: 0.8 },
     { path: "/blog/367-billion-tokens", lastModified: "2026-07-29", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
@@ -75,11 +82,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/dock", lastModified: "2026-05-01", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/keyboard-shortcuts", lastModified: "2026-04-03", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/api", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/computer-use", lastModified: "2026-09-15", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/browser-automation", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/skills", lastModified: "2026-05-15", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/notifications", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
+    { path: "/docs/managed-policies", lastModified: "2026-08-18", changeFrequency: "monthly" as const, priority: 0.8, locales: managedPoliciesDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
