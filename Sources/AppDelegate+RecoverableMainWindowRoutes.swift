@@ -1,12 +1,10 @@
 import AppKit
 import CmuxTerminalCore
 import CmuxTerminal
-
 // The retire sweep is the MainWindowRouteRetiring witness: terminal topology
 // changes prompt a coalesced lifecycle audit through the seam instead of the
 // registry reaching up to AppDelegate.shared.
 extension AppDelegate: MainWindowRouteRetiring {}
-
 extension AppDelegate {
     typealias MainWindowSessionPersistenceRoute = (
         windowId: UUID,
@@ -400,12 +398,41 @@ extension AppDelegate {
         let windowId = route.windowId
         let routeIdentity = ObjectIdentifier(route)
         let taskToken = UUID()
+        let onWorkerCreated: @MainActor @Sendable (Task<ProcessDetectedResumeIndexes, Never>) -> Void = {
+            [weak self, weak lifecycleCoordinator = mainWindowLifecycleCoordinator] worker in
+            lifecycleCoordinator?.retainWindowlessRecoveryResumeIndexesWorker(
+                worker,
+                onCompleted: { [weak self, weak lifecycleCoordinator] _ in
+                    guard let self, let lifecycleCoordinator else { return }
+                    for retryWindowId in lifecycleCoordinator.consumeWindowlessRouteFreezeRetries() {
+                        guard let route = lifecycleCoordinator.orphanedRoute(windowId: retryWindowId),
+                              route.window == nil,
+                              route.frozenWindowSnapshot == nil else {
+                            continue
+                        }
+                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                    }
+                }
+            )
+        }
         let task = Task { @MainActor [weak self] in
+            var shouldRetryWhenWorkerCompletes = false
             defer {
+                let workerIsRunning = self?.mainWindowLifecycleCoordinator
+                    .isWindowlessRecoveryResumeIndexesWorkerRunning() == true
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
-                    token: taskToken
+                    token: taskToken,
+                    retryWhenWorkerCompletes: shouldRetryWhenWorkerCompletes && workerIsRunning
                 )
+                if shouldRetryWhenWorkerCompletes, !workerIsRunning,
+                   let self,
+                   let currentRoute = self.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId),
+                   ObjectIdentifier(currentRoute) == routeIdentity,
+                   currentRoute.window == nil,
+                   currentRoute.frozenWindowSnapshot == nil {
+                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(currentRoute)
+                }
             }
             guard !Task.isCancelled else { return }
             guard self?.mainWindowLifecycleCoordinator.orphanedRoute(
@@ -442,18 +469,14 @@ extension AppDelegate {
                 return
             }
             let lifecycleCoordinator = self?.mainWindowLifecycleCoordinator
-            let resumeIndexes = await self?.mainWindowLifecycleCoordinator
-                .loadWindowlessRecoveryResumeIndexes(
-                    ttyDeviceBindings: ttyDeviceBindings
-                ) { bindings in
-                    await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
-                        ttyDeviceBindings: bindings,
-                        onWorkerCreated: { [weak lifecycleCoordinator] worker in
-                            lifecycleCoordinator?
-                                .retainWindowlessRecoveryResumeIndexesWorker(worker)
-                        }
-                    )
-                }
+            let resumeIndexes = await lifecycleCoordinator?.loadWindowlessRecoveryResumeIndexes(
+                ttyDeviceBindings: ttyDeviceBindings
+            ) { bindings in
+                await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: bindings,
+                    onWorkerCreated: onWorkerCreated
+                )
+            }
             guard !Task.isCancelled,
                   self?.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
@@ -463,38 +486,23 @@ extension AppDelegate {
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
-            // A timed-out fresh scan must retain the last cached agent projection;
-            // only its process-detected surface bindings are unavailable.
-            let restorableAgentIndex: RestorableAgentSessionIndex
-            if let detectedAgentIndex = resumeIndexes?.restorableAgentIndex {
-                restorableAgentIndex = detectedAgentIndex
-            } else if let cachedAgentIndex = SharedLiveAgentIndex.shared.index {
-                restorableAgentIndex = cachedAgentIndex
-            } else {
-                // A cold cache still has a persisted projection. Refresh it
-                // off the interactive path, then fall back to that persisted
-                // projection if the ownership-sensitive refresh deadline is
-                // unavailable. Never substitute an empty index merely because
-                // a bounded refresh timed out before this irreversible freeze.
-                if let refreshedAgentIndex = await SharedLiveAgentIndex.shared
-                    .indexRefreshingNow() {
-                    restorableAgentIndex = refreshedAgentIndex
-                } else {
-                    let fallbackTask = Task.detached(priority: .utility) {
-                        RestorableAgentSessionIndex.load()
-                    }
-                    restorableAgentIndex = await fallbackTask.value
-                }
+            // Windowless teardown is irreversible. A timeout or incomplete
+            // process scan leaves the live route intact for a later retry.
+            guard let resumeIndexes,
+                  resumeIndexes.isFresh,
+                  resumeIndexes.restorableAgentIndex.isComplete else {
+                shouldRetryWhenWorkerCompletes = true
+                return
             }
             guard !Task.isCancelled else { return }
-            let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
+            let detectedSurfaceResumeBindingIndex = resumeIndexes.surfaceResumeBindingIndex
             if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
                 windowId: windowId
             ), ObjectIdentifier(currentRoute) == routeIdentity {
                 self?.freezeWindowlessRecoverableMainWindowRoute(
                     currentRoute,
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
+                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex.isEmpty == false
                         ? detectedSurfaceResumeBindingIndex
                         : nil
                 )
@@ -615,7 +623,9 @@ extension AppDelegate {
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
-        if freezeWindowlessRoutes, let suppliedRestorableAgentIndex {
+        if freezeWindowlessRoutes,
+           let suppliedRestorableAgentIndex,
+           suppliedRestorableAgentIndex.isComplete {
             var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
             for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
                 guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(

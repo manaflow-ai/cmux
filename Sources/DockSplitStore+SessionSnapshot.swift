@@ -64,13 +64,9 @@ extension DockSplitStore {
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
                     ),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
-                        workspaceId: observationWorkspaceId,
-                        panelId: panelId
-                    ),
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                    detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     notificationStore: notificationStore,
@@ -172,10 +168,9 @@ extension DockSplitStore {
                 },
                 revalidateProcessEvidence: false
             ),
-            detectedResumeBinding: nil,
+            surfaceResumeBindingIndex: nil,
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
-            detectedResumeBindingIsAmbiguous:
-                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
+            preserveUndetectedBindingForManualRecovery: true,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
             notificationStore: resolvedNotificationStore(),
@@ -214,9 +209,9 @@ extension DockSplitStore {
         panelId: UUID,
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
-        detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
-        detectedResumeBindingIsAmbiguous: Bool = false,
+        preserveUndetectedBindingForManualRecovery: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -251,10 +246,10 @@ extension DockSplitStore {
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding,
+                index: surfaceResumeBindingIndex,
                 downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
-                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
+                preserveUndetectedBindingForManualRecovery: preserveUndetectedBindingForManualRecovery
             )
             let restorableAgent = localTmuxStartCommand == nil
                 ? effectiveSessionRestorableAgent(
@@ -444,54 +439,6 @@ extension DockSplitStore {
             return directory
         }
         return nil
-    }
-
-    private func effectiveSessionResumeBinding(
-        panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?,
-        downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
-        detectedIsAmbiguous: Bool
-    ) -> SurfaceResumeBindingSnapshot? {
-        let stored = surfaceResumeBindingsByPanelId[panelId]
-        if let stored,
-           stored.hasCompleteManagedSessionIdentity,
-           managedAgentResumeBindingsByPanelId[panelId] == nil {
-            managedAgentResumeBindingsByPanelId[panelId] = stored
-        }
-        let effective: SurfaceResumeBindingSnapshot?
-        if let stored, let detected {
-            effective = stored.shouldYieldToDetectedSurfaceResumeBinding(detected) ? detected : stored
-        } else if let detected {
-            effective = detected
-        } else if var stored,
-                  stored.isProcessDetected,
-                  downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable {
-            // Recovery cannot synchronously scan processes before its owner is
-            // torn down. Retain the command for explicit recovery, but never
-            // treat the unverified cached binding as safe to auto-run.
-            stored.autoResume = false
-            stored.approvalPolicy = .manual
-            stored.approvalRecordId = nil
-            effective = stored
-        } else if stored?.isProcessDetected == true {
-            effective = detectedIsAmbiguous
-                ? stored?.disablingAutomaticResume()
-                : nil
-        } else {
-            effective = stored
-        }
-        if let effective {
-            guard surfaceResumeBindingMutationAllowed(effective, panelId: panelId) else {
-                return stored
-            }
-            surfaceResumeBindingsByPanelId[panelId] = effective
-        } else {
-            guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
-                return stored
-            }
-            surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-        }
-        return effective
     }
 
     private func effectiveSessionRestorableAgent(

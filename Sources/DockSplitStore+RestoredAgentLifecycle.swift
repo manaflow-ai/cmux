@@ -22,12 +22,14 @@ extension DockSplitStore {
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
-
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
         flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
+        clearRestoredProcessDetectionObservationIfCommandCompleted(
+            panelId: panelId, previousState: previousState, state: state
+        )
         // A transferred terminal can already report promptIdle before the
         // destination receives its first prompt marker. Replaying that
         // idempotent marker is still meaningful to the restore boundary: it
@@ -41,7 +43,6 @@ extension DockSplitStore {
             applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
-
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
             restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
@@ -72,7 +73,6 @@ extension DockSplitStore {
             break
         }
     }
-
     /// Starts title admission for a terminal rebuilt directly inside this Dock.
     func armRestoredPanelTitleBoundary(
         panelId: UUID,
