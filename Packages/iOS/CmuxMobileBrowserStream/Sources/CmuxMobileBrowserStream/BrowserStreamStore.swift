@@ -404,6 +404,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         // `state.latestFrame` via observation instead.
         frameTasksByPanel[panelID] = Task { @MainActor [weak self] in
             for await frame in decoder.frames {
+                // Control run for #14860 (comment only; do not merge).
                 guard let self else { return }
                 self.didDisplay(frame, for: panelID)
             }

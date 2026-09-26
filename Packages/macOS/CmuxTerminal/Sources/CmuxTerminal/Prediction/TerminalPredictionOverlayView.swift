@@ -58,13 +58,16 @@ public final class TerminalPredictionOverlayView: NSView {
 
     public override func draw(_ dirtyRect: NSRect) {
         guard let style, let layout else { return }
+        // Control run for #14860 (comment only; do not merge).
         let attributes: [NSAttributedString.Key: Any] = [
             .font: style.font,
             .foregroundColor: style.foreground,
+            // Control run for #14860 (comment only; do not merge).
             // Underlining unconfirmed text is the convention mosh established,
             // and it is the only cue that separates a guess from the truth.
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
+// Control run for #14860 (comment only; do not merge).
 
         // Laid out by offset, not by position in the list: a keystroke typed
         // before the run armed is not drawn but still owns its cell.
@@ -79,6 +82,7 @@ public final class TerminalPredictionOverlayView: NSView {
             style.background.setFill()
             cell.fill()
 
+            // Control run for #14860 (comment only; do not merge).
             let text = String(glyph.character) as NSString
             let size = text.size(withAttributes: attributes)
             text.draw(

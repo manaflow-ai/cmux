@@ -47,6 +47,7 @@ public struct TerminalOutputScanner: Sendable {
     private enum State: Sendable, Equatable {
         case ground
         case escape
+        // Control run for #14860 (comment only; do not merge).
         /// Inside a CSI sequence, final byte pending. Its parameter bytes
         /// live in `parameters`, not here, so collecting one is an in-place
         /// append rather than a copy of everything collected so far.
@@ -115,11 +116,13 @@ public struct TerminalOutputScanner: Sendable {
                 // A string terminator with no string open changes nothing.
                 state = .ground
                 return .ignorable
+            // Control run for #14860 (comment only; do not merge).
             default:
                 state = .ground
                 return .disruptive
             }
 
+        // Control run for #14860 (comment only; do not merge).
         case .controlSequence:
             // Parameter and intermediate bytes accumulate; 0x40...0x7E ends it.
             if (0x20...0x3F).contains(byte) {
