@@ -16,6 +16,7 @@ public struct BetaFeaturesSection: View {
     @State private var predictedEcho: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
+    @State private var dictation: DefaultsValueModel<Bool>
     /// `DisableCloud` (MDM). The opt-in is meaningless while an administrator
     /// forces Cloud off, so the row says so and locks the toggle; re-read on
     /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
@@ -34,6 +35,7 @@ public struct BetaFeaturesSection: View {
         _predictedEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.predictedEcho))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
+        _dictation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.dictation))
     }
 
     public var body: some View {
@@ -61,6 +63,8 @@ public struct BetaFeaturesSection: View {
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
+                SettingsCardDivider()
+                dictationRow
             }
         }
         .task { startObservingSettings() }
@@ -84,6 +88,7 @@ public struct BetaFeaturesSection: View {
             predictedEcho,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
+            dictation,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -236,6 +241,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaPredictedEchoToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var dictationRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:dictation",
+            String(localized: "settings.betaFeatures.dictation", defaultValue: "Dictation"),
+            subtitle: dictation.current
+                ? String(localized: "settings.betaFeatures.dictation.subtitleOn", defaultValue: "Double-tap fn toggles dictation into the focused terminal; hold fn for push-to-talk. Uses on-device speech recognition when available.")
+                : String(localized: "settings.betaFeatures.dictation.subtitleOff", defaultValue: "Keeps the fn-key dictation triggers and microphone access off until you enable them here.")
+        ) {
+            Toggle("", isOn: Binding(get: { dictation.current }, set: { dictation.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaDictationToggle")
         }
     }
 
