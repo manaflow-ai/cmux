@@ -110,7 +110,7 @@ final class StubGroupHost: WorkspaceGroupHosting {
 
 @MainActor
 struct WorkspaceCoordinatorTests {
-    private func makeWorld() -> (
+    func makeWorld() -> (
         model: WorkspacesModel<CoordinatorStubTab>,
         host: StubGroupHost,
         groups: WorkspaceGroupCoordinator<CoordinatorStubTab>,
