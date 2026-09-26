@@ -49,6 +49,8 @@ jobs:
       matrix: ${{ steps.inputs.outputs.matrix }}
       # The pool that publishes the app-host product when it builds.
       publisher: ${{ steps.inputs.outputs.publisher }}
+      # The pools whose seed goes in the far lane (seed_decide.py).
+      far: ${{ steps.inputs.outputs.far }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -147,24 +149,30 @@ jobs:
       # that order: {"include": [{"pool": ...}, {"pool": ..., "root": "2"}]}.
       matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
     runs-on: ${{ matrix.pool }}
-    # One seed at a time per pool, and never cancel-in-progress. main takes
-    # several merges an hour and a cold seed takes 15-20 minutes on Blacksmith (about an hour on the trusted pool), so
+    # Two lanes per pool, one seed at a time in each, and never
+    # cancel-in-progress. main takes several merges an hour and a cold seed
+    # takes 15-20 minutes on Blacksmith (about an hour on the trusted pool), so
     # cancelling the running seed for each newer push would starve publishing
     # for as long as merges keep arriving. With `false`, the running seed
-    # always finishes and publishes, GitHub keeps at most one pending job, and
-    # a newer push replaces it, so the published seed is never more than about
-    # one build behind main. Per pool, so the 6 vCPU queue never holds back
-    # the 12 vCPU seed. tests/test_seed_derived_data.py pins this.
+    # always finishes and publishes, GitHub keeps at most one pending job per
+    # group, and a newer push replaces it. Per pool, so the 6 vCPU queue never
+    # holds back the 12 vCPU seed. A push far from its pool's covering seed
+    # (decide's `far`: more than 5 app Swift files, a package interface change
+    # or a hot file, warm_distance.py) goes in the `-far` group, so a newer near
+    # push never replaces it and it starts beside a running near seed; a newer
+    # far push still does (seed_decide.py). tests/test_seed_derived_data.py
+    # pins this.
     concurrency:
-      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}
+      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}${{ contains(fromJSON(needs.decide.outputs.far || '[]'), matrix.root && format('{0}@{1}', matrix.pool, matrix.root) || matrix.pool) && '-far' || '' }}
       cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # A chain with no seed yet builds cold. The first root 2 seed on the
     # trusted pool (cmux11s) spent 14 minutes on checkout, packages and
     # resolve, then 44 in Build, and 60 cancelled it before it saved, so the
     # next push built cold again (run 36107956813). A seeded build finishes
-    # in a fraction of either limit.
-    timeout-minutes: 90
+    # in a fraction of either limit. 30 more minutes cover the wait for this
+    # job's canonical root (Prepare admission build paths).
+    timeout-minutes: 120
     env:
       # The macOS 15 pool compiles with its own Xcode, as a pull request run
       # pr_runner_pool.py overflows there does; every other pool, the lane's.
@@ -206,6 +214,30 @@ jobs:
             esac
             root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"
             echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          fi
+          # A far and a near seed of one root may run at once (the two
+          # concurrency lanes), so on an owned Mac hold this root for the job
+          # before clearing it. With glaeda's seed class the hook gives a seed
+          # job no root, and this take holds (and waits for) the one its matrix
+          # names. A hook that placed the job itself answers 2 for any other
+          # root: then the root it exported must be this one, or the Mac runs
+          # one seed at a time (one trusted runner), as before. A near and a far
+          # seed of one root on one Mac queue here for up to 30 minutes, inside
+          # the job's limit. Blacksmith has no helper.
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          if [ -x "$helper" ]; then
+            status=0
+            "$helper" take "$root" --wait 1800 >/dev/null || status=$?
+            placed="$(cat "${RUNNER_TEMP:-/nonexistent}/glaeda-canonical-root" 2>/dev/null || true)"
+            case "$status" in
+              0) echo "Holding $root for this job" ;;
+              2) if [ "$placed" = "$root" ]; then
+                   echo "The runner hook placed this job in $root"
+                 else
+                   echo "::warning::glaeda holds ${placed:-no root} for this job, not $root; safe only while this Mac runs one seed at a time (glaeda canonicalRoots must cover every seed root before a second trusted runner)"
+                 fi ;;
+              *) echo "::error::could not hold $root for this job (glaeda-canonical-root exit $status)"; exit 1 ;;
+            esac
           fi
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
@@ -431,7 +463,8 @@ jobs:
         continue-on-error: true
         env:
           SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY"
+          SEED_PREFIX: ${{ steps.key.outputs.prefix }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY" "$SEED_PREFIX"
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
