@@ -1,6 +1,6 @@
 import Foundation
 
-extension WorkstreamStore {
+extension WorkstreamCore {
     /// Applies the app-provided workstream identity migration to one item.
     func normalizedWorkstreamItem(_ item: WorkstreamItem) -> WorkstreamItem {
         let producerID = item.sourceID ?? item.source.rawValue

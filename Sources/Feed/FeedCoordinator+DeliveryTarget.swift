@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 
 extension FeedCoordinator {
-    enum DeliveryTargetResolution {
+    enum DeliveryTargetResolution: Sendable {
         case accepted([WorkstreamEvent])
         case notFound
         case unavailable

@@ -109,7 +109,7 @@ struct RightSidebarPanelView: View {
     // track the pending count so the badge updates live when hooks push
     // new items.
     private var feedPendingCount: Int {
-        FeedCoordinator.shared.store?.pending.count ?? 0
+            FeedCoordinator.shared.store?.pendingCount ?? 0
     }
 
     private var featureAvailableModes: [RightSidebarMode] {

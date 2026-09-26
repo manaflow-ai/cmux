@@ -1,6 +1,6 @@
 import Foundation
 
-extension WorkstreamStore {
+extension WorkstreamCore {
     /// Ingests a feed event, preserving the state of an identical actionable retry.
     /// - Parameter event: The incoming event.
     public func ingest(_ event: WorkstreamEvent) {
