@@ -340,6 +340,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ));
   });
 
+  pi.on("agent_start", (event, ctx) => {
+    const context = snapshotContext(ctx);
+    const sessionId = context.sessionId;
+    if (!sessionId) return;
+    // Idle sendMessage({ triggerTurn: true }) skips before_agent_start.
+    // Normal prompts, retries, and queued continuations already own a turn;
+    // keep that ID and its pending completion until agent_settled claims it.
+    if (stateFor(sessionStates, sessionId).activeTurnId) return;
+    const turnId = beginTurn(sessionStates, sessionId, event);
+    enqueueLifecycleTask(sessionId, context, () => (
+      sendHook(dispatcher, "prompt-submit", context, { turn_id: turnId })
+    ));
+  });
+
   const enqueueFeed = (
     eventName: PiFeedEventName,
     event: unknown,
