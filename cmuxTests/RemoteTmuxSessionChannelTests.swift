@@ -25,7 +25,7 @@ import Testing
 
         var readyCount = 0
         _ = channel.addObserver(RemoteTmuxSessionObservers(
-            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onPaneTitleChanged: nil,
             onActivePaneChanged: nil, onSessionChanged: nil, onTopologyChanged: nil,
             onReconnectReady: { readyCount += 1 }, onExit: nil,
             onConnectionStateChanged: nil, onAuthRequired: nil
@@ -88,6 +88,7 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]
     var publishedWindowIdByPane: [Int: Int] = [:]
     var paneHeaderLabels: [Int: String] = [:]
+    var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     var lastWindowSizes: [Int: (Int, Int)] = [:]
     func hasPendingLayout(windowId: Int) -> Bool { false }
@@ -137,6 +138,8 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func unsubscribePanePath(paneId: Int) {}
     func unsubscribePaneReflow(paneId: Int) {}
     func unsubscribePaneHeader(paneId: Int) {}
+    func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {}
+    func removePaneColors(paneId: Int) {}
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {}
     func setSessionName(_ name: String) {}
     func applyWindowReorder(_ reordered: [Int]) {}

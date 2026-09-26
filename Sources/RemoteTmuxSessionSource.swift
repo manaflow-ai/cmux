@@ -17,6 +17,8 @@ struct RemoteTmuxSessionObservers {
     var onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?
     var onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?
     var onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?
+    /// One pane's deliberate tmux title changed; read the new value from `paneTitleMetadataByPane`.
+    var onPaneTitleChanged: ((_ paneId: Int) -> Void)?
     var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
     var onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?
     var onTopologyChanged: (() -> Void)?
@@ -45,6 +47,7 @@ struct RemoteTmuxSessionObservers {
         onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)?,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)?,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)?,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
@@ -57,6 +60,7 @@ struct RemoteTmuxSessionObservers {
         self.onPaneSeed = onPaneSeed
         self.onPaneCwd = onPaneCwd
         self.onPaneReflow = onPaneReflow
+        self.onPaneTitleChanged = onPaneTitleChanged
         self.onActivePaneChanged = onActivePaneChanged
         self.onSessionChanged = onSessionChanged
         self.onTopologyChanged = onTopologyChanged
@@ -112,6 +116,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
     var publishedWindowIdByPane: [Int: Int] { get }
     /// Per-pane header-strip labels (expanded `pane-border-format`, styles stripped).
     var paneHeaderLabels: [Int: String] { get }
+    /// Raw pane titles plus tmux's host defaults, per pane.
+    var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] { get }
     /// Where each window places its pane title row (`pane-border-status`); a
     /// consumer wanting only "is a top row visible" derives `== .top` at the edge.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] { get }
@@ -186,6 +192,10 @@ protocol RemoteTmuxSessionSource: AnyObject {
     /// carry one, so every call through the source names it.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID?
+    /// Reports a pane's terminal colors to the remote tmux (kept across reconnects).
+    func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int)
+    /// Forgets a pane's reported colors when its mirror goes away.
+    func removePaneColors(paneId: Int)
     /// Ends per-pane cwd / reflow / header subscriptions when a pane's mirror goes away.
     func unsubscribePanePath(paneId: Int)
     func unsubscribePaneReflow(paneId: Int)
@@ -228,6 +238,7 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
             onPaneSeed: observers.onPaneSeed,
             onPaneCwd: observers.onPaneCwd,
             onPaneReflow: observers.onPaneReflow,
+            onPaneTitleChanged: observers.onPaneTitleChanged,
             onActivePaneChanged: observers.onActivePaneChanged,
             onSessionChanged: observers.onSessionChanged,
             onTopologyChanged: observers.onTopologyChanged,

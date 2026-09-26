@@ -205,6 +205,11 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         for pane in ownedPaneIds { if let label = underlying.paneHeaderLabels[pane] { result[pane] = label } }
         return result
     }
+    var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] {
+        var result: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+        for pane in ownedPaneIds { if let metadata = underlying.paneTitleMetadataByPane[pane] { result[pane] = metadata } }
+        return result
+    }
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] {
         var result: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
         for id in windowIds { if let placement = underlying.windowTitleRowPlacements[id] { result[id] = placement } }
@@ -300,6 +305,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func unsubscribePanePath(paneId: Int) { underlying.unsubscribePanePath(paneId: paneId) }
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
+    func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
+        underlying.setPaneColors(colors, paneId: paneId)
+    }
+    func removePaneColors(paneId: Int) { underlying.removePaneColors(paneId: paneId) }
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
         // Scope the GC to this session's windows: the shared stream also holds sibling
         // sessions' claims, and forwarding a session-local live set to the underlying
@@ -408,6 +417,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             onPaneReflow: { [weak self] paneId, noReflow in
                 guard let self, self.ownsPane(paneId) else { return }
                 for o in self.observers.values { o.onPaneReflow?(paneId, noReflow) }
+            },
+            onPaneTitleChanged: { [weak self] paneId in
+                guard let self, self.ownsPane(paneId) else { return }
+                for o in self.observers.values { o.onPaneTitleChanged?(paneId) }
             },
             onActivePaneChanged: { [weak self] windowId, paneId in
                 guard let self, self.windowIdSet.contains(windowId) else { return }
