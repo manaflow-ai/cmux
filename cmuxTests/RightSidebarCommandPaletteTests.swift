@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import XCTest
 
@@ -49,6 +50,26 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
+    }
+
+    func testCommandPaletteIncludesAvailableCustomSidebarMode() throws {
+        let defaults = UserDefaults.standard
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        let previousEnabled = defaults.object(forKey: customSidebarsKey)
+        let previousName = defaults.object(forKey: "rightSidebar.customSidebarName")
+        defer {
+            if let previousEnabled { defaults.set(previousEnabled, forKey: customSidebarsKey) }
+            else { defaults.removeObject(forKey: customSidebarsKey) }
+            if let previousName { defaults.set(previousName, forKey: "rightSidebar.customSidebarName") }
+            else { defaults.removeObject(forKey: "rightSidebar.customSidebarName") }
+        }
+        defaults.set(true, forKey: customSidebarsKey)
+        defaults.set("status-board", forKey: "rightSidebar.customSidebarName")
+
+        let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
+        let customID = ContentView.commandPaletteRightSidebarModeCommandID(.customSidebar)
+        let custom = try XCTUnwrap(contributions.first { $0.commandId == customID })
+        XCTAssertEqual(custom.title(CommandPaletteContextSnapshot()), RightSidebarMode.customSidebar.label)
     }
 
     @MainActor

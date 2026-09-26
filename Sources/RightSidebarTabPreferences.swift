@@ -19,9 +19,9 @@ enum RightSidebarTabPreferences {
     /// Every customizable tab in the user's order. Tabs missing from the
     /// stored order (new modes shipped after the user last reordered) keep
     /// their canonical position relative to the stored ones by appending in
-    /// declaration order. `customSidebar` is not a bar tab and never appears.
+    /// declaration order. Availability is applied by the caller, including for Custom.
     nonisolated static func orderedModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        let canonical = RightSidebarMode.allCases.filter { $0 != .customSidebar }
+        let canonical = RightSidebarMode.allCases
         let stored = (defaults.stringArray(forKey: orderKey) ?? [])
             .compactMap(RightSidebarMode.init(rawValue:))
         var result: [RightSidebarMode] = []
@@ -46,7 +46,6 @@ enum RightSidebarTabPreferences {
     /// sidebar always has a mode to land on.
     @discardableResult
     static func setHidden(_ hidden: Bool, mode: RightSidebarMode, defaults: UserDefaults = .standard) -> Bool {
-        guard mode != .customSidebar else { return false }
         var hiddenSet = hiddenModes(defaults: defaults)
         if hidden {
             guard hiddenSet.insert(mode).inserted else { return true }
@@ -70,7 +69,7 @@ enum RightSidebarTabPreferences {
     /// absent, except a revealed active one), so only that subset's slots are
     /// permuted.
     static func setDisplayedOrder(_ displayed: [RightSidebarMode], defaults: UserDefaults = .standard) {
-        var queue = displayed.filter { $0 != .customSidebar }
+        var queue = displayed
         let displayedSet = Set(queue)
         let currentOrder = orderedModes(defaults: defaults)
         var order = currentOrder
