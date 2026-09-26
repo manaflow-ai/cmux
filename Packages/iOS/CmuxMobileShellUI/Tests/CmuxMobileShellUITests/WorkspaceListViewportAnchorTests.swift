@@ -160,14 +160,13 @@ import UIKit
             return tableView.rectForRow(at: indexPath).minY - tableView.contentOffset.y
         }
 
+        /// Reads the data source's rows instead of asking it for cells. This
+        /// table is laid out in a window, so UIKit has already dequeued cells
+        /// for its rows, and dequeuing a second cell for one of those index
+        /// paths throws.
         func renderedIDs() -> [String] {
-            (0..<tableView.numberOfRows(inSection: 0)).compactMap { row in
-                let cell = tableView.dataSource?.tableView(
-                    tableView,
-                    cellForRowAt: IndexPath(row: row, section: 0)
-                ) as? WorkspaceListTableCell
-                return cell?.item?.workspaceID?.rawValue
-            }
+            #expect(tableView.numberOfRows(inSection: 0) == coordinator.renderedItems.count)
+            return coordinator.renderedItems.compactMap { $0.workspaceID?.rawValue }
         }
 
         static func configuration(ids: [String], previews: [String: String]) -> WorkspaceListTable {

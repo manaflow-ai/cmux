@@ -69,7 +69,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var reportedScrollInteraction = false
     private weak var tableView: UITableView?
 
-    private var renderedItems: [WorkspaceListTableItem] = []
+    /// The rows the data source serves, in table order.
+    private(set) var renderedItems: [WorkspaceListTableItem] = []
     private var renderedRows: [String: Row] = [:]
     private var rowIndexByID: [String: Int] = [:]
 
