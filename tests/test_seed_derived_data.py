@@ -278,6 +278,8 @@ class SeedDerivedData(unittest.TestCase):
         return store
 
     def test_prefetch_downloads_the_nearest_seed_into_the_local_cache_once(self):
+        # The URL must come from the recorded source, not a runner's environment.
+        os.environ.pop("CI_CACHE_R2_PUBLIC_URL", None)
         store = self.prefetch_store()
         key = "admission-derived-data-v1-macOS-ARM64-fp-j6-p1"
         fetched = []
