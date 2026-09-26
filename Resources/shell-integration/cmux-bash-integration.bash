@@ -264,6 +264,25 @@ _cmux_restore_scrollback_once() {
     builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$HOSTNAME" "$PWD"
 }
 _cmux_restore_scrollback_once
+
+# First-launch welcome banner. cmux passes the path of a one-shot token file in
+# CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+# workspace's shell, so the banner prints during startup and never lands in
+# shell history. Only the shell whose `rm` of the token succeeds prints it, and
+# never inside tmux, so children that inherited the variable cannot repeat it.
+_cmux_show_welcome_once() {
+    local token="${CMUX_SHOW_WELCOME_FILE:-${_CMUX_BOOTSTRAP_WELCOME_FILE:-}}"
+    unset CMUX_SHOW_WELCOME_FILE _CMUX_BOOTSTRAP_WELCOME_FILE
+    [[ -n "$token" ]] || return 0
+    /bin/rm -- "$token" >/dev/null 2>&1 || return 0
+    [[ -z "${TMUX:-}" ]] || return 0
+    local cli="${CMUX_SHELL_INTEGRATION_DIR%/}"
+    cli="${cli%/shell-integration}/bin/cmux"
+    [[ -x "$cli" ]] || cli="$(_cmux_relay_cli_path)"
+    [[ -n "$cli" ]] || return 0
+    "$cli" welcome 2>/dev/null || true
+}
+_cmux_show_welcome_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
 _CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
 _cmux_path_prepend_unique_directory() {
