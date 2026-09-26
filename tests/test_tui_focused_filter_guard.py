@@ -90,7 +90,7 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
         assert "full" not in condition
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    assert "cargo test --workspace --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]

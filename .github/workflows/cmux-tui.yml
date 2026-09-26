@@ -485,10 +485,13 @@ jobs:
       # Linux test run compiled the whole workspace (test (linux) about 921 s).
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
       # the same branch builds incrementally; branch caches never reach main's scope.
+      # Save on failure too: runs on a branch fixing a red test fail until the fix
+      # lands, and a success-only save left those branches cold on every rerun.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
+          cache-on-failure: true
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
@@ -506,24 +509,30 @@ jobs:
         run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
 
 
+      # Select --workspace here, not -p cmux-tui-core. Cargo unifies features only
+      # across the selected packages, so a -p build resolves serde, syn, once_cell
+      # and others differently from the workspace build in the cargo test step
+      # below, which then recompiles about 64 crates (cmux-tui-core and
+      # ghostty-vt-sys included): roughly 3.5 extra minutes per focused run.
+      # With --workspace both steps share one build.
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          cargo test --workspace --lib
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
       - name: focused macOS journal process-fence tests
         if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+        run: cargo test --workspace --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          cargo test --workspace --lib
           journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
           -- --exact
 
@@ -531,13 +540,13 @@ jobs:
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          cargo test --workspace --lib \
             journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          cargo test --workspace --lib \
             journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
             -- --exact
-          cargo test -p cmux-tui-core --test browser_runtime \
+          cargo test --workspace --test browser_runtime \
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
