@@ -1851,6 +1851,42 @@ struct SidebarAppKitRowCellTests {
         #expect(applies == 1)
     }
 
+    /// Closing a workspace reloads the table, so every visible row gets a
+    /// fresh or recycled cell. None of them may paint the close button
+    /// unless the pointer is on that row.
+    @Test
+    func closeButtonStaysConcealedOnFreshUnhoveredCell() {
+        let cell = SidebarWorkspaceRowTableCellView()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let configured = Self.configuredCell(model: Self.makeModel())
+        #expect(configured.closeButtonPaintForTesting.isHidden)
+        #expect(configured.closeButtonPaintForTesting.alpha == 0)
+    }
+
+    @Test
+    func recycledHoveredCellSnapsCloseButtonHidden() {
+        let cell = Self.configuredCell(model: Self.makeModel())
+        cell.enforcePointerHovering(true)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+
+        cell.prepareForReuse()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let nextModel = Self.makeModel()
+        cell.configure(
+            model: nextModel,
+            actions: Self.makeActions(model: nextModel),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+    }
+
     @Test
     func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
