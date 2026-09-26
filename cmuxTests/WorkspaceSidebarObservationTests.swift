@@ -77,6 +77,82 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func feedNeedsInputOverlayReplacesRunningStatusForSamePanel() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "codex")
+
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        workspace.recordAgentPID(
+            key: "codex.codex-session",
+            pid: 12_345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: attentionKey,
+            panelId: panelId,
+            lifecycle: .needsInput
+        )
+        workspace.statusEntries[attentionKey] = SidebarStatusEntry(
+            key: attentionKey,
+            value: FeedCoordinator.needsInputStatusValue,
+            icon: "bell.fill",
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+
+        #expect(
+            displayedKeys == Set([attentionKey]),
+            "A Feed Needs input overlay and the agent's Running status must not render as two rows for one panel."
+        )
+    }
+
+    @Test func feedNeedsInputOverlayDoesNotHideRunningAgentOnAnotherPanel() throws {
+        let workspace = Workspace()
+        let runningPanelId = try #require(workspace.focusedPanelId)
+        let waitingPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: "codex")
+
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        workspace.recordAgentPID(
+            key: "codex.running-session",
+            pid: 12_345,
+            panelId: runningPanelId,
+            refreshPorts: false
+        )
+        workspace.recordAgentPID(
+            key: "codex.waiting-session",
+            pid: 12_346,
+            panelId: waitingPanel.id,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(
+            key: attentionKey,
+            panelId: waitingPanel.id,
+            lifecycle: .needsInput
+        )
+        workspace.statusEntries[attentionKey] = SidebarStatusEntry(
+            key: attentionKey,
+            value: FeedCoordinator.needsInputStatusValue,
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+
+        #expect(
+            Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key)) == Set(["codex", attentionKey]),
+            "An attention overlay belongs to its panel, not every panel running the same agent."
+        )
+    }
+
     @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
