@@ -342,9 +342,14 @@ _cmux_install_cli_command_shim() {
     local wrapper_path="$2"
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    shim_root="${shim_root%/}"
     local shim_parent="${shim_root%/*}"
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local tmp_root="${TMPDIR:-/tmp}"
+    local legacy_shim_root="${tmp_root%/}/cmux-cli-shims/$surface_component"
+    local durable_shim_root="${HOME:-}/.cmuxterm/cmux-cli-shims/$surface_component"
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]]; then
+        [[ "${HOME:-}" == /* ]] || return 0
+        shim_root="$durable_shim_root"
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
@@ -374,8 +379,8 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' '        fi'
             printf '%s\n' '    fi'
             printf '%s\n' 'fi'
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%q\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%q\n' "$shim_root"
             printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
             printf '%s\n' '    exec "$cmux_wrapper" "$@"'
             printf '%s\n' 'fi'

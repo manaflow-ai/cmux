@@ -153,19 +153,26 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 // MARK: Filesystem
 
 extension TerminalSurfaceRuntimeFilesystem {
-    static func live() -> TerminalSurfaceRuntimeFilesystem {
+    static func live(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> TerminalSurfaceRuntimeFilesystem {
         let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
-            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+            wrapperDirectoryURL: homeDirectory
                 .appendingPathComponent(".local/bin", isDirectory: true)
         )
+        // Per-surface command shims are part of the lifetime of their pane.
+        // Keep them beside cmux's durable state so macOS's periodic `$TMPDIR`
+        // cleanup cannot remove a live pane's Claude entry from `PATH`.
+        let agentCommandShimRootDirectory = homeDirectory
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
         return TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            agentCommandShimRootDirectory: agentCommandShimRootDirectory,
             installAgentCommandShims: {
                 let fileManager = FileManager.default
                 return await TerminalSurface.installAgentCommandShimsIfPossible(
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
-                    temporaryDirectory: $2,
+                    rootDirectory: $2,
                     enabledCommands: $3,
                     hermesProfileAliasCatalog: hermesProfileAliasCatalog,
                     fileManager: fileManager
