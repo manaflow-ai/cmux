@@ -19,6 +19,7 @@ from urllib.parse import parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
 from test_app_host_test_products import TestProductHandoff
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 
 class ReuseProducts(TestProductHandoff):
