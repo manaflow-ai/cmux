@@ -9,6 +9,7 @@ import XCTest
 
 // MARK: - JSON Decoding
 
+@MainActor
 final class CmuxConfigDecodingTests: XCTestCase {
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
