@@ -1210,6 +1210,16 @@ export const coderouterAccounts = pgTable(
     cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
+    /**
+     * Last provider quota read for `cr` status. Display data: routing uses
+     * `cooldown_until`. Served while fresh so status does not call the
+     * provider once per account per request.
+     */
+    usage: jsonb("usage").$type<unknown>(),
+    usageError: text("usage_error"),
+    usageFetchedAt: timestamp("usage_fetched_at", { withTimezone: true }),
+    /** One web instance refreshes a stale reading at a time. */
+    usageRefreshClaimedAt: timestamp("usage_refresh_claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,6 +1,6 @@
 import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
@@ -626,6 +626,78 @@ export async function listCoderouterTeamIds(): Promise<readonly string[]> {
     .selectDistinct({ teamId: coderouterAccounts.teamId })
     .from(coderouterAccounts)
     .then((rows) => rows.map((row) => row.teamId));
+}
+
+export type StoredAccountUsage = {
+  readonly usage: unknown;
+  readonly usageError: string | null;
+  readonly fetchedAt: Date;
+};
+
+/** The last quota reading per account, for accounts that have one. */
+export async function storedAccountUsage(
+  teamId: string,
+): Promise<ReadonlyMap<string, StoredAccountUsage>> {
+  const rows = await cloudDb()
+    .select({
+      id: coderouterAccounts.id,
+      usage: coderouterAccounts.usage,
+      usageError: coderouterAccounts.usageError,
+      fetchedAt: coderouterAccounts.usageFetchedAt,
+    })
+    .from(coderouterAccounts)
+    .where(and(eq(coderouterAccounts.teamId, teamId), isNotNull(coderouterAccounts.usageFetchedAt)));
+  return new Map(rows.flatMap((row) => row.fetchedAt
+    ? [[row.id, { usage: row.usage ?? null, usageError: row.usageError, fetchedAt: row.fetchedAt }] as const]
+    : []));
+}
+
+/**
+ * Claims the stale readings this instance will refresh. An account whose
+ * refresh another instance claimed after `claimedBefore` is skipped, so
+ * concurrent status views issue one provider read per account.
+ */
+export async function claimAccountUsageRefresh(
+  teamId: string,
+  accountIds: readonly string[],
+  now: Date,
+  claimedBefore: Date,
+): Promise<readonly string[]> {
+  if (accountIds.length === 0) return [];
+  const rows = await cloudDb()
+    .update(coderouterAccounts)
+    .set({ usageRefreshClaimedAt: now })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      inArray(coderouterAccounts.id, [...accountIds]),
+      or(
+        isNull(coderouterAccounts.usageRefreshClaimedAt),
+        lt(coderouterAccounts.usageRefreshClaimedAt, claimedBefore),
+      ),
+    ))
+    .returning({ id: coderouterAccounts.id });
+  return rows.map((row) => row.id);
+}
+
+/** Records a quota reading. An older reading never replaces a newer one. */
+export async function storeAccountUsage(
+  teamId: string,
+  accountId: string,
+  reading: { readonly usage: unknown } | { readonly usageError: string },
+  fetchedAt: Date,
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      usage: "usage" in reading ? reading.usage : null,
+      usageError: "usageError" in reading ? reading.usageError : null,
+      usageFetchedAt: fetchedAt,
+    })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      eq(coderouterAccounts.id, accountId),
+      or(isNull(coderouterAccounts.usageFetchedAt), lt(coderouterAccounts.usageFetchedAt, fetchedAt)),
+    ));
 }
 
 export async function listEncryptedCredentials(
