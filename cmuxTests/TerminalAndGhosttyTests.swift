@@ -6630,6 +6630,97 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 }
 
 
+@MainActor
+final class TerminalWakeRefreshTests: XCTestCase {
+    private final class RefreshProbe: TerminalWakeRefreshable {
+        let isRendererEffectivelyVisible: Bool
+        private(set) var refreshReasons: [String] = []
+
+        init(isRendererEffectivelyVisible: Bool) {
+            self.isRendererEffectivelyVisible = isRendererEffectivelyVisible
+        }
+
+        func forceRefresh(reason: String) {
+            refreshReasons.append(reason)
+        }
+    }
+
+    func testScreenWakeNotifiesTerminalWakePath() {
+        let notificationCenter = NotificationCenter()
+        var screenWakeCount = 0
+        let observers = RemoteSessionPowerObserver().install(
+            in: notificationCenter,
+            onWillSleep: {},
+            onDidWake: {},
+            onScreensDidWake: { screenWakeCount += 1 }
+        )
+        defer {
+            for observer in observers {
+                notificationCenter.removeObserver(observer)
+            }
+        }
+
+        notificationCenter.post(name: NSWorkspace.screensDidWakeNotification, object: nil)
+
+        XCTAssertEqual(
+            screenWakeCount,
+            1,
+            "A display wake must reach the terminal refresh path even without a system wake notification"
+        )
+    }
+
+    func testWakeRefreshCoalescesAndSkipsHiddenSurfaces() {
+        let visible = RefreshProbe(isRendererEffectivelyVisible: true)
+        let hidden = RefreshProbe(isRendererEffectivelyVisible: false)
+        let scheduler = TerminalWakeRefreshScheduler()
+
+        scheduler.schedule(
+            surfaces: { [visible, hidden] },
+            reason: "workspace.didWake"
+        )
+        scheduler.schedule(
+            surfaces: { [visible, hidden] },
+            reason: "workspace.screensDidWake"
+        )
+
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while visible.refreshReasons.isEmpty,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(visible.refreshReasons, ["workspace.screensDidWake"])
+        XCTAssertTrue(hidden.refreshReasons.isEmpty)
+    }
+
+    func testAppDelegateSchedulesRefreshForDisplayWake() {
+#if DEBUG
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        appDelegate.debugInstallLifecycleSnapshotObserversForTesting()
+        let initialCount = appDelegate.debugTerminalWakeRefreshScheduleCount
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while appDelegate.debugTerminalWakeRefreshScheduleCount == initialCount,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(
+            appDelegate.debugTerminalWakeRefreshScheduleCount,
+            initialCount + 1,
+            "AppDelegate must route display wake into terminal refresh scheduling"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+}
+
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
