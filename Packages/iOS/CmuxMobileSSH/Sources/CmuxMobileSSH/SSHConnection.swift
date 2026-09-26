@@ -41,6 +41,9 @@ public actor SSHConnection {
     /// Future that completes when the connection closes.
     public nonisolated var closeFuture: EventLoopFuture<Void> { channel.closeFuture }
 
+    /// Whether the transport is still open.
+    public nonisolated var isOpen: Bool { channel.isActive }
+
     /// Connects and authenticates.
     ///
     /// - Parameters:

@@ -10,7 +10,12 @@ struct CmuxTUISurfaceResultWire: Decodable {
 extension CmuxTUIControl {
     /// Creates a screen (one pane, one terminal tab) in the workspace with
     /// numeric id `workspace` and returns the new terminal's surface id.
-    /// The server makes the new screen its active screen.
+    /// The server makes the new screen the tree's active screen. That is
+    /// only the shared default: an attached cmux-tui frontend (a laptop)
+    /// keeps its own current workspace, screen, pane, and tab
+    /// (`spec/frontends.md`), so creating from the phone does not move it.
+    /// The same holds for ``newTab(pane:cols:rows:)`` and
+    /// ``split(pane:direction:cols:rows:)``.
     public func newScreen(workspace: Int, cols: Int? = nil, rows: Int? = nil) async throws -> Int {
         var params: [String: CmuxTUIWireValue] = ["workspace": .int(workspace)]
         if let cols, let rows {
@@ -30,6 +35,24 @@ extension CmuxTUIControl {
         }
         return try await request("new-tab", params, as: CmuxTUISurfaceResultWire.self).surface
     }
+
+    /// Splits the screen containing `pane`: a new pane after it (to the
+    /// right, or below) with one terminal tab. Returns the new surface id.
+    /// The new terminal inherits the pane's working directory.
+    public func split(pane: Int, direction: CmuxTUISplitDirection, cols: Int? = nil, rows: Int? = nil) async throws -> Int {
+        var params: [String: CmuxTUIWireValue] = ["pane": .int(pane), "dir": .string(direction.rawValue)]
+        if let cols, let rows {
+            params["cols"] = .int(cols)
+            params["rows"] = .int(rows)
+        }
+        return try await request("split", params, as: CmuxTUISurfaceResultWire.self).surface
+    }
+}
+
+/// `split` direction: `right` makes left/right columns, `down` top/bottom rows.
+public enum CmuxTUISplitDirection: String, Sendable {
+    case right
+    case down
 }
 
 // MARK: - Geometry while visible

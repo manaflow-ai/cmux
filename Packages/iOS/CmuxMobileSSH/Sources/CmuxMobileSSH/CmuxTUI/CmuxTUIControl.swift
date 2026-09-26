@@ -20,7 +20,9 @@ public actor CmuxTUIControl {
     /// Required on both peers before a browser surface can be attached.
     public static let browserPointerGuardCapability = "browser-pointer-frame-guard-v1"
 
-    public nonisolated let session: String
+    /// The session name the caller asked for; `nil` when reached through a
+    /// hashed socket, whose file name does not carry it.
+    private let requestedSession: String?
     private let channel: SSHSessionChannel
     private let outbound: AsyncStream<Data>.Continuation
     private var serverInfo: CmuxTUIServerInfo?
@@ -35,9 +37,9 @@ public actor CmuxTUIControl {
     private var closed = false
     private var resourceScope: (machine: String, session: String)?
 
-    private init(channel: SSHSessionChannel, session: String) {
+    private init(channel: SSHSessionChannel, session: String?) {
         self.channel = channel
-        self.session = session
+        self.requestedSession = session
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         self.outbound = continuation
         Task {
@@ -52,7 +54,7 @@ public actor CmuxTUIControl {
 
     static func open(
         channel: SSHSessionChannel,
-        session: String,
+        session: String?,
         clientName: String,
         handshakeTimeout: Duration
     ) async throws -> CmuxTUIControl {
@@ -76,6 +78,12 @@ public actor CmuxTUIControl {
             throw await control.startupError(for: error)
         }
         return control
+    }
+
+    /// The session this connection serves, as its owner reports it in
+    /// `identify` (the requested name before the handshake completes).
+    public var session: String {
+        serverInfo?.session ?? requestedSession ?? ""
     }
 
     /// The server's `identify` result.
@@ -444,7 +452,8 @@ public actor CmuxTUIControl {
         let machines = try await requestV2("machine.list", [:], as: [CmuxTUIResourceIDWire].self)
         guard let machine = machines.first?.id else { throw CmuxTUIError.malformedResponse("machine.list: empty") }
         let sessions = try await requestV2("session.list", ["machine": .string(machine)], as: [CmuxTUIResourceIDWire].self)
-        guard let session = (sessions.first { $0.name == self.session } ?? sessions.first)?.id else {
+        let name = session
+        guard let session = (sessions.first { $0.name == name } ?? sessions.first)?.id else {
             throw CmuxTUIError.malformedResponse("session.list: empty")
         }
         resourceScope = (machine, session)

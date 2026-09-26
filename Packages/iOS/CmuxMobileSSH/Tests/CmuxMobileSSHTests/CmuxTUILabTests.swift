@@ -204,7 +204,8 @@ struct CmuxTUILabTests {
 
     private func sessionID(_ control: CmuxTUIControl) async throws -> String {
         let sessions = try await control.requestV2("session.list", ["machine": .string(try await machineID(control))], as: [CmuxTUIResourceIDWire].self)
-        return try #require(sessions.first { $0.name == control.session }).id
+        let name = await control.session
+        return try #require(sessions.first { $0.name == name }).id
     }
 
     /// Stops the owner and removes the session's durable state and terminal hosts.
