@@ -169,11 +169,11 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertEqual(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true),
-            [.files, .find, .sessions, .machines]
+            [.files, .find, .sessions, .machines, .reviews]
         )
         XCTAssertEqual(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false),
-            [.files, .find, .sessions]
+            [.files, .find, .sessions, .reviews]
         )
     }
 

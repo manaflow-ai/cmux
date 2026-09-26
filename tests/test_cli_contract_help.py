@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import git_fixture_env
+from test_review_runner import check_review_runner_contract
 
 
 START_MARKER = "<!-- cli-contract-help-probes:start -->"
@@ -192,6 +193,7 @@ def main() -> int:
     failures.extend(check_guide_contract(cli_path))
     failures.extend(check_task_help_contract(cli_path))
     failures.extend(check_review_ledger_contract(cli_path))
+    failures.extend(check_review_runner_contract(cli_path))
     for probe in probes:
         try:
             result = run_probe(cli_path, probe)
