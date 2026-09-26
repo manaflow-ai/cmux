@@ -4007,7 +4007,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tabId: UUID?
     var selectionTranslationHostView: NSView?
     var firstResponderFocusTransactionId: UUID?
+    /// Marks the synchronous AppKit request that may be replayed after reparent suppression.
+    private var isExplicitFirstResponderRequestInFlight = false
     var onFocus: (() -> Void)?
+    private var pendingSuppressedFirstResponderFocus = false
+    private var pendingSuppressedFirstResponderFocusTransactionId: UUID?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
     private var appliedColorScheme: ghostty_color_scheme_e?
@@ -4015,6 +4019,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLoggedWindowBackgroundSignature: String?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
+
+    /// Makes this terminal the AppKit first responder while identifying the request as explicit.
+    func makeFirstResponderForExplicitFocus(in window: NSWindow) -> Bool {
+        let previousState = isExplicitFirstResponderRequestInFlight
+        isExplicitFirstResponderRequestInFlight = true
+        defer { isExplicitFirstResponderRequestInFlight = previousState }
+        return window.makeFirstResponder(self)
+    }
+
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
@@ -6481,6 +6494,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
+                if isExplicitFirstResponderRequestInFlight {
+                    pendingSuppressedFirstResponderFocus = true
+                    pendingSuppressedFirstResponderFocusTransactionId = firstResponderFocusTransactionId
+                }
                 let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
                 if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
                     terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
@@ -6493,6 +6510,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return result
             }
 
+            pendingSuppressedFirstResponderFocus = false
+            pendingSuppressedFirstResponderFocusTransactionId = nil
             // Always notify the host app that this pane became the first responder so bonsplit
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
             // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
@@ -6500,7 +6519,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
             if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
                 shouldApplySurfaceFocus = true
-                onFocus?()
             } else if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
 #if DEBUG
                 cmuxDebugLog(
@@ -6519,49 +6537,94 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // surface is still spawning survives; gating the mirror on the runtime
         // left nothing for that reconciliation to converge to.
         if result, shouldApplySurfaceFocus {
-            terminalSurface?.recordExternalFocusState(true)
-            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
-        }
-        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
-            let now = CACurrentMediaTime()
-            let deltaMs = (now - lastScrollEventTime) * 1000
-            Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
-#if DEBUG
-            cmuxDebugLog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
-            if let terminalSurface {
-                AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
-                    tabId: terminalSurface.tabId,
-                    surfaceId: terminalSurface.id
-                )
-            }
-#endif
-            if let terminalSurface {
-                var userInfo: [AnyHashable: Any] = [
-                    GhosttyNotificationKey.tabId: terminalSurface.tabId,
-                    GhosttyNotificationKey.surfaceId: terminalSurface.id,
-                ]
-                if let firstResponderFocusTransactionId {
-                    userInfo[GhosttyNotificationKey.focusTransactionId] = firstResponderFocusTransactionId
-                }
-                NotificationCenter.default.post(
-                    name: .ghosttyDidBecomeFirstResponderSurface,
-                    object: nil,
-                    userInfo: userInfo
-                )
-            }
-            ghostty_surface_set_focus(surface, true)
-
-            // Ghostty only restarts its vsync display link on display-id changes while focused.
-            // During rapid split close / SwiftUI reparenting, the view can reattach to a window
-            // and get its display id set *before* it becomes first responder; in that case, the
-            // renderer can remain stuck until some later screen/focus transition. Reassert the
-            // display id now that we're focused to ensure the renderer is running.
-            if let displayID = window?.screen?.displayID, displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
-            }
-            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
+            applyFirstResponderFocus(focusTransactionId: firstResponderFocusTransactionId)
         }
         return result
+    }
+
+    /// Delivers the workspace and Ghostty focus side effects for a confirmed first-responder transition.
+    private func applyFirstResponderFocus(focusTransactionId: UUID? = nil) {
+        let previousFocusTransactionId = firstResponderFocusTransactionId
+        self.firstResponderFocusTransactionId = focusTransactionId
+        defer {
+            firstResponderFocusTransactionId = previousFocusTransactionId
+        }
+
+        onFocus?()
+        terminalSurface?.recordExternalFocusState(true)
+        terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
+        guard let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) else { return }
+
+        let now = CACurrentMediaTime()
+        let deltaMs = (now - lastScrollEventTime) * 1000
+        Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+#if DEBUG
+        cmuxDebugLog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        if let terminalSurface {
+            AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
+                tabId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        }
+#endif
+        if let terminalSurface {
+            var userInfo: [AnyHashable: Any] = [
+                GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                GhosttyNotificationKey.surfaceId: terminalSurface.id,
+            ]
+            if let firstResponderFocusTransactionId {
+                userInfo[GhosttyNotificationKey.focusTransactionId] = firstResponderFocusTransactionId
+            }
+            NotificationCenter.default.post(
+                name: .ghosttyDidBecomeFirstResponderSurface,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+        ghostty_surface_set_focus(surface, true)
+
+        // Ghostty only restarts its vsync display link on display-id changes while focused.
+        // During rapid split close / SwiftUI reparenting, the view can reattach to a window
+        // and get its display id set *before* it becomes first responder; in that case, the
+        // renderer can remain stuck until some later screen/focus transition. Reassert the
+        // display id now that we're focused to ensure the renderer is running.
+        if let displayID = window?.screen?.displayID, displayID != 0 {
+            ghostty_surface_set_display_id(surface, displayID)
+        }
+        terminalSurface?.forceRefresh(reason: "focus.firstResponder")
+    }
+
+    /// Replays an explicit focus request that AppKit delivered while reparent suppression was active.
+    @discardableResult
+    func replaySuppressedFirstResponderFocusIfNeeded() -> Bool {
+        guard pendingSuppressedFirstResponderFocus,
+              !suppressingReparentFocus,
+              isVisibleInUI,
+              hasUsableFocusGeometry,
+              !isHiddenOrHasHiddenAncestor,
+              let window,
+              let firstResponder = window.firstResponder as? NSView,
+              firstResponder === self || firstResponder.isDescendant(of: self) else {
+            return false
+        }
+
+        let focusTransactionId = pendingSuppressedFirstResponderFocusTransactionId
+        pendingSuppressedFirstResponderFocus = false
+        pendingSuppressedFirstResponderFocusTransactionId = nil
+#if DEBUG
+        cmuxDebugLog(
+            "focus.firstResponder REPLAY (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "transaction=\(focusTransactionId?.uuidString.prefix(5) ?? "nil")"
+        )
+#endif
+        applyFirstResponderFocus(focusTransactionId: focusTransactionId)
+        return true
+    }
+
+    /// Drops a suppressed focus request when a newer focus owner makes it stale.
+    func discardSuppressedFirstResponderFocus() {
+        pendingSuppressedFirstResponderFocus = false
+        pendingSuppressedFirstResponderFocusTransactionId = nil
     }
 
     override func resignFirstResponder() -> Bool {
@@ -6571,6 +6634,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             manualNamedKeyConsumedKeyUps.removeAll()
             textEditingGestureConsumedKeyUps.removeAll()
             desiredFocus = false
+            discardSuppressedFirstResponderFocus()
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
             )
@@ -11994,12 +12058,10 @@ final class GhosttySurfaceScrollView: NSView {
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
-            let previousFocusTransactionId = self.surfaceView.firstResponderFocusTransactionId
-            self.surfaceView.firstResponderFocusTransactionId = focusTransactionId
-            defer {
-                self.surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
-            }
-            let result = window.makeFirstResponder(self.surfaceView)
+            let result = self.makeSurfaceViewFirstResponder(
+                in: window,
+                focusTransactionId: focusTransactionId
+            )
 #if DEBUG
             cmuxDebugLog(
                 "find.moveFocus.apply to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -12119,7 +12181,7 @@ final class GhosttySurfaceScrollView: NSView {
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> Bool {
         guard let window = uiWindow else { return false }
-        window.makeFirstResponder(surfaceView)
+        _ = makeSurfaceViewFirstResponder(in: window, focusTransactionId: nil)
 
         let timestamp = ProcessInfo.processInfo.systemUptime
         guard let keyDown = NSEvent.keyEvent(
@@ -12368,7 +12430,7 @@ final class GhosttySurfaceScrollView: NSView {
         defer {
             surfaceView.firstResponderFocusTransactionId = previousFocusTransactionId
         }
-        return window.makeFirstResponder(surfaceView)
+        return surfaceView.makeFirstResponderForExplicitFocus(in: window)
     }
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
@@ -12392,6 +12454,24 @@ final class GhosttySurfaceScrollView: NSView {
         return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
+    private func canReplaySuppressedFirstResponderFocus(in window: NSWindow) -> Bool {
+        guard let tabId = surfaceView.tabId,
+              let panelId = surfaceView.terminalSurface?.id else {
+            return true
+        }
+        guard isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+            return false
+        }
+        guard AppDelegate.shared?.allowsTerminalKeyboardFocus(
+            workspaceId: tabId,
+            panelId: panelId,
+            in: window
+        ) != false else {
+            return false
+        }
+        return AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true
+    }
+
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
     /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
     func suppressReparentFocus() {
@@ -12411,6 +12491,7 @@ final class GhosttySurfaceScrollView: NSView {
     func clearReparentFocusSuppressionForPointerFocus() {
         guard surfaceView.suppressingReparentFocus else { return }
         surfaceView.suppressingReparentFocus = false
+        surfaceView.discardSuppressedFirstResponderFocus()
 #if DEBUG
         cmuxDebugLog("focus.reparent.pointerClear surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -12456,6 +12537,14 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")
 #endif
+        let canReplaySuppressedFocus = canReplaySuppressedFirstResponderFocus(in: window)
+        if canReplaySuppressedFocus,
+           surfaceView.replaySuppressedFirstResponderFocusIfNeeded() {
+            return
+        }
+        if !canReplaySuppressedFocus {
+            surfaceView.discardSuppressedFirstResponderFocus()
+        }
         reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus", force: true)
     }
 
@@ -12718,6 +12807,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            if surfaceView.replaySuppressedFirstResponderFocusIfNeeded() {
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "applyFirstResponder.alreadyFirstResponder")
             return
         }

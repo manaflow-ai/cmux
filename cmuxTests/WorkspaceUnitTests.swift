@@ -5307,6 +5307,202 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #endif
     }
 
+    func testClearSuppressReparentFocusReplaysSwallowedFirstResponderFeedback() async throws {
+#if DEBUG
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+        workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+
+        let window = makeWindow()
+        fixture.bind(to: window)
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        leftPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setActive(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        let layoutReady = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            window.isKeyWindow &&
+                surfaceView(in: leftPanel.hostedView) != nil &&
+                !leftPanel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
+        }
+        XCTAssertTrue(layoutReady, "Expected window layout and first-responder work to settle")
+
+        guard surfaceView(in: leftPanel.hostedView) != nil else {
+            XCTFail("Expected left terminal surface view")
+            return
+        }
+
+        var focusCallbackCount = 0
+        leftPanel.hostedView.setFocusHandler {
+            focusCallbackCount += 1
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+        var observedTransaction: UUID?
+        let token = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidBecomeFirstResponderSurface,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
+                return
+            }
+            observedTransaction = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        window.makeFirstResponder(nil)
+        leftPanel.surface.setFocus(false)
+        leftPanel.hostedView.suppressReparentFocus()
+
+        let transactionId = UUID()
+        leftPanel.hostedView.ensureFocus(
+            for: workspace.id,
+            surfaceId: leftPanel.id,
+            focusTransactionId: transactionId
+        )
+
+        XCTAssertTrue(
+            leftPanel.hostedView.isSurfaceViewFirstResponder(),
+            "The suppressed focus request should still move AppKit first responder"
+        )
+        XCTAssertEqual(
+            focusCallbackCount,
+            0,
+            "Reparent suppression should hold the workspace callback until the layout follow-up"
+        )
+        XCTAssertNil(observedTransaction)
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+
+        XCTAssertEqual(
+            focusCallbackCount,
+            1,
+            "Clearing reparent suppression should replay the swallowed workspace focus callback"
+        )
+        XCTAssertEqual(
+            observedTransaction,
+            transactionId,
+            "Replayed first-responder feedback should preserve the original focus transaction"
+        )
+        XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
+
+        focusCallbackCount = 0
+        observedTransaction = nil
+        window.makeFirstResponder(nil)
+        leftPanel.surface.setFocus(false)
+        leftPanel.hostedView.suppressReparentFocus()
+        leftPanel.hostedView.ensureFocus(
+            for: workspace.id,
+            surfaceId: leftPanel.id
+        )
+
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertEqual(
+            focusCallbackCount,
+            0,
+            "Reparent suppression should hold an explicit focus request without a transaction ID"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+
+        XCTAssertEqual(
+            focusCallbackCount,
+            1,
+            "Explicit focus requests without transaction IDs should still replay after suppression"
+        )
+        XCTAssertNil(observedTransaction)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testClearSuppressReparentFocusDoesNotReplayIncidentalResponderHandoff() async throws {
+#if DEBUG
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) != nil else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+        workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+
+        let window = makeWindow()
+        fixture.bind(to: window)
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        leftPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setActive(true)
+
+        var focusCallbackCount = 0
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        let layoutReady = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            window.isKeyWindow &&
+                surfaceView(in: leftPanel.hostedView) != nil &&
+                !leftPanel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
+        }
+        XCTAssertTrue(layoutReady, "Expected window layout and first-responder work to settle")
+        guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
+            XCTFail("Expected left terminal surface view")
+            return
+        }
+        leftPanel.hostedView.setFocusHandler {
+            focusCallbackCount += 1
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+
+        window.makeFirstResponder(nil)
+        leftPanel.surface.setFocus(false)
+        leftPanel.hostedView.suppressReparentFocus()
+        XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertEqual(
+            focusCallbackCount,
+            0,
+            "An incidental responder handoff remains suppressed during reparent protection"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+
+        XCTAssertEqual(
+            focusCallbackCount,
+            0,
+            "Clearing reparent suppression must not replay an incidental responder handoff"
+        )
+        XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testLayoutFollowUpClearsPendingReparentSuppressionWithoutResponderEvent() throws {
 #if DEBUG
         let workspace = Workspace()

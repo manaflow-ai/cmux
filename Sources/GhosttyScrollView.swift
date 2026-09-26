@@ -178,7 +178,9 @@ final class GhosttyScrollView: NSScrollView {
         // which causes pane-content drift instead of terminal scrollback movement.
         GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
         if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
+            if let window {
+                _ = surfaceView.makeFirstResponderForExplicitFocus(in: window)
+            }
         }
         surfaceView.scrollWheel(with: event)
     }
