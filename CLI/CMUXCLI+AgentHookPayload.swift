@@ -202,7 +202,7 @@ extension CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "reason", "stop_reason", "stopReason", "terminationReason", "termination_reason":
             return 240
