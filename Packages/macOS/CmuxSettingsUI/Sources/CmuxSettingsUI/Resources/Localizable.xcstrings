@@ -4622,6 +4622,242 @@
           }
         }
       }
+    },
+    "settings.automation.agentPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenbereiche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneles de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneaux d’agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理面板"
+          }
+        }
+      }
+    },
+    "settings.automation.agentPanes.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to new Claude Code launches, including plain claude sessions and cmux claude-teams."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينطبق على عمليات تشغيل Claude Code الجديدة، بما في ذلك جلسات claude العادية وcmux claude-teams."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt für neue Claude-Code-Starts, einschließlich normaler claude-Sitzungen und cmux claude-teams."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplica a los nuevos lanzamientos de Claude Code, incluidas las sesiones normales de claude y cmux claude-teams."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S’applique aux nouveaux lancements de Claude Code, y compris les sessions claude normales et cmux claude-teams."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常の claude セッションと cmux claude-teams を含む、新しい Claude Code 起動に適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 claude 세션과 cmux claude-teams를 포함한 새 Claude Code 실행에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于新的 Claude Code 启动，包括普通 claude 会话和 cmux claude-teams。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用於新的 Claude Code 啟動，包括一般 claude 工作階段和 cmux claude-teams。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentPanes.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude teammates and Task subagents stay inline in the parent pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى وكلاء Claude وأعضاء Task الفرعيون داخل اللوحة الأصلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Teammitglieder und Task-Subagenten bleiben im übergeordneten Bereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los compañeros de Claude y los subagentes de Task permanecen en el panel principal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les coéquipiers Claude et les sous-agents Task restent dans le panneau parent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude のチームメイトと Task サブエージェントは親ペイン内で実行されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 팀원과 Task 하위 에이전트가 부모 패널 안에 유지됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 队友和 Task 子代理会留在父面板中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 隊友和 Task 子代理會留在父面板中。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentPanes.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each Claude teammate or Task subagent opens in its own pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح كل وكيل Claude أو وكيل Task فرعي في لوحة خاصة به."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Claude-Teamkollege oder Task-Subagent öffnet einen eigenen Bereich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada compañero de Claude o subagente de Task se abre en su propio panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque coéquipier Claude ou sous-agent Task ouvre son propre panneau."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude の各チームメイトまたは Task サブエージェントが専用ペインで開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 Claude 팀원 또는 Task 하위 에이전트가 전용 패널에서 열립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 Claude 队友或 Task 子代理都会在自己的面板中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個 Claude 隊友或 Task 子代理都會在自己的面板中開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

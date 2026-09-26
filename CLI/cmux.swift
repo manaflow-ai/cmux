@@ -23550,7 +23550,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        launchContext: TmuxCompatLaunchContext?, commandArgs: [String]
+        launchContext: TmuxCompatLaunchContext?, commandArgs: [String], agentPanesEnabled: Bool
     ) {
         clearInheritedClaudeLaunchEnvironment()
         defer {
@@ -23572,7 +23572,10 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs) + [
+            extraEnvVars: claudeTeamsExtraEnvVars(
+                commandArgs: commandArgs,
+                agentPanesEnabled: agentPanesEnabled
+            ) + [
                 (key: "CMUX_CLAUDE_TEAMS_TMUX_SHIM", value: shimDirectory.appendingPathComponent("tmux").path),
             ]
         )
@@ -23635,6 +23638,7 @@ struct CMUXCLI {
         explicitPassword: String?
     ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
+        let agentPanesEnabled = AgentIntegrationSettingsStore(defaults: .standard).agentPanesEnabled
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath; launcherEnvironment.removeValue(forKey: "CMUX_SOCKET")
         if let explicitPassword,
@@ -23681,14 +23685,19 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            launchContext: launchContext, commandArgs: commandArgs
+            launchContext: launchContext,
+            commandArgs: commandArgs,
+            agentPanesEnabled: agentPanesEnabled
         )
 
         let managedClaudeWrapperURL = launchesAgentSession
             ? shimPlan.managedClaudeWrapperURL
             : nil
         let launchPath = managedClaudeWrapperURL?.path ?? claudeExecutablePath
-        let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        let launchArguments = claudeTeamsLaunchArguments(
+            commandArgs: commandArgs,
+            agentPanesEnabled: agentPanesEnabled
+        )
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
             executablePath: executablePath,
@@ -23704,7 +23713,10 @@ struct CMUXCLI {
         } else {
             unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
         }
-        var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
+        var argv = ([launchPath] + claudeTeamsExecArguments(
+            commandArgs: commandArgs,
+            agentPanesEnabled: agentPanesEnabled
+        )).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -27586,6 +27598,14 @@ struct CMUXCLI {
         }
 
         switch subcommand {
+        case "agent-pane":
+            // This hook is synchronous middleware for the following Claude
+            // tool call. It does not publish Feed telemetry; the adjacent
+            // queued PreToolUse hook owns that projection.
+            didSendFeedTelemetry = true
+            print(claudeAgentPaneHookResponse(input: parsedInput, environment: env))
+            return
+
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
             guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(

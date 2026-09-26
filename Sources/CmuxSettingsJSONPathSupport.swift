@@ -366,6 +366,10 @@ enum AutomationSettingsFileMapping {
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
         ),
+        .init(
+            jsonKey: "agentPanesEnabled",
+            defaultsKey: automation.agentPanesEnabled.userDefaultsKey
+        ),
         .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),

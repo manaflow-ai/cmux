@@ -81,7 +81,7 @@ extension TerminalSurface {
     }
 
     private static var reservedAgentCommandShimNames: Set<String> {
-        Set(TerminalSurfaceAgentCommandShimDefinition.bundled.map(\.commandName))
+        Set(TerminalSurfaceAgentCommandShimDefinition.bundled.map(\.commandName)).union(["tmux"])
     }
 
     private static func installAgentCommandShimsIfPossible(
@@ -165,6 +165,57 @@ extension TerminalSurface {
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
+
+        // Claude Code selects its teammate backend by invoking `tmux`. Keep a
+        // cmux-compatible command in the same managed PATH directory so plain
+        // Claude sessions use the exact backend as `cmux claude-teams`. The
+        // shim falls through to the user's real tmux unless the agent-pane
+        // launch contract is active, so ordinary terminal tmux usage is
+        // unchanged.
+        let tmuxShimURL = stagingDirectory.appendingPathComponent("tmux", isDirectory: false)
+        let tmuxShimScript = """
+        #!/bin/bash
+        set -euo pipefail
+        cmux_tmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+        if [[ -z "$cmux_tmux_cli" ]]; then
+            cmux_tmux_cli="$(command -v cmux 2>/dev/null || true)"
+        fi
+        if [[ "${CMUX_AGENT_PANES_ENABLED:-0}" != "1" && "${CMUX_CLAUDE_TEAMS_PANES_ENABLED:-0}" != "1" ]]; then
+            cmux_tmux_shim_dir="$(cd -P -- "$(dirname -- "$0")" && pwd)"
+            cmux_tmux_path=""
+            IFS=: read -r -a cmux_tmux_entries <<< "${PATH-}"
+            for cmux_tmux_entry in "${cmux_tmux_entries[@]}"; do
+                [[ "$cmux_tmux_entry" == "$cmux_tmux_shim_dir" ]] && continue
+                if [[ -z "$cmux_tmux_path" ]]; then
+                    cmux_tmux_path="$cmux_tmux_entry"
+                else
+                    cmux_tmux_path+=":$cmux_tmux_entry"
+                fi
+            done
+            if [[ -n "$cmux_tmux_path" ]]; then
+                cmux_real_tmux="$(PATH="$cmux_tmux_path" command -v tmux 2>/dev/null || true)"
+                if [[ -n "$cmux_real_tmux" && "$cmux_real_tmux" != "$0" ]]; then
+                    exec "$cmux_real_tmux" "$@"
+                fi
+            fi
+        fi
+        [[ -n "$cmux_tmux_cli" ]] || { echo "cmux: tmux compatibility CLI is unavailable" >&2; exit 127; }
+        exec "$cmux_tmux_cli" __tmux-compat "$@"
+        """
+        do {
+            try tmuxShimScript.write(to: tmuxShimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tmuxShimURL.path)
+            shims.append(TerminalSurfaceAgentCommandShim(
+                commandName: "tmux",
+                wrapperName: "cmux-tmux-compat",
+                environmentVariablePrefix: "CMUX_TMUX",
+                directoryPath: shimDirectory.path,
+                executablePath: shimDirectory.appendingPathComponent("tmux", isDirectory: false).path
+            ))
+        } catch {
+            // Agent wrappers remain useful without tmux; Claude Code will then
+            // use its own native fallback backend.
+        }
         do {
             if fileManager.fileExists(atPath: shimDirectory.path) {
                 _ = try fileManager.replaceItemAt(

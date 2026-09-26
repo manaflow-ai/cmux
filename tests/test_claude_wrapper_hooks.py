@@ -71,6 +71,7 @@ def generated_claude_hook_settings() -> str:
         "UserPromptSubmit": [queued("prompt-submit")],
         "PreToolUse": [
             direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
+            direct(f"{direct_cli} hooks claude agent-pane", 5, matcher="Task|Agent"),
             queued("pre-tool-use"),
         ],
         "PostToolUse": [queued("push-notification", matcher="PushNotification")],
@@ -132,6 +133,7 @@ def run_wrapper(
     generated_hook_settings: str | None = None,
     help_output: str | None = None,
     help_behavior: str = "success",
+    agent_panes_enabled: bool | None = None,
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -290,6 +292,10 @@ exit 0
             else generated_hook_settings
         )
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
+        if agent_panes_enabled is not None:
+            env["CMUX_AGENT_PANES_ENABLED"] = "1" if agent_panes_enabled else "0"
+        else:
+            env.pop("CMUX_AGENT_PANES_ENABLED", None)
         env["CLAUDECODE"] = "nested-session-sentinel"
         env.pop("CMUX_CLAUDE_HOOK_CMUX_BIN", None)
         if hooks_disabled:
@@ -703,6 +709,18 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"CronCreate guard should synchronously call hooks claude cron-create-guard, got {cron_guard_hooks}",
             failures,
         )
+    agent_pane_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "Task|Agent"]
+    expect(agent_pane_groups, f"PreToolUse should install a Task|Agent pane hook, got {pre_tool_use_groups}", failures)
+    if agent_pane_groups:
+        expect(
+            any(
+                "hooks claude agent-pane" in hook.get("command", "")
+                and hook.get("async") is not True
+                for hook in agent_pane_groups[0].get("hooks", [])
+            ),
+            f"Task|Agent hook should synchronously call hooks claude agent-pane, got {agent_pane_groups}",
+            failures,
+        )
 
     # PushNotification delivers via a raw OSC notification that cmux suppresses
     # for agent surfaces and never fires the Notification hook, so a PostToolUse
@@ -770,6 +788,38 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     expect(
         any(h.get("timeout") == 5 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        failures,
+    )
+
+
+def test_agent_panes_toggle_prepares_plain_claude_launch(failures: list[str]) -> None:
+    enabled = run_wrapper(
+        socket_state="live",
+        argv=[],
+        agent_panes_enabled=True,
+    )
+    expect(enabled[0] == 0, f"agent panes enabled: wrapper exited {enabled[0]}: {enabled[3]}", failures)
+    try:
+        teammate_mode_index = enabled[1].index("--teammate-mode")
+    except ValueError:
+        teammate_mode_index = -1
+    expect(
+        teammate_mode_index >= 0
+        and teammate_mode_index + 1 < len(enabled[1])
+        and enabled[1][teammate_mode_index + 1] == "auto",
+        f"agent panes enabled: expected automatic teammate mode, got {enabled[1]}",
+        failures,
+    )
+
+    disabled = run_wrapper(
+        socket_state="live",
+        argv=[],
+        agent_panes_enabled=False,
+    )
+    expect(disabled[0] == 0, f"agent panes disabled: wrapper exited {disabled[0]}: {disabled[3]}", failures)
+    expect(
+        "--teammate-mode" not in disabled[1],
+        f"agent panes disabled: wrapper unexpectedly changed argv {disabled[1]}",
         failures,
     )
 
@@ -2994,6 +3044,7 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_agent_panes_toggle_prepares_plain_claude_launch(failures)
     test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)

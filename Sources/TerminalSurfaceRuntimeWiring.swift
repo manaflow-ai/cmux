@@ -61,6 +61,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             customClaudePath: integrations.customClaudePath,
             subagentNotificationEnvironmentKey: AgentIntegrationSettingsStore.subagentSuppressionEnvironmentKey,
             suppressSubagentNotifications: integrations.suppressesSubagentNotifications,
+            agentPanesEnabled: integrations.agentPanesEnabled,
             cursorHooksEnabled: integrations.cursorHooksEnabled,
             geminiHooksEnabled: integrations.geminiHooksEnabled,
             kiroHooksEnabled: integrations.kiroHooksEnabled,

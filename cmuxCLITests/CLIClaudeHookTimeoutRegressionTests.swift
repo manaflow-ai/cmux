@@ -165,6 +165,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
         for (event, subcommand) in queuedHooks {
             try expectQueuedHook(hooks, event: event, subcommand: subcommand)
         }
+        let agentPaneHooks = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        #expect(agentPaneHooks.contains { group in
+            guard group["matcher"] as? String == "Task|Agent",
+                  let nested = group["hooks"] as? [[String: Any]] else { return false }
+            return nested.contains { hook in
+                (hook["command"] as? String)?.contains("hooks claude agent-pane") == true
+            }
+        })
         try expectDirectHook(
             hooks,
             event: "PreToolUse",

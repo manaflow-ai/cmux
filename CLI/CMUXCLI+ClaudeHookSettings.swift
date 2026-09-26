@@ -47,6 +47,11 @@ extension CMUXCLI {
                 command: "\(hookCLI) hooks claude cron-create-guard",
                 timeout: 5
             ),
+            Self.claudeHookGroup(
+                matcher: "Task|Agent",
+                command: "\(hookCLI) hooks claude agent-pane",
+                timeout: 5
+            ),
             Self.claudeQueuedHookGroup(
                 subcommand: "pre-tool-use"
             ),

@@ -239,9 +239,14 @@ extension CMUXCLI {
     /// `cmux __tmux-compat` process and cannot see this argv) re-apply the same
     /// decision without re-deriving it from untrusted command text — see
     /// `tmuxClaudeTeamsRespawnEnvironment()`.
-    func claudeTeamsExtraEnvVars(commandArgs: [String]) -> [(key: String, value: String)] {
+    func claudeTeamsExtraEnvVars(
+        commandArgs: [String],
+        agentPanesEnabled: Bool = true
+    ) -> [(key: String, value: String)] {
         var vars: [(key: String, value: String)] = [
             (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+            (key: "CMUX_AGENT_PANES_ENABLED", value: agentPanesEnabled ? "1" : "0"),
+            (key: "CMUX_CLAUDE_TEAMS_PANES_ENABLED", value: agentPanesEnabled ? "1" : "0"),
         ]
         if claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) {
             vars.append((key: "CLAUDE_CODE_SANDBOXED", value: "1"))
@@ -250,11 +255,14 @@ extension CMUXCLI {
         return vars
     }
 
-    func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
+    func claudeTeamsLaunchArguments(
+        commandArgs: [String],
+        agentPanesEnabled: Bool = true
+    ) -> [String] {
         guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
             return commandArgs
         }
-        return ["--teammate-mode", "auto"] + commandArgs
+        return ["--teammate-mode", agentPanesEnabled ? "auto" : "in-process"] + commandArgs
     }
 
     func claudeTeamsHasExplicitSystemPrompt(commandArgs: [String]) -> Bool {
@@ -296,9 +304,15 @@ extension CMUXCLI {
     /// split-pane-teammate system-prompt nudge (see `claudeTeamsTeamSpawnGuidance`).
     /// The nudge is inserted right after a leading `--teammate-mode <value>` pair so
     /// callers/tests that expect that pair first keep working.
-    func claudeTeamsExecArguments(commandArgs: [String]) -> [String] {
-        let base = claudeTeamsLaunchArguments(commandArgs: commandArgs)
-        guard !claudeTeamsHasExplicitSystemPrompt(commandArgs: commandArgs) else {
+    func claudeTeamsExecArguments(
+        commandArgs: [String],
+        agentPanesEnabled: Bool = true
+    ) -> [String] {
+        let base = claudeTeamsLaunchArguments(
+            commandArgs: commandArgs,
+            agentPanesEnabled: agentPanesEnabled
+        )
+        guard agentPanesEnabled, !claudeTeamsHasExplicitSystemPrompt(commandArgs: commandArgs) else {
             return base
         }
         let nudge = ["--append-system-prompt", claudeTeamsTeamSpawnGuidance]

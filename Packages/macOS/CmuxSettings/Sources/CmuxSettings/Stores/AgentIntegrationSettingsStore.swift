@@ -61,4 +61,8 @@ public struct AgentIntegrationSettingsStore: AgentIntegrationSettingsReading {
     public var suppressesSubagentNotifications: Bool {
         keys.suppressSubagentNotifications.value(in: defaults)
     }
+
+    public var agentPanesEnabled: Bool {
+        keys.agentPanesEnabled.value(in: defaults)
+    }
 }

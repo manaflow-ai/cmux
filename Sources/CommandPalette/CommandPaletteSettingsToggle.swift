@@ -839,6 +839,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentPanes",
+                settingsKey: "automation.agentPanesEnabled",
+                title: {
+                    String(localized: "settings.automation.agentPanes", defaultValue: "Agent Panes")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.agentPanesEnabled", "agent", "panes", "subagent", "teammate", "claude", "task"],
+                defaultValue: IntegrationsCatalogSection().agentPanesEnabled.defaultValue,
+                defaultsKey: IntegrationsCatalogSection().agentPanesEnabled.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
                 settingsKey: "automation.cursorIntegration",
                 title: {
