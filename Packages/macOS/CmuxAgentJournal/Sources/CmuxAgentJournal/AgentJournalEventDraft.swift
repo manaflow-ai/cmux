@@ -97,7 +97,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     ///   - isSubagent: Whether the event came from a nested agent session.
     ///   - pendingWork: Whether a completed turn left live background work.
     ///   - nativeEvent: The adapter's native hook event name.
-    ///   - declaredPhase: Explicit phase assertion for `stateChanged` events.
+    ///   - declaredPhase: Explicit phase assertion for `stateChanged`, or the initial phase of `sessionStarted`.
     ///   - detail: Short human-readable context.
     ///   - attention: Structured causal identity and optional notification.
     public init(

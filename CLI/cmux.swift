@@ -1562,7 +1562,10 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: false,
+                // A resumed Claude process is already back at its prompt: no
+                // turn is active yet, so its persisted session can safely be
+                // reclaimed by Agent Hibernation immediately after restore.
+                isRestorable: normalizedSource == "resume",
                 agentLifecycle: .idle,
                 hookEventName: hookEventName,
                 lastSubtitle: nil,
@@ -27691,6 +27694,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     isSubagent: suppressVisibleMutations,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    declaredPhase: sessionStartSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "resume" ? .idle : nil,
                     detail: isClearSessionStart ? "clear-session-start" : nil,
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),

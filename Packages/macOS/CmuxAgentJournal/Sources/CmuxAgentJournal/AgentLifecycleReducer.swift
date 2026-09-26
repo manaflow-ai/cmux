@@ -97,7 +97,7 @@ public struct AgentLifecycleReducer: Sendable {
     ) -> (phase: AgentLifecyclePhase, ended: Bool)? {
         switch draft.kind {
         case .sessionStarted:
-            return (.unknown, false)
+            return (draft.declaredPhase ?? .unknown, false)
         case .turnStarted, .attentionResolved:
             return (.running, false)
         case .turnCompleted, .idleObserved:

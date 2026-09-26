@@ -200,6 +200,9 @@ public struct AgentNotificationReconciler: Sendable {
             return .init(.observation)
         case .sessionStarted:
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }
+            if session.phase == .unknown, let phase = draft.declaredPhase {
+                session.phase = phase
+            }
             session.ended = false
         case .turnStarted:
             session.rootStopped = false
