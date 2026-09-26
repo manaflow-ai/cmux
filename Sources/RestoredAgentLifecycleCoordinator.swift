@@ -176,14 +176,11 @@ final class RestoredAgentLifecycleCoordinator {
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot?,
         manualResumeAvailable: Bool,
-        willRunStartupCommand: Bool,
         willRunStartupInput: Bool,
         resumeWorkingDirectory: String?
     ) {
         let resumeState: Workspace.RestoredAgentResumeState?
-        if willRunStartupCommand {
-            resumeState = .autoResumeCommandRunning
-        } else if willRunStartupInput {
+        if willRunStartupInput {
             resumeState = .awaitingAutoResumeCommand
         } else if manualResumeAvailable {
             resumeState = .manualResumeAvailable

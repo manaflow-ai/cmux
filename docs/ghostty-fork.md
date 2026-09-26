@@ -12,6 +12,25 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### CJK fallback ideograph sizing
+
+- Branch: `issue-4978-cjk-spacing`
+- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Summary: keep the existing measured ideograph width for fallback faces, but
+  size a primary face without an ideograph metric against its full two-cell
+  terminal span. This prevents Hangul glyphs selected through CoreText fallback
+  from leaving a gap before the next terminal cell.
+- Coverage: the Ghostty `Collection` regression test
+  `ideograph fallback sizing fills two primary cells` asserts that an
+  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted
+  [run 36178061916](https://github.com/manaflow-ai/cmux/actions/runs/36178061916)
+  passed 74 tests with this filter at `0068ece73` and rebuilt GhosttyKit.
+  The test-only commit has not been executed in the hosted lane, and tagged
+  cmux rendering verification remains pending.
+- Conflict note: preserve the distinction between `icWidth()` for a face's
+  measured or conservative fallback metric and `fallbackIcWidth()` for the
+  primary terminal grid's missing-ideograph target.
+
 ### Cloud restore replay trailing rows
 
 - Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
@@ -25,16 +44,20 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
-top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
-embedded-environment lifetime fix from PR #227 was merged. The replay fix
-preserves physical blank rows until cursor/state restoration completes, so a
-restored Cloud grid cannot regain stale history rows. The base SHA preserves
-cmux's Cloud loopback link-detection changes while adding the localhost-port
-punctuation fix and owned POSIX environment snapshots for embedded hosts.
+The submodule pinned by this branch is `0068ece733`, the CJK fallback sizing fix
+on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
+the full two-cell terminal span, so Hangul glyphs selected through CoreText
+fallback do not leave a gap before the next terminal cell. The previous pin
+`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
+Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
+from PR #227 was merged. That replay fix preserves physical blank rows until
+cursor/state restoration completes, so a restored Cloud grid cannot regain
+stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
+changes while adding the localhost-port punctuation fix and owned POSIX
+environment snapshots for embedded hosts.
 
-The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
-Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
+The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
+`3869e81a0` into the Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
 #221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
