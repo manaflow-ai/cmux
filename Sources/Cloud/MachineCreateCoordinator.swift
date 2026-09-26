@@ -1,244 +1,323 @@
+import CmuxCloud
 import Foundation
 import Observation
+import CmuxCloudMachines
 
-/// Owns every in-flight machine create. A create is not tied to the sheet
-/// that started it: the sheet hands over a ``MachineCreateRequest`` and
-/// closes, and this object keeps the operation alive, tracks its outcome,
-/// and tells the person how it ended. The Machines panel observes
-/// ``operations`` to render pending rows; ``didChangeNotification`` fires on
-/// every mutation so panels that are not on screen still refresh when a
-/// machine lands.
-///
-/// The coordinator never talks to the backend itself: each `start` receives
-/// the launcher that runs the CLI (`cmux vm new …` / `cmux vm base open …`)
-/// so the sheet, the Machines panel ＋, Set Up Base, and tests share one path.
+/// Adapts the shared package lifecycle to CLI processes, notifications, and local workspaces.
+/// Every New Machine entrypoint uses this owner; views consume immutable projections.
 @MainActor
 @Observable
 final class MachineCreateCoordinator {
-    /// Starts the CLI with the arguments; returns false when it could not
-    /// launch (a sign-out raced the click). The completion carries the exit
-    /// status and combined output, which is the error text on failure.
-    typealias Launch = @MainActor ([String], @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void) -> Bool
-
-    /// How a create ended.
-    enum Outcome: Equatable {
-        /// The machine exists and, when the CLI opened it, `workspaceID` is
-        /// the local workspace it opened into.
-        case created(machineID: String?, workspaceID: UUID?)
-        /// `vm new` minted the machine but then failed to open it (terminal
-        /// attach, desktop split). The machine is real: the row is dropped in
-        /// favor of the fleet row and the person is pointed at the list.
-        case createdButOpenFailed(machineID: String, output: String)
-        /// Nothing was created; the row stays and offers Retry.
-        case failed(output: String)
-    }
+    // CloudVMActionLauncher is a legacy process API; callbacks stay at this app seam.
+    typealias Launch = @MainActor (
+        [String],
+        @escaping @MainActor (String) -> Void,
+        @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
+    ) -> Bool
+    typealias CancellableLaunch = @MainActor (
+        [String],
+        @escaping @MainActor (String) -> Void,
+        @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
+    ) -> CloudVMActionLauncher.CancellationHandle?
+    typealias SelectWorkspace = @MainActor (UUID, MachineCreateRequest) -> Bool
+    typealias Outcome = CloudMachineCreateTransition.Outcome
 
     struct Finished: Equatable {
         let operation: MachineCreateOperation
         let outcome: Outcome
     }
 
-    static let shared = MachineCreateCoordinator(notifier: MachineCreateNotifier().post)
-
-    /// Posted on the default center with `object` = the coordinator after any
-    /// change to ``operations``. `userInfo[finishedUserInfoKey]` carries the
-    /// ``Finished`` value when the change is a completion.
+    static let shared = MachineCreateCoordinator(
+        notifier: MachineCreateNotifier().post,
+        selectWorkspace: { workspaceID, request in
+            MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
+        },
+        cancelCreatedMachine: { CloudVMActionLauncher.shared.destroyMachineBestEffort($0) },
+        cancelOperation: { operation in
+            guard let workspaceID = operation.request.presentationWorkspaceID else { return }
+            NewMachineSheetPresenter.closeReservedWorkspace(
+                workspaceID,
+                machineID: operation.createdMachineID ?? operation.reconcilingMachineID
+            )
+        }
+    )
     static let didChangeNotification = Notification.Name("cmux.machineCreate.didChange")
-    static let finishedUserInfoKey = "finished"
+    nonisolated static let finishedUserInfoKey = "finished"
 
-    private(set) var operations: [MachineCreateOperation] = []
-    /// The most recent completion, for observers that arrive late (tests,
-    /// panels mounted after the fact).
+    private let lifecycle: CloudMachineCreateCoordinator
     private(set) var lastFinished: Finished?
-
-    /// Bookkeeping, not row state: kept out of observation so a launcher swap
-    /// never invalidates views, and so `deinit` (nonisolated) can reach the
-    /// observer token without going through an isolated accessor.
-    @ObservationIgnored private var launches: [UUID: Launch] = [:]
+    @ObservationIgnored private var requests: [UUID: MachineCreateRequest] = [:]
+    @ObservationIgnored private var launches: [UUID: CancellableLaunch] = [:]
+    @ObservationIgnored private var handles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
+    @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let selectWorkspace: SelectWorkspace
+    @ObservationIgnored private let cancelCreatedMachine: @MainActor (String) -> Void
+    @ObservationIgnored private let cancelOperation: @MainActor (MachineCreateOperation) -> Void
     @ObservationIgnored private let notificationCenter: NotificationCenter
     @ObservationIgnored private var accessDidEndObserver: NSObjectProtocol?
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
+        selectWorkspace: @escaping SelectWorkspace = { _, _ in false },
         now: @escaping () -> Date = Date.init,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        cancelCreatedMachine: @escaping @MainActor (String) -> Void = { _ in },
+        cancelOperation: @escaping @MainActor (MachineCreateOperation) -> Void = { _ in }
     ) {
+        self.lifecycle = CloudMachineCreateCoordinator(output: Self.outputParser, now: now)
         self.notifier = notifier
-        self.now = now
+        self.selectWorkspace = selectWorkspace
+        self.cancelCreatedMachine = cancelCreatedMachine
+        self.cancelOperation = cancelOperation
         self.notificationCenter = notificationCenter
-        // A sign-out cancels the launcher's child processes; their late
-        // completions must not resurrect rows for an account that is gone.
         accessDidEndObserver = notificationCenter.addObserver(
-            forName: .cmuxCloudVMAccessDidEnd,
-            object: nil,
-            queue: .main
+            forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.cancelAllForAuthTransition() }
         }
     }
 
     deinit {
-        if let accessDidEndObserver {
-            notificationCenter.removeObserver(accessDidEndObserver)
-        }
+        if let accessDidEndObserver { notificationCenter.removeObserver(accessDidEndObserver) }
     }
 
+    /// Pending rows projected from the one domain owner; consumers cannot mutate them.
+    var operations: [MachineCreateOperation] { lifecycle.projection.operations.compactMap(presentation) }
+    /// Session-long aliases keep selection stable after the transient operation retires.
+    var adoptedOperationIDs: [String: UUID] { lifecycle.projection.adoptedOperationIDs }
     var hasRunningOperations: Bool { operations.contains(where: \.isRunning) }
 
-    func operation(id: UUID) -> MachineCreateOperation? {
-        operations.first { $0.id == id }
-    }
+    func operation(id: UUID) -> MachineCreateOperation? { operations.first { $0.id == id } }
 
-    /// Launches the create and records it. Returns false, recording nothing,
-    /// when the launcher refused (the caller shows that inline: the person is
-    /// still looking at the sheet at that moment). The operation is registered
-    /// BEFORE the launcher runs so a completion that fires synchronously still
-    /// finds its row; a refused launch takes the registration back down.
+    /// Registers the pending projection before invoking a legacy noncancellable launcher.
     @discardableResult
     func start(_ request: MachineCreateRequest, launch: @escaping Launch) -> Bool {
-        let operation = MachineCreateOperation(id: UUID(), request: request, startedAt: now())
-        operations.append(operation)
-        launches[operation.id] = launch
-        postDidChange(finished: nil)
-        guard launch(request.arguments, completionHandler(for: operation.id)) else {
-            if let index = operations.firstIndex(where: { $0.id == operation.id }) {
-                operations.remove(at: index)
-            }
-            launches.removeValue(forKey: operation.id)
-            postDidChange(finished: nil)
-            return false
-        }
-        return true
+        start(request, cancellableLaunch: { arguments, progress, completion in
+            guard launch(arguments, progress, completion) else { return nil }
+            return CloudVMActionLauncher.CancellationHandle { }
+        })
     }
 
-    /// Re-runs a failed create with its original arguments and launcher.
-    /// Only failures that created nothing are retriable; a "created but
-    /// opening failed" outcome never comes back here (a second run would mint
-    /// a second machine).
+    /// Registers the pending projection before any process, auth, or API work starts.
+    @discardableResult
+    func start(_ request: MachineCreateRequest, cancellableLaunch: @escaping CancellableLaunch) -> Bool {
+        run(reserve(request, launch: cancellableLaunch), launch: cancellableLaunch)
+    }
+
+    private func reserve(_ request: MachineCreateRequest, launch: @escaping CancellableLaunch) -> CloudMachineCreateAttempt {
+        let attempt = lifecycle.reserve(request.lifecycleRequest)
+        requests[attempt.operationID] = request
+        launches[attempt.operationID] = launch
+#if DEBUG
+        let presentationWorkspace = request.presentationWorkspaceID?.uuidString ?? "none"
+        cmuxDebugLog(
+            "cloud.create.accepted operation=\(attempt.operationID.uuidString) " +
+            "workspace=\(presentationWorkspace) " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
+        postDidChange()
+        return attempt
+    }
+
+    /// Waits for this create's exact receipt; cancellation cannot affect another create.
+    func startAndAwaitWorkspaceID(_ request: MachineCreateRequest, cancellableLaunch: @escaping CancellableLaunch) async -> UUID? {
+        guard !Task.isCancelled else { return nil }
+        let attempt = reserve(request, launch: cancellableLaunch)
+        let id = attempt.operationID
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                workspaceWaiters[id] = continuation
+                guard !Task.isCancelled else {
+                    cancel(id)
+                    apply(lifecycle.refuse(attempt))
+                    resumeWaiter(id, workspaceID: nil)
+                    return
+                }
+                if !run(attempt, launch: cancellableLaunch) { resumeWaiter(id, workspaceID: nil) }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel(id)
+                self?.resumeWaiter(id, workspaceID: nil)
+            }
+        })
+    }
+
+    /// Reuses the original invocation and idempotency scope with a fresh callback fence.
     @discardableResult
     func retry(_ id: UUID) -> Bool {
-        guard let index = operations.firstIndex(where: { $0.id == id }),
-              !operations[index].isRunning,
-              let launch = launches[id] else { return false }
-        operations[index].phase = .running
-        postDidChange(finished: nil)
-        guard launch(operations[index].request.arguments, completionHandler(for: id)) else {
-            if let failedIndex = operations.firstIndex(where: { $0.id == id }) {
-                operations[failedIndex].phase = .failed(output: String(
-                    localized: "machines.new.error.launch",
-                    defaultValue: "cmux could not start the create command. Sign in and try again."
-                ))
-                postDidChange(finished: nil)
-            }
+        guard let launch = launches[id], let attempt = lifecycle.retry(id) else { return false }
+        handles[id] = nil
+        postDidChange()
+        return run(attempt, launch: launch, isRetry: true)
+    }
+
+    /// Dismisses an inline failure and closes its reservation exactly once.
+    func dismiss(_ id: UUID) { apply(lifecycle.dismiss(id)) }
+    /// Cancels the process after committing a tombstone for late machine receipts.
+    func cancel(_ id: UUID) { apply(lifecycle.cancel(id)) }
+
+    /// Releases workspace-owned operations without calling back into workspace closure.
+    func cancelOperations(forPresentationWorkspace workspaceID: UUID) {
+        cancelOperations(forPresentationWorkspaces: [workspaceID])
+    }
+
+    /// Batches a closing window's operation teardown into one domain transition.
+    func cancelOperations(forPresentationWorkspaces workspaceIDs: Set<UUID>) {
+        apply(lifecycle.cancelPresentations(workspaceIDs))
+    }
+
+    /// Clears old-account UI state while allowing cancelled processes to report receipts.
+    func cancelAllForAuthTransition(cleanupCreatedMachines: Bool = true) {
+        lastFinished = nil
+        apply(lifecycle.endAccount(cleanupCreatedMachines: cleanupCreatedMachines))
+    }
+
+    /// Retires acknowledged pending rows; retained aliases survive every later refresh.
+    func reconcileAuthoritativeState(machineIDs: Set<String>, catalogMachineIDs: Set<String>) {
+        if lifecycle.reconcile(machineIDs: machineIDs.union(catalogMachineIDs)) {
+            discardRetiredAdapters()
+            postDidChange()
+        }
+    }
+
+    /// Captures the immutable attempt on both callbacks, including synchronous launchers.
+    private func run(_ attempt: CloudMachineCreateAttempt, launch: CancellableLaunch, isRetry: Bool = false) -> Bool {
+        guard let request = requests[attempt.operationID] else {
+            apply(lifecycle.refuse(attempt))
             return false
+        }
+        let machineID = operation(id: attempt.operationID)?.createdMachineID
+        var arguments = request.arguments
+        if isRetry, !request.isBaseSetup, let machineID {
+            arguments = ["vm", "open", machineID] + (request.presentationWorkspaceID.map { ["--workspace", $0.uuidString] } ?? []) + ["--focus", "false"]
+        }
+        let handle = launch(arguments, { [weak self] chunk in
+            guard let self else { return }
+            self.apply(self.lifecycle.receive(chunk, from: attempt))
+        }, { [weak self] result in
+            guard let self else { return }
+            let completion = CloudMachineCreateCompletion(
+                succeeded: result.succeeded, wasCancelled: result.wasCancelled, output: result.output,
+                failureOutput: Self.displayableFailureOutput(result.output),
+                machineID: result.machineId, workspaceID: result.workspaceId
+            )
+            self.apply(self.lifecycle.finish(completion, from: attempt))
+        })
+        guard let handle else {
+            let failure = isRetry ? String(localized: "machines.new.error.launch", defaultValue: "cmux could not start the create command. Sign in and try again.") : nil
+            apply(lifecycle.refuse(attempt, retryFailure: failure))
+            return false
+        }
+        if lifecycle.isActive(attempt) {
+            handles[attempt.operationID] = handle
+        } else {
+            // A reentrant cancellation may precede the launcher's returned handle.
+            handle.cancel()
         }
         return true
     }
 
-    /// Drops a failed row. Running creates cannot be dismissed: the CLI is
-    /// still working and its outcome must reach the person.
-    func dismiss(_ id: UUID) {
-        guard let index = operations.firstIndex(where: { $0.id == id }), !operations[index].isRunning else { return }
-        operations.remove(at: index)
-        launches.removeValue(forKey: id)
-        postDidChange(finished: nil)
-    }
-
-    /// Forgets every operation. Completions for the dropped ids are ignored.
-    func cancelAllForAuthTransition() {
-        guard !operations.isEmpty || !launches.isEmpty else { return }
-        operations.removeAll()
-        launches.removeAll()
-        postDidChange(finished: nil)
-    }
-
-    /// Recognizes the CLI's "Created Cloud VM <id>" line in `output`. The
-    /// format is the CLI's own localized string, so the match follows the
-    /// user's language instead of a hard-coded English prefix.
-    nonisolated static func createdMachineID(fromOutput output: String) -> String? {
-        let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
-        let parts = format.components(separatedBy: "%@")
-        guard parts.count == 2 else { return nil }
-        let prefix = parts[0], suffix = parts[1]
-        for rawLine in output.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
-            let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+    /// Applies effects after state commits, so teardown callbacks can safely reenter.
+    private func apply(_ transition: CloudMachineCreateTransition) {
+        guard transition.changed || !transition.cleanupMachineIDs.isEmpty else { return }
+        let closed = transition.closedOperations.compactMap(presentation)
+        let finished = transition.finished.flatMap { result -> Finished? in
+            guard let operation = presentation(result.operation) else { return nil }
+            return Finished(operation: operation, outcome: result.outcome)
         }
-        return nil
+        let cancelledHandles = transition.cancelOperationIDs.compactMap { handles.removeValue(forKey: $0) }
+        var didSelectCreatedWorkspace = false
+        if let finished {
+            lastFinished = finished
+            let id = finished.operation.id
+            handles[id] = nil
+#if DEBUG
+            let presentationWorkspace = finished.operation.request.presentationWorkspaceID?.uuidString ?? "none"
+            cmuxDebugLog(
+                "cloud.create.completed operation=\(id.uuidString) " +
+                "workspace=\(presentationWorkspace) " +
+                "outcome=\(String(describing: finished.outcome)) " +
+                "elapsed=\(Date().timeIntervalSince(finished.operation.startedAt))"
+            )
+#endif
+            if case .created(_, let workspaceID) = finished.outcome {
+                resumeWaiter(id, workspaceID: workspaceID)
+                if let workspaceID {
+                    didSelectCreatedWorkspace = selectWorkspace(workspaceID, finished.operation.request)
+                }
+            } else {
+                resumeWaiter(id, workspaceID: nil)
+            }
+        }
+        discardRetiredAdapters()
+        for handle in cancelledHandles { handle.cancel() }
+        for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
+        for operation in closed { cancelOperation(operation) }
+        // A successful Cloud create already opens/selects its workspace. A
+        // second notification is redundant; retain notifications for failures,
+        // where they remain actionable.
+        if let finished {
+            switch finished.outcome {
+            case .created(_, let workspaceID):
+                let alreadyPresented = finished.operation.request.reservedWorkspaceID != nil
+                    && workspaceID != nil
+                if !didSelectCreatedWorkspace, !alreadyPresented {
+                    notifier(MachineCreateNotice(finished: finished))
+                }
+            case .createdButOpenFailed, .failed:
+                notifier(MachineCreateNotice(finished: finished))
+            }
+        }
+        if transition.changed { postDidChange(finished: finished) }
     }
 
-    /// The failure text every surface shows (row tooltip, control bar, Show
-    /// Error, Copy Error, notification): the CLI transcript with the app's
-    /// standard redaction applied once, at storage time. Progress/token lines
-    /// ("Created Cloud VM …", "OK machine=…") are dropped first so the reason
-    /// leads. Redacted transcripts fall back to their first safe line plus the
-    /// hidden-details placeholder, matching `CloudVMActionLauncher`'s alerts.
+    /// Releases only app resources; lifecycle state and callback fences live in the package.
+    private func discardRetiredAdapters() {
+        let liveIDs = Set(lifecycle.projection.operations.map(\.id))
+        for id in Array(requests.keys) where !liveIDs.contains(id) {
+            requests[id] = nil
+            launches[id] = nil
+            handles[id] = nil
+            resumeWaiter(id, workspaceID: nil)
+        }
+    }
+
+    private func presentation(_ operation: CloudMachineCreateOperation) -> MachineCreateOperation? {
+        guard let request = requests[operation.id] else { return nil }
+        return MachineCreateOperation(
+            id: operation.id, request: request, startedAt: operation.startedAt,
+            createdMachineID: operation.createdMachineID, phase: operation.phase
+        )
+    }
+
+    private func resumeWaiter(_ id: UUID, workspaceID: UUID?) {
+        workspaceWaiters.removeValue(forKey: id)?.resume(returning: workspaceID)
+    }
+
+    private func postDidChange(finished: Finished? = nil) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if let finished { userInfo[Self.finishedUserInfoKey] = finished }
+        notificationCenter.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
+    }
+
+    nonisolated private static var outputParser: CloudMachineCreateOutput {
+        CloudMachineCreateOutput(legacyCreatedFormat: String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@"))
+    }
+
+    /// Interprets a completed CLI transcript through the shared protocol parser.
+    nonisolated static func createdMachineID(fromOutput output: String) -> String? { outputParser.machineID(in: output) }
+
+    /// Redacts at the app boundary before any failure reaches domain state or UI.
     nonisolated static func displayableFailureOutput(_ output: String) -> String {
         let generic = String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
-        let stripped = output
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return !trimmed.hasPrefix("OK ") && Self.createdMachineID(fromOutput: trimmed) == nil
-            }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped = outputParser.failureText(in: output)
         guard !stripped.isEmpty else { return generic }
         let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(stripped.prefix(4000)))
-        guard safe == CloudVMActionLauncher.hiddenOutputPlaceholder else {
-            return safe.isEmpty ? generic : safe
-        }
+        guard safe == CloudVMActionLauncher.hiddenOutputPlaceholder else { return safe.isEmpty ? generic : safe }
         guard let reason = CloudVMActionLauncher.firstSafeLine(of: stripped) else { return safe }
         return "\(reason)\n\(safe)"
-    }
-
-    private func completionHandler(for id: UUID) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
-        { [weak self] completion in
-            self?.finish(id: id, completion: completion)
-        }
-    }
-
-    private func finish(id: UUID, completion: CloudVMActionLauncher.Completion) {
-        // Dropped by a sign-out (or dismissed after a retry was refused): the
-        // account this belonged to is gone, so there is nobody to tell.
-        guard let index = operations.firstIndex(where: { $0.id == id }) else { return }
-        let operation = operations[index]
-        let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The CLI's `machine=` token is the authoritative created-machine
-        // signal; the localized "Created Cloud VM" line is the fallback for
-        // older bundled CLIs.
-        let createdMachineID = completion.machineId ?? Self.createdMachineID(fromOutput: output)
-        let outcome: Outcome
-        if completion.succeeded {
-            outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)
-            operations.remove(at: index)
-            launches.removeValue(forKey: id)
-        } else if !operation.request.isBaseSetup, let machineID = createdMachineID {
-            // Base setup is idempotent (`vm base open` reopens the same slot),
-            // so only `vm new` can leave a machine behind that must not be re-created.
-            outcome = .createdButOpenFailed(machineID: machineID, output: Self.displayableFailureOutput(output))
-            operations.remove(at: index)
-            launches.removeValue(forKey: id)
-        } else {
-            let failure = Self.displayableFailureOutput(output)
-            outcome = .failed(output: failure)
-            operations[index].phase = .failed(output: failure)
-        }
-        let finished = Finished(operation: operation, outcome: outcome)
-        lastFinished = finished
-        notifier(MachineCreateNotice(finished: finished))
-        postDidChange(finished: finished)
-    }
-
-    private func postDidChange(finished: Finished?) {
-        var userInfo: [AnyHashable: Any] = [:]
-        if let finished {
-            userInfo[Self.finishedUserInfoKey] = finished
-        }
-        notificationCenter.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
     }
 }

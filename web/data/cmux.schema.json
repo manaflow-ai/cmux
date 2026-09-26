@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, notification hooks, and UI action wiring.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+  "descriptionKey": "schemaDescriptions.root",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -19,16 +20,48 @@
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
     },
     "paneBorderColor": {
+      "x-cmux-scopes": ["global"],
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "descriptionKey": "schemaDescriptions.paneBorderColor",
       "description": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits."
     },
     "activePaneBorderColor": {
+      "x-cmux-scopes": ["global"],
       "$ref": "#/$defs/colorHexOrNull",
       "default": null,
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
+    },
+    "packs": {
+      "title": "packs",
+      "descriptionKey": "schemaDescriptions.packs.description",
+      "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+",
+                "descriptionKey": "schemaDescriptions.packs.path",
+                "description": "Local file or directory path, relative to this configuration file unless absolute."
+              }
+            }
+          }
+        ]
+      },
+      "default": []
     },
     "actions": {
       "title": "actions",
@@ -66,6 +99,7 @@
       }
     },
     "computerUse": {
+      "x-cmux-scopes": ["global"],
       "title": "computerUse",
       "type": "object",
       "additionalProperties": false,
@@ -83,6 +117,21 @@
           "default": true,
           "description": "Show live computer-use sessions and focus actions in the menu bar.",
           "descriptionKey": "schemaDescriptions.computerUse.showInMenuBar"
+        }
+      }
+    },
+    "customSidebars": {
+      "x-cmux-scopes": ["global"],
+      "title": "customSidebars",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Behavior of custom (user or agent authored) sidebars.",
+      "properties": {
+        "renderer": {
+          "type": "string",
+          "enum": ["inProcess", "remote"],
+          "default": "inProcess",
+          "description": "How a selected custom sidebar renders. \"inProcess\" renders native SwiftUI inside cmux with full hover, focus, and keyboard input; use it only for sidebars you authored. \"remote\" renders in an isolated worker process so a faulty sidebar cannot crash cmux, with input limited to clicks."
         }
       }
     },
@@ -329,6 +378,7 @@
       "additionalProperties": false,
       "properties": {
         "newWorkspacePlacement": {
+          "x-cmux-scopes": ["global"],
           "type": "string",
           "enum": ["afterCurrent", "top", "end"],
           "default": "afterCurrent",
@@ -386,6 +436,7 @@
       }
     },
     "app": {
+      "x-cmux-scopes": ["global"],
       "title": "app",
       "description": "General app preferences from Settings > App.",
       "type": "object",
@@ -435,6 +486,12 @@
           "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
           "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
         },
+        "devWindowDisplay": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.devWindowDisplay",
+          "description": "DEBUG-only display name used when opening new windows. An empty value uses the system default."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,
@@ -470,18 +527,36 @@
         },
         "focusPaneOnFirstClick": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "paneResizeStepPixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Pixels moved per keypress when using pane-resize shortcuts.",
+          "descriptionKey": "schemaDescriptions.app.paneResizeStepPixels"
         },
         "focusHistoryIncludesPanesAndTabs": {
           "type": "boolean",
           "default": false,
           "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
+        "equalizeSplitsOnCreate": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",
           "description": "Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default."
+        },
+        "defaultWorkspacePath": {
+          "type": "string",
+          "default": "",
+          "description": "Folder the Open Folder panel starts in, for example ~/code. Supports a leading ~. Leave empty to start in the active workspace's directory."
         },
         "openSupportedFilesInCmux": {
           "type": "boolean",
@@ -560,6 +635,7 @@
       }
     },
     "terminal": {
+      "x-cmux-scopes": ["global"],
       "title": "terminal",
       "description": "Terminal presentation settings from Settings > Terminal.",
       "type": "object",
@@ -569,7 +645,7 @@
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
-          "description": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive."
+          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
         },
         "showScrollBar": {
           "type": "boolean",
@@ -612,6 +688,16 @@
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
+        },
+        "reflowHardWrapOnCopy": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined."
+        },
+        "textEditingGestures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replay macOS text-editing gestures as line-editor keys: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. Applications receive these translated keys instead of the original chords, so leave this off for full-screen TUIs that bind those chords."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
@@ -867,7 +953,7 @@
               "hostPattern": {
                 "type": ["string", "null"],
                 "minLength": 1,
-                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. Omit the key or set it to null for a catch-all (a blank string is rejected)."
+                "description": "fnmatch glob matched against the ssh destination (user@ and IPv6 brackets stripped, lowercased), like a single ssh_config Host pattern. When the session sets a HostName (for example through a ProxyCommand or broker), the rule also matches against that resolved host. Omit the key or set it to null for a catch-all (a blank string is rejected)."
               },
               "command": {
                 "type": "string",
@@ -892,44 +978,52 @@
       "additionalProperties": false,
       "properties": {
         "dockBadge": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "description": "Show the unread count in the Dock tile."
         },
         "showInMenuBar": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "description": "Show the menu bar extra."
         },
         "unreadPaneRing": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "description": "Highlight panes with unread notifications."
         },
         "paneFlash": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "description": "Flash the focused pane when requested."
         },
         "paneFlashColor": {
+          "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
           "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
         },
         "suppressOnlyFocusedSurface": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.notifications.suppressOnlyFocusedSurface",
           "description": "When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw."
         },
         "agentPermissionPrompt": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.notifications.agentPermissionPrompt",
           "description": "Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent."
         },
         "agentTurnComplete": {
+          "x-cmux-scopes": ["global"],
           "type": "string",
           "enum": ["whenIdle", "always", "never"],
           "default": "whenIdle",
@@ -937,12 +1031,14 @@
           "description": "When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it."
         },
         "agentIdleReminder": {
+          "x-cmux-scopes": ["global"],
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.notifications.agentIdleReminder",
           "description": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert."
         },
         "sound": {
+          "x-cmux-scopes": ["global"],
           "type": "string",
           "enum": [
             "default",
@@ -967,11 +1063,13 @@
           "description": "Notification sound preset."
         },
         "customSoundFilePath": {
+          "x-cmux-scopes": ["global"],
           "type": "string",
           "default": "",
           "description": "Local path to the custom notification sound file."
         },
         "soundOverrides": {
+          "x-cmux-scopes": ["global"],
           "type": "object",
           "default": {},
           "maxProperties": 256,
@@ -999,6 +1097,7 @@
           "additionalProperties": false
         },
         "command": {
+          "x-cmux-scopes": ["global"],
           "type": "string",
           "default": "",
           "description": "Optional shell command to run alongside notification delivery."
@@ -1046,6 +1145,7 @@
       }
     },
     "sidebar": {
+      "x-cmux-scopes": ["global"],
       "title": "sidebar",
       "description": "Sidebar content and metadata visibility from Settings > Sidebar.",
       "type": "object",
@@ -1066,6 +1166,11 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "workspaceDescriptionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the workspace description text color in the sidebar."
+        },
         "beta": {
           "type": "object",
           "additionalProperties": false,
@@ -1076,6 +1181,18 @@
               "additionalProperties": false,
               "description": "Workspace todos checklist presentation.",
               "properties": {
+                "controls": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Workspace todo editing controls.",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Show Add Checklist Item and workspace status controls on workspace rows. When false, the todo summary stays read-only."
+                    }
+                  }
+                },
                 "checklistStyle": {
                   "type": "string",
                   "enum": ["popover", "inline"],
@@ -1091,6 +1208,16 @@
           "enum": ["vertical", "inline"],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
+        },
+        "stackBranchDirectory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render the git branch and working directory on separate lines instead of sharing one line."
+        },
+        "pathLastSegmentOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/."
         },
         "showNotificationMessage": {
           "type": "boolean",
@@ -1186,6 +1313,7 @@
       }
     },
     "workspaceColors": {
+      "x-cmux-scopes": ["global"],
       "title": "workspaceColors",
       "description": "Workspace tab and badge colors from Settings > Workspace Colors.",
       "type": "object",
@@ -1263,6 +1391,7 @@
       }
     },
     "sidebarAppearance": {
+      "x-cmux-scopes": ["global"],
       "title": "sidebarAppearance",
       "description": "Sidebar tint settings from Settings > Sidebar Appearance.",
       "type": "object",
@@ -1292,12 +1421,13 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "default": 0.03,
+          "default": 0.18,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
         }
       }
     },
     "automation": {
+      "x-cmux-scopes": ["global"],
       "title": "automation",
       "description": "Socket control and automation settings from Settings > Automation.",
       "type": "object",
@@ -1335,6 +1465,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable cmux integration hooks for Claude Code."
+        },
+        "codexIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe."
         },
         "claudeBinaryPath": {
           "type": "string",
@@ -1410,6 +1545,7 @@
       }
     },
     "browser": {
+      "x-cmux-scopes": ["global"],
       "title": "browser",
       "description": "Embedded browser settings from Settings > Browser.",
       "type": "object",
@@ -1541,6 +1677,7 @@
       }
     },
     "mobile": {
+      "x-cmux-scopes": ["global"],
       "title": "mobile",
       "description": "Mac-side settings for cmux on iOS.",
       "type": "object",
@@ -1555,6 +1692,7 @@
       }
     },
     "markdown": {
+      "x-cmux-scopes": ["global"],
       "title": "markdown",
       "description": "Built-in markdown viewer settings.",
       "type": "object",
@@ -1585,6 +1723,7 @@
       }
     },
     "canvas": {
+      "x-cmux-scopes": ["global"],
       "title": "canvas",
       "description": "Freeform canvas workspace layout settings.",
       "type": "object",
@@ -1607,8 +1746,9 @@
       }
     },
     "fileEditor": {
+      "x-cmux-scopes": ["global"],
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1617,10 +1757,43 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color source tokens in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a line-number gutter in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineNumbers"
+        },
+        "indentGuides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw vertical indent guides in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.indentGuides"
+        },
+        "currentLineHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the caret's line when the selection is empty.",
+          "descriptionKey": "schemaDescriptions.fileEditor.currentLineHighlight"
+        },
+        "tabWidth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Columns per tab stop for indent guides.",
+          "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
         }
       }
     },
     "fileExplorer": {
+      "x-cmux-scopes": ["global"],
       "title": "fileExplorer",
       "description": "Right-sidebar file explorer (file tree) settings.",
       "descriptionKey": "schemaDescriptions.fileExplorer.description",
@@ -1637,6 +1810,7 @@
       }
     },
     "diffViewer": {
+      "x-cmux-scopes": ["global"],
       "title": "diffViewer",
       "description": "Built-in diff viewer settings.",
       "type": "object",
@@ -1651,7 +1825,15 @@
         }
       }
     },
+    "rightSidebar": {
+      "title": "rightSidebar",
+      "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+      "descriptionKey": "schemaDescriptions.rightSidebar",
+      "type": "object",
+      "additionalProperties": true
+    },
     "shortcuts": {
+      "x-cmux-scopes": ["global"],
       "title": "shortcuts",
       "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
       "type": "object",
@@ -1670,6 +1852,7 @@
           "propertyNames": {
             "enum": [
               "openSettings",
+              "openTeamPicker",
               "reloadConfiguration",
               "showHideAllWindows",
               "globalSearch",
@@ -1680,6 +1863,9 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "newCloudWorkspace",
+              "newCloudMachine",
+              "saveLayoutTemplate",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1720,6 +1906,7 @@
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
+              "focusHistoryLast",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
@@ -1760,6 +1947,10 @@
               "decreaseWorkspaceTerminalFontSize",
               "resetWorkspaceTerminalFontSize",
               "equalizeSplits",
+              "resize-pane-left",
+              "resize-pane-right",
+              "resize-pane-up",
+              "resize-pane-down",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleCanvasLayout",
@@ -1781,6 +1972,7 @@
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
+              "toggleFileEditorWordWrap",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",

@@ -155,6 +155,10 @@ private struct SceneNodeContent: View {
             }
         case "contextMenu":
             children
+        case "menu":
+            // Inside a context menu this becomes a submenu; elsewhere, a
+            // menu button.
+            Menu(node.string("text") ?? "") { children }
         case "textfield":
             SceneTextFieldView(node: node, sink: sink)
         case "reorderable":

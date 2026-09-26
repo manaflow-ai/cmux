@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import CmuxTerminalCore
 import Combine
@@ -5,6 +6,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import GhosttyKit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -47,6 +49,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
+    let restoreRecovery = AgentRestoreRecoveryPresentation()
     let textBoxState = TerminalPanelTextBoxState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
@@ -93,6 +96,10 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
+    var deviceAttachment: DeviceTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -113,12 +120,6 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
-    func updateShellActivityState(_ state: PanelShellActivityState) {
-        if shellActivity.state != state {
-            shellActivity.state = state
-        }
-        textBoxState.updateShellActivityState(state)
-    }
 
     func recordTextBoxLaunchCommand(_ command: String) {
         guard let boundedContext = TextBoxAgentDetection.boundedLaunchCommandContext(from: command) else { return }
@@ -154,7 +155,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-        self.title = surface.agentPanelTitle ?? "Terminal"
+        self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -225,8 +226,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateTitle(_ newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && title != trimmed {
+        let trimmed = AutomaticTerminalTitle(newTitle)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty && title != trimmed {
             title = trimmed
         }
     }
@@ -712,8 +713,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     func sendInput(_ text: String) {
@@ -773,12 +778,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func needsConfirmClose() -> Bool {
         surface.needsConfirmClose()
-    }
-
-    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
-        // Session restore only replays terminal output into a fresh shell. If Ghostty
-        // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

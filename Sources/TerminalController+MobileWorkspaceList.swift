@@ -230,12 +230,15 @@ extension TerminalController {
                 panelId: terminal.id,
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
+            let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
-                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
+                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id),
+                "agent_source": v2OrNull(agent?.source),
+                "agent_state": v2OrNull(agent?.state)
             ]
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()
@@ -482,7 +485,7 @@ extension TerminalController {
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
         return groups.map { group in
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "id": group.id.uuidString,
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
@@ -495,12 +498,18 @@ extension TerminalController {
                     configStore: configStore
                 ),
                 "is_empty": group.isEmpty,
-                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
                 // Keep the legacy required field present for older phones.
                 // New clients use `is_empty` and never treat this stable
                 // header identity as a live workspace capability.
-                "anchor_workspace_id": group.anchorWorkspaceId.uuidString
+                "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
+                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
+                "anchor_workspace_provenance": group.anchorWorkspaceProvenance.rawValue,
+                "anchor_workspace_is_generated": group.isGeneratedAnchor,
             ]
+            if let externalID = group.externalID {
+                payload["external_id"] = externalID
+                payload["idempotency_key"] = externalID
+            }
             return payload
         }
     }

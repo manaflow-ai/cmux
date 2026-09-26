@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,6 +12,14 @@ import Testing
 @MainActor
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
+    private final class HoverWindow: NSWindow {
+        var simulatedKeyWindow = false
+        var pointerOnScreen = NSPoint.zero
+
+        override var isKeyWindow: Bool { simulatedKeyWindow }
+        override var mouseLocationOutsideOfEventStream: NSPoint { pointerOnScreen }
+    }
+
     @Test("An abandoned Cloud writer revokes its provisional capability on deallocation")
     func abandonedWriterRevokesProvisionalCapability() async throws {
         let transferRegistry = TabDragTransferRegistry()
@@ -29,34 +38,45 @@ struct CloudTreeNativeDragOwnershipTests {
 
         // The provisional writer must not claim an active native owner before
         // AppKit has called willBeginAt.
-        var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
-            outline,
-            pasteboardWriterForItem: node
-        )
-        let dragID: UUID = try {
-            let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
-            let pasteboard = NSPasteboard(
-                name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+        weak var abandonedWriter: CloudTreeSurfaceDragPasteboardWriter?
+        let dragID = try autoreleasepool {
+            var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
+                outline,
+                pasteboardWriterForItem: node
             )
-            #expect(pasteboard.writeObjects([writer]))
-            #expect(transferRegistry.resolve(from: pasteboard) != nil)
-            let record = try #require(
-                pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
-                    .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
-            )
-            #expect(record.dragID == writer.dragID)
-            let expectedResources = try #require(node.dragGroup?.resources)
-            #expect(record.resourceIDs == expectedResources)
-            return writer.dragID
-        }()
+            let result: UUID = try {
+                let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
+                abandonedWriter = writer
+                let pasteboard = NSPasteboard(
+                    name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+                )
+                // A private named pasteboard owns server resources beyond an
+                // autorelease pool; release that owner before testing ARC.
+                defer { pasteboard.releaseGlobally() }
+                #expect(pasteboard.writeObjects([writer]))
+                #expect(transferRegistry.resolve(from: pasteboard) != nil)
+                let record = try #require(
+                    pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
+                        .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
+                )
+                #expect(record.dragID == writer.dragID)
+                let expectedResources = try #require(node.dragGroup?.resources)
+                #expect(record.resourceIDs == expectedResources)
+                return writer.dragID
+            }()
+            writer = nil
+            return result
+        }
         #expect(outline.activeNativeDragCoordinator == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) != nil)
 
         // No native session was promoted. Releasing the writer is the exact
         // terminal boundary and must revoke both process-local registries now.
-        writer = nil
-        await flushMainActor()
+        _ = await AppKitTestEventPump().waitUntil {
+            abandonedWriter == nil && SurfaceResourceDragRegistry.shared.group(id: dragID) == nil
+        }
 
+        #expect(abandonedWriter == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) == nil)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragCoordinator == nil)
@@ -87,7 +107,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
 
@@ -104,7 +124,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(!coordinator.isDragging)
@@ -137,7 +157,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         #expect(coordinator.isDragging)
@@ -167,7 +187,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(SurfaceResourceDragRegistry.shared.group(id: replacementWriter.dragID) != nil)
@@ -199,7 +219,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: firstSession,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         coordinator.prepareForNativeDragBoundary(on: outline)
@@ -212,13 +232,13 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: secondSession,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         coordinator.outlineView(
             outline,
             draggingSession: secondSession,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
 
@@ -229,7 +249,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: firstSession,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(SurfaceResourceDragRegistry.shared.group(id: pendingWriter.dragID) != nil)
@@ -238,12 +258,90 @@ struct CloudTreeNativeDragOwnershipTests {
         _ = container
     }
 
-    private static func terminalNode() -> CloudTreeNode {
+    @Test("Cloud hover transfers between live cells and clears outside their target")
+    func cloudHoverHasOneOwner() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-hover-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = container
+        let outline = try #require(coordinator.outlineView)
+        coordinator.apply(nodes: [Self.terminalNode(), Self.terminalNode(key: "term-2")])
+        container.layoutSubtreeIfNeeded()
+        let first = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        let second = try #require(outline.view(atColumn: 0, row: 1, makeIfNecessary: true) as? CloudTreeCellView)
+        let firstButtons = try #require(first.subviews.last)
+        let secondButtons = try #require(second.subviews.last)
+        func move(to point: NSPoint) throws {
+            let event = try #require(NSEvent.mouseEvent(
+                with: .mouseMoved, location: outline.convert(point, to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0
+            ))
+            outline.mouseMoved(with: event)
+        }
+        let firstRect = outline.convert(first.bounds, from: first)
+        let secondRect = outline.convert(second.bounds, from: second)
+        try move(to: NSPoint(x: firstRect.midX, y: firstRect.midY))
+        #expect(firstButtons.alphaValue == 1)
+        #expect(secondButtons.alphaValue == 0)
+        // No cell exit event: ownership must transfer from the current geometry.
+        try move(to: NSPoint(x: secondRect.midX, y: secondRect.midY))
+        #expect(firstButtons.alphaValue == 0)
+        #expect(secondButtons.alphaValue == 1)
+        try move(to: NSPoint(x: -10, y: secondRect.midY))
+        #expect(firstButtons.alphaValue == 0)
+        #expect(secondButtons.alphaValue == 0)
+        try move(to: NSPoint(x: secondRect.midX, y: secondRect.midY))
+        outline.reloadData()
+        #expect(secondButtons.alphaValue == 0)
+        _ = window
+    }
+
+    @Test("Cloud hover refreshes for a stationary pointer when its window becomes key")
+    func cloudHoverRefreshesWhenWindowBecomesKey() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-hover-key-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+        let window = HoverWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = container
+        let outline = try #require(coordinator.outlineView)
+        coordinator.apply(nodes: [Self.terminalNode()])
+        container.layoutSubtreeIfNeeded()
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        let buttons = try #require(cell.subviews.last)
+        let rowPoint = NSPoint(x: outline.rect(ofRow: 0).midX, y: outline.rect(ofRow: 0).midY)
+        let rowRect = NSRect(origin: outline.convert(rowPoint, to: nil), size: .zero)
+        window.pointerOnScreen = window.convertToScreen(rowRect).origin
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(buttons.alphaValue == 0)
+        window.simulatedKeyWindow = true
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        #expect(buttons.alphaValue == 1)
+        _ = window
+    }
+
+    private static func terminalNode(key: String = "term-1") -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(
                 machine: .cloud("cloud-tree-test"),
                 kind: .terminal,
-                key: "term-1"
+                key: key
             ),
             title: "Terminal",
             detail: nil,
@@ -255,7 +353,7 @@ struct CloudTreeNativeDragOwnershipTests {
             url: nil
         )
         return CloudTreeNode(
-            id: "terminal/cloud-tree-test/term-1",
+            id: "terminal/cloud-tree-test/\(key)",
             kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: false, viewBadge: nil))
         )
     }
@@ -266,12 +364,15 @@ struct CloudTreeNativeDragOwnershipTests {
         runCommand: { _, _ in },
         confirmDelete: { _ in },
         promptRename: { _, _ in },
+        resizeDisk: { _, _ in },
         promptUpgrade: {}
     )
 
     private static let nodeActions = CloudTreeNodeActions(
         project: { _, _, _ in },
+        projectRemoteView: { _, _, _, _ in },
         projectInLocalWorkspace: { _, _ in },
+        projectRemoteViewInLocalWorkspace: { _, _, _ in },
         newTerminal: { _, _ in },
         openGroup: { _, _, _, _ in },
         openGroupAsWorkspace: { _, _, _ in },
@@ -279,18 +380,12 @@ struct CloudTreeNativeDragOwnershipTests {
         closeTerminal: { _ in },
         closeWorkspace: { _, _ in },
         renameWorkspace: { _, _ in },
+        renameTerminal: { _, _ in },
         selectLocalWorkspace: { _ in },
         copyToPasteboard: { _ in },
+        copyPortLink: { _ in },
         refresh: {}
     )
-
-    private func flushMainActor() async {
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
-        }
-    }
 
     private final class TestDraggingSession: NSDraggingSession {
         private let sequence: Int

@@ -41,6 +41,11 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
 
     var isShown: Bool { popover?.isShown == true }
 
+    /// True from `popoverWillClose` until `popoverDidClose`. An animated close
+    /// keeps `isShown` true until the animation ends, so containers that
+    /// must know whether a close already began check this as well.
+    private(set) var isClosing = false
+
     func present(
         _ root: AnyView,
         relativeTo rect: NSRect,
@@ -112,7 +117,12 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
         PopoverKeyWindowElevator.promoteToKeyIfPossible(hostingController.view.window)
     }
 
+    func popoverWillClose(_ notification: Notification) {
+        isClosing = true
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        isClosing = false
         visibleUpdateScheduler.cancel()
         pendingRoot = nil
         popover = nil

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import ObjectiveC.runtime
 import SwiftUI
 import Testing
@@ -214,7 +215,7 @@ struct FileDropOverlayViewTests {
         let anchor = NSView(frame: NSRect(x: 40, y: 36, width: 220, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }
@@ -521,15 +522,30 @@ struct FileDropOverlayViewTests {
             fatalError("Unsupported event type \(type)")
         }
         let mouseButton = try #require(CGMouseButton(rawValue: UInt32(buttonNumber)))
+        // Quartz mouse events use a top-left global origin while AppKit's
+        // `NSEvent` helpers use a bottom-left origin. Normalize the synthetic
+        // point before bridging it so the resulting `locationInWindow` matches
+        // the left/right events above and the overlay can hit-test the target.
+        let quartzLocation = NSPoint(
+            x: location.x,
+            y: Self.quartzY(forAppKitScreenY: location.y)
+        )
         let cgEvent = try #require(
             CGEvent(
                 mouseEventSource: nil,
                 mouseType: cgEventType,
-                mouseCursorPosition: location,
+                mouseCursorPosition: quartzLocation,
                 mouseButton: mouseButton
             )
         )
         cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: Int64(buttonNumber))
         return try #require(NSEvent(cgEvent: cgEvent))
+    }
+
+    private static func quartzY(forAppKitScreenY y: CGFloat) -> CGFloat {
+        let displayMaxY = NSScreen.screens.first { $0.frame.contains(NSPoint(x: 0, y: y)) }?.frame.maxY
+            ?? NSScreen.main?.frame.maxY
+            ?? y
+        return displayMaxY - y
     }
 }
