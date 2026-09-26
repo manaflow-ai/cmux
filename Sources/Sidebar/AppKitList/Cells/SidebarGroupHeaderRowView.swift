@@ -76,6 +76,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
+        plusButton.concealImmediately()
         addSubview(plusButton)
 
         topDropIndicator.wantsLayer = true
@@ -94,6 +95,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        isPointerHovering = false
+        plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
@@ -645,6 +648,16 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// Starting state for hover-revealed buttons, and the reset on cell
+    /// reuse. NSButton is born visible, so without this every fresh or
+    /// recycled cell faded an X out on its first unhovered configure, which
+    /// flashed the close buttons on all rows at once after a workspace close.
+    func concealImmediately() {
+        isEnabled = false
+        alphaValue = 0
+        isHidden = true
     }
 
     /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.
