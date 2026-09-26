@@ -684,6 +684,79 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
+    @Test func testQueueOverflowClosesWithoutWaitingOutLaneNegotiation() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .blockAfterProbe
+        )
+        var eventBlocked = await independent.blockedEvents().makeAsyncIterator()
+        var probeBlocked = await independent.blockedProbeEvents().makeAsyncIterator()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            eventQueue: queue,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
+            id: "subscribe",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated", "device.terminal.grid"],
+                "event_transport": "iroh_server_events_v1",
+            ],
+            auth: nil
+        ))
+        // The running drain parks in an independent-lane send.
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["seq": 1]))
+        _ = await eventBlocked.next()
+        // A second stream starts lane negotiation, whose probe parks behind
+        // the blocked send.
+        let negotiation = Task {
+            await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
+                id: "subscribe-2",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events-2",
+                    "topics": ["terminal.bytes"],
+                    "event_transport": "iroh_server_events_v1",
+                ],
+                auth: nil
+            ))
+        }
+        _ = await probeBlocked.next()
+        let frame = Data(repeating: 0x61, count: 8)
+        #expect(session.enqueueEventFrame(
+            frame, topic: "device.terminal.grid", coalesceKey: "a",
+            isFullRenderGridFrame: false, stateSeq: nil
+        ).admitted)
+        let overflow = session.enqueueEventFrame(
+            frame, topic: "device.terminal.grid", coalesceKey: "b",
+            isFullRenderGridFrame: false, stateSeq: nil
+        )
+        #expect(overflow.overflowed)
+        // The running drain owns the overflow; it must close the connection
+        // on its next pass instead of yielding to the parked negotiation.
+        #expect(!overflow.startDrain)
+        await independent.failBlockedSend()
+        for _ in 0..<1_000 {
+            if await control.observedCloseCount() > 0 { break }
+            await Task.yield()
+        }
+        #expect(await control.observedCloseCount() == 1)
+        await independent.releaseBlockedProbe(result: false)
+        _ = await negotiation.value
+        await session.close(reason: "test complete")
+    }
+
 }
 
 @Suite
