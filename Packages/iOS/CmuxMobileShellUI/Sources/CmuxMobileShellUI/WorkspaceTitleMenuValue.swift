@@ -21,6 +21,10 @@ struct WorkspaceTitleMenuValue: Equatable {
     /// recovery entry now that no pill covers the terminal. Reauthentication
     /// keeps its own blocking banner instead.
     let canReconnect: Bool
+    /// Whether the menu offers Browse Files: an SSH terminal is showing. The
+    /// same command as the terminal's Files chip, so it stays reachable in
+    /// the title (document) menu whatever the chip does.
+    var canBrowseFiles = false
     let labelToken: WorkspaceTitleMenuLabelToken
     let terminalTheme: TerminalTheme
 }

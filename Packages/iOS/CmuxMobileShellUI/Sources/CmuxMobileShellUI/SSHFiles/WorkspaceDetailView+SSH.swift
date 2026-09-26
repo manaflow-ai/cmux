@@ -110,7 +110,24 @@ extension WorkspaceDetailView {
         store.sshComputers.hostID(forIdentifier: terminalID) != nil
     }
 
-    /// Opens the file browser for an SSH terminal's Files chip.
+    /// The terminal Browse Files in the title menu opens at: the shown SSH
+    /// terminal, `nil` for Mac workspaces or while a browser covers it.
+    var sshFilesTerminalID: String? {
+        guard activeBrowser == nil, activeBrowserStream == nil, activeSimulatorStream == nil,
+              let terminalID = selectedTerminal?.id.rawValue,
+              isSSHTerminal(terminalID) else { return nil }
+        return terminalID
+    }
+
+    /// Browse Files in the title menu: the Files chip's action for the shown
+    /// terminal (HIG Toolbars: a document menu next to the title holds
+    /// commands for the whole document).
+    func browseFilesFromMenu() {
+        guard let terminalID = sshFilesTerminalID else { return }
+        presentSSHFiles(terminalID: terminalID)
+    }
+
+    /// Opens the file browser for an SSH terminal (Files chip, title menu).
     func presentSSHFiles(terminalID: String) {
         guard let hostID = store.sshComputers.hostID(forIdentifier: terminalID) else { return }
         dismissTerminalKeyboardForChrome()
