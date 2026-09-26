@@ -153,8 +153,10 @@ public struct AgentHookAbnormalStopClassifier: Sendable {
         let rateLimitHasProviderContext = messageTokens.contains {
             rateLimitProviderContext.contains($0)
         }
+        let rateLimitStatusBanner = normalizedMessage.contains("429 too many requests")
+            && normalizedMessage.contains("rate limit")
         if rateLimitSignalReason
-            || (rateLimitCue && (rateLimitReasonOnly || rateLimitHasProviderContext)) {
+            || (rateLimitCue && (rateLimitReasonOnly || rateLimitHasProviderContext || rateLimitStatusBanner)) {
             return .rateLimit
         }
         let timeoutCue = normalized.contains("request timed out")

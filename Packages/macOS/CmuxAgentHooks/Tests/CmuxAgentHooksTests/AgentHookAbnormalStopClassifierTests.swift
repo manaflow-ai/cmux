@@ -10,6 +10,7 @@ struct AgentHookAbnormalStopClassifierTests {
         ("server overloaded", .capacity),
         ("quota exceeded", .quota),
         ("429 Too Many Requests", .rateLimit),
+        ("429 Too Many Requests: rate limit exceeded", .rateLimit),
         ("request timed out", .timeout),
         ("■ request timed out", .timeout),
         ("request timeout", .timeout),
