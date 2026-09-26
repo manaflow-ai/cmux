@@ -8506,6 +8506,7 @@ class TerminalController {
                 let selectorLiteral = v2JSONLiteral(selector)
                 script = """
                 (() => {
+                  \(v2BrowserControl.elementQueryPrelude)
                   const el = __cmuxQuery(\(selectorLiteral));
                   if (!el) return { ok: false, error: 'not_found' };
                   if (typeof el.scrollBy === 'function') {
