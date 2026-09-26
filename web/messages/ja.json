@@ -3094,6 +3094,7 @@
       "metaTitle": "変更履歴",
       "versionTitle": "cmux {version} · 変更履歴",
       "releaseNavLabel": "cmux {version} 付近のリリース",
+      "tryIt": "試してみる",
       "sections": {
         "added": "追加",
         "changed": "変更",

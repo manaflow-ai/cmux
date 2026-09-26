@@ -1782,6 +1782,7 @@
       "metaTitle": "更新日誌",
       "versionTitle": "cmux {version} · 更新日誌",
       "releaseNavLabel": "cmux {version} 附近的版本",
+      "tryIt": "試試看",
       "sections": {
         "added": "新增",
         "changed": "變更",
