@@ -187,6 +187,26 @@ struct CloudPortsVPNAffordanceTests {
         #expect(upgrades == 1 && terminals == [.cloud("paid")])
     }
 
+    @Test("Ports actions reach machines nested under the Cloud Machines section")
+    func actionsReachSectionedMachines() throws {
+        var terminals: [SurfaceMachineID] = []
+        var refreshed: [SurfaceMachineID] = []
+        var actions = nodeActions(newTerminal: { terminals.append($0) })
+        actions.refreshMachine = { refreshed.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: machineActions(),
+            nodeActions: actions,
+            expansionStore: CloudTreeExpansionStore(defaults: try #require(UserDefaults(suiteName: "ports-section-\(UUID())"))),
+            tabDragTransferRegistry: { nil })
+        // The Machines panel always groups cloud machines under this section row.
+        coordinator.nodes = [CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection,
+            children: [machineNode(id: "paid")])]
+        coordinator.performPortAction(.openShell, machineID: .cloud("paid"))
+        coordinator.performPortAction(.refresh, machineID: .cloud("paid"))
+        #expect(terminals == [.cloud("paid")])
+        #expect(refreshed == [.cloud("paid")])
+    }
+
     private func machineNode(id: String, expired: Bool = false) -> CloudTreeNode {
         let machine = SurfaceMachineID.cloud(id)
         var snapshot = MachineSnapshot(id: id, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)
