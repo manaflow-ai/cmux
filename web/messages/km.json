@@ -163,6 +163,7 @@
     "discord": "Discord",
     "contact": "ទំនាក់ទំនង",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "ភាសា",
     "assets": "ធនធាន",
@@ -2058,6 +2059,18 @@
     "description": "cmux NIGHTLY ត្រូវបានបង្កើតដោយស្វ័យប្រវត្តិពី commit ចុងក្រោយនៅលើ main។ វាមាន bundle ID ផ្ទាល់ខ្លួន ដូច្នេះវាដំណើរការស្របជាមួយកំណែស្ថិរភាពដោយគ្មានជម្លោះ។ ប្រើវាដើម្បីសាកល្បងមុខងារថ្មីមុនពេលចេញផ្សាយ។",
     "download": "ទាញយក NIGHTLY សម្រាប់ Mac",
     "warning": "កំណែ nightly អាចមានកំហុស ឬមុខងារមិនទាន់ពេញលេញ។ ប្រសិនបើមានបញ្ហា សូមរាយការណ៍នៅលើ <githubLink>GitHub</githubLink> ឬក្នុង <discordLink>#nightly-bugs នៅលើ Discord</discordLink> ហើយប្តូរទៅកំណែស្ថិរភាពវិញ។"
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "កំណែស្ថិរភាពបន្ទាប់ មុនពីរបីថ្ងៃ",
+    "metaTitle": "cmux Release Candidate — ចូលប្រើកំណែស្ថិរភាពបន្ទាប់មុនគេ",
+    "metaDescription": "សាកល្បង release candidate របស់ cmux៖ កំណែស្ថិរភាពបន្ទាប់ ដែលចេញផ្សាយមុនពីរបីថ្ងៃលើឆានែលអាប់ដេតផ្ទាល់ខ្លួន។ កម្មវិធីដូចគ្នា bundle ID ដូចគ្នា ប្ដូរឆានែលនៅក្នុងការកំណត់។",
+    "description": "Release candidate គឺជាកំណែស្ថិរភាពបន្ទាប់របស់ cmux ដែលចេញផ្សាយមុនពីរបីថ្ងៃ ដើម្បីឱ្យយើងរកឃើញបញ្ហាមុនពេលអ្នកទាំងអស់គ្នាទទួលបាន។ វាជាកម្មវិធីដូចគ្នានឹងកំណែស្ថិរភាព៖ ដំឡើងពីលើ cmux បច្ចុប្បន្នរបស់អ្នក ឬប្ដូរការដំឡើងដែលមានស្រាប់ទៅឆានែលអាប់ដេត release candidate នៅក្នុង ការកំណត់ > App។ នៅពេលកំណែសាកល្បងឆ្លងផុត build ដដែលនោះនឹងក្លាយជាកំណែស្ថិរភាព។",
+    "download": "ទាញយក release candidate សម្រាប់ Mac",
+    "downloadArm64": "DMG សម្រាប់ Apple silicon",
+    "downloadIntel": "DMG សម្រាប់ Intel",
+    "channelHint": "មាន cmux រួចហើយ? បើក ការកំណត់ > App ហើយកំណត់ឆានែលអាប់ដេតទៅ Release candidate ឬបន្ថែម <code>{\"updates\": {\"channel\": \"rc\"}}</code> ទៅក្នុង <code>~/.config/cmux/cmux.json</code>។",
+    "warning": "Release candidate អាចនៅមានកំហុសនៅឡើយ។ ប្រសិនបើមានអ្វីខូច សូមរាយការណ៍នៅលើ <githubLink>GitHub</githubLink> ឬក្នុង <discordLink>Discord</discordLink>។ ការប្ដូរត្រឡប់ទៅឆានែលស្ថិរភាពវិញនឹងបញ្ឈប់អាប់ដេត release candidate ប៉ុន្តែមិនបន្ទាបកំណែទេ សូមដំឡើងកំណែស្ថិរភាពឡើងវិញសម្រាប់ការនោះ។"
   },
   "languageSwitcher": {
     "label": "ភាសា"

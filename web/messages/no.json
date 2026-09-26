@@ -163,6 +163,7 @@
     "discord": "Discord",
     "contact": "Kontakt",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "Språk",
     "assets": "Ressurser",
@@ -2061,6 +2062,18 @@
     "description": "cmux NIGHTLY bygges automatisk fra siste commit på main. Den har sin egen bundle-ID, så den kjører ved siden av den stabile versjonen uten konflikter. Bruk den til å teste nye funksjoner før de lanseres.",
     "download": "Last ned NIGHTLY for Mac",
     "warning": "Nightly-bygg kan inneholde feil eller uferdige funksjoner. Hvis noe går galt, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og bytt tilbake til den stabile versjonen."
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "Neste stabile bygg, noen dager tidligere",
+    "metaTitle": "cmux Release Candidate — Tidlig tilgang til neste stabile bygg",
+    "metaDescription": "Prøv cmux release candidate: neste stabile bygg publisert noen dager tidligere på sin egen oppdateringskanal. Samme app, samme bundle-ID, bytt kanal i Innstillinger.",
+    "description": "Release candidate er neste stabile bygg av cmux, publisert noen dager tidligere slik at vi kan fange opp problemer før alle får det. Det er samme app som den stabile: installer den over din nåværende cmux, eller bytt en eksisterende installasjon til release candidate-oppdateringskanalen under Innstillinger > App. Når kandidaten består, blir det samme bygget den stabile utgivelsen.",
+    "download": "Last ned release candidate for Mac",
+    "downloadArm64": "DMG for Apple silicon",
+    "downloadIntel": "DMG for Intel",
+    "channelHint": "Har du allerede cmux? Åpne Innstillinger > App og sett oppdateringskanalen til Release candidate, eller legg til <code>{\"updates\": {\"channel\": \"rc\"}}</code> i <code>~/.config/cmux/cmux.json</code>.",
+    "warning": "Release candidates kan fortsatt ha feil. Hvis noe går i stykker, rapporter det på <githubLink>GitHub</githubLink> eller i <discordLink>Discord</discordLink>. Å bytte tilbake til den stabile kanalen stopper release candidate-oppdateringer, men nedgraderer ikke; installer den stabile utgivelsen på nytt for det."
   },
   "languageSwitcher": {
     "label": "Språk"

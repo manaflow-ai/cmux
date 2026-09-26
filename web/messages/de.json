@@ -163,6 +163,7 @@
     "discord": "Discord",
     "contact": "Kontakt",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "Sprache",
     "assets": "Assets",
@@ -2064,6 +2065,18 @@
     "description": "cmux NIGHTLY wird automatisch aus dem neuesten Commit auf main erstellt. Es hat eine eigene Bundle-ID und läuft daher ohne Konflikte neben der stabilen Version. Damit können Sie neue Funktionen testen, bevor sie veröffentlicht werden.",
     "download": "NIGHTLY für Mac herunterladen",
     "warning": "Nightly Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "Der nächste stabile Build, ein paar Tage früher",
+    "metaTitle": "cmux Release Candidate — Früher Zugang zum nächsten stabilen Build",
+    "metaDescription": "Probiere den cmux Release Candidate aus: der nächste stabile Build, ein paar Tage früher auf einem eigenen Update-Kanal veröffentlicht. Gleiche App, gleiche Bundle-ID, Kanalwechsel in den Einstellungen.",
+    "description": "Der Release Candidate ist der nächste stabile Build von cmux, der ein paar Tage früher veröffentlicht wird, damit wir Probleme finden, bevor alle ihn bekommen. Es ist dieselbe App wie die stabile Version: Installiere sie über dein aktuelles cmux oder stelle eine bestehende Installation unter Einstellungen > App auf den Release-Candidate-Update-Kanal um. Besteht der Kandidat, wird derselbe Build zur stabilen Version.",
+    "download": "Release Candidate für Mac herunterladen",
+    "downloadArm64": "DMG für Apple Silicon",
+    "downloadIntel": "DMG für Intel",
+    "channelHint": "Du hast cmux schon? Öffne Einstellungen > App und setze den Update-Kanal auf Release Candidate, oder füge <code>{\"updates\": {\"channel\": \"rc\"}}</code> in <code>~/.config/cmux/cmux.json</code> ein.",
+    "warning": "Release Candidates können noch Fehler enthalten. Wenn etwas nicht funktioniert, melde es auf <githubLink>GitHub</githubLink> oder in <discordLink>Discord</discordLink>. Ein Wechsel zurück zum stabilen Kanal stoppt die Release-Candidate-Updates, führt aber kein Downgrade durch; installiere dafür die stabile Version neu."
   },
   "languageSwitcher": {
     "label": "Sprache"

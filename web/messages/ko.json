@@ -163,6 +163,7 @@
     "discord": "Discord",
     "contact": "문의",
     "nightly": "나이틀리",
+    "rc": "릴리스 후보",
     "copyright": "© {year} Manaflow",
     "language": "언어",
     "assets": "애셋",
@@ -2061,6 +2062,18 @@
     "description": "cmux NIGHTLY는 main의 최신 커밋에서 자동으로 빌드됩니다. 자체 번들 ID를 가지고 있어 안정 버전과 충돌 없이 나란히 실행됩니다. 출시 전에 새로운 기능을 테스트할 수 있습니다.",
     "download": "Mac용 NIGHTLY 다운로드",
     "warning": "나이틀리 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에서 보고하고 안정 버전으로 전환하세요."
+  },
+  "rc": {
+    "title": "cmux 릴리스 후보",
+    "subtitle": "다음 안정 빌드를 며칠 먼저",
+    "metaTitle": "cmux 릴리스 후보 — 다음 안정 빌드 조기 이용",
+    "metaDescription": "cmux 릴리스 후보를 사용해 보세요. 다음 안정 빌드를 전용 업데이트 채널에서 며칠 먼저 공개합니다. 같은 앱, 같은 번들 ID이며 설정에서 채널을 전환할 수 있습니다.",
+    "description": "릴리스 후보는 cmux의 다음 안정 빌드로, 모든 사용자에게 배포되기 전에 문제를 잡기 위해 며칠 먼저 공개됩니다. 안정 버전과 같은 앱이므로 현재 cmux 위에 덮어 설치하거나, 기존 설치에서 설정 > App의 업데이트 채널을 릴리스 후보로 전환하면 됩니다. 후보가 검증을 통과하면 같은 빌드가 그대로 안정 릴리스가 됩니다.",
+    "download": "Mac용 릴리스 후보 다운로드",
+    "downloadArm64": "Apple silicon DMG",
+    "downloadIntel": "Intel DMG",
+    "channelHint": "이미 cmux를 사용 중이신가요? 설정 > App을 열어 업데이트 채널을 릴리스 후보로 설정하거나 <code>~/.config/cmux/cmux.json</code>에 <code>{\"updates\": {\"channel\": \"rc\"}}</code>을 추가하세요.",
+    "warning": "릴리스 후보에는 아직 버그가 있을 수 있습니다. 문제가 생기면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord</discordLink>에 알려 주세요. 안정 채널로 되돌리면 릴리스 후보 업데이트는 중단되지만 다운그레이드되지는 않습니다. 필요하면 안정 릴리스를 다시 설치하세요."
   },
   "languageSwitcher": {
     "label": "언어"

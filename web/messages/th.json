@@ -163,6 +163,7 @@
     "discord": "Discord",
     "contact": "ติดต่อ",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "ภาษา",
     "assets": "แอสเซ็ต",
@@ -2065,6 +2066,18 @@
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "บิลด์เสถียรถัดไป มาก่อนสองสามวัน",
+    "metaTitle": "cmux Release Candidate — เข้าถึงบิลด์เสถียรถัดไปก่อนใคร",
+    "metaDescription": "ลอง release candidate ของ cmux: บิลด์เสถียรถัดไปที่เผยแพร่ล่วงหน้าสองสามวันบนช่องทางอัปเดตของตัวเอง แอปเดียวกัน bundle ID เดียวกัน สลับช่องทางได้ในการตั้งค่า",
+    "description": "Release candidate คือบิลด์เสถียรถัดไปของ cmux ที่เผยแพร่ล่วงหน้าสองสามวันเพื่อให้เราพบปัญหาก่อนที่ทุกคนจะได้รับ เป็นแอปเดียวกับเวอร์ชันเสถียร: ติดตั้งทับ cmux ที่ใช้อยู่ หรือสลับการติดตั้งเดิมไปยังช่องทางอัปเดต release candidate ในการตั้งค่า > App เมื่อผ่านการทดสอบ บิลด์เดียวกันนี้จะกลายเป็นเวอร์ชันเสถียร",
+    "download": "ดาวน์โหลด release candidate สำหรับ Mac",
+    "downloadArm64": "DMG สำหรับ Apple silicon",
+    "downloadIntel": "DMG สำหรับ Intel",
+    "channelHint": "มี cmux อยู่แล้ว? เปิดการตั้งค่า > App แล้วตั้งช่องทางอัปเดตเป็น Release candidate หรือเพิ่ม <code>{\"updates\": {\"channel\": \"rc\"}}</code> ลงใน <code>~/.config/cmux/cmux.json</code>",
+    "warning": "Release candidate อาจยังมีบั๊ก หากพบปัญหา โปรดรายงานที่ <githubLink>GitHub</githubLink> หรือใน <discordLink>Discord</discordLink> การสลับกลับไปช่องทางเสถียรจะหยุดอัปเดต release candidate แต่ไม่ดาวน์เกรด หากต้องการดาวน์เกรดให้ติดตั้งเวอร์ชันเสถียรใหม่"
   },
   "languageSwitcher": {
     "label": "ภาษา"
