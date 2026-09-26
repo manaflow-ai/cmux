@@ -1879,6 +1879,10 @@
     "class": "brand",
     "source": "Codex"
   },
+  "sessionIndex.agent.cursor": {
+    "class": "brand",
+    "source": "Cursor"
+  },
   "sessionIndex.agent.grok": {
     "class": "brand",
     "source": "Grok"

@@ -108,6 +108,13 @@ extension SessionEntry {
                 registration: nil,
                 permissionMode: nil
             )
+        case .cursor:
+            components = SessionEntryResumeSnapshotComponents(
+                arguments: ["cursor-agent"],
+                environment: [:],
+                registration: nil,
+                permissionMode: nil
+            )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var arguments = ["grok"]
             if let model = Self.nonEmptyResumeValue(model) {
