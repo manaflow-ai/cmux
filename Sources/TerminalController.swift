@@ -6161,7 +6161,8 @@ class TerminalController {
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
                     submittedLength: event.submittedPromptLength,
-                    iMessageModeEnabled: iMessageModeEnabled
+                    iMessageModeEnabled: iMessageModeEnabled,
+                    surfaceId: event.surfaceId
                 )
             }
         case .stop:
