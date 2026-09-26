@@ -662,6 +662,12 @@
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
         },
+        "whatsNew": {
+          "type": "string",
+          "enum": ["off", "quiet", "sheet"],
+          "default": "quiet",
+          "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
+        },
         "warnBeforeQuit": {
           "type": "boolean",
           "default": true,

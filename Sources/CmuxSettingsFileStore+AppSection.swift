@@ -64,6 +64,15 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("paneResizeStepPixels") {
             logInvalid("app.paneResizeStepPixels", sourcePath: sourcePath)
         }
+        if let raw = jsonString(section["whatsNew"]) {
+            if let mode = WhatsNewPresentationMode(rawValue: raw) {
+                snapshot.managedUserDefaults[AppCatalogSection().whatsNew.userDefaultsKey] = .string(mode.rawValue)
+            } else {
+                logInvalid("app.whatsNew", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("whatsNew") {
+            logInvalid("app.whatsNew", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
                 snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)

@@ -50,6 +50,8 @@ struct cmuxApp: App {
     }
 
     init() {
+        // Before any workspace can mark the welcome as shown.
+        WhatsNewCenter.captureFirstRunState()
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
@@ -1689,6 +1691,7 @@ private struct MainWindowBootstrapView: View {
 }
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
+    "cmux.whatsNew",
     "cmux.about",
     "cmux.licenses",
     "cmux.browser-popup",

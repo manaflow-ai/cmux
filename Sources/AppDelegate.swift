@@ -1831,6 +1831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncApplicationPresentationPreferences()
             updateController.actionDelegate = self
             updateController.startUpdaterIfNeeded()
+            WhatsNewCenter.shared.scheduleLaunchCheck()
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
