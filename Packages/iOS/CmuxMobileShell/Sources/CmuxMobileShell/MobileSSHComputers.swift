@@ -89,6 +89,10 @@ public final class MobileSSHComputers {
     public let hostStore: SSHHostStore
     public let keyStore: SSHKeyStore
     public private(set) var hosts: [SSHHostRecord] = []
+    /// The host the user opened most recently, persisted across launches
+    /// (``SSHHostStore/lastUsedHostID()``), so a relaunch that has to pick an
+    /// SSH computer picks this one, as a paired Mac's active flag does.
+    public private(set) var lastUsedHostID: UUID?
     public private(set) var keys: [SSHKeyRecord] = []
     public private(set) var statusByHost: [UUID: MobileSSHHostStatus] = [:]
     /// Questions waiting for the user, oldest first.
@@ -149,6 +153,8 @@ public final class MobileSSHComputers {
 
     /// Re-reads hosts and keys from disk and republishes every host's rows.
     public func reload() async {
+        // Before `hosts`: views that pick a host react to hosts appearing.
+        lastUsedHostID = await hostStore.lastUsedHostID()
         hosts = await hostStore.all()
         keys = await keyStore.all()
         for host in hosts { publish(host: host) }
@@ -287,6 +293,10 @@ public final class MobileSSHComputers {
     /// refreshes its workspace rows. An explicit open re-enables automatic
     /// reconnects for the host.
     public func open(hostID: UUID) async {
+        if host(id: hostID) != nil {
+            lastUsedHostID = hostID
+            await hostStore.markUsed(id: hostID)
+        }
         autoConnectSuppressed.remove(hostID)
         // The user asked for this connection, so identity questions may be
         // asked again: for the host and for the jump host it tunnels through.
@@ -572,6 +582,13 @@ public final class MobileSSHComputers {
 
     public func host(id: UUID) -> SSHHostRecord? {
         hosts.first { $0.id == id }
+    }
+
+    /// The host a launch should land on when it must pick one (the signed-out
+    /// shell has no "All Computers" scope that works without a Mac): the one
+    /// used last, else the oldest.
+    public var preferredHost: SSHHostRecord? {
+        lastUsedHostID.flatMap(host(id:)) ?? hosts.first
     }
 
     // MARK: Surfaces (called by the shell store)

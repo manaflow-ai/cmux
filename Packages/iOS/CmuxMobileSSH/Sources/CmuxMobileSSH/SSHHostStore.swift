@@ -115,14 +115,33 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
 public actor SSHHostStore: SSHKnownHostsStore {
     private let hostsURL: URL
     private let knownHostsURL: URL
+    private let lastUsedURL: URL
     private var hosts: [SSHHostRecord]
     private var knownHosts: [String: SSHHostKey]
+    private var lastUsed: UUID?
 
     public init(directory: URL) {
         hostsURL = directory.appendingPathComponent("ssh-hosts.json")
         knownHostsURL = directory.appendingPathComponent("ssh-known-hosts.json")
+        lastUsedURL = directory.appendingPathComponent("ssh-last-used-host.json")
         hosts = (try? JSONDecoder().decode([SSHHostRecord].self, from: Data(contentsOf: hostsURL))) ?? []
         knownHosts = (try? JSONDecoder().decode([String: SSHHostKey].self, from: Data(contentsOf: knownHostsURL))) ?? [:]
+        lastUsed = try? JSONDecoder().decode(UUID.self, from: Data(contentsOf: lastUsedURL))
+    }
+
+    /// The saved host the user opened most recently, the SSH counterpart of
+    /// a paired Mac's persisted active flag. `nil` when none was opened yet
+    /// or it was deleted.
+    public func lastUsedHostID() -> UUID? {
+        guard let lastUsed, hosts.contains(where: { $0.id == lastUsed }) else { return nil }
+        return lastUsed
+    }
+
+    /// Records that the user opened `id`. Unknown ids are ignored.
+    public func markUsed(id: UUID) {
+        guard lastUsed != id, hosts.contains(where: { $0.id == id }) else { return }
+        lastUsed = id
+        try? write(id, to: lastUsedURL)
     }
 
     public func all() -> [SSHHostRecord] { hosts.sorted { $0.createdAt < $1.createdAt } }
@@ -140,6 +159,10 @@ public actor SSHHostStore: SSHKnownHostsStore {
 
     public func delete(id: UUID) throws {
         hosts.removeAll { $0.id == id }
+        if lastUsed == id {
+            lastUsed = nil
+            try? FileManager.default.removeItem(at: lastUsedURL)
+        }
         for index in hosts.indices where hosts[index].jumpHostID == id {
             hosts[index].jumpHostID = nil
         }

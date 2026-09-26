@@ -203,3 +203,45 @@ import Testing
         #expect(hosts[0].isAutoConnectPaused == false)
     }
 }
+
+/// A relaunch that has to pick an SSH computer (the signed-out shell scoped
+/// to "All Computers") lands on the one used last, not the oldest.
+@MainActor
+@Suite struct MobileSSHLastUsedHostTests {
+    @Test func openingAHostMakesItThePreferredHostAcrossLaunches() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-last-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        // Keyless hosts on a closed port: opening fails at once, offline.
+        let first = SSHHostRecord(name: "First", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        let second = SSHHostRecord(name: "Second", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(first)
+        try await computers.saveHost(second)
+        #expect(computers.preferredHost?.id == first.id)
+
+        await computers.open(hostID: second.id)
+        #expect(computers.lastUsedHostID == second.id)
+        #expect(computers.preferredHost?.id == second.id)
+
+        let relaunched = MobileSSHComputers(directory: dir)
+        await relaunched.reload()
+        #expect(relaunched.preferredHost?.id == second.id)
+
+        // Deleting it falls back to the oldest remaining host.
+        try await relaunched.deleteHost(id: second.id)
+        #expect(relaunched.lastUsedHostID == nil)
+        #expect(relaunched.preferredHost?.id == first.id)
+        let afterDelete = MobileSSHComputers(directory: dir)
+        await afterDelete.reload()
+        #expect(afterDelete.lastUsedHostID == nil)
+    }
+
+    @Test func openingAnUnknownHostRecordsNothing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-last-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        let host = SSHHostRecord(name: "Only", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+        await computers.open(hostID: UUID())
+        #expect(computers.lastUsedHostID == nil)
+        #expect(computers.preferredHost?.id == host.id)
+    }
+}

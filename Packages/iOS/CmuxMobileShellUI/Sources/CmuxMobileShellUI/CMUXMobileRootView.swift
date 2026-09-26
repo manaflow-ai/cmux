@@ -879,16 +879,16 @@ struct CMUXMobileRootView: View {
     }
 
     /// Signed out, only SSH computers exist, so an "All Computers" or stale
-    /// Mac scope would show Mac-oriented empty states. Scope to an SSH
-    /// computer instead.
+    /// Mac scope would show Mac-oriented empty states. Scope to the SSH
+    /// computer used last instead (the oldest when none was opened yet).
     private func selectSSHComputerForSignedOutShellIfNeeded() {
         if case .machine(let id) = workspaceMacSelection,
            let hostID = store.sshHostID(computerDeviceID: id),
            store.sshComputers.host(id: hostID) != nil {
             return
         }
-        guard let first = store.sshComputers.hosts.first else { return }
-        selectSSHComputerInWorkspaceList(first.id)
+        guard let host = store.sshComputers.preferredHost else { return }
+        selectSSHComputerInWorkspaceList(host.id)
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
