@@ -165,8 +165,7 @@ extension GhosttyNSView {
                 launchCommand: nil,
                 permissionMode: nil,
                 autoResume: false,
-                remoteWorkspaceID: nil,
-                remoteRelayParameters: nil
+                remoteWorkspaceID: nil
             ),
             origin: .userInterface
         )
