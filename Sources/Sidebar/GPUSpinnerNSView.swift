@@ -12,15 +12,6 @@ final class GPUSpinnerNSView: NSView {
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
 
-    /// Sidebar rows hide an idle spinner instead of removing it, so hiding
-    /// must also stop the endless animation.
-    override var isHidden: Bool {
-        didSet {
-            guard isHidden != oldValue else { return }
-            updateAnimationState()
-        }
-    }
-
     var isPresentationActive = true {
         didSet {
             guard isPresentationActive != oldValue else { return }
@@ -166,6 +157,19 @@ final class GPUSpinnerNSView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindowOcclusion()
+        updateAnimationState()
+    }
+
+    /// Sidebar rows hide an idle spinner instead of removing it, so hiding the
+    /// spinner or an ancestor stops the endless animation, and unhiding
+    /// reinstalls it.
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateAnimationState()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
         updateAnimationState()
     }
 
