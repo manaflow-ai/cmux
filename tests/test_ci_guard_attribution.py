@@ -339,13 +339,20 @@ class Robustness(unittest.TestCase):
         self.assertEqual(ga.pr_number(gh, {"pull_requests": [fork, ours]}), 9)
 
     def test_a_green_run_between_resets_what_the_issue_knows(self) -> None:
-        log = subprocess.run(["git", "-C", str(ROOT), "rev-list", "--first-parent", "--max-count=3", "HEAD"],
-                             capture_output=True, text=True).stdout.split()
-        red, middle, old = log
-        runs = [{"conclusion": "success", "head_sha": middle}]
-        self.assertTrue(ga.green_since(runs, ROOT, old, red))
-        self.assertFalse(ga.green_since(runs, ROOT, middle, red))
-        self.assertFalse(ga.green_since([{"conclusion": "failure", "head_sha": middle}], ROOT, old, red))
+        # CI checks out one commit, so build the history here.
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            shas = []
+            for n in range(3):
+                subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                                "--allow-empty", "-m", str(n)], check=True)
+                shas.append(ga.git(repo, "rev-parse", "HEAD"))
+            old, middle, red = shas
+            runs = [{"conclusion": "success", "head_sha": middle}]
+            self.assertTrue(ga.green_since(runs, repo, old, red))
+            self.assertFalse(ga.green_since(runs, repo, middle, red))
+            self.assertFalse(ga.green_since([{"conclusion": "failure", "head_sha": middle}], repo, old, red))
 
     def test_a_flood_of_fake_failures_stays_under_githubs_body_limit(self) -> None:
         steps = [{"step": f"s{i}", "tests": [{"test": "t", "message": "x" * 1400}] * 4, "excerpt": "",
