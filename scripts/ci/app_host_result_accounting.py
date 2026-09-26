@@ -428,8 +428,22 @@ def check_run(
 
 
 def write_inventory(input_path: Path, output_path: Path) -> None:
-    """Write a deterministic normalized test-inventory receipt."""
-    tests = sorted(parse_enumeration(load_json(input_path)))
+    """Write a deterministic normalized test-inventory receipt.
+
+    xcodebuild -enumerate-tests exits 0 even when the test runner never
+    connected; it then writes only the plan node plus an "errors" list. An
+    inventory built from that is empty, and every later step would run against
+    a host that cannot run tests, so refuse it here.
+    """
+    data = load_json(input_path)
+    errors = data.get("errors") if isinstance(data, dict) else None
+    if errors:
+        raise ValueError(
+            "test enumeration failed on this runner: " + "; ".join(str(error) for error in errors)
+        )
+    tests = sorted(parse_enumeration(data))
+    if not tests:
+        raise ValueError(f"test enumeration found no tests in {input_path}")
     suites = sorted({identifier.split("/", 1)[0] for identifier in tests if "/" in identifier})
     payload = {
         "version": 1,
