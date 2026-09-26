@@ -4,6 +4,12 @@ import CmuxSettings
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 /// The hook socket fixtures run production reconciliation and durable admission.
 /// Their command trace includes the accepted notification effect in the historical
 /// presentation format, so routing/content assertions cover either wire transport.
@@ -77,6 +83,7 @@ final class AgentHookTestNotificationPipeline {
     }
 }
 
+#if canImport(cmux_DEV) || canImport(cmux)
 struct AgentHookNotificationClassifierRegressionTests {
     @Test(arguments: [
         ("Claude Code", "API Error: 529 overloaded_error: Overloaded", "Model at capacity"),
@@ -311,3 +318,4 @@ struct AgentHookNotificationClassifierRegressionTests {
     }
 
 }
+#endif
