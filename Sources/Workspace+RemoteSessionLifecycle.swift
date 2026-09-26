@@ -132,6 +132,7 @@ extension Workspace {
                 remoteSessionControllerID: controllerID
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
+            codexWrapperScript: RemoteSessionBundledResourceLoader().codexWrapperScript(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
             strings: RemoteSessionStrings.appLocalized
         )

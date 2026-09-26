@@ -137,6 +137,10 @@ path = "tests/test_claude_wrapper_user_binary_resolution.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 

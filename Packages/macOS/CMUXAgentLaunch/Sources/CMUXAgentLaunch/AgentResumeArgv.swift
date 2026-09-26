@@ -82,6 +82,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let ampWrapperShellExecutableToken =
         ManagedAgentWrapperDescriptor.amp.wrapperShellExecutableToken
 
+    /// The managed Codex wrapper token with a captured executable as its fallback.
+    ///
+    /// Remote restore shells can lack the `bash` required by `cmux-codex-wrapper`,
+    /// or a previously installed shim can disappear. In those cases a routed
+    /// restore must retain the captured Codex executable instead of assuming a
+    /// separate `codex` is available on `PATH`.
+    public static func codexWrapperShellExecutableToken(fallbackExecutable: String) -> String {
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' \(ManagedAgentWrapperDescriptor.posixSingleQuoted(fallbackExecutable)))\""
+    }
+
     /// The shell token that resolves cmux's Hermes wrapper at restore time.
     ///
     /// Restored Hermes sessions must pass through the per-surface wrapper so its
@@ -239,11 +249,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// ``codexWrapperShellExecutableToken`` only when `codex` is the executable token.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
+    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: the
+    /// executable position is the first token, or the first non-assignment after an
+    /// `env` prefix. A nested `codex` subcommand such as `sr codex resume` is left alone.
     /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
@@ -309,13 +319,21 @@ public struct AgentResumeArgv: Sendable, Equatable {
         descriptor: ManagedAgentWrapperDescriptor,
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == descriptor.executableName {
-                replaced = true
-                return descriptor.wrapperShellExecutableToken
+        // The executable position is the first token, or the first
+        // non-assignment after an `env` prefix. A nested subcommand such as
+        // `sr codex resume` is not the managed executable and stays quoted.
+        var executableIndex = 0
+        if let first = parts.first, (first as NSString).lastPathComponent == "env" {
+            executableIndex = 1
+            while executableIndex < parts.count,
+                  parts[executableIndex].contains("=") {
+                executableIndex += 1
             }
-            return quote(part)
+        }
+        return parts.enumerated().map { index, part in
+            index == executableIndex && part == descriptor.executableName
+                ? descriptor.wrapperShellExecutableToken
+                : quote(part)
         }
     }
 
@@ -349,8 +367,28 @@ public struct AgentResumeArgv: Sendable, Equatable {
         launcher: String?,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]? = nil
     ) -> LauncherResolution {
+        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+            launcher: launcher,
+            sessionID: sessionId,
+            launchArguments: arguments,
+            environment: environment
+        ) {
+            let parts = commandParts(
+                executablePath: executablePath,
+                arguments: arguments,
+                fallbackExecutable: "codex"
+            )
+            guard let captured = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return .resolved(nil) }
+            let preserved = SubrouterCodexResumeRouting().removingRoutingArguments(from: captured)
+            return .resolved(routed + codexResumeConfigOverrides(preserved: preserved) + preserved)
+        }
         switch launcher {
         case "claudeTeams":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
