@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -62,6 +62,22 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Validate the local and fast guard runner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_run_guards.py
+
+      - name: Validate the CI timing readout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_timing_readout.py
+
+      - name: Validate the repository variable check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_check_repo_variables.py
+
+      - name: Validate guard failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guard_attribution.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
@@ -364,6 +380,26 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
 
+      - name: Validate main full-suite failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_attribution.py
+
+      - name: Validate merge receipts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_receipt.py
+
+      - name: Validate PR catch-up merge and its workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_catch_up_pr.py
+
+      - name: Validate merge-main's green base and guard failure labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_main.py
+
+      - name: Validate main full-suite failure reruns and bisects
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_bisect.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -371,6 +407,18 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate delta CI from the last green head
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_delta_since_green.py
+
+      - name: Validate late placement onto idle root runners
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate spread-first compile admission placement
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_admission_placement.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
@@ -380,9 +428,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
-      - name: Validate the owned Mac warm labels
+      - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_owned_warm_labels.py
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -536,6 +584,10 @@ jobs:
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
+
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
 
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
@@ -699,6 +751,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_download_stall.sh
 
+      - name: Validate the owned-Mac GhosttyKit archive cache
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_ghosttykit_archive_cache.sh
+
       - name: Validate GhosttyKit release check behavior
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_release_check.sh
@@ -718,6 +774,10 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
 
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
@@ -911,7 +971,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -960,7 +1020,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -995,7 +1055,7 @@ jobs:
         group: [sidebar-layout, dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1039,7 +1099,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

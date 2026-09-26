@@ -160,6 +160,8 @@ class FocusedLauncherTests(unittest.TestCase):
             "gh": FAKE_GH,
             "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
+            # No shared waiter daemon unless a test says so: --wait falls back to gh.
+            "glaeda-gh": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TEST_DIR/glaeda.calls"\nexit "${LAUNCHER_GLAEDA_STATUS:-3}"\n',
         }.items():
             path = self.bin / name
             path.write_text(source)
@@ -403,6 +405,18 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("123", watch)
         self.assertNotIn("999", watch)
 
+    def test_wait_uses_the_shared_waiter_when_it_answers(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_GLAEDA_STATUS="1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("wait run manaflow-ai/cmux/123", (self.root / "glaeda.calls").read_text())
+        self.assertFalse([call for call in self.calls() if call[:2] == ["run", "watch"]], "gh must not poll")
+
+    def test_wait_falls_back_to_a_slow_poll_when_the_waiter_is_down(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_WATCH_STATUS="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        polled = next(call for call in self.calls() if call[:2] == ["run", "watch"])
+        self.assertEqual(polled[-2:], ["--interval", "300"])
+
     def test_rejects_invalid_selectors_before_dispatch(self):
         for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\ndispatch_id=bad", "cmuxTests/A;echo bad"):
             with self.subTest(selector=selector):
@@ -625,7 +639,7 @@ class FocusedLauncherTests(unittest.TestCase):
             LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_WATCH_STATUS="1",
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status"],
+        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status", "--interval", "300"],
                       self.calls())
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
@@ -1014,7 +1028,9 @@ class FakeActions:
 
     def pull_request_runs_since(self, since, *, exclude_run_id):
         self._call("ci.yml runs")
-        return self.pool.pr_runner_pool.count_in_flight(self.state["pr_runs"], exclude_run_id=exclude_run_id)
+        # Runs with a created_at are filtered like the API's created>= query.
+        runs = [run for run in self.state["pr_runs"] if str(run.get("created_at") or since) >= since]
+        return self.pool.pr_runner_pool.count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 
 class WorkflowRunnerPoolTests(unittest.TestCase):
@@ -1231,12 +1247,15 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
         values = {
             "${{ github.token }}": "",
+            # The routing App's token; empty, as when the mint step is skipped.
+            "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}": "",
             "${{ github.repository }}": "manaflow-ai/cmux",
             "${{ inputs.runner }}": requested,
             "${{ vars.MACOS_RUNNER_TESTS }}": variable,
             "${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}": overflow,
             "${{ vars.CI_PR_POOL_ORDER }}": order,
             "${{ vars.CI_PR_POOL_MAX_QUEUED }}": max_queued,
+            "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}": "",
             "${{ vars.CI_PR_POOL_OWNED }}": "1",
             "${{ vars.CI_OWNED_POOL_SLOTS }}": json.dumps({MINI: 8}),
             "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
@@ -1285,13 +1304,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         paths = checkout["with"]["sparse-checkout"].split()
         self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        # No other job gained write access for this. owned-pool-watch only
-        # dispatches ci-owned-pool-rescue.yml and runs no repository code.
-        self.assertEqual(self.jobs["owned-pool-watch"]["permissions"], {"actions": "write"})
-        self.assertTrue(all("uses" not in step for step in self.jobs["owned-pool-watch"]["steps"]))
+        # No job gained write access for this: the rescue sweeper finds the run by its marker.
         for name, other in self.jobs.items():
-            if name == "owned-pool-watch":
-                continue
             for scope, level in (other.get("permissions") or {}).items():
                 with self.subTest(job=name, scope=scope):
                     self.assertEqual(level, "read")
@@ -1334,6 +1348,90 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             test_filter=test_filter, owned_ui=owned_ui,
             measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW,
         )
+
+    def live(self, idle, *, running=8, e2e_runs=(), pr_runs=(), online=None):
+        """An `auto` cmuxTests pick with `idle` owned runners read live, over a snapshot showing the pool full."""
+        state = queue(age=20)
+        state["pools"][MINI] = {"queued": 3, "running": running, "committed": running}
+        state["e2e_runs"], state["pr_runs"] = list(e2e_runs), list(pr_runs)
+        client = FakeActions(state)
+        logs = []
+        label = self.pool.resolve(
+            "auto", "", overflow="", order="", max_queued="",
+            owned="1", owned_slots=json.dumps({MINI: 8}), pr_xcode_app="/Applications/Xcode_26.6.app",
+            test_filter="cmuxTests/ExampleTests",
+            measure=lambda: self.pool.measure_load(client, now=NOW, live_owned={MINI: idle},
+                                                   live_online=None if online is None else {MINI: online}),
+            now=NOW,
+            log=logs.append,
+        )
+        return label, logs, client
+
+    def test_live_idle_runners_replace_a_stale_snapshot(self):
+        # The snapshot says 8 of 8 running and 3 queued; the runners API shows 2 idle.
+        label, logs, _ = self.live(2)
+        self.assertEqual(label, MINI)
+        self.assertIn("read live from the runners API", logs[-1])
+        # None idle live: Blacksmith, whatever the slot count says.
+        self.assertIn(self.live(0)[0], self.pool.E2E_POOLS)
+
+    def test_live_capacity_is_the_online_runners_not_the_slot_count(self):
+        # CI_OWNED_POOL_SLOTS says 8; two runners are online, one of them idle.
+        label, logs, _ = self.live(1, online=2)
+        self.assertEqual(label, MINI)
+        self.assertIn("1 of 2 owned machines free", logs[-1])
+        # Without the online counts the slot count stays the capacity.
+        self.assertIn("1 of 8 owned machines free", self.live(1)[1][-1])
+
+    def test_live_counts_only_the_windows_runs_against_owned_machines(self):
+        window = NOW - __import__("datetime").timedelta(minutes=self.pool.pr_runner_pool.LIVE_WINDOW_MINUTES)
+        stamp = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        old, new = stamp(window - __import__("datetime").timedelta(minutes=5)), stamp(NOW)
+        title = f"cmuxTests/A on {MINI} @ main"
+        # Five older PR runs are Blacksmith-only by now: one idle machine is still free.
+        prs = [{"id": 100 + n, "status": "in_progress", "created_at": old} for n in range(5)]
+        self.assertEqual(self.live(1, pr_runs=prs)[0], MINI)
+        # An older E2E run naming the pool may still be waiting in `sibling` with no Mac:
+        # it keeps its machine, so the one idle runner is taken.
+        waiting = [{"id": 9, "status": "in_progress", "display_title": title, "created_at": old}]
+        self.assertIn(self.live(1, e2e_runs=waiting)[0], self.pool.E2E_POOLS)
+        self.assertEqual(self.live(2, e2e_runs=waiting)[0], MINI)
+        # The window costs one more runs listing, and nothing else.
+        self.assertEqual(self.live(1)[2].paths, ["artifacts", "artifact zip", "test-e2e.yml runs", "ci.yml runs",
+                                                  "ci.yml runs"])
+
+    def test_live_owned_needs_the_token_and_owned_pools(self):
+        read = self.pool.read_live_owned
+        self.assertIsNone(read("manaflow-ai/cmux", {}, "1", "/Applications/Xcode_26.6.app"))
+        self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "", "/Applications/Xcode_26.6.app"))
+        runners = [{"status": "online", "busy": False, "labels": [{"name": MINI}]},
+                   {"status": "online", "busy": True, "labels": [{"name": MINI}]}]
+        with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", return_value=runners):
+            idle, online = read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app")
+            self.assertEqual((idle[MINI], online[MINI]), (1, 2))
+        with mock.patch.object(self.pool.pr_runner_pool.GitHub, "runners", side_effect=RuntimeError("403")), \
+                mock.patch("sys.stderr"):
+            self.assertIsNone(read("manaflow-ai/cmux", {"ROUTE_TOKEN": "t"}, "1", "/Applications/Xcode_26.6.app"))
+
+    def test_the_workflow_mints_the_routing_token_for_auto_only(self):
+        steps = self.jobs[next(name for name, job in self.jobs.items()
+                               if any(step.get("id") == "pool" for step in job.get("steps", [])))]["steps"]
+        ids = [step.get("id") for step in steps]
+        mint = steps[ids.index("route-token")]
+        self.assertLess(ids.index("route-token"), ids.index("pool"))
+        self.assertIs(mint["continue-on-error"], True)
+        self.assertIn("github.repository_owner == 'manaflow-ai'", mint["if"])
+        self.assertIn("inputs.runner == 'auto'", mint["if"])
+        self.assertEqual(mint["with"]["permission-administration"], "read")
+        self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
+        # The mint is all or nothing: without the org permission the second asks for the repository's alone.
+        fallback = steps[ids.index("route-token-repo")]
+        self.assertEqual(ids.index("route-token-repo"), ids.index("route-token") + 1)
+        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertNotIn("permission-organization-self-hosted-runners", fallback["with"])
+        self.assertEqual(steps[ids.index("pool")]["env"]["ROUTE_TOKEN"],
+                         "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}")
 
     def test_an_owned_mac_with_a_free_slot_comes_first(self):
         self.assertEqual(self.owned(), MINI)
