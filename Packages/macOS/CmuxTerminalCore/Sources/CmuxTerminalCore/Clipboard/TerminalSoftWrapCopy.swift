@@ -22,24 +22,33 @@ public struct TerminalCopyRow: Equatable, Sendable {
 /// Soft-wrap joining follows Ghostty's row wrap flag and is unconditional.
 /// Hard-wrap reflow is a width heuristic and runs only when the caller turns
 /// it on.
-public enum TerminalSoftWrapCopy {
+public struct TerminalSoftWrapCopy: Equatable, Sendable {
+    /// When true, also join a non-wrapped row that fills `terminalColumns`
+    /// onto the following row.
+    public var hardWrapReflow: Bool
+
+    /// Grid width used by the hard-wrap heuristic.
+    public var terminalColumns: Int
+
+    /// Creates a copy builder.
+    ///
+    /// - Parameters:
+    ///   - hardWrapReflow: Whether full-width rows reflow onto the next row.
+    ///   - terminalColumns: Grid width used by the hard-wrap heuristic.
+    public init(hardWrapReflow: Bool = false, terminalColumns: Int = 0) {
+        self.hardWrapReflow = hardWrapReflow
+        self.terminalColumns = terminalColumns
+    }
+
     /// Joins soft-wrapped rows into logical lines.
     ///
     /// Wrapped rows are concatenated with no added separator. Rows Ghostty did
     /// not mark as wrapped stay separated by `\n`. Trailing ASCII spaces are
     /// removed from each logical line, matching clipboard trim.
     ///
-    /// - Parameters:
-    ///   - rows: Physical rows in top-to-bottom order.
-    ///   - hardWrapReflow: When true, also join a non-wrapped row that fills
-    ///     `terminalColumns` onto the following row.
-    ///   - terminalColumns: Grid width used by the hard-wrap heuristic.
+    /// - Parameter rows: Physical rows in top-to-bottom order.
     /// - Returns: The copied text.
-    public static func joinedText(
-        _ rows: [TerminalCopyRow],
-        hardWrapReflow: Bool = false,
-        terminalColumns: Int = 0
-    ) -> String {
+    public func joinedText(_ rows: [TerminalCopyRow]) -> String {
         guard let first = rows.first else { return "" }
         var lines: [String] = []
         var current = first.text
@@ -77,15 +86,8 @@ public enum TerminalSoftWrapCopy {
     ///   - text: Plain text from the current copy path.
     ///   - wrapFlags: Ghostty wrap flag for each selected physical row, or
     ///     nil when the flags are unavailable.
-    ///   - hardWrapReflow: When true, also reflow lines that fill the grid.
-    ///   - terminalColumns: Grid width used by the hard-wrap heuristic.
     /// - Returns: Copied text after soft-wrap joining and any enabled reflow.
-    public static func joiningSoftWraps(
-        in text: String,
-        wrapFlags: [Bool]?,
-        hardWrapReflow: Bool = false,
-        terminalColumns: Int = 0
-    ) -> String {
+    public func joiningSoftWraps(in text: String, wrapFlags: [Bool]?) -> String {
         guard text.contains("\n") else { return text }
         let lines = splitCopiedLines(text)
         if let wrapFlags, wrapFlags.count == lines.count {
@@ -97,29 +99,21 @@ public enum TerminalSoftWrapCopy {
             let rows = zip(lines, wrapFlags).map { line, wrapped in
                 TerminalCopyRow(text: line, wrapped: wrapped)
             }
-            return joinedText(
-                rows,
-                hardWrapReflow: hardWrapReflow,
-                terminalColumns: terminalColumns
-            )
+            return joinedText(rows)
         }
         guard hardWrapReflow, terminalColumns > 0 else { return text }
         let rows = lines.map { TerminalCopyRow(text: $0, wrapped: false) }
-        return joinedText(
-            rows,
-            hardWrapReflow: true,
-            terminalColumns: terminalColumns
-        )
+        return joinedText(rows)
     }
 
-    private static func shouldSoftJoin(
+    private func shouldSoftJoin(
         _ previous: TerminalCopyRow,
         to row: TerminalCopyRow
     ) -> Bool {
         previous.wrapped && !previous.text.isEmpty && !row.text.isEmpty
     }
 
-    private static func shouldHardJoin(
+    private func shouldHardJoin(
         _ physicalRow: String,
         next: String,
         columns: Int
@@ -134,7 +128,7 @@ public enum TerminalSoftWrapCopy {
         return cellWidth(measured) >= columns
     }
 
-    private static func hardJoined(_ current: String, _ next: String) -> String {
+    private func hardJoined(_ current: String, _ next: String) -> String {
         var continuation = next
         if !current.hasSuffix(" "), continuation.hasPrefix(" ") {
             let indent = continuation.prefix(while: { $0 == " " })
@@ -148,7 +142,7 @@ public enum TerminalSoftWrapCopy {
         return current + " " + continuation
     }
 
-    private static func startsStructuralLine(_ trimmed: Substring) -> Bool {
+    private func startsStructuralLine(_ trimmed: Substring) -> Bool {
         if trimmed.hasPrefix("```")
             || trimmed.hasPrefix("#")
             || trimmed.hasPrefix("|")
@@ -163,14 +157,14 @@ public enum TerminalSoftWrapCopy {
         return rest.hasPrefix(". ")
     }
 
-    private static func endsSentence(_ text: String) -> Bool {
+    private func endsSentence(_ text: String) -> Bool {
         guard let last = text.last else { return false }
         return last == "." || last == "!" || last == "?"
     }
 
     /// Coarse terminal-cell width. Scalars in the East Asian range count as
     /// two cells; combining marks in the common block count as zero.
-    private static func cellWidth(_ text: String) -> Int {
+    private func cellWidth(_ text: String) -> Int {
         var width = 0
         for scalar in text.unicodeScalars {
             let value = scalar.value
@@ -180,7 +174,7 @@ public enum TerminalSoftWrapCopy {
         return width
     }
 
-    private static func trimmingTrailingSpaces(_ text: String) -> String {
+    private func trimmingTrailingSpaces(_ text: String) -> String {
         var end = text.endIndex
         while end > text.startIndex {
             let previous = text.index(before: end)
@@ -192,11 +186,11 @@ public enum TerminalSoftWrapCopy {
 
     /// Physical lines in copied text, dropping one trailing empty line from a
     /// final newline so the count matches Ghostty's row span.
-    public static func physicalLineCount(in text: String) -> Int {
+    public func physicalLineCount(in text: String) -> Int {
         splitCopiedLines(text).count
     }
 
-    private static func splitCopiedLines(_ text: String) -> [String] {
+    private func splitCopiedLines(_ text: String) -> [String] {
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if lines.last == "" {
             lines.removeLast()

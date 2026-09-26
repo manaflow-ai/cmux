@@ -9,7 +9,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "d test", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello world test")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello world test")
     }
 
     @Test func preservesTheSpaceAtASoftWrapBoundary() {
@@ -18,7 +18,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "world", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello world")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello world")
     }
 
     @Test func joinsThreeWrappedRowsIntoOneLine() {
@@ -28,7 +28,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: " a test", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello world this is a test")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello world this is a test")
     }
 
     @Test func keepsHardNewlinesWhenTheWrapFlagIsOff() {
@@ -37,7 +37,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "world", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello\nworld")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello\nworld")
     }
 
     @Test func keepsBlankLines() {
@@ -47,7 +47,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "world", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello\n\nworld")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello\n\nworld")
     }
 
     @Test func doesNotSoftJoinABlankRowEvenWhenMarkedWrapped() {
@@ -57,7 +57,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "world", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello\n\nworld")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello\n\nworld")
     }
 
     @Test func trimsTrailingSpacesOnEachLogicalLine() {
@@ -66,7 +66,7 @@ struct TerminalSoftWrapCopyTests {
             TerminalCopyRow(text: "world   ", wrapped: false),
         ]
 
-        #expect(TerminalSoftWrapCopy.joinedText(rows) == "hello\nworld")
+        #expect(TerminalSoftWrapCopy().joinedText(rows) == "hello\nworld")
     }
 
     @Test func hardWrapReflowStaysOffUnlessRequested() {
@@ -76,7 +76,7 @@ struct TerminalSoftWrapCopyTests {
         ]
 
         #expect(
-            TerminalSoftWrapCopy.joinedText(rows, terminalColumns: 10)
+            TerminalSoftWrapCopy(terminalColumns: 10).joinedText(rows)
                 == "abcdefghij\nmore"
         )
     }
@@ -89,11 +89,7 @@ struct TerminalSoftWrapCopyTests {
         ]
 
         #expect(
-            TerminalSoftWrapCopy.joinedText(
-                rows,
-                hardWrapReflow: true,
-                terminalColumns: 10
-            ) == "abcdefghij more\nnext"
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joinedText(rows) == "abcdefghij more\nnext"
         )
     }
 
@@ -106,11 +102,7 @@ struct TerminalSoftWrapCopyTests {
         ]
 
         #expect(
-            TerminalSoftWrapCopy.joinedText(
-                rows,
-                hardWrapReflow: true,
-                terminalColumns: 10
-            ) == "short\nline\nabcdefghij\n- item"
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joinedText(rows) == "short\nline\nabcdefghij\n- item"
         )
     }
 
@@ -118,7 +110,7 @@ struct TerminalSoftWrapCopyTests {
         let text = "curl -X POST https://ex\nample.com/api"
 
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy().joiningSoftWraps(
                 in: text,
                 wrapFlags: [true, false]
             ) == "curl -X POST https://example.com/api"
@@ -129,7 +121,7 @@ struct TerminalSoftWrapCopyTests {
         let text = "curl -X POST https://example.com/api\nnext command"
 
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy().joiningSoftWraps(
                 in: text,
                 wrapFlags: [true, true, false]
             ) == text
@@ -140,7 +132,7 @@ struct TerminalSoftWrapCopyTests {
         let text = "hello  \nworld  "
 
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy().joiningSoftWraps(
                 in: text,
                 wrapFlags: [false, false]
             ) == text
@@ -148,44 +140,36 @@ struct TerminalSoftWrapCopyTests {
     }
 
     @Test func physicalLineCountDropsOnlyATrailingEmptyLine() {
-        #expect(TerminalSoftWrapCopy.physicalLineCount(in: "a\nb") == 2)
-        #expect(TerminalSoftWrapCopy.physicalLineCount(in: "a\nb\n") == 2)
-        #expect(TerminalSoftWrapCopy.physicalLineCount(in: "a\n\nb") == 3)
+        #expect(TerminalSoftWrapCopy().physicalLineCount(in: "a\nb") == 2)
+        #expect(TerminalSoftWrapCopy().physicalLineCount(in: "a\nb\n") == 2)
+        #expect(TerminalSoftWrapCopy().physicalLineCount(in: "a\n\nb") == 3)
     }
 
     @Test func joiningHardWrapsOnlyWhenTheSettingIsOn() {
         let text = "abcdefghij\nmore text"
 
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy(hardWrapReflow: false, terminalColumns: 10).joiningSoftWraps(
                 in: text,
-                wrapFlags: nil,
-                hardWrapReflow: false,
-                terminalColumns: 10
+                wrapFlags: nil
             ) == text
         )
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy(hardWrapReflow: false, terminalColumns: 10).joiningSoftWraps(
                 in: text,
-                wrapFlags: [false, false],
-                hardWrapReflow: false,
-                terminalColumns: 10
+                wrapFlags: [false, false]
             ) == text
         )
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joiningSoftWraps(
                 in: text,
-                wrapFlags: nil,
-                hardWrapReflow: true,
-                terminalColumns: 10
+                wrapFlags: nil
             ) == "abcdefghij more text"
         )
         #expect(
-            TerminalSoftWrapCopy.joiningSoftWraps(
+            TerminalSoftWrapCopy(hardWrapReflow: true, terminalColumns: 10).joiningSoftWraps(
                 in: text,
-                wrapFlags: [false, false],
-                hardWrapReflow: true,
-                terminalColumns: 10
+                wrapFlags: [false, false]
             ) == "abcdefghij more text"
         )
     }

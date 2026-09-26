@@ -5980,14 +5980,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         joiningEnabled: Bool
     ) -> String {
         guard joiningEnabled, text.contains("\n") else { return text }
-        return TerminalSoftWrapCopy.joiningSoftWraps(
+        let copy = TerminalSoftWrapCopy(
+            hardWrapReflow: TerminalCatalogSection().reflowHardWrapOnCopy.value(in: .standard),
+            terminalColumns: Int(ghostty_surface_size(surface).columns)
+        )
+        return copy.joiningSoftWraps(
             in: text,
             wrapFlags: ghosttySelectionRowWrapFlags(
                 surface: surface,
-                matchingLineCount: TerminalSoftWrapCopy.physicalLineCount(in: text)
-            ),
-            hardWrapReflow: TerminalCatalogSection().reflowHardWrapOnCopy.value(in: .standard),
-            terminalColumns: Int(ghostty_surface_size(surface).columns)
+                matchingLineCount: copy.physicalLineCount(in: text)
+            )
         )
     }
 
@@ -6056,7 +6058,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             top: top,
             bottom: bottom,
             maxBytes: maxBytes
-        ), TerminalSoftWrapCopy.physicalLineCount(in: spanText) != matchingLineCount else {
+        ), TerminalSoftWrapCopy().physicalLineCount(in: spanText) != matchingLineCount else {
             return nil
         }
 
