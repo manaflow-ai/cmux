@@ -246,7 +246,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], MERGE)
         self.assertIn(f"Testing {MERGE}, the merge of {HEAD}", result.stdout)
         self.assertEqual(self.dispatch()["record_video"], "true")
-        # An owned Mac compiled it, and only an owned Mac shares its toolchain.
+        # An owned std Mac compiled it; only an owned Mac of its class shares its toolchain.
         self.assertEqual(self.dispatch()["runner"], MINI)
 
     def test_a_merge_with_the_heads_product_inputs_keeps_the_head(self):
@@ -300,6 +300,8 @@ class FocusedLauncherTests(unittest.TestCase):
         cases = {
             "fork": {"run": {**self.PR_CI, "head_repository": {"full_name": "someone/cmux"}}},
             "macos 15": {"jobs": [{"name": "macos / macOS compile admission", "labels": [OLD]}]},
+            "light mac": {"jobs": [{"name": "macos / macOS compile admission",
+                                    "labels": ["glaeda-root-light-xcode-26.6"]}]},
             "no products": {"artifacts": []},
             "no recorded merge": {"run": {**self.PR_CI, "referenced_workflows": []}},
         }
@@ -1737,6 +1739,12 @@ class CIProductReuseTests(unittest.TestCase):
         with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN):
             self.assertIsNone(self.reuse())
         self.find_run.assert_not_called()
+
+    def test_an_owned_ui_run_keeps_the_producers_mac_class(self):
+        owned_class = self.dispatch.owned_class
+        self.assertEqual(owned_class("glaeda-root-std-xcode-26.6"), owned_class("glaeda-std-xcode-26.6"))
+        self.assertNotEqual(owned_class("glaeda-root-light-xcode-26.6"), owned_class("glaeda-root-std-xcode-26.6"))
+        self.assertIsNone(owned_class(SMALL))
 
     def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
         with mock.patch.object(self.dispatch, "planned_products") as plan:
