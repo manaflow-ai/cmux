@@ -92,6 +92,7 @@ export function SiteHeader({
         <div className="flex items-center justify-end gap-1 px-4 h-12">
           <ThemeToggle />
           <button
+            type="button"
             onClick={close}
             className="w-8 h-8 flex items-center justify-center text-muted hover:text-foreground transition-colors"
             aria-label={tc("closeMenu")}

@@ -2015,6 +2015,7 @@
   "legal": {
     "privacyPolicy": "Gizlilik Politikası",
     "termsOfService": "Hizmet Koşulları",
+    "termsCopyright": "Telif hakkı © {year} Manaflow. Tüm hakları saklıdır.",
     "eula": "EULA"
   },
   "wallOfLove": {

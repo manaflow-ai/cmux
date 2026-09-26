@@ -2014,6 +2014,7 @@
   "legal": {
     "privacyPolicy": "개인정보 처리방침",
     "termsOfService": "이용약관",
+    "termsCopyright": "저작권 © {year} Manaflow. All rights reserved.",
     "eula": "EULA"
   },
   "wallOfLove": {

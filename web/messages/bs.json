@@ -2017,6 +2017,7 @@
   "legal": {
     "privacyPolicy": "Politika privatnosti",
     "termsOfService": "Uslovi korištenja",
+    "termsCopyright": "Autorska prava © {year} Manaflow. Sva prava zadržana.",
     "eula": "EULA"
   },
   "wallOfLove": {

@@ -44,6 +44,7 @@ export function ThemeToggle() {
 
   return (
     <button
+      type="button"
       onClick={toggle}
       className="inline-flex h-9 w-9 items-center justify-center text-muted hover:text-foreground transition-colors cursor-pointer"
       aria-label="Toggle theme"

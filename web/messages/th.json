@@ -2022,6 +2022,7 @@
   "legal": {
     "privacyPolicy": "นโยบายความเป็นส่วนตัว",
     "termsOfService": "ข้อกำหนดการใช้บริการ",
+    "termsCopyright": "ลิขสิทธิ์ © {year} Manaflow สงวนลิขสิทธิ์",
     "eula": "EULA"
   },
   "testimonials": {

@@ -3504,6 +3504,7 @@
   "legal": {
     "privacyPolicy": "プライバシーポリシー",
     "termsOfService": "利用規約",
+    "termsCopyright": "著作権 © {year} Manaflow。無断転載を禁じます。",
     "eula": "EULA"
   },
   "wallOfLove": {

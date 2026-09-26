@@ -2016,6 +2016,7 @@
   "legal": {
     "privacyPolicy": "隱私權政策",
     "termsOfService": "服務條款",
+    "termsCopyright": "版權所有 © {year} Manaflow。保留所有權利。",
     "eula": "EULA"
   },
   "wallOfLove": {

@@ -1671,7 +1671,13 @@ async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{
       continue;
     }
     if (!memberIds.includes(user.id)) continue;
-    const retainedOwnerId = memberIds.find((memberId) => memberId !== user.id);
+    let retainedOwnerId: string | undefined;
+    for (const memberId of memberIds) {
+      if (memberId !== user.id) {
+        retainedOwnerId = memberId;
+        break;
+      }
+    }
     if (retainedOwnerId) {
       retainedTeamBillingOwners.push({
         stackTeamId: team.id,
