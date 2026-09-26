@@ -202,13 +202,11 @@ struct ShellIntegrationSendTransportTests {
             "HOME": directory.path,
             "PATH": "/usr/bin:/bin",
             "TERM": "xterm-256color",
-            "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
         ]
         process.standardOutput = standardOutput
         process.standardError = standardError
         try process.run()
         process.waitUntilExit()
-        withExtendedLifetime(tmuxServer) {}
         let output = String(
             decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
