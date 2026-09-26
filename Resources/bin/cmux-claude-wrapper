@@ -290,15 +290,6 @@ cmux_claude_wrapper_target_looks_like_reexec_shim() {
     if [[ "${IN_CMUX:-0}" == "1" ]] && cmux_claude_wrapper_target_is_custom_path "$target"; then
         target_is_custom=true
     fi
-    # A configured Node-backed Claude executable is a real binary boundary,
-    # even when its shell entrypoint uses `exec node ...` to start the CLI.
-    # Treating that ordinary handoff as a shim prevents command discovery and
-    # can recurse into PATH resolution instead of probing the configured binary.
-    if [[ "$target_is_custom" == true &&
-          ( "$first_line" == *node* || "$snippet" == *'exec node '* ||
-            "$snippet" == *'exec /usr/bin/env node '* ) ]]; then
-        return 1
-    fi
     if [[ "$target_is_custom" != true ]]; then
         case "$first_line" in
             *node*|*Node*)
