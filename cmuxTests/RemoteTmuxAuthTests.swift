@@ -817,7 +817,7 @@ import Testing
 
         // Subscribed but declining (the dismissed-host case) is NOT handled.
         _ = observers.add(
-            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onPaneTitleChanged: nil,
             onActivePaneChanged: nil,
             onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
             onConnectionStateChanged: nil,
@@ -829,7 +829,7 @@ import Testing
         // an `||` would short-circuit and skip the rest.
         var secondRan = false
         _ = observers.add(
-            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onPaneTitleChanged: nil,
             onActivePaneChanged: nil,
             onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
             onConnectionStateChanged: nil,
