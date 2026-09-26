@@ -697,7 +697,7 @@ def ui_product_source(commit: str) -> dict | None:
         try:
             if rerun.products_artifact(REPO, str(run["id"]), rerun.gh_api):
                 if usable_product(source):
-                    return {**source, "ready": True}
+                    return {**source, "ready": True, "adopted": True}
                 continue
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             continue
@@ -745,6 +745,9 @@ def product_family(source: dict) -> str | None:
         labels = job.get("labels") or []
         owned = [label for label in labels if owned_class(label)]
         if owned:
+            # Only while UI runs may take an owned Mac at all (e2e_runner_pool).
+            if (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() != "1":
+                return None
             # test-e2e.yml's runner input offers one owned choice per Xcode.
             dispatchable = f"glaeda-std-xcode-{owned_class(owned[0])[1]}"
             return dispatchable if dispatchable in RUNNERS else None
@@ -961,6 +964,9 @@ def main() -> int:
         pinned = args.runner not in (None, "auto")
         default = args.runner if pinned else default_runner()
         pools = candidate_runners(default, pinned)
+        # An adopting run may be pinned to the producer's pool below.
+        if pools and ui_source is not None and ui_source.get("family"):
+            pools = tuple(dict.fromkeys((*pools, ui_source["family"])))
         # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
         # is unknown, measure against the longest label in the runner dropdown.
         label = max(pools or RUNNERS, key=len)
@@ -1062,6 +1068,7 @@ def main() -> int:
             adopted = adopted and usable_product(ui_source)
         except (subprocess.CalledProcessError, json.JSONDecodeError):
             adopted = False
+        ui_source["adopted"] = adopted
         if not adopted and commit != head:
             print(f"note: no CI products for {commit}; compiling {head} instead", file=sys.stderr, flush=True)
             commit = head
@@ -1071,7 +1078,7 @@ def main() -> int:
                 return status
 
     runner = args.runner if pinned else routed_runner(default, test_target)
-    if ui_source is not None and ui_source.get("family") and commit == ui_source["revision"]:
+    if ui_source is not None and ui_source.get("adopted") and ui_source.get("family"):
         # Send the run where the product can be adopted; see FAMILY_RUNNERS.
         family = ui_source["family"]
         if family.startswith("blacksmith-"):

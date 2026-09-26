@@ -234,6 +234,7 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def ci_env(self, run=None, *, artifacts=PRODUCTS, jobs=ADMISSION_26, status="completed"):
         return {
+            "CMUX_CI_E2E_OWNED_UI": "1",
             "LAUNCHER_CI_RUNS": json.dumps([run or self.PR_CI]),
             "LAUNCHER_CI_ARTIFACTS": json.dumps(artifacts),
             "LAUNCHER_CI_JOBS": json.dumps(jobs),
@@ -255,6 +256,21 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], HEAD)
         self.assertNotIn("the merge of", result.stdout)
         self.assertEqual(self.dispatch()["runner"], MINI)
+
+    def test_an_owned_product_is_not_adopted_while_ui_runs_stay_off_owned_macs(self):
+        result = self.launch("ExampleUITests", **{**self.ci_env(), "CMUX_CI_E2E_OWNED_UI": ""})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotEqual(self.dispatch().get("runner"), MINI)
+
+    def test_a_failed_wait_for_the_heads_own_product_pins_no_pool(self):
+        building = {**self.PR_CI, "status": "in_progress"}
+        result = self.launch("ExampleUITests", LAUNCHER_SAME_INPUTS="1",
+                             **self.ci_env(building, artifacts=[], status="completed"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertNotEqual(self.dispatch().get("runner"), MINI)
+        self.assertNotIn("the pool family", result.stdout)
 
     def test_a_blacksmith_product_keeps_the_ui_run_on_blacksmith_macos_26(self):
         for label in (SMALL, LARGE):
@@ -1745,7 +1761,10 @@ class CIProductReuseTests(unittest.TestCase):
             with self.subTest(label):
                 self.dispatch.rerun.gh_api.side_effect = lambda path, label=label: {
                     "jobs": [{"name": "macos / macOS compile admission", "labels": [label]}]}
-                self.assertEqual(self.dispatch.product_family({"id": 5}), MINI)
+                with mock.patch.dict(os.environ, {"CMUX_CI_E2E_OWNED_UI": "1"}):
+                    self.assertEqual(self.dispatch.product_family({"id": 5}), MINI)
+                with mock.patch.dict(os.environ, {"CMUX_CI_E2E_OWNED_UI": "0"}):
+                    self.assertIsNone(self.dispatch.product_family({"id": 5}))
         self.assertIsNone(self.dispatch.owned_class(SMALL))
 
     def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
