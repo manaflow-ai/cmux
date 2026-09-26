@@ -74,7 +74,7 @@ jobs:
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
     # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
-    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
