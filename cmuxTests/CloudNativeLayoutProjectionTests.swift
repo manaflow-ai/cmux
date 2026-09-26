@@ -179,19 +179,10 @@ struct CloudNativeLayoutProjectionTests {
         ))
         let reservedPane = try #require(viewer.paneId(forPanelId: reservation.panelID))
         var requestedDestination: SurfaceDestination?
-        provider.materializeProjection = { resource, view, destination in
+        provider.materializeProjection = { [unowned provider] resource, view, destination in
             requestedDestination = destination
-            let pane: PaneID
-            if case .tab(_, let rawPane, _) = destination,
-               let id = UUID(uuidString: rawPane),
-               let target = viewer.bonsplitController.allPaneIds.first(where: { $0.id == id }) {
-                pane = target
-            } else {
-                pane = sourcePane
-            }
-            let panel = try #require(viewer.newTerminalSurface(inPane: pane, focus: false))
-            return SurfaceProjection(resource: resource.id, workspaceID: viewer.id, panelID: panel.id,
-                remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+            return try Self.materializeDeviceTerminal(resource, view: view, at: destination, in: viewer,
+                adopting: provider.adoptions.last { $0.resource == resource.id }?.reservation)
         }
 
         let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
@@ -307,6 +298,27 @@ struct CloudNativeLayoutProjectionTests {
         #expect(viewer.cloudPendingCreations[reservation.panelID] == nil)
     }
 
+    /// Materializes a device terminal the way the device provider does. A
+    /// terminal bound to a reservation takes the pane the workspace already
+    /// inserted; any other terminal gets a new manual-mirror pane at the
+    /// destination. `newTerminalSurface` would route to the machine instead,
+    /// because the pane's selected tab is Cloud-owned.
+    private static func materializeDeviceTerminal(
+        _ resource: SurfaceResource, view: SurfaceRemoteView?, at destination: SurfaceDestination,
+        in viewer: Workspace, adopting reservation: CloudTerminalPaneReservation?
+    ) throws -> SurfaceProjection {
+        let panelID: UUID
+        if let reservation {
+            panelID = reservation.panelID
+        } else {
+            let panel = try #require(viewer.makeRemoteTmuxPanePanel(onInput: { _ in }))
+            _ = try viewer.insertCloudManualMirrorPanel(panel, at: destination, focus: false, isLoading: false)
+            panelID = panel.id
+        }
+        return SurfaceProjection(resource: resource.id, workspaceID: viewer.id, panelID: panelID,
+            remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+    }
+
     /// One device-mirrored workspace whose only projected terminal is the split source.
     @MainActor
     private final class DeviceSplitFixture {
@@ -339,16 +351,11 @@ struct CloudNativeLayoutProjectionTests {
             catalog.record(.init(resource: source.id, workspaceID: viewer.id,
                 panelID: sourcePanel, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "remote-a"))
             provider.materializeProjection = { [unowned self] resource, view, destination in
-                var pane = self.sourcePane
-                if case .tab(_, let rawPane, _) = destination,
-                   let id = UUID(uuidString: rawPane),
-                   let target = self.viewer.bonsplitController.allPaneIds.first(where: { $0.id == id }) {
-                    pane = target
-                }
-                self.destinationPanes[resource.id] = pane.id
-                let panel = try #require(self.viewer.newTerminalSurface(inPane: pane, focus: false))
-                return SurfaceProjection(resource: resource.id, workspaceID: self.viewer.id, panelID: panel.id,
-                    remoteWorkspaceID: view?.workspace.id, remoteTabID: view?.tabID)
+                let projection = try CloudNativeLayoutProjectionTests.materializeDeviceTerminal(
+                    resource, view: view, at: destination, in: self.viewer,
+                    adopting: self.adoption(of: resource.id))
+                self.destinationPanes[resource.id] = try #require(self.viewer.paneId(forPanelId: projection.panelID)).id
+                return projection
             }
         }
 
