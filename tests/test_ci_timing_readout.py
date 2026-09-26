@@ -107,6 +107,15 @@ class ReadoutTests(unittest.TestCase):
         self.assertIn("| a \\| b |", text)
         self.assertIn("| x \\| y |", text)
 
+    def test_failed_jobs_are_not_ranked_against_successes(self):
+        jobs = [dict(j) for j in JOBS]
+        for j in jobs:
+            if j["name"] == "macos / macOS compile admission":
+                j["conclusion"] = "cancelled"
+        text = readout.build_readout(jobs, STATS, "pr")
+        self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s | 5m00s | - |", text)
+        self.assertNotIn("Compile app-host test product | 3m40s | p", text)
+
     def test_nothing_ran(self):
         self.assertIn("No job ran", readout.build_readout([JOBS[-1]], None, "pr"))
 
@@ -129,7 +138,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(readout.fmt_duration(3725), "1h02m")
 
     def test_where(self):
-        self.assertEqual(readout.where({"runner_name": "cmuxs-mac-mini-5-glaeda-3", "labels": ["glaeda-side-std"]}), "mini cmuxs-mac-mini-5-glaeda-3")
+        self.assertEqual(readout.where({"runner_name": "cmuxs-mac-mini-5-glaeda-3", "labels": ["glaeda-side-std"]}), "mini cmuxs-mac-mini-5")
         self.assertEqual(readout.where({"runner_name": "b-1", "labels": ["blacksmith-12vcpu-macos-26"]}), "Blacksmith 12vcpu-macos-26")
         self.assertEqual(readout.where({"runner_name": "GitHub Actions 3", "labels": ["ubuntu-latest"]}), "GitHub-hosted")
 

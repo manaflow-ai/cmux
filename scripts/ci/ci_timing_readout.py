@@ -20,7 +20,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -88,7 +90,7 @@ def where(job: dict) -> str:
     labels = " ".join(job.get("labels") or [])
     text = f"{runner} {labels}".lower()
     if "glaeda" in text or "mac-mini" in text or "self-hosted" in text:
-        return f"mini {runner.removesuffix('-glaeda')}".strip()
+        return f"mini {re.sub(r'-glaeda(-[0-9]+)?$', '', runner)}".strip()
     if "blacksmith" in text:
         label = next((label for label in job.get("labels") or [] if label.startswith("blacksmith")), "")
         return f"Blacksmith {label.removeprefix('blacksmith-')}".strip()
@@ -126,6 +128,15 @@ class Job:
         if not self.fresh:
             return None
         return max(0.0, (self.completed - self.started).total_seconds())
+
+    @property
+    def succeeded(self) -> bool:
+        # History counts run and step times of successful jobs only, so a
+        # failed or cancelled job is not ranked against it.
+        return self.conclusion == "success"
+
+    def ranked_run(self) -> float | None:
+        return self.run if self.succeeded else None
 
     def steps(self) -> list[tuple[str, float]]:
         out = []
@@ -238,8 +249,8 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
     for job in chain:
         if (job.queue or 0) + (job.run or 0) < HEADLINE_FLOOR_SECONDS:
             continue
-        run_rank, _, run_high = compare(job.run, history.find("run", job.name))
-        queue_rank, _, queue_high = compare(job.queue, history.find("queue", job.name))
+        run_rank, _, _ = compare(job.ranked_run(), history.find("run", job.name))
+        _, _, queue_high = compare(job.queue, history.find("queue", job.name))
         part = short_name(job.name)
         if job.queue and job.queue >= 60:
             part += f" queued {fmt_duration(job.queue)}{' (above p90)' if queue_high else ''} +"
@@ -261,7 +272,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
     ]
     for job in chain:
         run_series = history.find("run", job.name)
-        run_rank, run_ref, run_high = compare(job.run, run_series)
+        run_rank, run_ref, run_high = compare(job.ranked_run(), run_series)
         queue_rank, queue_ref, queue_high = compare(job.queue, history.find("queue", job.name))
         queue = fmt_duration(job.queue)
         if queue_rank:
@@ -275,7 +286,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
     for job in chain:
         steps = sorted((s for s in job.steps() if s[1] >= STEP_FLOOR_SECONDS), key=lambda s: -s[1])[:STEPS_PER_JOB]
         for name, seconds in steps:
-            series = history.find("step", job.name, name)
+            series = history.find("step", job.name, name) if job.succeeded else None
             step_rank, step_ref, high = compare(seconds, series)
             vs = flag(f"{step_rank} ({step_ref})", high) if step_rank else "-"
             step_rows.append(f"| {cell(short_name(job.name))} | {cell(name)} | {fmt_duration(seconds)} | {vs} |")
@@ -286,7 +297,7 @@ def build_readout(raw_jobs: list[dict], stats: dict | None, seg: str, run_attemp
     for job in sorted(fresh, key=lambda j: j.name):
         if job in chain:
             continue
-        for label, value, metric in (("run", job.run, "run"), ("queued", job.queue, "queue")):
+        for label, value, metric in (("run", job.ranked_run(), "run"), ("queued", job.queue, "queue")):
             r, ref, high = compare(value, history.find(metric, job.name))
             if high:
                 elsewhere.append(f"- {job.name}: {label} {fmt_duration(value)} ({r}; {ref}), {where(job.raw)}")
@@ -341,6 +352,8 @@ def main() -> int:
         query = urllib.parse.urlencode({"repo": repo, "workflow": env.get("GITHUB_WORKFLOW", "CI"), "seg": seg})
         try:
             stats = get_json(f"{base}?{query}", timeout=10)
+        except urllib.error.HTTPError as error:
+            note = "no history yet for this workflow" if error.code == 404 else f"stats unreachable: HTTP {error.code}"
         except Exception as error:  # noqa: BLE001
             note = f"stats unreachable: {type(error).__name__}"
     else:
