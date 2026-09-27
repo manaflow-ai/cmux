@@ -1,49 +1,21 @@
 # See what a UI test did
 
-Use this when a UI or E2E test passes or fails and you need to see the app, not
-just the assertion. It needs no screen recording, so it works on the owned
-minis (which record no video) and on runners whose screen capture is broken.
-
-## Run a test and get its frames
-
 ```bash
-python3 scripts/ci/dispatch-focused-test.py cmuxUITests/SidebarHelpMenuUITests --ref <pushed-sha> --frames
+scripts/ui-test SidebarHelpMenuUITests          # run it in CI at your pushed HEAD, then show its steps
+scripts/ui-test <run id or URL>                 # show a finished run's steps
 ```
 
-`--frames` implies `--wait`. When the run ends, it prints each test's result,
-the first line of each failure, the frame nearest the failure, named captures,
-and contact sheets.
+It prints each test's result, its failure, the action it failed at, and paths to:
 
-For a run that already finished, pass its id or URL:
+- `steps.md`: the test as numbered actions ("Click "SidebarHelpMenuOptionSettings" MenuItem"), with the failing one marked.
+- `frames/NN-<action>.jpg`: the screen right after each action. Open the failing one first.
+- `sheet-N.jpg`: 3x4 contact sheets of the frames, tile N being step N.
 
-```bash
-python3 scripts/ci/e2e-frames.py https://github.com/manaflow-ai/cmux/actions/runs/<id> [--test Substring]
-```
+CI builds these for every UI run: the action lists are in the run's job summary, and the frames in its `ui-frames` artifact, which `scripts/ui-test` downloads.
 
-## What you get
+Keep in mind:
 
-Under `$TMPDIR/cmux-e2e-frames/<run>/<Class>/<method>/`:
-
-| File | Use |
-| --- | --- |
-| `sheet-N.png` | 3x4 grid of the steps in time order, 1920 px wide. Open these first. |
-| `frames/NNN-step.png` | XCUITest's screenshot for one step, 960 px wide. |
-| `frames/NNN-<name>.png` | A named capture the test attached. |
-| `frames/NNN-video.png` | Frames sampled at 2 fps from XCTest's screen recording, which some hosts attach to a failing test instead of step screenshots. |
-| `steps.mp4` | The frames at 2 fps, for a person to scrub. |
-
-`--json` prints the same summary for scripts.
-
-## Know the limits
-
-- XCUITest keeps step screenshots only for failing tests. For a passing test you
-  get named captures only, so attach the views you want to see:
-  `let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = "account-menu"; shot.lifetime = .keepAlways; add(shot)`.
-- Read the result, not just the exit code. **Expected Failure** usually means the
-  harness absorbed a launch or activation failure and the test ended before
-  it reached the behavior under test.
-- A run that failed before tests started uploads no `test-results`, so there
-  is nothing to extract; its log explains why.
-- Look at the whole frame. Leftover system dialogs (crash reports, keychain
-  prompts) over the app explain activation and focus failures;
-  the "Close leftover system dialogs" step in `.github/actions/e2e-run-tests` closes them before each run.
+- XCUITest keeps screenshots only for failing tests. To see a passing test, attach a capture with `lifetime = .keepAlways`; it shows as `capture: <name>`.
+- **Expected Failure** is not a pass. It usually means the harness absorbed a launch or activation failure and the test ended before the behavior under test.
+- Hosts that record a failing test's screen instead of screenshots give one frame a second, captioned with the running action.
+- If a frame shows a system dialog over the app, that explains focus and activation failures. The E2E action closes leftover dialogs before tests run.
