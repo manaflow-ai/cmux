@@ -781,13 +781,23 @@ MOBILE_LAUNCH_ARGS=(
   --auth-profile agent
   --ensure-mac
   --detach
-  --iroh-release-gate "$RAW_MODE"
 )
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
 elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$DOGFOOD_CREDENTIALS_FILE")
 fi
+
+# Establish Stack and v2 state once before the measured launch. The first
+# launch is intentionally a real enrollment; the release-gate launch below
+# reuses that state and measures the cached-credential path.
+if [[ -n "$SOAK_PROFILE" ]]; then
+  echo "==> prewarming cached Stack and v2 state before the measured launch"
+  CMUX_DEV_AUTH_REPLACE_SESSION=1 \
+    ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}"
+fi
+
+MOBILE_LAUNCH_ARGS+=(--iroh-release-gate "$RAW_MODE")
 # Capture the simulator's composited terminal pixels at the presentation
 # boundary. UIKit drawHierarchy omits the renderer's IOSurface. The app waits
 # for this acknowledgement before navigating back; capture time is excluded
@@ -881,6 +891,7 @@ PY_CAPTURE
   }
 fi
 
+CMUX_DEV_AUTH_REPLACE_SESSION="$([[ -n "$SOAK_PROFILE" ]] && printf 0 || printf 1)" \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
