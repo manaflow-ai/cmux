@@ -34,6 +34,83 @@ CMUX already has:
 
 The fleet side already has expiring reservations. This RFC does not define a new fleet scheduler.
 
+## Existing generic machine boundary
+
+This work should promote existing CMUX machine abstractions instead of creating a fleet-specific path.
+
+### Surface machine identity
+
+`SurfaceMachineID` already distinguishes:
+
+```text
+local
+cloud
+ssh
+device
+```
+
+An SSH cmux-tui connection already becomes a `.ssh` machine and uses the shared `SurfaceCatalog`.
+
+### Shared SSH/Cloud surface provider
+
+`SSHTuiWorkspaceCoordinator` describes its job directly:
+
+> Compose SSH carriers with the same terminal graph and native projections as Cloud.
+
+It registers the same `CmuxTuiSurfaceProvider` family used by managed machines. Remote work therefore already has a provider-neutral graph once a connection exists.
+
+### cmux-tui machine provider
+
+`cmux-tui/spec/machine-provider.md` already defines implemented v0/v1 machine-provider contracts.
+
+The important v1 boundary is:
+
+```text
+provider
+  owns discovery/auth/authz/lifecycle/connection
+CMUX
+  owns machine/workspace/session UI
+mux
+  owns the remote workspace/terminal graph
+```
+
+It already supports:
+
+- provider-stable machine ids;
+- scopes;
+- machine create/open;
+- machine/workspace lifecycle capabilities;
+- one-use connection tickets;
+- `connect-external-machine-v1`;
+- provider-owned workspace catalogs.
+
+The spec explicitly states that user-owned machines and Cloud VMs use the same descriptor/open boundary.
+
+That should be the center of the self-hosted direction.
+
+### Lease is availability, not identity
+
+A Glaeda developer lease says:
+
+> this owned machine is available to this caller until T
+
+It does not define the machine's CMUX identity.
+
+Keep these separate:
+
+```text
+machine
+  stable identity
+  provider / connection
+  capabilities
+
+availability
+  free / busy / reserved / draining / offline
+  lease owner / purpose / expiry when applicable
+```
+
+The same mini can serve CI, a developer, and later an agent pool at different times without becoming three machines.
+
 ## User journey
 
 ### 1. Get a machine
