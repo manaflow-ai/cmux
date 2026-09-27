@@ -812,8 +812,11 @@ jobs:
           # second sees the first's marker here and stays quiet.
           if [[ "$AUTO" == true ]]; then
             marker="$(head -n 1 "$comment")"
-            if gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
-                --jq '.[] | select(.user.login == "github-actions[bot]") | .body' | grep -qxF -- "$marker"; then
+            # Read every page before matching: grep -q stopping early would
+            # SIGPIPE gh, and pipefail would read that as no marker.
+            bodies="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+              --jq '.[] | select(.user.login == "github-actions[bot]") | .body')"
+            if grep -qxF -- "$marker" <<<"$bodies"; then
               echo "#$PR_NUMBER already has the comment for this head."
               exit 0
             fi

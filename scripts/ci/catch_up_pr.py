@@ -355,6 +355,8 @@ def merge_file(base: str, ours: str, theirs: str) -> str:
 
 def union_pbxproj(base: str, ours: str, theirs: str) -> str:
     """Three-way merge where each conflicted hunk must be insertions on both sides."""
+    if any(marker_line(line) for text in (base, ours, theirs) for line in text.splitlines()):
+        raise ValueError("a side has conflict-marker lines")
     out: list[str] = []
     for part in split_conflicts(merge_file(base, ours, theirs)):
         if isinstance(part, str):
@@ -378,52 +380,87 @@ def union_pbxproj(base: str, ours: str, theirs: str) -> str:
 # Brace languages, where a declaration's nesting is its brace depth.
 SOURCE_SUFFIXES = (".swift", ".m", ".mm", ".h", ".c", ".cc", ".cpp", ".go", ".rs", ".kt", ".java",
                    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
-# The first code line of an inserted block that may move within its nesting
-# level: a declaration, whose order among its siblings does not change what
-# the program does. Statements (let, var, const, calls) are not in the list.
+# A line that starts a declaration whose order among its siblings does not
+# change what the program does: a keyword, then a name. Statements (let, var,
+# const, calls, switch cases) and enum cases (raw values, CaseIterable) are
+# not declarations here.
 DECLARATION_RE = re.compile(
     r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*"
     r"(?:(?:public|private|internal|fileprivate|open|package|static|class|final|override|mutating|nonisolated|"
     r"convenience|required|export|default|async|abstract|pub(?:\([^)]*\))?|unsafe)\s+)*"
-    r"(?:func|init|deinit|subscript|struct|class|enum|extension|protocol|actor|typealias|case|import|"
-    r"function|interface|type|fn|impl|trait|mod|object|fun)\b"
+    r"(?:(?:func|struct|class|enum|extension|protocol|actor|typealias|function|interface|fn|impl|trait|fun|object)"
+    r"\s+[A-Za-z_]"
+    r"|(?:init|deinit|subscript)\b.*\{)"
 )
+ATTRIBUTE_RE = re.compile(r"^\s*@\w+(?:\([^)]*\))?\s*$")
+CLOSING_RE = re.compile(r"^\s*\}[\s;,)]*$")
+DIRECTIVE_RE = re.compile(r"^\s*#\s*(?:if|ifdef|ifndef|elif|elseif|else|endif)\b")
 
 
-def depth(lines: list[str]) -> int:
-    """Braces opened less braces closed over `lines`."""
-    return sum(line.count("{") - line.count("}") for line in lines)
+def marker_line(line: str) -> bool:
+    return line.startswith(("<" * MARKER_SIZE, "|" * MARKER_SIZE, "=" * MARKER_SIZE, ">" * MARKER_SIZE))
+
+
+def comment_line(line: str) -> bool:
+    return line.lstrip().startswith(("//", "/*", "*/"))
+
+
+def opaque(line: str) -> bool:
+    """A line whose braces may not be code: a brace next to a quote, a comment or a directive."""
+    if DIRECTIVE_RE.match(line):
+        return True
+    return ("{" in line or "}" in line) and any(mark in line for mark in ('"', "'", "`", "//", "/*", "*/"))
+
+
+def depths(lines: list[str]) -> list[int]:
+    """Brace depth before each line and after the last, relative to the first."""
+    out = [0]
+    for line in lines:
+        out.append(out[-1] + line.count("{") - line.count("}"))
+    return out
 
 
 def declaration_block(lines: list[str]) -> bool:
-    """True for lines that open with a declaration and close every brace they open, never going below 0."""
-    code_lines = [line for line in lines if line.strip() and not line.lstrip().startswith(("//", "/*", "*"))]
-    if not code_lines or not DECLARATION_RE.match(code_lines[0]):
+    """Whole declarations: every line at the block's own level is a declaration start, an attribute,
+    a comment, a closing brace or blank, and the braces balance without going below 0."""
+    level = depths(lines)
+    if level[-1] != 0 or min(level) < 0 or any(opaque(line) for line in lines):
         return False
-    level = 0
-    for line in lines:
-        level += line.count("{") - line.count("}")
-        if level < 0:
+    started = False
+    for line, before in zip(lines, level):
+        if before or not line.strip() or comment_line(line) or ATTRIBUTE_RE.match(line) or CLOSING_RE.match(line):
+            continue
+        if not DECLARATION_RE.match(line):
             return False
-    return level == 0
+        started = True
+    return started
 
 
 def graft(other: list[str], base: list[str], slots: list[list[str]]) -> list[str] | None:
-    """`other` with the declarations one side inserted into `base` (by slot) placed at their brace depth.
+    """`other` with the declarations one side inserted into `base` placed in the hunk's own scope.
 
-    A block that followed base line k-1 goes where `other` is at the depth
-    base[:k] reached, preferring the spot nearest its relative position in
-    the hunk (the earlier on a tie). None when a block is not a declaration or
-    `other` has no line boundary at that depth.
+    Only blocks inserted at the scope the hunk starts in (depth 0, never
+    leaving it before the slot) move, and only to a spot in `other` in that
+    same scope: at its start, after a blank line or after a closing brace, so
+    nothing takes or loses an attribute or a doc comment. The spot nearest the block's relative position wins, the
+    earlier on a tie. None when anything does not hold.
     """
+    if any(opaque(line) for line in other + base):
+        return None
+    base_level, other_level = depths(base), depths(other)
     placed: list[tuple[int, int, list[str]]] = []
     for slot, lines in enumerate(slots):
         if not lines:
             continue
-        if not declaration_block(lines):
+        if not declaration_block(lines) or base_level[slot] != 0 or min(base_level[:slot + 1]) < 0:
             return None
-        want = depth(base[:slot])
-        spots = [p for p in range(len(other) + 1) if depth(other[:p]) == want]
+        spots = []
+        for p in range(len(other) + 1):
+            if other_level[p] != 0 or min(other_level[:p + 1]) < 0:
+                continue
+            # Never right after an attribute or a comment, which belong to the next declaration.
+            if p == 0 or not other[p - 1].strip() or CLOSING_RE.match(other[p - 1]):
+                spots.append(p)
         if not spots:
             return None
         target = slot * len(other) / max(1, len(base))
@@ -460,7 +497,13 @@ def merge_declarations_hunk(ours: list[str], base: list[str], theirs: list[str])
 
 
 def merge_declarations(base: str, ours: str, theirs: str) -> str:
-    """Three-way merge where each conflicted hunk is inserted declarations on at least one side."""
+    """Three-way merge where each conflicted hunk is inserted declarations on at least one side.
+
+    A line that looks like a wide conflict marker in any input stops it, so
+    marker-shaped lines in a pull request cannot steer split_conflicts().
+    """
+    if any(marker_line(line) for text in (base, ours, theirs) for line in text.splitlines()):
+        raise ValueError("a side has conflict-marker lines")
     out: list[str] = []
     for part in split_conflicts(merge_file(base, ours, theirs)):
         if isinstance(part, str):
@@ -540,6 +583,13 @@ class Resolver:
     def source(self, path: str) -> None:
         if problem := self.repo.unsafe(path):
             self.block(path, problem)
+            return
+        # verify re-derives the file from the one merge base's blob; anything
+        # else (a criss-cross history, a rename) would fail there, so stop here.
+        bases = self.repo.text("merge-base", "--all", "HEAD", "MERGE_HEAD").split()
+        stage_base = self.repo.text("rev-parse", f":1:{path}")
+        if len(bases) != 1 or self.repo.blob_id(bases[0], path) != stage_base:
+            self.block(path, "both sides changed it")
             return
         try:
             texts = [self.repo.stage_bytes(stage, path).decode("utf-8") for stage in (1, 2, 3)]
@@ -743,7 +793,7 @@ def verify_merge(repo_path: Path, head: str, base: str, merged: str, base_tip: s
     for path in sorted(set(differing) | set(conflicted)):
         if allowed_generated_path(path):
             continue
-        if source_path(path) and len(merge_bases) == 1 and \
+        if path in conflicted and source_path(path) and len(merge_bases) == 1 and \
                 rederived(repo, path, merge_bases[0], head, base, merged):
             continue
         problems.append(f"{path} differs from git's merge of the parents")

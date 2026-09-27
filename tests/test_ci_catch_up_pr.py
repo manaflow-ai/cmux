@@ -553,6 +553,38 @@ class SourceTests(CatchUpCase):
         self.assertIn("func fromMain() {}", merged)
         self.assertIn("func fromPR() {}", merged)
 
+    def test_only_whole_declarations_move(self) -> None:
+        merge = MODULE.merge_declarations
+        other = "extension S {\n    func b() {}\n}\n"
+        # A trailing statement, a switch or enum case, and a call all stop.
+        for inserted in ("    func a() {}\n    launch()\n", "    case extra\n", "    object.save()\n",
+                         "    init();\n", "    type = 3;\n"):
+            pr = "extension S {\n    func old() {}\n" + inserted + "    func b() {}\n}\n"
+            base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+            with self.assertRaises(ValueError, msg=inserted):
+                merge(base, pr, other)
+
+    def test_placement_keeps_attributes_directives_and_strings_whole(self) -> None:
+        merge = MODULE.merge_declarations
+        base = "extension S {\n    func old() {}\n    func b() {}\n}\n"
+        pr = "extension S {\n    func old() {}\n    func x() {}\n    func b() {}\n}\n"
+        # Main's rewrite puts an attribute on b(): x() goes before the attribute, never between.
+        attributed = merge(base, pr, "extension S {\n    @MainActor\n    func b() {}\n}\n")
+        self.assertIn("    func x() {}\n    @MainActor\n    func b() {}", attributed)
+        for other in ("extension S {\n#if DEBUG\n    func b() {}\n#endif\n}\n",
+                      'extension S {\n    func b() { print("}") }\n}\n'):
+            with self.assertRaises(ValueError, msg=other):
+                merge(base, pr, other)
+
+    def test_conflict_marker_lines_in_a_side_stop(self) -> None:
+        wide = "<" * MODULE.MARKER_SIZE
+        base = "extension S {\n    func old() {}\n}\n"
+        pr = "extension S {\n" + wide + "\n    func old() {}\n}\n"
+        with self.assertRaises(ValueError):
+            MODULE.merge_declarations(base, pr, "extension S {\n    func new() {}\n}\n")
+        with self.assertRaises(ValueError):
+            MODULE.union_pbxproj(base, pr, base)
+
     def test_verify_rederives_the_source_file_and_rejects_an_edit(self) -> None:
         self.repo.branches({self.PATH: SWIFT_BASE, "app.txt": "a\n"},
                            {self.PATH: SWIFT_MAIN, "app.txt": "a\n"}, {self.PATH: SWIFT_PR})
@@ -955,7 +987,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("pr-catch-up-auto-push-{0}", finish["concurrency"]["group"])
         self.assertFalse(finish["concurrency"]["cancel-in-progress"])
         step = next(step for step in finish["steps"] if step.get("name") == "Comment the result")
-        check = step["run"].index('grep -qxF -- "$marker"')
+        check = step["run"].index('grep -qxF -- "$marker" <<<"$bodies"')
         self.assertLess(check, step["run"].index("gh pr comment"))
         self.assertIn('marker="$(head -n 1 "$comment")"', step["run"])
         self.assertIn('select(.user.login == "github-actions[bot]")', step["run"])
