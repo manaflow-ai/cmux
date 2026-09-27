@@ -2972,6 +2972,19 @@ def test_live_socket_native_claude_skips_node_options_injection(failures: list[s
     expect(node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected '--trace-warnings', got {node_options!r}", failures)
     expect(child_node_options == "--trace-warnings", f"native claude inherited injection (no marker): expected child '--trace-warnings', got {child_node_options!r}", failures)
 
+    # The wrapper quotes the preload when $HOME has spaces (#14814); the
+    # quoted flag is stripped whole, not split into fragments.
+    quoted = '--require="/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs" --max-old-space-size=4096'
+    code, _, _, stderr, _, node_options, _, child_node_options, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options=f"{quoted} --trace-warnings",
+        setup_sandbox=install_native_fake_claude,
+    )
+    expect(code == 0, f"native claude quoted injection: wrapper exited {code}: {stderr}", failures)
+    expect(node_options == "--trace-warnings", f"native claude quoted injection: expected '--trace-warnings', got {node_options!r}", failures)
+    expect(child_node_options == "--trace-warnings", f"native claude quoted injection: expected child '--trace-warnings', got {child_node_options!r}", failures)
+
     # A Volta shim is a native launcher for what may be a Node claude, so it
     # keeps the restore preload and heap cap.
     code, _, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
