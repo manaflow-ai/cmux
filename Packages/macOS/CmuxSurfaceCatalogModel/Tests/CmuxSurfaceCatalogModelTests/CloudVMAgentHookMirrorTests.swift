@@ -122,6 +122,20 @@ struct CloudVMAgentHookMirrorTests {
         #expect(end.payload == #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#)
     }
 
+    @Test("Agent session ids outside the cmux-tui contract are dropped", arguments: [
+        "..", ".", "a/b", "x; rm -rf ~", "a b", " padded ", String(repeating: "a", count: 257),
+    ])
+    func parserDropsUnportableAgentSessionID(id: String) {
+        #expect(CmuxTuiSnapshotParser.agentSessionID(from: ["extra": ["agent_session_id": id]]) == nil)
+    }
+
+    @Test("Portable agent session ids are kept")
+    func parserKeepsPortableAgentSessionID() {
+        for id in ["0f8c2a4e-1b3d-4c5e-9f7a-2b4c6d8e0a1b", "a.b_c:d-e", String(repeating: "a", count: 256)] {
+            #expect(CmuxTuiSnapshotParser.agentSessionID(from: ["extra": ["agent_session_id": id]]) == id)
+        }
+    }
+
     @Test("Snapshots and upsert deltas parse extra.agent_session_id")
     func parserReadsAgentSessionID() throws {
         let snapshot: [String: Any] = [
