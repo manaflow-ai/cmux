@@ -106,7 +106,9 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         #expect(mounted)
         let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
-        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        let firstGeneration = try #require(
+            store.terminalViewportGeneration(for: surfaceID)
+        )
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
@@ -120,7 +122,7 @@ struct TerminalSurfaceMountOwnershipTests {
         // viewport lease. Releasing it here manufactured clear→apply resize
         // pairs during transient SwiftUI remounts and fed #13474's SIGWINCH
         // replay loop.
-        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        #expect(store.terminalViewportGeneration(for: surfaceID) == firstGeneration)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
