@@ -166,7 +166,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         settingsItem.click()
 
-        let settings = app.windows["Settings"]
+        let settings = app.windows["cmux.settings"]
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 6.0) { settings.exists },
             "Expected Settings to open from the sidebar Help menu"
@@ -198,7 +198,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         reopenedSettingsItem.click()
         XCTAssertTrue(
-            sidebarHelpPollUntil(timeout: 6.0) { app.windows["Settings"].exists },
+            sidebarHelpPollUntil(timeout: 6.0) { app.windows["cmux.settings"].exists },
             "Expected the Help menu to reopen Settings after closing it"
         )
 

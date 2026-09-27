@@ -266,7 +266,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             },
             "App failed to launch. state=\(app.state.rawValue)"
         )
-        let window = app.windows["Settings"]
+        let window = app.windows[Self.settingsWindowIdentifier]
         XCTAssertTrue(
             poll(timeout: 8.0) { window.exists },
             "Settings window did not open"
