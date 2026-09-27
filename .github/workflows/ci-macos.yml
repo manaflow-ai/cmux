@@ -2603,9 +2603,9 @@ jobs:
             exit 1
           }
 
-          # Each test gets a private TMPDIR, so the lanes run together, eight
-          # at a time; serial registry entries run alone first. Run one after
-          # another, these ~70 files were this shard's ~7 minute tail.
+          # The lanes run together, eight tests at a time; serial registry
+          # entries run alone first. Run one after another, these ~70 files
+          # were this shard's ~7 minute tail.
           CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics

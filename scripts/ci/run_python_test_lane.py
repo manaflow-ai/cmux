@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run declared Python regression lanes.
 
-Each test runs as its own process with a private TMPDIR, so tests that use the
-default temporary directory never share files or sockets. With `--jobs N`
-the lane runs N tests at a time; entries marked `serial = true` in the
+Each test runs as its own process. With `--jobs N` the lane runs N tests at a
+time, so a test must keep its files and sockets in its own temporary
+directory or pid-scoped names; entries marked `serial = true` in the
 registry run first, alone, because they assert wall-clock bounds that a busy
 machine could miss. Every test runs even after a failure so one red run names
 every failing file, and each test's output prints as one block when it ends.
@@ -30,9 +30,6 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "tests" / "test-execution.toml"
 NON_RUNNABLE_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
-# Short on purpose: tests bind Unix sockets under TMPDIR, and macOS caps a
-# socket path at 104 bytes.
-TMP_BASE = "/tmp"
 # A hung test must fail on its own rather than hold every later test's
 # output until the job times out.
 DEFAULT_TIMEOUT_SECONDS = 900
@@ -70,12 +67,12 @@ def environment_for(entry: dict[str, object]) -> dict[str, str]:
     return env
 
 
-def run_one(path: str, env: dict[str, str], tmpdir: Path, timeout: float) -> Result:
-    tmpdir.mkdir()
-    env = {**env, "TMPDIR": f"{tmpdir}/"}
+def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> Result:
+    # TMPDIR stays the inherited private per-user directory: tests keep Unix
+    # sockets under it within macOS's 104-byte limit, and the Codex wrapper
+    # refuses helpers below a world-writable ancestor such as /tmp.
     # Output goes to a file, not a pipe: a background process the test leaves
     # behind cannot hold the runner open by keeping the pipe's write end.
-    log_path = tmpdir.with_suffix(".log")
     started = time.monotonic()
     try:
         with log_path.open("wb") as log:
@@ -101,7 +98,6 @@ def run_one(path: str, env: dict[str, str], tmpdir: Path, timeout: float) -> Res
                 note = f"\nrun_python_test_lane: killed after {timeout:.0f}s timeout\n"
         output = log_path.read_text(encoding="utf-8", errors="replace") + note
     finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
         log_path.unlink(missing_ok=True)
     return Result(path, returncode, time.monotonic() - started, output)
 
@@ -155,7 +151,7 @@ def main(argv: list[str]) -> int:
     serial = [item for item in planned if item[2]]
     concurrent = [item for item in planned if not item[2]]
 
-    base = Path(tempfile.mkdtemp(prefix="cmux-lane-", dir=TMP_BASE))
+    base = Path(tempfile.mkdtemp(prefix="cmux-lane-logs-"))
     started = time.monotonic()
     results: list[Result] = []
     try:
@@ -164,7 +160,7 @@ def main(argv: list[str]) -> int:
         def slot() -> Path:
             nonlocal index
             index += 1
-            return base / f"{index:03d}"
+            return base / f"{index:03d}.log"
 
         for path, env, _ in serial:
             result = run_one(path, env, slot(), args.timeout)

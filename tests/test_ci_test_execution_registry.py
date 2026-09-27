@@ -333,16 +333,14 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         )
 
 
-# Each fake test records its TMPDIR, then waits until `peers` tests have
+# Each fake test records its start, then waits until `peers` tests have
 # started (or 5 s pass) so the runner's concurrency is observable.
 LANE_TEST = """\
 import os, pathlib, sys, time
 log = pathlib.Path(os.environ["LANE_LOG"])
 name = pathlib.Path(__file__).stem
-tmpdir = os.environ["TMPDIR"]
-assert pathlib.Path(tmpdir).is_dir() and not os.listdir(tmpdir), tmpdir
 with log.open("a") as stream:
-    stream.write(f"start {name} {tmpdir}\\n")
+    stream.write(f"start {name}\\n")
 peers = int(os.environ.get("LANE_PEERS", "0"))
 deadline = time.monotonic() + 5
 while name.startswith("test_par") and time.monotonic() < deadline:
@@ -380,17 +378,13 @@ class LaneRunnerTests(unittest.TestCase):
     def entry(name: str, lane: str, extra: str = "") -> str:
         return f'\n[[test]]\npath = "tests/{name}.py"\nlane = "{lane}"\n{extra}'
 
-    def test_jobs_run_tests_concurrently_with_private_tmpdirs(self) -> None:
+    def test_jobs_run_tests_concurrently(self) -> None:
         names = ["test_par_a", "test_par_b", "test_par_c"]
         registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
         code, log, output = self.run_lane(registry, names, "--lane", "lane-a", "--jobs", "3", peers=3)
         self.assertEqual(code, 0, output)
         events = [line.split()[0] for line in log]
         self.assertEqual(events[:3], ["start"] * 3, log)
-        tmpdirs = {line.split()[2] for line in log if line.startswith("start")}
-        self.assertEqual(len(tmpdirs), 3)
-        self.assertTrue(all(len(tmpdir) < 40 for tmpdir in tmpdirs), tmpdirs)
-        self.assertTrue(all(not Path(tmpdir).exists() for tmpdir in tmpdirs))
         # Output stays grouped per test, in registry order.
         self.assertLess(output.index("output from test_par_a"), output.index("==> tests/test_par_b.py"))
 

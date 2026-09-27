@@ -5,8 +5,8 @@
 # current execution path, but newly added tests may not enter as legacy.
 # `manual` entries require a reason.
 #
-# Lane runners give every test a private TMPDIR and may run a lane's tests
-# concurrently. `serial = true` runs an entry alone, for tests that assert
+# Lane runners may run a lane's tests concurrently, so a test keeps its files
+# and sockets in its own temporary directory or pid-scoped names. `serial = true` runs an entry alone, for tests that assert
 # wall-clock bounds a busy machine could miss.
 version = 1
 
