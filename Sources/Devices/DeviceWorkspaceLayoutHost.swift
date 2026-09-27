@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns Mac layout revisions and applies authenticated, workspace-scoped edits.

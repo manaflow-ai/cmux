@@ -7,7 +7,6 @@ import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
-  cmuxTuiAgentHooksInstallCommand,
   cmuxTuiAsDaemonUser,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
@@ -139,15 +138,7 @@ describe("cmux-tui install and daemon commands", () => {
       expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
-  test("the hooks-only install never touches the daemon binary", () => {
-    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
-    const command = cmuxTuiAgentHooksInstallCommand(source);
-    expect(command).toContain(cmuxTuiLayoutSelector());
-    expect(command).toContain(HOOK_URL);
-    expect(command).not.toContain(URL);
-    expect(command).not.toContain("ln -sfn");
-    expect(command).not.toContain("--version");
-    expect(command).toContain("agent hook install claude codex");
+  test("the hooks-ready check runs as the daemon layout and checks the installed helper", () => {
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });

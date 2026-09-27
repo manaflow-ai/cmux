@@ -12,15 +12,82 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `c5c31ce819`, the upstream Ghostty
-merge commit for PR #218 after the embedded-environment lifetime fix from PR
-#227 was merged. It preserves cmux's Cloud loopback link-detection changes
-while adding the localhost-port punctuation fix and owned POSIX environment
-snapshots for embedded hosts. This SHA is reachable from `manaflow-ai/ghostty`
-main and is the release target for cmux's GhosttyKit build workflow.
+### Unfocused surface frame pacing
 
-The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
-Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
+- Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
+- Commit: `edefce778`
+- Summary: unfocusing a surface stops its display link, so an unfocused
+  surface used to render on every renderer wakeup. Its change-driven renders
+  are now spaced at least 33 ms apart (about 30 FPS). A wake inside the
+  interval keeps the terminal dirty and arms a one-shot timer whose render
+  picks up every change made meanwhile. The focused surface and the vsync path
+  are unaffected. This cuts WindowServer recompositing when several agents
+  stream into background panes, which is most expensive on high refresh
+  displays and behind glass or translucent windows.
+- Coverage: the Ghostty `Thread` unit test
+  `unfocused render pacer spaces unfocused frames`, run by
+  `build-ghosttykit.yml` before packaging. Hosted
+  [run 36248746801](https://github.com/manaflow-ai/cmux/actions/runs/36248746801)
+  passed 74 tests with this filter at `edefce778` (the same count as the
+  single-test CJK filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edefce7785c9f439966c68588db1edbd6b435203-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `d77a7bdf50c78787c2649b314cd9ca8990af823510531ad547e26f3a978f472d`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: the pacing check sits in `renderCallback` after the
+  hidden/unrealized early return. The paced timer uses
+  `unfocusedRenderTimerCallback`, which releases the pacer first so its own
+  render is never deferred again; keep that ordering or a deferred frame can
+  be lost until the next wakeup.
+
+### CJK fallback ideograph sizing
+
+- Branch: `issue-4978-cjk-spacing`
+- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Summary: keep the existing measured ideograph width for fallback faces, but
+  size a primary face without an ideograph metric against its full two-cell
+  terminal span. This prevents Hangul glyphs selected through CoreText fallback
+  from leaving a gap before the next terminal cell.
+- Coverage: the Ghostty `Collection` regression test
+  `ideograph fallback sizing fills two primary cells` asserts that an
+  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted
+  [run 36178061916](https://github.com/manaflow-ai/cmux/actions/runs/36178061916)
+  passed 74 tests with this filter at `0068ece73` and rebuilt GhosttyKit.
+  The test-only commit has not been executed in the hosted lane, and tagged
+  cmux rendering verification remains pending.
+- Conflict note: preserve the distinction between `icWidth()` for a face's
+  measured or conservative fallback metric and `fallbackIcWidth()` for the
+  primary terminal grid's missing-ideograph target.
+
+### Cloud restore replay trailing rows
+
+- Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
+- Summary: preserve trailing physical blank rows until the VT cursor/state
+  restoration footer when replay requests cursor restoration. Normal formatter
+  output and soft-wrap behavior are unchanged.
+- Verification: hosted Ghostty test workflow passed before the GhosttyKit build;
+  the cmux replay regression is `vt_replay_preserves_blank_tail_after_history`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a3e9304c5d19c8667f58a342830f774579c74472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The submodule pinned by this branch is `edefce7785`, the unfocused surface
+frame pacing change on top of `0068ece733`. The previous pin was
+`0068ece733`, the CJK fallback sizing fix
+on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
+the full two-cell terminal span, so Hangul glyphs selected through CoreText
+fallback do not leave a gap before the next terminal cell. The previous pin
+`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
+Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
+from PR #227 was merged. That replay fix preserves physical blank rows until
+cursor/state restoration completes, so a restored Cloud grid cannot regain
+stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
+changes while adding the localhost-port punctuation fix and owned POSIX
+environment snapshots for embedded hosts.
+
+The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
+`3869e81a0` into the Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
 #221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
@@ -34,7 +101,7 @@ fork changes below, including tokened iOS render dispositions, VT formatter
 cursor restoration, VT stream-boundary visibility, and Hangul canonical font
 resolution.
 
-### Current feature pin
+### Base feature pin
 
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/main (contains the Hangul fix
@@ -42,7 +109,8 @@ resolution.
     fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
   - `c5c31ce819` (upstream merge of Ghostty #218 after #227; preserves Cloud
-    loopback behavior and is reachable from `manaflow-ai/ghostty:main`)
+    loopback behavior and is reachable from `manaflow-ai/ghostty:main`; the
+    current branch adds `a3e9304c5d` above it)
 - Summary:
   - Fixes localhost-port sentence punctuation and owns POSIX environment
     snapshots retained by embedded Ghostty, on top of the

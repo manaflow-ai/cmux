@@ -1,4 +1,5 @@
 import XCTest
+import CmuxBrowser
 import CmuxTerminal
 import AppKit
 import Carbon.HIToolbox
@@ -1146,17 +1147,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         originatingWindow.orderFront(nil)
         previouslyFocusedWindow.makeKeyAndOrderFront(nil)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertTrue(appDelegate.shortcutRoutingKeyWindow === previouslyFocusedWindow)
+        // A key-window change lands on a later run-loop turn, and a loaded
+        // runner can take several; wait for it instead of a fixed 50 ms.
+        XCTAssertTrue(
+            waitForCondition(timeout: 5) { appDelegate.shortcutRoutingKeyWindow === previouslyFocusedWindow }
+        )
 
         XCTAssertTrue(
             appDelegate.toggleSidebarInActiveMainWindow(preferredWindow: originatingWindow)
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertTrue(
-            appDelegate.shortcutRoutingKeyWindow === originatingWindow,
+            waitForCondition(timeout: 5) { appDelegate.shortcutRoutingKeyWindow === originatingWindow },
             "An in-window action must request key status for its originating window before mutating window state"
         )
         XCTAssertEqual(

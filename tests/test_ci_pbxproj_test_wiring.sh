@@ -33,6 +33,20 @@ fi
 "$LINT" --repo-root "$ROOT_DIR"
 "$ROOT_DIR/scripts/sync-test-wiring" --repo-root "$ROOT_DIR" --check
 
+# cmuxCLITests is a second test target, so sync-test-wiring (cmuxTests-only)
+# cannot see it. Without these the host-free bundle sits outside the repo's
+# silent-skip rule: an unwired file there compiles nothing and CI stays green.
+# cmuxCLITestSupport/ is compiled into both bundles, so it is checked twice.
+# A checkout whose project has no cmuxCLITests target (verify-local's fixture
+# repository) has nothing to check; one whose project names the target checks
+# it even if a directory is missing, so a deleted directory still fails.
+if [ -d "$ROOT_DIR/cmuxCLITests" ] \
+  || grep -q 'cmuxCLITests' "$ROOT_DIR/cmux.xcodeproj/project.pbxproj"; then
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxCLITests --tests-dir cmuxCLITests
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxCLITests --tests-dir cmuxCLITestSupport
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxTests --tests-dir cmuxCLITestSupport
+fi
+
 # Shared sandbox cleanup.
 SANDBOX_PARENT="$(mktemp -d)"
 trap 'rm -rf "$SANDBOX_PARENT"' EXIT

@@ -6,7 +6,8 @@ extension RemoteTmuxController {
     func attachHost(
         host: RemoteTmuxHost,
         windowTarget: RemoteTmuxAttachWindowTarget,
-        activate: Bool
+        activate: Bool,
+        workspaceName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
@@ -90,7 +91,12 @@ extension RemoteTmuxController {
             bootstrapWorkspaceId = nil
         }
 
-        let workspaceIds = mirrorDiscoveredSessions(host: host, sessions: sessions, into: targetManager)
+        let workspaceIds = mirrorDiscoveredSessions(
+            host: host,
+            sessions: sessions,
+            into: targetManager,
+            workspaceName: workspaceName
+        )
         guard !workspaceIds.isEmpty else {
             cleanUpTransportAfterFailedMirror(host: host)
             if windowTarget == .dedicatedNewWindow {
@@ -117,7 +123,8 @@ extension RemoteTmuxController {
     func mirrorDiscoveredSessions(
         host: RemoteTmuxHost,
         sessions: [RemoteTmuxSession],
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        workspaceName: String? = nil
     ) -> [UUID] {
         // A mirror whose workspace died without a controller-driven detach
         // must not block re-attach: its stale key makes `mirrorSessions` skip
@@ -127,7 +134,7 @@ extension RemoteTmuxController {
         // `mirrorSessions` applies stable-session-id de-dup and seeds discovery's
         // ids into new mirrors, so bulk discovery can't duplicate a session
         // mid-rename (#7362, #7365).
-        mirrorSessions(sessions, host: host, into: tabManager)
+        mirrorSessions(sessions, host: host, into: tabManager, workspaceName: workspaceName)
         let managerWorkspaceIds = Set(tabManager.tabs.map(\.id))
         return sessionMirrors.values.compactMap { mirror in
             guard mirror.host.connectionHash == host.connectionHash,

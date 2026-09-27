@@ -20,6 +20,7 @@ let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
 let authenticatedTokens: string[] = [];
 const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
+const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -43,7 +44,7 @@ const proxy = createCodexResponsesProxy({
     return {
       teamId: "team-1",
       stackUserId: "stack-user-1",
-      vmId: token === BOUND_TOKEN ? "vm-1" : null,
+      vmId: token === BOUND_TOKEN || token === SIGNED_VM_TOKEN ? "vm-1" : null,
     };
   },
   select: async (input) => {
@@ -633,6 +634,19 @@ describe("codex responses proxy VM-bound route tokens", () => {
     }));
     expect(response.status).toBe(200);
     expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed new-machine token reaches the typed no-account outcome", async () => {
+    accountsToServe = [];
+    const response = await proxy(edgeRequest({
+      "x-cmux-authorization": `Bearer ${SIGNED_VM_TOKEN}`,
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: "no_usable_account",
+      retryable: true,
+    });
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 

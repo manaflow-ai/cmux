@@ -3582,18 +3582,21 @@ impl Terminal {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands depend on physical
-        // row cursor positions, so retain the legacy row-delimited form for any
-        // range that intersects an occupied placement span.
-        let preserve_soft_wrap = !insert_at_start && !has_placement_anchor;
-
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
+        // A replay with retained scrollback can contain exactly one viewport
+        // of rows while still carrying a sparse history prefix in Ghostty's
+        // screen coordinate space. Keep every row boundary in that case so
+        // the target cannot retain stale history above the active TUI.
+        let history_bearing = self.history_rows() > 0 || replay_rows > screen_rows;
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands and history-bearing
+        // ranges depend on physical row cursor positions, so retain the
+        // row-delimited form for those cases.
+        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
@@ -5234,6 +5237,29 @@ mod tests {
         target.vt_write(&replay);
 
         assert_eq!(target.viewport_text().unwrap(), expected);
+    }
+
+    #[test]
+    fn vt_replay_preserves_blank_tail_after_history() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(b"\x1b[2J\x1b[HHEADER\x1b[5;1H> Ask Codex\x1b[6;1HSTATUS\x1b[5;3H");
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+        assert_eq!(restored.cursor_position(), source.cursor_position());
+
+        // A TUI continues with absolute-cell diffs after attaching. Its header,
+        // composer and cursor must still agree on the same physical rows.
+        let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
     }
 
     #[test]

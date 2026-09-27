@@ -663,6 +663,26 @@ final class SharedLiveAgentIndex {
             _ = await applyPendingForkValidations(
                 pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
             )
+            // The pass above may find this caller's request already claimed by
+            // another drainer: the unguarded tail restart in
+            // `applyPendingForkValidations` can spawn a detached refresh that
+            // wins the race against a contention waiter it just resumed, and
+            // that waiter then returns to an empty queue. Returning here would
+            // break this method's contract -- the queued validation must be
+            // applied before it returns -- so callers could read stale fork
+            // availability.
+            //
+            // This is a symptom fix, not the root cause. The root cause is that
+            // the tail restart in `applyPendingForkValidations` lacks the
+            // `!resumedWaiters` guard its in-loop sibling has, so it can resume
+            // a waiter and then immediately race it. Guarding it there is the
+            // real repair, but the obvious form can strand a pending request
+            // when the resumed waiter's task is cancelled right after resuming,
+            // so it needs its own change. The live-index branch below has the
+            // same hole when `didReload` is true -- `reload()` runs
+            // `applyPendingForkValidations` internally, so the same steal can
+            // happen and that path returns without waiting.
+            await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
             return
         }
         let reloadResult = await reloadIfLiveAgentProcessFingerprintChanged(
@@ -2180,7 +2200,18 @@ final class SharedLiveAgentIndex {
                 eventMask: [.write, .delete, .rename, .revoke, .extend, .attrib, .link],
                 queue: watchQueue
             )
-            source.setEventHandler { [weak self] in
+            let statusChangeTimeAtInstall = Self.forkExecutableWatchStatusChangeTime(fileDescriptor)
+            source.setEventHandler { [weak self, weak source] in
+                // Executing a file whose access time predates its last change
+                // (e.g. the fork probe's first run of a freshly installed
+                // executable) updates only atime, which Darwin still reports
+                // as NOTE_ATTRIB. That leaves ctime alone; a real chmod, chown
+                // or xattr change does not, so only those invalidate.
+                if let source, source.data == .attrib,
+                   let statusChangeTimeAtInstall,
+                   Self.forkExecutableWatchStatusChangeTime(fileDescriptor) == statusChangeTimeAtInstall {
+                    return
+                }
                 Task { @MainActor [weak self] in
                     self?.invalidateForkExecutableWatchRecord(
                         for: watchKey,
@@ -2381,6 +2412,14 @@ final class SharedLiveAgentIndex {
         }
 
         return watchPaths.sorted()
+    }
+
+    /// The inode status-change time in nanoseconds, which an access-time-only
+    /// update leaves unchanged.
+    nonisolated private static func forkExecutableWatchStatusChangeTime(_ fileDescriptor: Int32) -> Int64? {
+        var status = stat()
+        guard fstat(fileDescriptor, &status) == 0 else { return nil }
+        return Int64(status.st_ctimespec.tv_sec) * 1_000_000_000 + Int64(status.st_ctimespec.tv_nsec)
     }
 
     nonisolated private static func openForkExecutableWatchFileDescriptors(

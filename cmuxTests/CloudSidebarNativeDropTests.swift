@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)

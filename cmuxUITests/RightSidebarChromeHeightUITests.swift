@@ -13,12 +13,11 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
-        app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        app.launchArguments += ["-workspacePresentationMode", "minimal", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
         app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
-
         if app.state == .runningBackground {
             app.activate()
         }
@@ -40,7 +39,8 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let sessionsButton = app.buttons["RightSidebarModeButton.sessions"]
         XCTAssertTrue(sessionsButton.waitForExistence(timeout: 5))
         sessionsButton.click()
-
+        let reloadButton = app.buttons["Reload Vault"]
+        XCTAssertTrue(reloadButton.waitForExistence(timeout: 5) && reloadButton.label == "Reload Vault", "Expected an accessible Vault reload control in the sessions mode")
         guard let geometry = waitForJSONNumber("rightSidebarSecondaryBarWidth", greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeBarHeight = Double(geometry["rightSidebarModeBarHeight"] ?? ""),
               let secondaryBarHeight = Double(geometry["rightSidebarSecondaryBarHeight"] ?? "") else {

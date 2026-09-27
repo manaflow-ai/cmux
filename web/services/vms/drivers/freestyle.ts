@@ -958,10 +958,8 @@ export class FreestyleProvider implements VMProvider {
             image,
             createdAt: Date.now(),
             // The network id and addresses are persisted so listings can show a
-            // machine's private IP (and an operator can trace it to its owner's
-            // VPC) without a provider round trip. Attach still reads the live
-            // address from vm.data(): this records where the machine was
-            // placed, never where to dial it.
+            // machine's private IP, and attach dials the recorded address
+            // without a provider round trip (openCmuxRemote).
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               cmuxTuiContract: "snapshot-v2",
@@ -1319,22 +1317,22 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           // Attach never runs guest work (NO-WORK INVARIANT at the top of this
-          // file). A snapshot-v2 row carries its private addresses, so attach
-          // is pure metadata. A row from before this contract was recorded
-          // still gets the same answer: every image baked since 2026-09-06
-          // (#12042) serves the trusted listener, and an older one fails at
-          // connect instead of being healed here. Only a row that never
-          // recorded its addresses pays one provider read; the workflow then
-          // persists them, so it happens once per machine.
-          const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
-          const routeAddresses = persisted ?? await this.deps.client().vms.ref(vmId).data();
-          span.setAttribute("cmux.vm.cmux_tui_contract", String(options?.providerMetadata?.cmuxTuiContract ?? "none"));
+          // file) and reads no provider state: a snapshot-v2 row records its
+          // private addresses at create. Cloud has no older rows to support,
+          // so a row without the contract or its addresses is refused.
+          const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
+          if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
+            throw new ProviderError(
+              "freestyle",
+              `VM ${vmId} predates the snapshot-v2 machine contract (no recorded contract or private address); recreate the machine`,
+            );
+          }
+          span.setAttribute("cmux.vm.cmux_tui_contract", "snapshot-v2");
           const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           const addresses = freestyleNetworkAddressMetadata(routeAddresses);
           span.setAttribute("cmux.vm.network.private", (routeAddresses.vpcs ?? routeAddresses.networks ?? []).length > 0);
-          span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
           span.setAttribute("cmux.vm.cmux_remote.healed", false);
           span.setAttribute("cmux.vm.cmux_remote.invited", false);
           const networkAddresses = {
@@ -1463,4 +1461,3 @@ export class FreestyleProvider implements VMProvider {
   }
 
 }
-

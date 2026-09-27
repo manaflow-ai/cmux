@@ -11,11 +11,16 @@ mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
 mod browser_input;
+#[cfg(unix)]
+mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+// The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[path = "bin/cmux-tui-hook.rs"]
+mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
@@ -1524,15 +1529,67 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Hook helper mode for hosts that received only this binary (see
+    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
+    // so it touches no daemon, log, or config state.
+    let mut arguments = std::env::args().skip(1);
+    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
+        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    }
     run_main();
     // Reached only by the normal return paths, which never call
     // client_log::exit; flush so the last queued records (final status,
     // shutdown diagnostics) reach the client log on every platform.
     client_log::flush_for_exit();
+    std::process::ExitCode::SUCCESS
 }
 
+/// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
+/// this daemon only (see SurfaceOptions::adopt_template_terminal).
+struct CloudTemplateEnv {
+    adopt: bool,
+    bound_file: Option<PathBuf>,
+    workspace_name: Option<String>,
+}
+
+static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
+
+/// Read the Cloud template settings and remove them from this process's
+/// environment, so no terminal host, shell, agent, or plugin it spawns
+/// inherits them. Must run before any thread starts.
+fn take_cloud_template_env() {
+    const KEYS: [&str; 3] = [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ];
+    let settings = CloudTemplateEnv {
+        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
+        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
+        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
+    };
+    for key in KEYS {
+        // SAFETY: called first in run_main, before this process starts any
+        // thread, so no other thread can read the environment concurrently.
+        unsafe { std::env::remove_var(key) };
+    }
+    let _ = CLOUD_TEMPLATE_ENV.set(settings);
+}
+
+/// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
+    take_cloud_template_env();
+    // The pane's `claude` shim lands here. Dispatch before the signal
+    // handlers and argv decoding: the wrapper execs Claude with arguments
+    // that need not be UTF-8 or valid cmux-tui flags.
+    #[cfg(unix)]
+    {
+        let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
+            client_log::exit(claude_wrapper::run(wrapper_args));
+        }
+    }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -1945,6 +2002,7 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2045,6 +2103,12 @@ fn run_server(
             .extra_env
             .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
     }
+    // `claude` resolves to a shim that adds the session's agent hooks, even
+    // under launchers with their own settings and config directory.
+    #[cfg(unix)]
+    if let Some(path) = claude_wrapper::pane_path() {
+        surface_options.extra_env.push(("PATH".into(), path));
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -2059,6 +2123,13 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        // Set by the Cloud VM boot supervisor on a snapshot clone; see
+        // SurfaceOptions::adopt_template_terminal.
+        if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
+            surface_options.adopt_template_terminal = template.adopt;
+            surface_options.template_bound_file = template.bound_file.clone();
+            surface_options.template_workspace_name = template.workspace_name.clone();
+        }
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =

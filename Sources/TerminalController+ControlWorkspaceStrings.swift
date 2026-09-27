@@ -20,13 +20,25 @@ extension TerminalController {
                 localized: "socket.workspace.reorderMany.duplicateWorkspace",
                 defaultValue: "Duplicate workspace in order"
             ),
-            reorderManyWorkspaceNotFound: String(
+            workspaceNotFound: String(
                 localized: "socket.workspace.reorderMany.workspaceNotFound",
                 defaultValue: "Workspace not found"
             ),
-            reorderManyInvalidWorkspace: String(
+            invalidWorkspaceRef: String(
                 localized: "socket.workspace.reorderMany.invalidWorkspace",
                 defaultValue: "Invalid workspace id or ref"
+            ),
+            reorderIndexNotAnInteger: String(
+                localized: "socket.workspace.reorder.indexNotAnInteger",
+                defaultValue: "index must be an integer"
+            ),
+            reorderMissingWorkspaceID: String(
+                localized: "socket.workspace.reorder.missingWorkspaceID",
+                defaultValue: "Missing or invalid workspace_id"
+            ),
+            reorderTargetRequired: String(
+                localized: "socket.workspace.reorder.targetRequired",
+                defaultValue: "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
             ),
             reorderManyTabManagerUnavailable: String(
                 localized: "socket.workspace.reorderMany.tabManagerUnavailable",
