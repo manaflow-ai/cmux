@@ -28,6 +28,9 @@ struct BrowserActionDispatcher {
         case .reload:
             panel.reload()
             return true
+        case .hardReload:
+            appDelegate.hardReloadBrowserPanelForShortcut(panel)
+            return true
         case .openInDefaultBrowser:
             return openInDefaultBrowser(panel)
         case .focusAddressBar:

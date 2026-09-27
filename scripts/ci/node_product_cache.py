@@ -54,6 +54,13 @@ MAX_WAITERS_PER_FILL = 64
 OWNED_RUNNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]*-glaeda(?:-[0-9]+)?")
 OWNED_DEFAULT_ROOT = "/Users/Shared/cmux-build-fleet/node-products"
 _HEX64 = re.compile(r"[a-f0-9]{64}")
+# Where a published object came from, as stored in its metadata. Consumers on an
+# older revision delete entries whose class they do not know, so a LAN fetch
+# (glaeda's helper, peer_product_source.lan_fetch_exact) is stored as "peer"; "lan"
+# is only a finalize input (it verifies against GitHub's artifact metadata, not the
+# same-run shortcut) and a metrics value.
+SOURCE_CLASSES = frozenset({"github", "r2", "peer", "producer-local"})
+FINALIZE_SOURCE_CLASSES = SOURCE_CLASSES | {"lan"}
 _REVISION = re.compile(r"[a-f0-9]{6,64}")
 
 
@@ -297,7 +304,7 @@ def _metadata_matches(metadata: dict, identity: Identity) -> bool:
         and metadata.get("object_digest") == identity.archive_digest
         and isinstance(metadata.get("size"), int)
         and metadata["size"] > 0
-        and metadata.get("source_class") in {"github", "r2", "peer", "producer-local"}
+        and metadata.get("source_class") in SOURCE_CLASSES
     )
 
 
@@ -885,7 +892,7 @@ def finalize(
 ) -> dict:
     if store is None:
         return {"status": "disabled"}
-    if source_class not in {"github", "r2", "peer", "producer-local"}:
+    if source_class not in FINALIZE_SOURCE_CLASSES:
         source_class = "github"
     key = identity.key()
     if not restore_succeeded:
@@ -905,7 +912,8 @@ def finalize(
                 if not fill or fill.get("token") != token:
                     return {"status": "lost-fill"}
                 metadata = _publish_locked(
-                    store, identity, archive, source_class, provider_created_at
+                    store, identity, archive, "peer" if source_class == "lan" else source_class,
+                    provider_created_at,
                 )
                 state = _state_update_locked(store, key, verified_restore_count=1)
                 fill_started = fill.get("created_epoch")
