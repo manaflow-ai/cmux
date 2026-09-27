@@ -289,16 +289,21 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
             owned_slots=capacity, jobs=jobs, root_jobs=jobs,
         )
 
-    choice = rule(limits, [label for label in pools if owned_choices is None or
-                           not pr_runner_pool.persistent(label) or label in owned_choices])
+    chosen_from = [label for label in pools if owned_choices is None or
+                   not pr_runner_pool.persistent(label) or label in owned_choices]
+    choice = rule(limits, chosen_from)
     blacksmith = [label for label in pools if not pr_runner_pool.persistent(label)]
     if limits.queue_rounds and blacksmith and choice.runner and not pr_runner_pool.persistent(choice.runner):
         # The rounds decide only whether an owned pool takes the run; the
         # Blacksmith pool is the headroom rule's, as without them (the first
         # pool with a free machine, then the shorter queue in rounds).
         choice = rule(dataclasses.replace(limits, queue_rounds=0), blacksmith)
-        if len(blacksmith) < len(pools):
-            choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue "
+        # Name the owned pools this run could take: one owned_choices left
+        # out (the iOS lane's light pool) was not full, only not allowed.
+        allowed = [label for label in chosen_from if pr_runner_pool.persistent(label)]
+        if allowed:
+            which = "no owned pool" if owned_choices is None else f"no room on {', '.join(allowed)}"
+            choice = dataclasses.replace(choice, reason=f"{which} within {limits.queue_rounds} queue "
                                                         f"round(s); {choice.reason}")
     if live and pr_runner_pool.persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")

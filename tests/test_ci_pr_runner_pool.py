@@ -1995,7 +1995,7 @@ class WarmAffinity(unittest.TestCase):
                 unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
                 unittest.mock.patch.object(warm_distance, "load_model", return_value=ROUTE_MODEL), \
                 unittest.mock.patch.object(pool.GitHub, "get", return_value={"artifacts": []}), \
-                unittest.mock.patch.object(warm_distance, "fetch_bases"), \
+                unittest.mock.patch.object(warm_distance, "fetch_bases", return_value={}), \
                 unittest.mock.patch.object(warm_distance, "main_changes",
                                            side_effect=lambda _, old, new: (changes or {}).get(old)), \
                 unittest.mock.patch("sys.stdout", io.StringIO()):
@@ -2874,6 +2874,19 @@ class IOSRouting(unittest.TestCase):
         snap["pools"][LIGHT] = {"queued": 0, "running": 0}
         route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2")
         self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+
+    def test_a_left_out_light_pool_is_not_reported_as_full(self):
+        # std full and queued, light idle: the run goes to Blacksmith, and the
+        # reason names std, the one owned pool it may take, instead of saying
+        # no owned pool had room (light did; it is not one this run may take).
+        snap = sim_fleet(busy=40)
+        snap["pools"][MINI]["queued"] = 200
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        messages = []
+        route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2",
+                             log=messages.append)
+        self.assertFalse(route.persistent)
+        self.assertIn(f"no room on {MINI} within 2 queue round(s)", messages[-1])
 
     def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
         snap = self.incident_snapshot()
