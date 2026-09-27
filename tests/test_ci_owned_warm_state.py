@@ -213,6 +213,14 @@ class Roots(unittest.TestCase):
                          [{"root": k} for k in range(1, state.MAX_ROOTS + 1)])
         self.assertEqual(state.roots({}), [])
 
+    def test_roots_keep_parked_builds_with_a_pull_request(self):
+        document = {"roots": [{"root": 1, "pr": 9, "parked": [
+            {"pr": 7, "merged_onto": SHA_A, "pr_package_interface": True, "fingerprint": "x"},
+            {"merged_onto": SHA_B}, "junk", {"pr": 8}, {"pr": 6}]}, {"root": 2, "parked": "junk"}]}
+        self.assertEqual(state.roots(document), [
+            {"root": 1, "pr": 9, "parked": [{"merged_onto": SHA_A, "pr": 7, "pr_package_interface": True}]},
+            {"root": 2}])
+
     def test_fold_carries_the_roots_of_each_runners_newest_admission(self):
         mini = [{"root": 1, "merged_onto": SHA_A}]
         previous = {"through": 5, "runners": {"r1": {"keys": [A], "at": "2026-09-25T10:00:00Z", "roots": mini}}}
