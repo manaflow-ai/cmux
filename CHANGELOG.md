@@ -10,6 +10,7 @@ All notable changes to cmux are documented here.
 - `cmux resize-window --window <handle> --width <w> --height <h>` resizes a window from the CLI or socket, keeping its top-left corner in place ([#9826](https://github.com/manaflow-ai/cmux/pull/9826)) -- thanks @ejc3!
 
 ### Changed
+- Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
