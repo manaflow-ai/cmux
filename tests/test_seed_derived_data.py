@@ -1418,6 +1418,31 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
+    def test_cli_product_takes_the_gui_label_like_the_shards(self):
+        # glaeda runs cli-product-tests under the mini's gui token, so on the
+        # root label it was refused behind a shard's token (run 36316398822).
+        job = load("ci-macos.yml")["jobs"]["cli-product-tests"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        gui = "glaeda-gui-std-xcode-26.6"
+        owned = " admission shard-1 lag cli-product "
+        for attempt, owned_jobs, gui_runner, runner in (
+            ("1", owned, gui, gui),
+            ("1", owned, "", root),
+            ("2", owned, gui, gui),
+            ("2", owned, "", root),
+            ("1", " admission ", gui, retry),
+            ("3", owned, gui, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root, pr_gui_runner=gui_runner, pr_owned_jobs=owned_jobs)
+            context["needs"] = {"macos-compile-admission": {"outputs": {"runner": root}}}
+            with self.subTest(attempt=attempt, owned_jobs=owned_jobs, gui_runner=gui_runner):
+                self.assertEqual(evaluate(job["runs-on"], context), runner)
+                self.assertEqual(evaluate(job["steps"][0]["env"]["REQUESTED_RUNNER"], context), runner)
+
     def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
         # pr_admission_runner names a root runner that kept a build of the
         # run's merge base. Admission's attempt 1 asks for both labels; its
