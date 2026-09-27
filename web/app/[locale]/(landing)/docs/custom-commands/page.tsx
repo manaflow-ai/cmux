@@ -6,7 +6,7 @@ import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
-function renderRawRich(
+function parseRawRichText(
   message: string,
   renderers: Record<string, (chunks: string, key: number) => ReactNode>
 ): ReactNode[] {
@@ -47,6 +47,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
+// Keep the command reference in one document so its examples and translated
+// headings remain ordered together; the page has no stateful render boundary.
+// react-doctor-disable-next-line react-doctor/no-giant-component -- static translated document
 export default function CustomCommandsPage() {
   const t = useTranslations("docs.customCommands");
 
@@ -167,7 +170,7 @@ export default function CustomCommandsPage() {
         })}
       </p>
       <p>
-        {renderRawRich(t.raw("iconsDesc"), {
+        {parseRawRichText(t.raw("iconsDesc"), {
           buttons: inlineCode,
           symbolIcon: inlineCode,
           emojiIcon: inlineCode,
@@ -223,7 +226,7 @@ export default function CustomCommandsPage() {
 
       <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>
       <p>
-        {renderRawRich(t.raw("newWorkspaceButtonDesc"), {
+        {parseRawRichText(t.raw("newWorkspaceButtonDesc"), {
           action: inlineCode,
           contextMenu: inlineCode,
           rightClick: inlineCode,

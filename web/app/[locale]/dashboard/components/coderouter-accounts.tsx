@@ -613,7 +613,7 @@ function AccountSharing({ teamId, accountId, family, visibility }: {
   readonly visibility: "private" | "team";
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
   async function updateSharing() {
@@ -626,7 +626,7 @@ function AccountSharing({ teamId, accountId, family, visibility }: {
         body: JSON.stringify({ family, visibility: visibility === "private" ? "team" : "private" }),
       });
       if (!response.ok) { setError(true); return; }
-      router.refresh();
+      refresh();
     } catch { setError(true); } finally { setPending(false); }
   }
   return <div>
@@ -645,7 +645,7 @@ function NativeAccountActions({
   readonly accountId: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -663,7 +663,7 @@ function NativeAccountActions({
         return;
       }
       setStatus(idleStatus);
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("removeError") });
     }
@@ -687,6 +687,9 @@ export type TransferRequestResult =
   | { readonly ok: false; readonly status: number | null };
 
 /** Moves one native account from `teamId` to `destinationTeamId`. */
+// The request helper is the mutation boundary for the adjacent account action
+// components; keeping it here preserves the shared endpoint contract.
+// react-doctor-disable-next-line react-doctor/only-export-components -- colocated mutation helper
 export async function requestNativeAccountTransfer(
   input: { readonly teamId: string; readonly accountId: string; readonly destinationTeamId: string },
   send: typeof fetch = fetch,
@@ -730,7 +733,7 @@ function NativeAccountTransfer({
   readonly accountLabel: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"choose" | "confirm">("choose");
   const [destinationId, setDestinationId] = useState(teams[0]?.id ?? "");
@@ -755,7 +758,7 @@ function NativeAccountTransfer({
     setOpen(false);
     setStatus(idleStatus);
     onTransferred(t("transferSuccess", { account: accountLabel, destination: destination.name }));
-    router.refresh();
+    refresh();
   };
 
   const submitting = status.state === "submitting";
@@ -893,7 +896,7 @@ function ClaudeAccountActions({
   readonly account: ClaudeAccountDescription;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const url = `/api/coderouter/claude-upstream/${encodeURIComponent(account.id)}?teamId=${encodeURIComponent(teamId)}`;
@@ -912,7 +915,7 @@ function ClaudeAccountActions({
         return;
       }
       setStatus(idleStatus);
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("updateError") });
     }
@@ -929,7 +932,7 @@ function ClaudeAccountActions({
         return;
       }
       setStatus(idleStatus);
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("removeError") });
     }
@@ -961,7 +964,7 @@ function SharedAccountActions({
   readonly accountId: string;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -982,7 +985,7 @@ function SharedAccountActions({
         return;
       }
       setStatus(idleStatus);
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("removeError") });
     }
@@ -1131,7 +1134,7 @@ function ApiKeyForm({
   readonly kind: ApiKeyAddKind;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1160,7 +1163,7 @@ function ApiKeyForm({
       }
       form.reset();
       setStatus({ state: "success", message: t("saveSuccess") });
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("saveError") });
     }
@@ -1206,7 +1209,7 @@ function ClaudeUpstreamForm({
   readonly kind: ClaudeUpstreamKind;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [status, setStatus] = useState<FormStatus>(idleStatus);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1233,7 +1236,7 @@ function ClaudeUpstreamForm({
       }
       form.reset();
       setStatus({ state: "success", message: t("saveSuccess") });
-      router.refresh();
+      refresh();
     } catch {
       setStatus({ state: "error", message: t("saveError") });
     }

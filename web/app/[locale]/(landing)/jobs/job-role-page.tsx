@@ -30,6 +30,9 @@ const ycJobUrls = {
     "https://www.ycombinator.com/companies/cmux/jobs/T4rJNKX-founding-chromium-engineer",
 } as const;
 
+// Route modules import these metadata builders alongside the shared page
+// component; keeping them together avoids duplicating the SEO policy.
+// react-doctor-disable-next-line react-doctor/only-export-components -- metadata helper intentionally shares this page module
 export async function jobsMetadata({
   params,
   path,
@@ -51,6 +54,7 @@ export async function jobsMetadata({
   });
 }
 
+// react-doctor-disable-next-line react-doctor/only-export-components -- metadata helper intentionally shares this page module
 export async function jobRoleMetadata({
   params,
   path,
@@ -270,7 +274,7 @@ function JobList({ items, compact = false }: { items: string[]; compact?: boolea
         <li key={item} className="flex gap-3">
           <span
             aria-hidden="true"
-            className="mt-[0.72rem] h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/45"
+            className="mt-[0.72rem] size-1.5 shrink-0 rounded-full bg-foreground/45"
           />
           <span>{item}</span>
         </li>

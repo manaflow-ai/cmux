@@ -328,7 +328,7 @@ export function resolveOwnerNetwork(input: {
 }
 
 /** Compatibility name for callers that need the owner's mandatory network. */
-export function requireOwnerNetwork(input: {
+function requireOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
 }): Effect.Effect<

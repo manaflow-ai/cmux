@@ -51,7 +51,7 @@ export type ServerEventDependencies = {
 };
 
 /** Env flag that turns the sender on outside production (staging smoke tests). */
-export const SERVER_ANALYTICS_FORCE_ENV = "CMUX_SERVER_ANALYTICS_FORCE";
+const SERVER_ANALYTICS_FORCE_ENV = "CMUX_SERVER_ANALYTICS_FORCE";
 export const SERVER_EVENT_LIB = "cmux-web-server";
 export const STACK_TEAM_GROUP = "stack_team";
 

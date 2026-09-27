@@ -1,4 +1,4 @@
-export const IROH_RELAY_MINTER_PATH = "/api/relay-token";
+const IROH_RELAY_MINTER_PATH = "/api/relay-token";
 
 export type IrohMinterUrlPolicy = {
   readonly allowInsecureLoopback: boolean;

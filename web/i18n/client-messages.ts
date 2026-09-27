@@ -10,7 +10,7 @@ function isMessageTree(value: unknown): value is MessageTree {
  * page ships without them. `community` stays shared because the download
  * confirmation reads it outside the community route.
  */
-export const SUBTREE_CLIENT_NAMESPACES = ["docs"] as const;
+const SUBTREE_CLIENT_NAMESPACES = ["docs"] as const;
 
 /**
  * The catalog every client component may read. Large bodies that only

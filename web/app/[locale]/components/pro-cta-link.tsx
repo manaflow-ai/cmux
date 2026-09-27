@@ -3,7 +3,7 @@
 import {
   PricingCheckoutButton,
 } from "../../components/pricing-checkout";
-import type { PricingActionSize } from "../../components/pricing-shared";
+import type { PricingActionSize } from "../../components/pricing-helpers";
 
 export function ProCtaLink({
   checkoutHref,

@@ -53,7 +53,7 @@ export function navItemsForLocale(
   return entries;
 }
 
-export function navItemContentLocale(item: NavLink, locale: string): Locale {
+function navItemContentLocale(item: NavLink, locale: string): Locale {
   const requestedLocale = locale as Locale;
   if (!item.contentLocales || item.contentLocales.includes(requestedLocale)) {
     return requestedLocale;

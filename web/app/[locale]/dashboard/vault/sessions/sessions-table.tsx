@@ -35,7 +35,7 @@ export function SessionsTable({
 }: SessionsTableProps) {
   const t = useTranslations("vault.sessions");
   const locale = useLocale();
-  const router = useRouter();
+  const { replace } = useRouter();
   const pathname = usePathname();
   const [rows, setRows] = useState<readonly SerializedVaultSessionListRow[]>(initialRows);
   const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
@@ -70,9 +70,9 @@ export function SessionsTable({
       const params = new URLSearchParams();
       if (nextQuery.trim()) params.set("q", nextQuery.trim());
       const qs = params.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`);
+      replace(`${pathname}${qs ? `?${qs}` : ""}`);
     },
-    [pathname, router],
+    [pathname, replace],
   );
 
   const fetchPage = useCallback(
@@ -173,7 +173,7 @@ export function SessionsTable({
           : t("endOfList");
 
   return (
-    <div className="flex h-[calc(100vh-2.75rem)] min-h-[520px] flex-col px-3 py-3">
+    <div className="flex h-[calc(100vh-2.75rem)] min-h-[520px] flex-col p-3">
       <div className="mb-3 flex flex-col gap-2 border-b border-border pb-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
@@ -300,13 +300,13 @@ function SessionRow({
   readonly onNavigate: () => void;
   readonly style: React.CSSProperties;
 }) {
-  const router = useRouter();
+  const { push } = useRouter();
   const [copied, setCopied] = useState(false);
   const cwd = row.cwd || unknownCwd;
   const basename = pathBasename(row.cwd) || unknownCwd;
   const openSession = () => {
     onNavigate();
-    router.push(`/dashboard/vault/sessions/${row.id}`);
+    push(`/dashboard/vault/sessions/${row.id}`);
   };
 
   return (

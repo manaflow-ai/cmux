@@ -1,9 +1,9 @@
 import { useTranslations, useLocale } from "next-intl";
 import {
-  JsonLd,
   breadcrumbList,
   faqPage,
-} from "@/app/[locale]/components/json-ld";
+} from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
 
 const stripTags = (s: string) => s.replace(/<\/?[a-zA-Z]+>/g, "");
 

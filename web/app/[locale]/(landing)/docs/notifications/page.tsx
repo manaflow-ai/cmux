@@ -14,6 +14,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
+// This page is a single translated document with no local state or reusable
+// boundaries; splitting its prose would only thread the translator through
+// many one-use components.
+// react-doctor-disable-next-line react-doctor/no-giant-component -- static translated document
 export default function NotificationsPage() {
   const t = useTranslations("docs.notifications");
 

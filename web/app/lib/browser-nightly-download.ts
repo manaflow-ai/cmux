@@ -16,7 +16,7 @@ export const BROWSER_PUBLIC_ASSET_ORIGIN = "https://browser-assets.cmux.com";
  * in sync with cmux-browser's `docs/update-public-key.pem` whenever the updater
  * key is deliberately rotated.
  */
-export const CMUX_BROWSER_UPDATE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+const CMUX_BROWSER_UPDATE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEzeE5/HttjLz27hU3LFU0h/88Ex7i
 oqZjMnYz3AN/iyfNbz1meZL/8Kyd3PsvCvoiAI62dzAdAE+gNkbNrfw6/Q==
 -----END PUBLIC KEY-----`;

@@ -52,7 +52,7 @@ export const DASHBOARD_SESSION_STALE_SECONDS = 300;
  * enough to key the private cache and never cache one user's session for
  * another. Every Stack cookie name variant is included.
  */
-export async function dashboardSessionKey(): Promise<string> {
+async function dashboardSessionKey(): Promise<string> {
   const store = await cookies();
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
   const refreshCookies = projectId

@@ -2,10 +2,8 @@ import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
-import {
-  addCoderouterBreadcrumb,
-  reportCoderouterFailure,
-} from "./observability";
+import { addCoderouterBreadcrumb } from "./breadcrumbs";
+import { reportError } from "../observability/report";
 
 // Coderouter analytics live in the main cmux PostHog project, keyed by the
 // Stack user id the cmux apps identify with, so one person's app activity and
@@ -153,9 +151,9 @@ export function captureCoderouterRawBatch(
   const task = deliver(body, dependencies.fetch, config.ingestHost).catch(
     (error) => {
       // Reporting this failure through the same PostHog sink would recurse
-      // forever while the sink is unavailable. Sentry still receives the
-      // structured delivery failure through reportCoderouterFailure.
-      reportCoderouterFailure("analytics_delivery", error);
+      // forever while the sink is unavailable. Sentry still receives a
+      // synthetic structured delivery failure through the local reporter.
+      reportAnalyticsDeliveryFailure(error);
     },
   );
   dependencies.defer(task);
@@ -198,6 +196,7 @@ function analyticsId(value: string | undefined): string | null {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value) ? value : null;
 }
 
+
 /**
  * Best-effort, server-only CodeRouter analytics. The payload is rebuilt from a
  * closed event/property schema; caller-provided keys and free-form strings are
@@ -238,10 +237,18 @@ export function captureCoderouterEvent(
   });
   const task = deliver(body, dependencies.fetch, config.ingestHost).catch(
     (error) => {
-      reportCoderouterFailure("analytics_delivery", error);
+      reportAnalyticsDeliveryFailure(error);
     },
   );
   dependencies.defer(task);
+}
+
+function reportAnalyticsDeliveryFailure(error: unknown): void {
+  reportError(new Error("coderouter.analytics_delivery"), {
+    service: "coderouter",
+    failure: "analytics_delivery",
+    errorType: error instanceof Error ? error.name : typeof error,
+  });
 }
 
 async function deliver(

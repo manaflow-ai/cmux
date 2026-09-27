@@ -38,6 +38,16 @@ import {
 import type { ProviderId } from "../vms/drivers";
 import { reserveManagedPublication, type ManagedPublicationInput } from "./managedRepository";
 import { tracePublicationAuthOperation } from "./requestTelemetry";
+import {
+  PublicationConflictError,
+  PublicationNotFoundError,
+  type CloudVmPublicationTarget,
+} from "./model";
+export {
+  PublicationConflictError,
+  PublicationNotFoundError,
+  type CloudVmPublicationTarget,
+} from "./model";
 
 export type CloudVmDomainRow = typeof cloudVmDomains.$inferSelect;
 export type CloudVmPublicationRow = typeof cloudVmPublications.$inferSelect;
@@ -51,12 +61,6 @@ export type CloudVmPublicationProviderConfigRow =
   typeof cloudVmPublicationProviderConfigs.$inferSelect;
 export type CloudVmPublicationAccessMode = CloudVmPublicationRow["accessMode"];
 export type CloudVmPublicationState = CloudVmPublicationRow["state"];
-
-export type CloudVmPublicationTarget = {
-  readonly publication: CloudVmPublicationRow;
-  readonly domain: CloudVmDomainRow | null;
-  readonly vm: typeof cloudVms.$inferSelect;
-};
 
 /** Current routing and session state read from the same database snapshot. */
 export type CloudVmPublicationRequestContext = CloudVmPublicationTarget & {
@@ -115,34 +119,6 @@ export class PublicationDatabaseError extends Data.TaggedError(
 )<{
   readonly operation: string;
   readonly cause: unknown;
-}> {}
-
-export class PublicationNotFoundError extends Data.TaggedError(
-  "PublicationNotFoundError",
-)<{
-  readonly resource: "domain" | "publication" | "vm";
-}> {}
-
-export type PublicationConflictReason =
-  | "organization_slug_reserved"
-  | "organization_slug_taken"
-  | "invalid_organization_slug"
-  | "hostname_taken"
-  | "domain_in_use"
-  | "provider_verification_in_use"
-  | "provider_rule_in_use"
-  | "invalid_access_policy"
-  | "publication_not_active"
-  | "publication_revision_changed"
-  | "vm_publication_frozen"
-  | "publication_operation_lost"
-  | "forward_auth_bootstrap_lost"
-  | "auth_transaction_limit";
-
-export class PublicationConflictError extends Data.TaggedError(
-  "PublicationConflictError",
-)<{
-  readonly reason: PublicationConflictReason;
 }> {}
 
 export type PublicationAuthArtifactFailure =
@@ -745,7 +721,7 @@ async function requirePublicationRevision(
   return publication;
 }
 
-export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVmPublicationRepositoryShape {
+function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVmPublicationRepositoryShape {
   return {
     claimProviderForwardAuth: (input) =>
       repositoryEffect("claimProviderForwardAuth", async () => {
@@ -2375,7 +2351,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
   CloudVmPublicationRepository, makeCloudVmPublicationRepository(cloudDb),
 );
 
-export async function runCloudVmPublicationRepositoryEffect<A, E>(
+async function runCloudVmPublicationRepositoryEffect<A, E>(
   program: Effect.Effect<A, E, CloudVmPublicationRepository>,
 ): Promise<A> {
   const result = await Effect.runPromise(

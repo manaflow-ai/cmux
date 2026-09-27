@@ -14,7 +14,7 @@ export function CloudDeviceActions({
   readonly name: string;
 }) {
   const t = useTranslations("dashboard.cloud");
-  const router = useRouter();
+  const {refresh} = useRouter();
   const [renameOpen, setRenameOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,7 +31,7 @@ export function CloudDeviceActions({
       });
       if (!response.ok) throw new Error();
       setRenameOpen(false);
-      router.refresh();
+      refresh();
     } catch {
       setError(t("renameError"));
     } finally {
@@ -48,7 +48,7 @@ export function CloudDeviceActions({
       });
       if (!response.ok) throw new Error();
       setRevokeOpen(false);
-      router.refresh();
+      refresh();
     } catch {
       setError(t("revokeError"));
     } finally {

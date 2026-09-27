@@ -16,7 +16,7 @@ import { reportCoderouterFailure } from "../coderouter/observability";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
 
 export const CODEROUTER_ALERT_WINDOW_MINUTES = 5;
-export const CODEROUTER_ALERT_SINK_ACK_ENV = "CMUX_ALERTS_SINK_UNCONFIGURED_ACK";
+const CODEROUTER_ALERT_SINK_ACK_ENV = "CMUX_ALERTS_SINK_UNCONFIGURED_ACK";
 
 /**
  * A cron run must have a Slack sink, or an explicit plain-text operator

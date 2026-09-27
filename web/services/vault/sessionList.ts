@@ -50,7 +50,7 @@ export type VaultSessionListQuery = {
   readonly limit?: number;
 };
 
-export function normalizeVaultSessionListAgent(value: string | null): VaultSessionListAgent {
+function normalizeVaultSessionListAgent(value: string | null): VaultSessionListAgent {
   if (!value || value === "all") return "all";
   const agent = normalizeAgent(value);
   return agent.ok ? agent.value : "all";
@@ -162,7 +162,7 @@ export function serializeVaultSessionListPage(
   };
 }
 
-export function encodeVaultSessionCursor(lastUploadedAt: Date, id: string): string {
+function encodeVaultSessionCursor(lastUploadedAt: Date, id: string): string {
   return Buffer.from(
     JSON.stringify({ lastUploadedAt: lastUploadedAt.toISOString(), id }),
   ).toString("base64url");

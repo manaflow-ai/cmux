@@ -76,7 +76,7 @@ export function isApiKeyCredential(
   return credential.provider === "openai-apikey" || credential.provider === "openrouter-apikey";
 }
 
-export function isApiKeyProvider(
+function isApiKeyProvider(
   provider: CodeRouterProvider,
 ): provider is CodeRouterApiKeyProvider {
   return provider === "openai-apikey" || provider === "openrouter-apikey";

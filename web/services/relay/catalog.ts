@@ -23,7 +23,7 @@ import {
   MANAGED_IROH_RELAY_CATALOG,
 } from "./generated/managedRelayCatalog";
 
-export const RELAY_POLICY_TTL_SECONDS = 300;
+const RELAY_POLICY_TTL_SECONDS = 300;
 export const RELAY_ROTATION_MIN_OVERLAP_SECONDS = RELAY_POLICY_TTL_SECONDS;
 
 export type RelayPolicySigningKey = {

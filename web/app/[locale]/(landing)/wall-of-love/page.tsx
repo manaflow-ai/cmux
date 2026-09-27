@@ -1,13 +1,13 @@
+import { TestimonialCard } from "@/app/[locale]/testimonials";
 import { useTranslations, useLocale } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   testimonials,
-  TestimonialCard,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonials-data";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;

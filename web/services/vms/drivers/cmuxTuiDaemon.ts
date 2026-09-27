@@ -29,9 +29,9 @@ export const CMUX_TUI_SESSION = "cloud";
  * invitation, no approval. The env form is what a systemd drop-in sets on a
  * machine whose baked launch line predates the flag; the daemon reads either.
  */
-export const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
-export const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
-export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
+const CMUX_TUI_TRUSTED_CARRIER_ENV = "CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER";
+const CMUX_TUI_TRUSTED_CARRIER_FLAG = "--remote-ws-trusted-carrier";
+const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Terminals on a cmux Cloud machine run as the image's work user, never root:
@@ -46,17 +46,17 @@ export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
  * assuming one, so one driver serves both until the last legacy machine is
  * recreated.
  */
-export const CMUX_CLOUD_USER = DEVBOX_WORK_USER;
-export const CMUX_CLOUD_HOME = DEVBOX_WORK_HOME;
+const CMUX_CLOUD_USER = DEVBOX_WORK_USER;
+const CMUX_CLOUD_HOME = DEVBOX_WORK_HOME;
 /** The home, and so the daemon user, of a machine from a pre-work-user image. */
-export const CMUX_TUI_LEGACY_HOME = "/root";
-export const CMUX_TUI_BINARY_PATH = `${CMUX_CLOUD_HOME}/.cmux/bin/cmux-tui`;
-export const CMUX_TUI_LEGACY_BINARY_PATH = `${CMUX_TUI_LEGACY_HOME}/.cmux/bin/cmux-tui`;
+const CMUX_TUI_LEGACY_HOME = "/root";
+const CMUX_TUI_BINARY_PATH = `${CMUX_CLOUD_HOME}/.cmux/bin/cmux-tui`;
+const CMUX_TUI_LEGACY_BINARY_PATH = `${CMUX_TUI_LEGACY_HOME}/.cmux/bin/cmux-tui`;
 /** Which layout the running daemon chose; a breadcrumb for operators, not an input. */
 export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
 /** Returns the durable cmux-tui binary path for a daemon home. */
-export function cmuxTuiBinaryPath(home: string): string {
+function cmuxTuiBinaryPath(home: string): string {
   return `${home}/.cmux/bin/cmux-tui`;
 }
 
@@ -129,13 +129,13 @@ export type CmuxTuiSource = {
   hookSha256: string;
 };
 
-export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
-export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
+const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
+const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
 /** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
-export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
+const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
 /** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
 export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex"] as const;
-export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
+const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
@@ -236,7 +236,7 @@ export async function resolveCmuxTuiSource(
 }
 
 /** Test hook. */
-export function resetCmuxTuiSourceCache(): void {
+function resetCmuxTuiSourceCache(): void {
   cmuxTuiSourceCache = null;
 }
 
@@ -360,7 +360,7 @@ export const CMUX_TUI_DAEMON_TERMINAL_ENV =
   'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"';
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
-export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
+const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
 
 /**
  * The daemon command every supervisor runs: cmux-tui as the machine's daemon
@@ -396,7 +396,7 @@ export function parseJsonObject(text: string): Record<string, unknown> {
   }
 }
 
-export function parseJsonArray(text: string): Array<Record<string, unknown>> {
+function parseJsonArray(text: string): Array<Record<string, unknown>> {
   try {
     const value = JSON.parse(text.trim());
     return Array.isArray(value)
@@ -414,7 +414,7 @@ export function parseJsonArray(text: string): Array<Record<string, unknown>> {
  */
 export type CmuxTuiInvoke = (args: string, timeoutMs?: number) => Promise<ExecResult>;
 
-export async function waitForCmuxTuiReady(
+async function waitForCmuxTuiReady(
   invoke: CmuxTuiInvoke,
   provider: ProviderId,
   vmId: string,
@@ -430,7 +430,7 @@ export async function waitForCmuxTuiReady(
 }
 
 /** The installed daemon's build identity and remote protocol, so clients can name a mismatch instead of hanging. */
-export async function cmuxTuiDaemonBuild(
+async function cmuxTuiDaemonBuild(
   invoke: CmuxTuiInvoke,
 ): Promise<CmuxRemoteEndpoint["daemonBuild"] | null> {
   const probe = await invoke("remote-probe --json").catch(() => null);
@@ -444,7 +444,7 @@ export async function cmuxTuiDaemonBuild(
 }
 
 /** Compatibility invitation mint for older provider callers during trusted-listener rollout. */
-export async function mintCmuxTuiInvitation(
+async function mintCmuxTuiInvitation(
   invoke: CmuxTuiInvoke,
   provider: ProviderId,
   vmId: string,
@@ -473,7 +473,7 @@ export async function mintCmuxTuiInvitation(
 }
 
 /** Compatibility approval bridge for pre trusted-carrier clients. */
-export async function approveCmuxTuiEnrollment(
+async function approveCmuxTuiEnrollment(
   invoke: CmuxTuiInvoke,
   provider: ProviderId,
   vmId: string,
@@ -505,7 +505,7 @@ export async function approveCmuxTuiEnrollment(
  * running daemon serves the trusted-carrier listener. Each section is fenced
  * by a marker line so the outputs parse independently.
  */
-export const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
+const CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT = 3;
 const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", trusted: "__CMUX_TRUSTED__", end: "__CMUX_END__" } as const;
 
 /**
@@ -518,7 +518,7 @@ const BUNDLE_MARKERS = { probe: "__CMUX_PROBE__", devices: "__CMUX_DEVICES__", t
  * honest while the pinned manifest and the machine's install disagree.
  * Anything else prints `0`.
  */
-export function cmuxTuiDaemonPidSelector(): string {
+function cmuxTuiDaemonPidSelector(): string {
   // NOT `pgrep ... | head -n1`: when the daemon runs as the work user its
   // launcher is `runuser -u cmux -- … cmux-tui server start …`, whose cmdline
   // matches the same pattern and whose pid is LOWER. Picking that wrapper made

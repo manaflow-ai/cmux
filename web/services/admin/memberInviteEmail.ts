@@ -6,8 +6,8 @@ import { Resend } from "resend";
 import { env } from "../../app/env";
 import { DEFAULT_FROM_EMAIL } from "../../app/api/stripe/founders-welcome/welcome-email";
 
-export const ADMIN_APP_URL = "https://cmux-admin.vercel.app";
-export const ADMIN_INVITE_SUBJECT = "You have been invited to cmux admin";
+const ADMIN_APP_URL = "https://cmux-admin.vercel.app";
+const ADMIN_INVITE_SUBJECT = "You have been invited to cmux admin";
 
 export type AdminMemberInviteEmail = {
   readonly from: string;
@@ -26,7 +26,7 @@ export type AdminInviteSender = (input: {
   readonly inviterEmail: string | null;
 }) => Promise<{ sent: boolean }>;
 
-export function buildAdminMemberInviteEmail(params: {
+function buildAdminMemberInviteEmail(params: {
   readonly from: string;
   readonly to: string;
   readonly inviterEmail: string | null;
@@ -46,7 +46,7 @@ export function buildAdminMemberInviteEmail(params: {
 }
 
 /** Null until RESEND_API_KEY is set; the invite is still recorded without mail. */
-export function resolveAdminInviteEmailConfig(): AdminInviteEmailConfig | null {
+function resolveAdminInviteEmailConfig(): AdminInviteEmailConfig | null {
   const resendApiKey = env.RESEND_API_KEY;
   if (!resendApiKey) return null;
   return {

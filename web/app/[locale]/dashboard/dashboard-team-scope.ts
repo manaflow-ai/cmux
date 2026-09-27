@@ -49,8 +49,10 @@ type ConfirmedTeamSwitchState = {
  * without a page-level picker. The legacy cookie is mirrored for older pages.
  */
 export function useDashboardTeamScope(userId: string | null): DashboardTeamScope {
-  const router = useRouter();
+  const {replace, refresh} = useRouter();
   const pathname = usePathname();
+  // Dashboard shells mount this hook behind the app's client boundary.
+  // oxlint-disable-next-line react-doctor/nextjs-no-use-search-params-without-suspense
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const activeSwitchId = useRef(0);
@@ -107,7 +109,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     );
     persistCoderouterOrganizationScope(userId, team.id);
     optimisticSearch.set("team", team.id);
-    router.replace(pathWithSearch(pathname, optimisticSearch));
+    replace(pathWithSearch(pathname, optimisticSearch));
 
     const persistRequest = async () => {
       const cancellation = new AbortController();
@@ -169,7 +171,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
           } else {
             persistCoderouterOrganizationScope(userId, rollback.cookieScope);
           }
-          router.replace(
+          replace(
             pathWithSearch(pathname, new URLSearchParams(rollback.search)),
           );
         }
@@ -182,11 +184,11 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     if (activeSwitchId.current === operationId) {
       queryClient.setQueryData(queryKey, confirmed.catalog);
       persistCoderouterOrganizationScope(userId, confirmed.cookieScope ?? team.id);
-      router.replace(
+      replace(
         pathWithSearch(pathname, new URLSearchParams(confirmed.search)),
       );
       activeSwitchId.current = 0;
-      router.refresh();
+      refresh();
     }
     finish();
   };

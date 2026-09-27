@@ -6,14 +6,14 @@
 // base64 JSON of ordinary Anthropic SSE events; this file turns that back into
 // `event:`/`data:` lines so the guest's Anthropic SDK sees a plain stream.
 
-export const BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31";
+const BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31";
 
 /**
  * Anthropic model id -> Bedrock model id. Keys are the ids Claude Code sends
  * (undated aliases); dated ids and `-latest` aliases fold onto the same key.
  * Teams may override or extend this map in their upstream config.
  */
-export const BEDROCK_MODEL_IDS: Readonly<Record<string, string>> = {
+const BEDROCK_MODEL_IDS: Readonly<Record<string, string>> = {
   "claude-opus-4-1": "anthropic.claude-opus-4-1-20250805-v1:0",
   "claude-opus-4": "anthropic.claude-opus-4-20250514-v1:0",
   "claude-sonnet-4-5": "anthropic.claude-sonnet-4-5-20250929-v1:0",

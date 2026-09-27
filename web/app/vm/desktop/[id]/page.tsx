@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { createTranslator } from "next-intl";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -16,6 +17,16 @@ import { loadMessages } from "../../../../i18n/messages";
 // The redirect target depends on the request (token, host, expiry), so this route is
 // never prerendered or instant-navigated; say so instead of tripping the guard.
 export const instant = false;
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = preferredLocaleFromAcceptLanguage(
+    (await headers()).get("accept-language") ?? "",
+  );
+  const messages = await loadMessages(locale) as {
+    vmDesktop: { invalidTitle: string };
+  };
+  return { title: messages.vmDesktop.invalidTitle };
+}
 
 export default async function VmDesktopPage({
   params,

@@ -139,7 +139,7 @@ function discoverySnapshot(value: unknown): ConnectivityDiscoverySnapshot {
   return snapshot as ConnectivityDiscoverySnapshot;
 }
 
-export const ConnectivityAuthorityLive = Layer.effect(
+const ConnectivityAuthorityLive = Layer.effect(
   ConnectivityAuthority,
   Effect.gen(function* () {
     return makeConnectivityAuthority(yield* IrohTrustBroker);

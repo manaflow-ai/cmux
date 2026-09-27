@@ -10,7 +10,7 @@
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 export const CHATMUX_VM_AUTHORIZATION_HEADER = "x-chatmux-vm-authorization";
-export const CHATMUX_VM_AUDIENCE = "coderouter";
+const CHATMUX_VM_AUDIENCE = "coderouter";
 /** chatmux signs for one hour and rewrites the edge rule hourly. */
 export const CHATMUX_VM_TOKEN_MAX_LIFETIME_SECONDS = 60 * 60;
 const ROLES = new Set(["browser", "dev", "worker"]);

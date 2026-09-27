@@ -39,6 +39,8 @@ export function CoderouterInstallCommand() {
         </button>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] text-black/40">
+        {/* The shell installer must be a real download navigation. */}
+        {/* oxlint-disable-next-line react-doctor/nextjs-no-a-element */}
         <a className="underline underline-offset-4" href="/coderouter/install.sh">
           view script
         </a>

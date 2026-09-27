@@ -15,8 +15,8 @@ import {
 import { isMachineOwnedHomeVolumeName } from "./volumeNaming";
 
 /** Maximum number of candidate reports emitted by one run. */
-export const VM_REAPER_DEFAULT_VOLUME_LIMIT = 100;
-export const VM_REAPER_DEFAULT_PROVISIONING_LIMIT = 100;
+const VM_REAPER_DEFAULT_VOLUME_LIMIT = 100;
+const VM_REAPER_DEFAULT_PROVISIONING_LIMIT = 100;
 export const VM_REAPER_DEFAULT_VOLUME_SCAN_LIMIT = 1_000;
 export const VM_REAPER_MAX_BATCH_LIMIT = 100;
 export const VM_REAPER_MAX_VOLUME_SCAN_LIMIT = 1_000;
@@ -25,7 +25,7 @@ export const VM_REAPER_MAX_VOLUME_SCAN_PAGES = 20;
 /** Wall-clock budget for the volume scan, well inside the route's 300s cap. */
 export const VM_REAPER_SCAN_DEADLINE_MS = 120_000;
 export const VM_REAPER_DEFAULT_STUCK_PROVISIONING_MINUTES = 60;
-export const VM_REAPER_DEFAULT_VOLUME_MIN_AGE_MINUTES = 120;
+const VM_REAPER_DEFAULT_VOLUME_MIN_AGE_MINUTES = 120;
 export const VM_REAPER_SYSTEM_USER_ID = "cmux-vm-reaper";
 
 const ORPHAN_VOLUME_EVENT = "vm.reaper.orphan_volume";
@@ -214,7 +214,7 @@ export function reapVmResources(
 }
 
 /** Alias kept for callers that name the job after its Cloud VM scope. */
-export const reapCloudVmResources = reapVmResources;
+const reapCloudVmResources = reapVmResources;
 
 function reportStuckProvisioningRows(
   repo: VmRepositoryShape,
@@ -849,7 +849,7 @@ function safeErrorMessage(error: unknown): string {
   return raw.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 500);
 }
 
-export const VM_REAPER_ORPHAN_VOLUME_EVENT = ORPHAN_VOLUME_EVENT;
-export const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT = ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT;
-export const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT = ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT;
-export const VM_REAPER_STUCK_PROVISIONING_EVENT = STUCK_PROVISIONING_EVENT;
+const VM_REAPER_ORPHAN_VOLUME_EVENT = ORPHAN_VOLUME_EVENT;
+const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT = ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT;
+const VM_REAPER_ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT = ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT;
+const VM_REAPER_STUCK_PROVISIONING_EVENT = STUCK_PROVISIONING_EVENT;

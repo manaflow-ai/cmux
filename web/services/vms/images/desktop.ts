@@ -46,7 +46,7 @@ export const DEVBOX_DESKTOP_RUNTIME_DIR = "/run/cmux-desktop";
 export const DEVBOX_DESKTOP_ENV_FILE = `${DEVBOX_DESKTOP_RUNTIME_DIR}/env`;
 
 /** Default screen size; `CMUX_VNC_GEOMETRY` overrides it. noVNC remote resize grows it live. */
-export const DEVBOX_DESKTOP_GEOMETRY = "1440x900";
+const DEVBOX_DESKTOP_GEOMETRY = "1440x900";
 
 /** Where the desktop layer installs its entry points (the heal and supervisor contract). */
 export const DEVBOX_DESKTOP_START_SCRIPT = "/usr/local/bin/start-vnc.sh";

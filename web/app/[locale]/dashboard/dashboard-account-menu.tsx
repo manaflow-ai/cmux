@@ -25,7 +25,7 @@ export function DashboardAccountMenuFallback() {
 export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
-  const router = useRouter();
+  const {replace, refresh} = useRouter();
   const stackApp = useStackApp();
   const teamScope = useDashboardTeamScope(user?.id ?? null);
   const theme = useThemeToggle();
@@ -115,8 +115,8 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   try {
                     await stackApp.signOut();
                     clearCoderouterOrganizationScope();
-                    router.replace("/");
-                    router.refresh();
+                    replace("/");
+                    refresh();
                   } catch {
                     setSignOutPending(false);
                     setSignOutError(true);

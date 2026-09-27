@@ -48,7 +48,7 @@ export const REFLECTION_PATHS: readonly ReflectionPath[] = [
 ];
 
 /** The daemon listener every cmux Cloud machine serves on its private address. */
-export const REFLECTION_PEER_DAEMON_PORT = 1337;
+const REFLECTION_PEER_DAEMON_PORT = 1337;
 
 export type ReflectionNetwork = { readonly ipv4: string | null; readonly ipv6: string | null };
 export type ReflectionSize = { readonly memory_mb: number | null; readonly cpu: number | null; readonly disk_mb: number | null };
@@ -61,7 +61,7 @@ export function reflectionMachineName(row: Pick<ReflectionRow, "slug" | "provide
   return providerVmId || row.id;
 }
 
-export function reflectionDisplayName(row: Pick<ReflectionRow, "slug" | "providerVmId" | "id" | "displayName">): string {
+function reflectionDisplayName(row: Pick<ReflectionRow, "slug" | "providerVmId" | "id" | "displayName">): string {
   const label = row.displayName?.trim();
   return label || reflectionMachineName(row);
 }
@@ -112,16 +112,16 @@ export function reflectionHasDesktop(row: Pick<ReflectionRow, "provider" | "imag
   }
 }
 
-export function reflectionIsLive(row: Pick<ReflectionRow, "status">): boolean {
+function reflectionIsLive(row: Pick<ReflectionRow, "status">): boolean {
   return (VM_PRINCIPAL_LIVE_STATUSES as readonly string[]).includes(row.status);
 }
 
 /** Resource ownership is independent of the creator and payer. */
-export function reflectionSharesOwner(self: ReflectionRow, other: ReflectionRow): boolean {
+function reflectionSharesOwner(self: ReflectionRow, other: ReflectionRow): boolean {
   return other.ownerTeamId === self.ownerTeamId;
 }
 
-export function reflectionUrls(context: Pick<ReflectionContext, "aliasOrigin" | "reflectionOrigin">): string[] {
+function reflectionUrls(context: Pick<ReflectionContext, "aliasOrigin" | "reflectionOrigin">): string[] {
   // No trailing slash on the path form: Next redirects `/x/` to `/x`, and a
   // redirect is one thing a `curl -s` inside a machine will not follow.
   return [`${context.aliasOrigin}/api/vm/reflection`, `${context.reflectionOrigin}/`];
@@ -162,7 +162,7 @@ function reflectionMachineEntry(row: ReflectionRow, self: ReflectionRow): Reflec
  * `cmux self` and `cmux vm ls` read one shape whichever endpoint answers, now
  * with each machine's private route beside it.
  */
-export function reflectionMachines(context: ReflectionContext): ReflectionMachineEntry[] {
+function reflectionMachines(context: ReflectionContext): ReflectionMachineEntry[] {
   const { self } = context;
   const seen = new Set<string>();
   const rows = [self, ...context.siblings].filter((row) => {
@@ -177,7 +177,7 @@ export function reflectionMachines(context: ReflectionContext): ReflectionMachin
 }
 
 /** The caller as a `VmSelfMachine`; a still-provisioning machine falls back to its row id as the address. */
-export function reflectionSelfMachine(context: ReflectionContext): ReflectionMachineEntry {
+function reflectionSelfMachine(context: ReflectionContext): ReflectionMachineEntry {
   const { self } = context;
   return reflectionMachineEntry(self, self) ?? {
     id: self.id,
@@ -298,7 +298,7 @@ export type ReflectionIntegration = {
   readonly comment?: string;
 };
 
-export const REFLECTION_AGENTS = ["claude", "codex", "opencode", "pi"] as const;
+const REFLECTION_AGENTS = ["claude", "codex", "opencode", "pi"] as const;
 
 export function reflectionIntegrations(context: ReflectionContext): { integrations: ReflectionIntegration[] } {
   const integrations: ReflectionIntegration[] = [
@@ -325,7 +325,7 @@ export function reflectionIntegrations(context: ReflectionContext): { integratio
   return { integrations };
 }
 
-export function reflectionNotFound(path: string): Record<string, unknown> {
+function reflectionNotFound(path: string): Record<string, unknown> {
   return { error: "not_found", path, paths: REFLECTION_PATHS };
 }
 

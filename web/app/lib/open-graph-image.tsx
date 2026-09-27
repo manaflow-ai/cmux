@@ -114,6 +114,8 @@ async function renderOpenGraphImage(locale: string) {
               borderRadius: SCREENSHOT_RADIUS * S,
             }}
           >
+            {/* ImageResponse needs a data-URL image rather than next/image. */}
+            {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
             <img
               src={screenshotSrc}
               width={(size.width - SCREENSHOT_INSET * 2) * S}
@@ -148,6 +150,8 @@ async function renderOpenGraphImage(locale: string) {
                 gap: 20 * S,
               }}
             >
+              {/* ImageResponse needs a data-URL image rather than next/image. */}
+              {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
               <img
                 src={logoSrc}
                 width={112 * S}

@@ -289,7 +289,7 @@ export function signApnsJwt(config: ApnsConfig, nowSeconds: number): string {
 
 // APNs allows reusing a provider token for up to 1h; refresh well before that.
 const JWT_TTL_SECONDS = 50 * 60;
-export const APNS_DEFAULT_TIMEOUT_MS = 8_000;
+const APNS_DEFAULT_TIMEOUT_MS = 8_000;
 const APNS_DEFAULT_MAX_ATTEMPTS = 3;
 const APNS_MAX_RETRY_DELAY_MS = 2_000;
 /** Apple's documented minimum backoff after an APNs 5xx response. */

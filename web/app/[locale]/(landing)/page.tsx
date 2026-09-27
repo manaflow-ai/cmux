@@ -12,14 +12,47 @@ import {
   testimonials,
   getTestimonialSubtitle,
   getTestimonialTranslation,
-} from "@/app/[locale]/testimonials";
+} from "@/app/[locale]/testimonials-data";
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
+import Image from "next/image";
+
+import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  twitterSummary,
+} from "@/i18n/seo";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "meta" });
+  const title = t("title");
+  const description = t("description");
+  const alternates = buildAlternates(locale, "");
+  return {
+    title,
+    description,
+    alternates,
+    openGraph: { ...openGraphDefaults(locale, "website"), title, description },
+    twitter: twitterSummary(locale, title, description),
+  };
+}
 
 export default function Home() {
   return <HomeContent />;
 }
 
+// The landing page intentionally keeps its translated sections together so
+// each section shares the same server translation context without a prop-only
+// component tree. The page is static content, so this does not create a
+// reconciliation boundary or stateful component risk.
+// react-doctor-disable-next-line react-doctor/no-giant-component -- translated landing sections stay in one server page
 function HomeContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
@@ -67,12 +100,15 @@ function HomeContent() {
         {/* Header */}
         <div className="flex items-center gap-4 mb-10" data-dev="header">
           <BrandLogoLink className="shrink-0">
-            <img
+            <Image
               src="/logo.png"
               alt="cmux icon"
               width={48}
               height={48}
               className="rounded-xl"
+              // The static logo must bypass /_next/image because Safari's
+              // cache mishandles its Vary: Accept response (issue #5819).
+              unoptimized
             />
           </BrandLogoLink>
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>
@@ -509,7 +545,7 @@ function HomeContent() {
                     {translation && (
                       <span className="text-muted/60 text-xs italic">
                         {" "}
-                        — {translation}
+                        ({translation})
                       </span>
                     )}
                   </a>{" "}
@@ -519,9 +555,9 @@ function HomeContent() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-muted hover:text-foreground transition-colors"
                   >
-                    —
+                    ·
                     {item.avatar && (
-                      <img
+                      <Image
                         src={item.avatar}
                         alt={item.name}
                         width={16}

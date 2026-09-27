@@ -222,7 +222,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
   return payload;
 }
 
-export function parseIrohDirectPorts(value: unknown): IrohDirectPorts {
+function parseIrohDirectPorts(value: unknown): IrohDirectPorts {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new IrohInvalidInputError({ code: "invalid_direct_ports" });
   }
@@ -304,7 +304,7 @@ export type IrohChallengeIdentity = {
   readonly identityGeneration: number;
 };
 
-export function clientNamespace(value: unknown): string {
+function clientNamespace(value: unknown): string {
   if (value === undefined) return "legacy";
   const parsed = boundedString(value, 1, 255, "invalid_client_namespace");
   if (!/^[A-Za-z0-9._:-]+$/.test(parsed)) {
@@ -601,7 +601,7 @@ export function endpointId(value: unknown): string {
   return value;
 }
 
-export function sha256Hex(value: unknown, code: string): string {
+function sha256Hex(value: unknown, code: string): string {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
     throw new IrohInvalidInputError({ code });
   }

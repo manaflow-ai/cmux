@@ -24,7 +24,7 @@ export type DatabasePoolOptions = Omit<PgClient.PgClientConfig, "types"> & {
 };
 
 /** The caller owns this layer's scope; no connection is created per query. */
-export function makeDatabaseLayer(options: DatabasePoolOptions) {
+function makeDatabaseLayer(options: DatabasePoolOptions) {
   const client = PgClient.layer({
     ...options,
     minConnections: options.minConnections ?? 0,

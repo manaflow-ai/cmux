@@ -27,7 +27,7 @@ export function DocsNav({
         aria-expanded={open}
         aria-controls="docs-sidebar"
         data-pagefind-ignore="all"
-        className="fixed bottom-4 right-4 z-50 md:hidden w-10 h-10 rounded-full bg-foreground text-background flex items-center justify-center shadow-lg"
+        className="fixed bottom-4 right-4 z-50 md:hidden size-10 rounded-full bg-foreground text-background flex items-center justify-center shadow-lg"
         aria-label={open ? "Close navigation" : "Open navigation"}
       >
         <svg

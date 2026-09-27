@@ -295,7 +295,7 @@ function WaitlistBody({
                     checked={selected.has(p)}
                     onCheckedChange={() => togglePlatform(p)}
                     disabled={submitting}
-                    className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border border-border transition-colors data-[checked]:border-foreground data-[checked]:bg-foreground"
+                    className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border border-border transition-colors data-[checked]:border-foreground data-[checked]:bg-foreground"
                   >
                     <Checkbox.Indicator className="flex">
                       <svg
@@ -405,7 +405,7 @@ function WaitlistBody({
           className="absolute inset-0 flex flex-col items-center justify-center text-center"
         >
           {/* Checkmark pops in from the @starting-style (Tailwind `starting:`). */}
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-foreground transition-all duration-500 ease-out starting:scale-50 starting:opacity-0">
+          <div className="flex size-14 items-center justify-center rounded-full bg-foreground transition-all duration-500 ease-out starting:scale-50 starting:opacity-0">
             <svg
               width="26"
               height="26"
@@ -448,7 +448,7 @@ function WaitlistBody({
 function Spinner() {
   return (
     <span
-      className="h-4 w-4 shrink-0 animate-spin rounded-full"
+      className="size-4 shrink-0 animate-spin rounded-full"
       style={{
         background:
           "conic-gradient(from 90deg at 50% 50%, transparent 0deg, currentColor 300deg)",

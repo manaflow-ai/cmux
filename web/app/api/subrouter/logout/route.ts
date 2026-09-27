@@ -4,21 +4,21 @@ import {
 } from "../../../lib/stack";
 import {
   parseNativeStackTokens,
-  unauthorized,
+  unauthorized as unauthorizedResponse,
 } from "../../../../services/vms/auth";
 import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
 
 
 export async function POST(request: Request): Promise<Response> {
-  if (!isStackConfigured()) return unauthorized();
+  if (!isStackConfigured()) return unauthorizedResponse();
 
   const tokenStore = parseNativeStackTokens(request);
-  if (!tokenStore) return unauthorized();
+  if (!tokenStore) return unauthorizedResponse();
 
   try {
     const app = getNonRedirectingStackServerApp();
     const user = await app.getUser({ tokenStore });
-    if (!user) return unauthorized();
+    if (!user) return unauthorizedResponse();
 
     await app.signOut({ tokenStore });
     return new Response(JSON.stringify({ ok: true }), {

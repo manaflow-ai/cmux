@@ -91,7 +91,7 @@ export default function BrandAssetsPage() {
                     height={asset.height}
                     priority={asset.preview === "light"}
                     unoptimized
-                    className="h-32 w-32 object-contain"
+                    className="size-32 object-contain"
                   />
                 </div>
                 <div className="flex items-start justify-between gap-4 p-4">

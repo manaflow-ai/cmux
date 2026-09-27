@@ -60,7 +60,7 @@ export const MAX_PRICING_USD = {
 /** Every new subscription is monthly. Historical annual subscriptions remain valid. */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
 export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
-export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**
  * Lookup keys that no new checkout may use. Each stays active in Stripe for
@@ -77,7 +77,7 @@ export const LEGACY_PRICE_LOOKUP_KEYS = [
   "cmux-team-yearly-576", // $576/user/yr; existing subscriptions only
 ] as const;
 
-export function billingInterval(value: string | null | undefined): BillingInterval {
+function billingInterval(value: string | null | undefined): BillingInterval {
   return value === "year" ? "year" : "month";
 }
 

@@ -26,7 +26,7 @@ import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } f
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
-export const repoRoot = path.resolve(webRoot, "..");
+const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 
@@ -303,7 +303,7 @@ export function readDevboxDockerfile(): string {
 }
 
 /** An exact npm release: `x.y.z`, never a range, a tag, or a prerelease. */
-export const EXACT_AGENT_PIN = /^\d+\.\d+\.\d+$/;
+const EXACT_AGENT_PIN = /^\d+\.\d+\.\d+$/;
 
 /**
  * Rewrites the Dockerfile's `ARG CMUX_IMAGE_<TOOL>_VERSION=` lines to
@@ -479,11 +479,11 @@ export type DevboxSourceRecord = {
   readonly schema?: number;
 };
 
-export function devboxTemplateFile(name: string): string {
+function devboxTemplateFile(name: string): string {
   return readFileSync(path.join(devboxDir, name), "utf8");
 }
 
-export function devboxDesktopFile(name: string): string {
+function devboxDesktopFile(name: string): string {
   return readFileSync(path.join(devboxDesktopDir, name), "utf8");
 }
 
@@ -495,7 +495,7 @@ export function devboxFileBytes(name: string): Uint8Array {
   return new Uint8Array(readFileSync(file));
 }
 
-export function fileBase64(name: string): string {
+function fileBase64(name: string): string {
   return readFileSync(path.join(devboxDir, name)).toString("base64");
 }
 
@@ -694,7 +694,7 @@ export const DEVBOX_INSTANCE_ID_COMMAND =
  * (the verifier prints the number), so waiting on it instead of on the clock
  * removes ~30 s per phase without weakening the check.
  */
-export function devboxDaemonReadyCondition(): string {
+function devboxDaemonReadyCondition(): string {
   return (
     `${cmuxTuiRunCommand(`server status --session ${CMUX_TUI_SESSION}`)} >/dev/null 2>&1 && ` +
     `grep -qi ':0539 ' /proc/net/tcp6 && ` +
@@ -1466,7 +1466,7 @@ export function devboxSourceDriftProblems(
  * burst. Flush, then give the guest this long to go idle. Keep it the very
  * last step: anything run after it restarts the activity it waits out.
  */
-export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
+const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;

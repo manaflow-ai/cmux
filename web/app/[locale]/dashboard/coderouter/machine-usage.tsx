@@ -21,6 +21,9 @@ export type MachineUsage =
 const PERIOD_DAYS = 30;
 
 /** Server-side load for the Machines card. Fails closed to "unavailable". */
+// The server loader and its card share the same domain type and stay together
+// so the route cannot drift from the rendered usage shape.
+// react-doctor-disable-next-line react-doctor/only-export-components -- colocated server loader
 export async function loadMachineUsage(teamId: string): Promise<MachineUsage> {
   let owned;
   try {

@@ -49,9 +49,9 @@ const defaultHealthScheduler: HealthScheduler = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-export const HEALTH_CHECK_TIMEOUT_MS = 4_000;
+const HEALTH_CHECK_TIMEOUT_MS = 4_000;
 
-export const defaultHealthDependencies: HealthDependencies = {
+const defaultHealthDependencies: HealthDependencies = {
   pingPostgres: (signal, timeoutMs) => pingCloudDb(signal, timeoutMs),
   pingClickHouse: async (signal, timeoutMs) => {
     if (!clickHouseConfig()) return { ok: false, reason: "not_configured" };
@@ -104,7 +104,7 @@ export async function coderouterHealth(
  * shared promise also ensures that concurrent callers run one probe, rather
  * than one Postgres and ClickHouse probe per request.
  */
-export const CODEROUTER_HEALTH_CACHE_TTL_MS = 5_000;
+const CODEROUTER_HEALTH_CACHE_TTL_MS = 5_000;
 
 export type CoderouterHealthProbe = () => Promise<CoderouterHealth>;
 

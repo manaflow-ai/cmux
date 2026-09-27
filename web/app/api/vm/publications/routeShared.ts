@@ -39,7 +39,7 @@ export type PublicationProgram<A> = Effect.Effect<
 
 export type PublicationWorkflowRunner = <A>(program: PublicationProgram<A>) => Promise<A>;
 
-export const livePublicationWorkflowRunner: PublicationWorkflowRunner =
+const livePublicationWorkflowRunner: PublicationWorkflowRunner =
   runVmPublicationWorkflow;
 
 export type AuthedPublicationRouteContext = {

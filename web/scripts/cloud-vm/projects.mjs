@@ -161,12 +161,12 @@ export const legacyCloudVmEnvKeys = [
   "POSTHOG_CODEROUTER_PROJECT_KEY",
 ];
 
-export function normalizeTarget(value) {
+function normalizeTarget(value) {
   if (value === "prod") return "production";
   return value;
 }
 
-export function resolveProject(targetArg, usage) {
+function resolveProject(targetArg, usage) {
   const target = normalizeTarget(targetArg);
   const project = projects[target];
   if (!project) {
@@ -188,7 +188,7 @@ export function parseWebDirAndTarget(args, usage) {
   };
 }
 
-export function resolveWebDir(input) {
+function resolveWebDir(input) {
   let webDir = path.resolve(input);
   const nestedWebDir = path.join(webDir, "web");
   if (existsPackageJson(nestedWebDir)) {
@@ -200,7 +200,7 @@ export function resolveWebDir(input) {
   return webDir;
 }
 
-export function withLinkedVercelProject(project, fn) {
+function withLinkedVercelProject(project, fn) {
   const scratch = mkdtempSync(path.join(tmpdir(), `cmux-${project.label}-vercel-`));
   try {
     const vercelDir = path.join(scratch, ".vercel");
@@ -212,7 +212,7 @@ export function withLinkedVercelProject(project, fn) {
   }
 }
 
-export function pullProductionEnv(project) {
+function pullProductionEnv(project) {
   return pullProductionEnvWithMetadata(project).env;
 }
 
@@ -221,7 +221,7 @@ export function pullProductionEnv(project) {
  * sensitive variable from one that the older CLI redacts to an empty string.
  * The metadata contains key names and types only; no secret value is exposed.
  */
-export function pullProductionEnvWithMetadata(project) {
+function pullProductionEnvWithMetadata(project) {
   return withLinkedVercelProject(project, (scratch) => {
     const envFile = path.join(scratch, `${project.projectName}.env`);
     runVercel(["env", "pull", envFile, "--environment=production", "--scope", "manaflow", "--cwd", scratch], {
@@ -276,7 +276,7 @@ export function runVercel(args, options = {}) {
   }
 }
 
-export function loadEnv(file) {
+function loadEnv(file) {
   const env = {};
   for (const raw of readFileSync(file, "utf8").split(/\r?\n/)) {
     const line = raw.trim();

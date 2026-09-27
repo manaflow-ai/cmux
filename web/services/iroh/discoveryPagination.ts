@@ -1,7 +1,7 @@
 import { IrohInvalidInputError } from "./errors";
 
-export const IROH_DISCOVERY_PAGE_SIZE = 128;
-export const IROH_LEGACY_DISCOVERY_PAGE_SIZE = 256;
+const IROH_DISCOVERY_PAGE_SIZE = 128;
+const IROH_LEGACY_DISCOVERY_PAGE_SIZE = 256;
 const IROH_DISCOVERY_CURSOR_MAX_BYTES = 256;
 
 export type IrohDiscoveryCursor = {
@@ -53,7 +53,7 @@ export function encodeIrohDiscoveryCursor(cursor: IrohDiscoveryCursor): string {
   }), "utf8").toString("base64url");
 }
 
-export function decodeIrohDiscoveryCursor(value: unknown): IrohDiscoveryCursor {
+function decodeIrohDiscoveryCursor(value: unknown): IrohDiscoveryCursor {
   if (
     typeof value !== "string" ||
     value.length === 0 ||

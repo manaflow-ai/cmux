@@ -1,4 +1,18 @@
+import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { preferredLocaleFromAcceptLanguage } from "../../i18n/accept-language";
+import { loadMessages } from "../../i18n/messages";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = preferredLocaleFromAcceptLanguage(
+    (await headers()).get("accept-language") ?? "",
+  );
+  const messages = await loadMessages(locale) as {
+    cloudPublicationAccess: { signIn: string };
+  };
+  return { title: messages.cloudPublicationAccess.signIn };
+}
 
 type AuthorizePageProps = {
   searchParams: Promise<{ code?: string | string[] }>;
@@ -23,7 +37,7 @@ export default async function AuthorizePage({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
+    <main className="flex min-h-screen items-center justify-center bg-neutral-950 px-6 text-white">
       <section className="w-full max-w-sm">
         <p className="mb-8 text-sm text-neutral-500">CodeRouter</p>
         <h1 className="text-2xl font-medium tracking-tight">

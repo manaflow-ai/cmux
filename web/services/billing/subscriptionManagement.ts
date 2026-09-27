@@ -21,7 +21,7 @@ export type SubscriptionUpdater = (
   action: SubscriptionAction,
 ) => Promise<{ cancel_at_period_end?: boolean }>;
 
-export async function activeStripeSubscriptionForStackUser(stackUserId: string) {
+async function activeStripeSubscriptionForStackUser(stackUserId: string) {
   const rows = await cloudDb()
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
@@ -39,7 +39,7 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
   return rows[0] ?? null;
 }
 
-export async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
+async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
   const rows = await cloudDb()
     .select({ id: stripeSubscriptions.id })
     .from(stripeSubscriptions)
@@ -56,7 +56,7 @@ export async function activeStripeSubscriptionForStackTeam(stackTeamId: string) 
   return rows[0] ?? null;
 }
 
-export async function updateSubscriptionSnapshot(
+async function updateSubscriptionSnapshot(
   subscriptionId: string,
   subscription: { cancel_at_period_end?: boolean },
 ) {
@@ -70,7 +70,7 @@ export async function updateSubscriptionSnapshot(
     .where(eq(stripeSubscriptions.id, subscriptionId));
 }
 
-export const stripeSubscriptionUpdater: SubscriptionUpdater = async (subscriptionId, action) =>
+const stripeSubscriptionUpdater: SubscriptionUpdater = async (subscriptionId, action) =>
   await stripe().subscriptions.update(subscriptionId, {
     cancel_at_period_end: action === "cancel",
   });

@@ -1,6 +1,6 @@
 /** Native Cloud diagnostics accept codes and measurements, never arbitrary attributes. */
 export const CLOUD_TELEMETRY_MAX_BYTES = 64 * 1024;
-export const CLOUD_TELEMETRY_MAX_SPANS = 100;
+const CLOUD_TELEMETRY_MAX_SPANS = 100;
 export const CLOUD_TELEMETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export const cloudOperations = [

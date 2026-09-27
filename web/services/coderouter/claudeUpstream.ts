@@ -28,7 +28,7 @@ export type ClaudeUpstreamKind =
   | "anthropic_oauth"
   | "bedrock";
 
-export const CLAUDE_UPSTREAM_KINDS: readonly ClaudeUpstreamKind[] = [
+const CLAUDE_UPSTREAM_KINDS: readonly ClaudeUpstreamKind[] = [
   "anthropic_api_key",
   "anthropic_oauth",
   "bedrock",
@@ -480,7 +480,7 @@ function describeRow(row: ClaudeAccountRow): ClaudeAccountDescription {
 }
 
 /** Enough of the credential to recognise it, never enough to use it. */
-export function maskedIdentifier(secret: ClaudeUpstreamSecret): string {
+function maskedIdentifier(secret: ClaudeUpstreamSecret): string {
   switch (secret.kind) {
     case "anthropic_api_key":
       return `sk-ant-...${secret.apiKey.slice(-4)}`;

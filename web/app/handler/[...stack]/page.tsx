@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { MagicLinkSignIn, StackHandler } from "@hexclave/next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -12,6 +13,16 @@ import { loadMessages } from "../../../i18n/messages";
 // Keep authentication reliable instead of withholding it behind an empty
 // instant-navigation boundary.
 export const instant = false;
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = preferredLocaleFromAcceptLanguage(
+    (await headers()).get("accept-language") ?? "",
+  );
+  const messages = await loadMessages(locale) as {
+    cloudPublicationAccess: { signIn: string };
+  };
+  return { title: messages.cloudPublicationAccess.signIn };
+}
 
 export default async function StackHandlerPage(
   props: { params: Promise<{ stack: string[] }> },
@@ -77,7 +88,7 @@ function StackHandlerLoading() {
     >
       <div
         aria-hidden="true"
-        className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent"
+        className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent"
       />
     </main>
   );

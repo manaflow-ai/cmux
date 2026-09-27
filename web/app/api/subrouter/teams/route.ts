@@ -12,7 +12,7 @@ import {
 } from "../../../../services/vms/routeHelpers";
 import {
   isSubrouterAuthorizationError,
-  unauthorized,
+  unauthorized as unauthorizedResponse,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
         allowCookie: true,
         listAllTeams: true,
       });
-      if (!user) return unauthorized();
+      if (!user) return unauthorizedResponse();
 
       const payload = await request.json().catch(() => null) as { displayName?: unknown } | null;
       const displayName = typeof payload?.displayName === "string"
@@ -56,7 +56,7 @@ export async function POST(request: Request): Promise<Response> {
         creatorUserId: user.id,
       });
       const stackUser = await getStackServerApp().getUser(user.id);
-      if (!stackUser) return unauthorized();
+      if (!stackUser) return unauthorizedResponse();
       await stackUser.update({ selectedTeamId: team.id });
       return jsonResponse({
         team: { id: team.id, name: team.displayName },
@@ -86,7 +86,7 @@ export async function PATCH(request: Request): Promise<Response> {
         allowCookie: true,
         listAllTeams: true,
       });
-      if (!user) return unauthorized();
+      if (!user) return unauthorizedResponse();
 
       const payload = await request.json().catch(() => null) as { teamId?: unknown } | null;
       const teamId = typeof payload?.teamId === "string"
@@ -97,7 +97,7 @@ export async function PATCH(request: Request): Promise<Response> {
       }
 
       const stackUser = await getStackServerApp().getUser(user.id);
-      if (!stackUser) return unauthorized();
+      if (!stackUser) return unauthorizedResponse();
       await stackUser.update({ selectedTeamId: teamId });
       return jsonResponse({ selectedTeamId: teamId });
     });
@@ -134,7 +134,7 @@ export async function organizationsGet(request: Request,
         allowCookie: true,
         listAllTeams: true,
       });
-      if (!user) return unauthorized();
+      if (!user) return unauthorizedResponse();
 
       const authorized = await listTeams(user);
       let selectedTeamId: string | null = null;

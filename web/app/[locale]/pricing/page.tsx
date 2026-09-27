@@ -45,12 +45,14 @@ import {
   PricingCompareTable,
   PrimaryLink,
   SecondaryLink,
+} from "../../components/pricing-shared";
+import {
   visibleCompareRows,
   visibleFaqItems,
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-} from "../../components/pricing-shared";
+} from "../../components/pricing-helpers";
 import {
   PricingCheckoutButton,
   PricingView,
@@ -181,7 +183,9 @@ async function PersonalizedPricing({
   );
 }
 
-// oxlint-disable-next-line complexity -- All plan actions share the same billing snapshot.
+// All plan actions share the same billing snapshot, so this one component is
+// the behavior boundary for the pricing cards.
+// oxlint-disable-next-line complexity, react-doctor/no-giant-component -- All plan actions share the same billing snapshot.
 function PricingContent({
   t,
   query,

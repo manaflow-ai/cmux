@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getLocale } from "./locale";
 
@@ -24,6 +25,14 @@ type AppProWelcomeMessages = {
     action: string;
   }>;
 };
+
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = supportedLocale(await getLocale());
+  const catalog = await loadMessages(locale) as {
+    appProWelcome: AppProWelcomeMessages;
+  };
+  return { title: catalog.appProWelcome.title };
+}
 
 const STEP_PATHS: Record<WelcomeStepKey, string> = {
   iosApp: "/dashboard/testflight",

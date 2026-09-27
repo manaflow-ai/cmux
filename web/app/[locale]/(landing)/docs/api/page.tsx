@@ -37,6 +37,10 @@ function Cmd({
   );
 }
 
+// This is a generated-style API reference document. Its sections share one
+// translator and contain no state; extracting them would add prop plumbing
+// without a reusable behavior boundary.
+// react-doctor-disable-next-line react-doctor/no-giant-component -- static translated document
 export default function ApiPage() {
   const t = useTranslations("docs.api");
 

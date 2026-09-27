@@ -82,11 +82,11 @@ export class AdminMemberSelfRevokeError extends Error {
   }
 }
 
-export function normalizeAdminMemberEmail(email: string): string {
+function normalizeAdminMemberEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export function isAdminMemberActive(member: AdminMemberRecord | null | undefined): member is AdminMemberRecord {
+function isAdminMemberActive(member: AdminMemberRecord | null | undefined): member is AdminMemberRecord {
   return Boolean(member && member.revokedAt === null);
 }
 

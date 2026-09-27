@@ -16,7 +16,7 @@ import {
 } from "../../services/analytics/checkoutAttribution";
 import { withExternalBrowserIntent } from "../lib/billing";
 import { vaultSignInHref } from "../lib/vault-auth";
-import type { PricingActionSize } from "./pricing-shared";
+import type { PricingActionSize } from "./pricing-helpers";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
 type PricingPlan = "go" | "pro" | "max" | "team";

@@ -36,7 +36,7 @@ export const CODE_DEFAULT_PROVIDER = "freestyle";
 // What `vercel env pull` writes for values it cannot decrypt. The default
 // provider and its image id are configuration, not secrets; stored as
 // Sensitive they become unauditable, which defeats this check.
-export const SENSITIVE_PLACEHOLDER = VERCEL_SENSITIVE_PLACEHOLDER;
+const SENSITIVE_PLACEHOLDER = VERCEL_SENSITIVE_PLACEHOLDER;
 
 /**
  * Audit one provider: its image env var must name a validated manifest entry

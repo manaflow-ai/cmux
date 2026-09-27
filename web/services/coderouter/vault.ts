@@ -7,11 +7,11 @@ import type {
 
 const METADATA_KEY = "coderouterVaultV1";
 
-export class CodeRouterVaultUnavailable extends Error {
+class CodeRouterVaultUnavailable extends Error {
   readonly _tag = "CodeRouterVaultUnavailable";
 }
 
-export class CodeRouterVaultCorrupt extends Error {
+class CodeRouterVaultCorrupt extends Error {
   readonly _tag = "CodeRouterVaultCorrupt";
 }
 
@@ -21,7 +21,7 @@ export async function readTeamVault(teamId: string): Promise<CodeRouterVault> {
   return parseVault(team.serverMetadata?.[METADATA_KEY]);
 }
 
-export async function writeTeamVault(
+async function writeTeamVault(
   teamId: string,
   vault: CodeRouterVault,
 ): Promise<void> {
@@ -48,7 +48,7 @@ export async function clearTeamVault(teamId: string): Promise<void> {
   await team.update({ serverMetadata: metadata });
 }
 
-export async function putVaultCredential(
+async function putVaultCredential(
   teamId: string,
   accountId: string,
   credential: CodeRouterCredential,

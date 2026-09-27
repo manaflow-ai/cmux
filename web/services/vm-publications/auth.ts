@@ -29,10 +29,10 @@ import { publicationDatabaseRuntime } from "./database";
 import { PublicationAuthRepository, PublicationAuthRepositoryLive } from "./authRepository";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
-export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
+const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
 export const PUBLICATION_SESSION_TTL_MS = 12 * 60 * 60 * 1_000;
 
-export class PublicationIdentityError extends Data.TaggedError(
+class PublicationIdentityError extends Data.TaggedError(
   "PublicationIdentityError",
 )<{
   readonly operation: string;
@@ -49,7 +49,7 @@ export class PublicationViewerResolver extends Context.Tag(
   "cmux/PublicationViewerResolver",
 )<PublicationViewerResolver, PublicationViewerResolverShape>() {}
 
-export const PublicationViewerResolverLive = Layer.succeed(
+const PublicationViewerResolverLive = Layer.succeed(
   PublicationViewerResolver,
   {
     resolve: (userId) =>
@@ -87,7 +87,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
   },
 );
 
-export const PublicationAuthRuntime = Layer.merge(
+const PublicationAuthRuntime = Layer.merge(
   PublicationAuthRepositoryLive,
   PublicationViewerResolverLive,
 );

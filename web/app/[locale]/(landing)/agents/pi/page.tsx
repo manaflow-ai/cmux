@@ -8,10 +8,10 @@ import {
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../../landing-ui";
 import {
-  JsonLd,
   breadcrumbList,
   faqPage,
-} from "@/app/[locale]/components/json-ld";
+} from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
 
 export async function generateMetadata({
   params,

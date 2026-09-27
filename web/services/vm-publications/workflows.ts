@@ -147,7 +147,7 @@ export class PublicationInvariantError extends Data.TaggedError(
     | "provider_verification_mismatch";
 }> {}
 
-export const VmPublicationWorkflowLive = Layer.mergeAll(
+const VmPublicationWorkflowLive = Layer.mergeAll(
   CloudVmPublicationRepositoryLive,
   VmPublicationProviderLive,
 );

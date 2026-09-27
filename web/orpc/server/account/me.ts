@@ -3,7 +3,7 @@ import { z } from "zod";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
 import { os, requireAuth } from "../base";
 
-export const accountMeOutputSchema = z.object({
+const accountMeOutputSchema = z.object({
   userId: z.string(),
   // Empty string when the Stack user has no primary email, mirroring userId's
   // null-safe mapping and keeping the generated Swift type a plain String.

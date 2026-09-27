@@ -2,8 +2,8 @@
 // audit script must stay a dependency-free .mjs for CI, so it cannot import
 // the runtime module; tests/cloud-vm-env-audit.test.ts pins the two together.
 
-export const FREE_PROVISIONING_ALLOW_KEY = "CMUX_VM_ALLOW_FREE_PROVISIONING";
-export const FREE_PROVISIONING_LEGACY_KEY = "CMUX_VM_REQUIRE_PRO";
+const FREE_PROVISIONING_ALLOW_KEY = "CMUX_VM_ALLOW_FREE_PROVISIONING";
+const FREE_PROVISIONING_LEGACY_KEY = "CMUX_VM_REQUIRE_PRO";
 export const freeProvisioningOverrideEnvKeys = [
   FREE_PROVISIONING_ALLOW_KEY,
   FREE_PROVISIONING_LEGACY_KEY,

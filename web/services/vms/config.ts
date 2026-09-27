@@ -34,7 +34,7 @@ export function vmCreateDisabledReason(
   return null;
 }
 
-export function providerEnabledEnvKey(provider: ProviderId): string {
+function providerEnabledEnvKey(provider: ProviderId): string {
   switch (provider) {
     case "freestyle":
       return "CMUX_VM_FREESTYLE_ENABLED";
@@ -54,7 +54,7 @@ export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolea
   return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
 }
 
-export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {
+function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {
   return env.VERCEL === "1" ||
     env.VERCEL_ENV === "production" ||
     env.VERCEL_ENV === "preview" ||

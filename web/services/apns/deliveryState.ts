@@ -5,7 +5,7 @@ import {
 } from "./sender";
 
 /** Never reschedule a deferred retry sooner than this after a failure. */
-export const MINIMUM_DEFERRED_RETRY_SECONDS = 30;
+const MINIMUM_DEFERRED_RETRY_SECONDS = 30;
 /** Scheduling headroom beyond the bounded APNs delivery duration. */
 const DEFERRED_RETRY_SCHEDULING_MARGIN_MS = 1_000;
 

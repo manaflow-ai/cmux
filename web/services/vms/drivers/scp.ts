@@ -19,7 +19,7 @@ export function scpAuthorizedKeyLine(publicKey: string, expires: Date): string {
 }
 
 /** Run as cmux. Preserve unrelated keys and concurrent transfers under flock. */
-export function scpAuthorizeCommand(publicKey: string, expires: Date): string {
+function scpAuthorizeCommand(publicKey: string, expires: Date): string {
   const line = scpAuthorizedKeyLine(publicKey, expires);
   return [
     "set -eu", "umask 077", 'mkdir -p "$HOME/.ssh"', 'cd "$HOME/.ssh"',

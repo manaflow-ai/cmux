@@ -155,8 +155,6 @@ export async function upgradeLegacyCodexIdentity(
   }
 }
 
-export { listAccounts };
-
 type RemoveAccountResult = {
   removed: boolean;
   lastAccount: boolean;

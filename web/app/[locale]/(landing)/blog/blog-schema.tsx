@@ -1,9 +1,10 @@
 import { useTranslations, useLocale } from "next-intl";
 import {
-  JsonLd,
   articleSchema,
   breadcrumbList,
-} from "@/app/[locale]/components/json-ld";
+} from "@/app/[locale]/components/json-ld-data";
+import { JsonLd } from "@/app/[locale]/components/json-ld";
+
 import {
   type AuditedBlogPostKey,
   blogPostSeoCopy,

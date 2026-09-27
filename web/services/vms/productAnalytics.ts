@@ -24,7 +24,7 @@ import {
 } from "../analytics/serverEvents";
 import type { VmRepositoryShape, VmUsageEventInput } from "./repository";
 
-export const VM_PRODUCT_ANALYTICS_SCHEMA_VERSION = 1;
+const VM_PRODUCT_ANALYTICS_SCHEMA_VERSION = 1;
 
 /** Ledger event type to PostHog event name. Anything else stays out of PostHog. */
 export const VM_LEDGER_TO_POSTHOG_EVENT = {

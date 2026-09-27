@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export const indexNowKey = "82cc8125a8624a4db9e07502db0b7d46";
 export const indexNowEndpoint = "https://api.indexnow.org/indexnow";
-export const indexNowLookbackHours = 48;
+const indexNowLookbackHours = 48;
 export const indexNowTimeoutMs = 10_000;
 
 type SitemapEntry = MetadataRoute.Sitemap[number];

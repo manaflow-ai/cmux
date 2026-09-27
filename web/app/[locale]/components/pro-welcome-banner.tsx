@@ -11,6 +11,8 @@ import { ContentLocaleLink } from "./content-locale-link";
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
   const locale = useLocale();
+  // The banner is mounted inside Suspense by the pricing page.
+  // oxlint-disable-next-line react-doctor/nextjs-no-use-search-params-without-suspense
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");

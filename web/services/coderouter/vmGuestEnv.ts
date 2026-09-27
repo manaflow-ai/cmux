@@ -13,7 +13,7 @@
 /** The public placeholder credential agents send; the edge swaps in the real token. */
 export const VM_PLACEHOLDER_API_KEY = "cmux-vm-edge-placeholder";
 
-export const VM_EDGE_ALIAS_DOMAIN_ENV = "CMUX_VM_EDGE_ALIAS_DOMAIN";
+const VM_EDGE_ALIAS_DOMAIN_ENV = "CMUX_VM_EDGE_ALIAS_DOMAIN";
 export const DEFAULT_VM_EDGE_ALIAS_DOMAIN = "coderouter.cmux.internal";
 
 const HOST_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
@@ -28,8 +28,8 @@ export function vmEdgeAliasDomain(raw: string | undefined = process.env[VM_EDGE_
   return value;
 }
 
-export const VM_REFLECTION_ALIAS_DOMAIN_ENV = "CMUX_VM_REFLECTION_ALIAS_DOMAIN";
-export const DEFAULT_VM_REFLECTION_ALIAS_DOMAIN = "reflection.cmux.internal";
+const VM_REFLECTION_ALIAS_DOMAIN_ENV = "CMUX_VM_REFLECTION_ALIAS_DOMAIN";
+const DEFAULT_VM_REFLECTION_ALIAS_DOMAIN = "reflection.cmux.internal";
 
 /**
  * The header the edge adds on the reflection alias only, so the proxy can serve

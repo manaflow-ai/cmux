@@ -10,7 +10,7 @@ import {
   openGraphTaglineFallbackFont,
 } from "../app/lib/open-graph-font-config";
 import { GET as getDefaultImage } from "../app/opengraph-image/route";
-import { articleSchema } from "../app/[locale]/components/json-ld";
+import { articleSchema } from "../app/[locale]/components/json-ld-data";
 import {
   browserOpenGraphImage,
   openGraphImage,

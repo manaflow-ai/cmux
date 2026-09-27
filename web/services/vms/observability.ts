@@ -134,7 +134,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
  * and clients poll it: it produced 17.8k of 22k `cloud_vm_request` rows in one
  * week and would otherwise dominate every "active user" count.
  */
-export const POLLED_VM_OPERATIONS: ReadonlySet<string> = new Set([
+const POLLED_VM_OPERATIONS: ReadonlySet<string> = new Set([
   "list",
   "status",
   "stats",
@@ -362,8 +362,8 @@ function scrubForAnalytics(text: string): string {
 export type VmProvisionOperation = "create" | "fork" | "restore" | "base_open" | "base_reset";
 
 /** Stable PostHog event name for one bounded VM reaper invocation. */
-export const VM_REAPER_POSTHOG_EVENT = "cloud_vm_reaper_run";
-export const VM_REAPER_POSTHOG_DISTINCT_ID = "cmux-vm-reaper";
+const VM_REAPER_POSTHOG_EVENT = "cloud_vm_reaper_run";
+const VM_REAPER_POSTHOG_DISTINCT_ID = "cmux-vm-reaper";
 
 export type VmReaperSummaryTelemetry = {
   readonly reportOnly: boolean;

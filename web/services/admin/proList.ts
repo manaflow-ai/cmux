@@ -30,10 +30,10 @@ import {
   type AdminStackUser,
 } from "./proGrants";
 
-export const PRO_LIST_SCAN_PAGE_SIZE = 100;
+const PRO_LIST_SCAN_PAGE_SIZE = 100;
 export const PRO_LIST_MAX_ROWS = 5000;
 /** Stack lookups issued at once while resolving team display names. */
-export const PRO_LIST_TEAM_LOOKUP_CONCURRENCY = 8;
+const PRO_LIST_TEAM_LOOKUP_CONCURRENCY = 8;
 
 export type StripeProSubscriber = {
   readonly userId: string;
@@ -102,7 +102,7 @@ export type ProListClock = {
   schedule(fn: () => void, ms: number): () => void;
 };
 
-export const realProListClock: ProListClock = {
+const realProListClock: ProListClock = {
   now: () => Date.now(),
   schedule: (fn, ms) => {
     const timer = setTimeout(fn, ms);
@@ -198,7 +198,7 @@ export async function listStripeProSubscribers(
 export type StripeTeamSubscriptionRow = Omit<StripeTeamSubscription, "displayName">;
 
 /** The database half of the team roster: active Stripe Team rows, one per team, no Stack calls. */
-export async function listStripeTeamSubscriptionRows(
+async function listStripeTeamSubscriptionRows(
   options: { readonly db?: ProListDb } = {},
 ): Promise<CappedList<StripeTeamSubscriptionRow>> {
   const db = options.db ?? cloudDb();
@@ -541,7 +541,7 @@ export class ProListTimeoutError extends Error {
 }
 
 /** Default budget for the server-rendered roster before the page falls back to a retry state. */
-export const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
+const PRO_LIST_RENDER_TIMEOUT_MS = 8_000;
 
 /**
  * Bounds how long the page render waits for the roster. A stalled database
