@@ -1,9 +1,10 @@
 import AppKit
+import SwiftUI
 
 /// Rendering support for ui-lab harnesses (see scripts/ui-lab/ui-lab.py).
-/// A harness calls `UILab.main { ... }`, builds an NSView inside it and calls
-/// `UILab.render(_:name:)`; the output
-/// directory is the process's first argument.
+/// A harness calls `UILab.main { ... }` and, inside it,
+/// `UILab.render(name:) { scheme in ... }` to build and render its view.
+/// The output directory is the process's first argument.
 enum UILab {
     static let outputDirectory: URL = {
         let path = CommandLine.arguments.dropFirst().first ?? FileManager.default.currentDirectoryPath
@@ -21,12 +22,21 @@ enum UILab {
     }
 
     /// Writes `<name>-light@2x.png` and `<name>-dark@2x.png`, and, when
-    /// `detail` is set, `<name>-light@4x.png` cropped to that rect (in view
-    /// points) for a close look at small glyphs.
+    /// `detail` is set, `<name>-light-detail@4x.png` cropped to that rect (in
+    /// view points) for a close look at small glyphs. `build` runs once per
+    /// scheme: views that pick colors from their own `colorScheme` property
+    /// (like `GPUSpinnerNSView`) need it set, since the appearance alone does
+    /// not reach them.
     @MainActor
-    static func render(_ view: NSView, name: String, detail: NSRect? = nil) {
-        for (label, appearanceName) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+    static func render(name: String, detail: NSRect? = nil, build: (ColorScheme) -> NSView) {
+        for (label, scheme, appearanceName) in [
+            ("light", ColorScheme.light, NSAppearance.Name.aqua),
+            ("dark", ColorScheme.dark, NSAppearance.Name.darkAqua),
+        ] {
             let appearance = NSAppearance(named: appearanceName)!
+            var view: NSView?
+            appearance.performAsCurrentDrawingAppearance { view = build(scheme) }
+            guard let view else { continue }
             write(view, appearance: appearance, scale: 2, rect: view.bounds, file: "\(name)-\(label)@2x.png")
             if let detail, label == "light" {
                 write(view, appearance: appearance, scale: 4, rect: detail, file: "\(name)-\(label)-detail@4x.png")
