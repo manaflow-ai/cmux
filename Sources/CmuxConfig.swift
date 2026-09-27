@@ -2858,7 +2858,7 @@ final class CmuxConfigStore: ObservableObject {
     /// Actions are already resolved in their deterministic registry order, so
     /// the first match also gives project/local configuration precedence.
     func fileAction(for filePath: String) -> CmuxResolvedConfigAction? {
-        guard FileRouteSettingsStore().isReadableRegularFile(path: filePath) else {
+        guard FileRouteSettingsStore(defaults: .standard).isReadableRegularFile(path: filePath) else {
             return nil
         }
         return fileActionEntries.first { entry in
@@ -2870,7 +2870,7 @@ final class CmuxConfigStore: ObservableObject {
     /// pre-normalized matcher list and preserving action precedence.
     func fileActions(for filePaths: [String]) -> [CmuxResolvedConfigAction?] {
         guard !filePaths.isEmpty else { return [] }
-        let settings = FileRouteSettingsStore()
+        let settings = FileRouteSettingsStore(defaults: .standard)
         let readable = filePaths.map { settings.isReadableRegularFile(path: $0) }
         var matches = Array<CmuxResolvedConfigAction?>(repeating: nil, count: filePaths.count)
         for entry in fileActionEntries {
