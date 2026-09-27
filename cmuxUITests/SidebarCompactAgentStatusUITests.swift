@@ -59,9 +59,10 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         // bare YES/NO argument arrives as a string and falls back to the default.
         app.launchArguments += ["-sidebarCompactAgentStatus", compact ? "<true/>" : "<false/>"]
         app.launchArguments += ["-socketControlMode", "allowAll"]
-        // Keep the reported branches: the watcher would replace them with the
-        // real (non-repo) state of the test's working directory.
-        app.launchArguments += ["-sidebarWatchGitStatus", "<false/>"]
+        // Keep the reported branches and PRs: shell integration reports the
+        // real (non-repo) state of the terminal's directory at each prompt,
+        // clearing them, and with git watching off it clears them outright.
+        app.launchArguments += ["-sidebarShellIntegration", "<false/>"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-compact-status-\(token.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_COMMANDS"] = commands.joined(separator: "\n")
@@ -83,7 +84,10 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         add(log)
 
         app.activate()
-        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        // The workspace list is the window's first table. Query inside it: an
+        // app-wide descendants query also walks the right sidebar's file tree
+        // and can time out.
+        let sidebar = app.tables.firstMatch
         _ = sidebar.waitForExistence(timeout: 5.0)
         // Capture before asserting, so a failed assertion still leaves the picture.
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
@@ -100,13 +104,13 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         if compact {
             // Glyph accessibility labels carry the tooltip text.
             for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle"] {
-                let glyph = app.descendants(matching: .any)
+                let glyph = sidebar.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
                 XCTAssertTrue(glyph.waitForExistence(timeout: 5.0), "Expected a compact status glyph labelled \(label)")
             }
         }
         // The custom (non-agent) status keeps its row in both modes.
-        let customRow = app.descendants(matching: .any)
+        let customRow = sidebar.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "green", "green")).firstMatch
         XCTAssertTrue(customRow.waitForExistence(timeout: 5.0), "Expected the custom status row to stay visible")
     }
