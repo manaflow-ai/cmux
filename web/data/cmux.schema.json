@@ -666,6 +666,7 @@
           "type": "string",
           "enum": ["off", "quiet", "sheet"],
           "default": "quiet",
+          "descriptionKey": "schemaDescriptions.app.whatsNew",
           "description": "How cmux shows what's new after an update. off shows nothing, quiet marks the sidebar help button with a dot until you open the recap, and sheet opens the recap once after the first launch of a new version. Help > What's New in cmux opens it any time."
         },
         "warnBeforeQuit": {

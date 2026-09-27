@@ -15,8 +15,12 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
         public var image: URL?
         public var video: URL?
 
-        public var id: String { title }
+        /// The feature's position in its release. Titles are hand-written
+        /// and can repeat, so identity comes from where the card sits;
+        /// ``WhatsNewRelease`` assigns it whenever it takes its features.
+        public fileprivate(set) var id: Int = 0
 
+        /// Creates a feature card. Its ``id`` is assigned by the release that holds it.
         public init(title: String, description: String, tryIt: String? = nil, image: URL? = nil, video: URL? = nil) {
             self.title = title
             self.description = description
@@ -25,6 +29,7 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
             self.video = video
         }
 
+        /// Decodes one card; a blank `tryIt` and non-https media are dropped.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             title = try container.decode(String.self, forKey: .title)
@@ -45,18 +50,25 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
     /// The release's full changelog page.
     public var url: URL?
     public var hero: URL?
-    public var features: [Feature]
+    /// The feature cards in display order, each identified by its position.
+    public var features: [Feature] {
+        didSet { Self.numberFeatures(&features) }
+    }
 
     public var id: String { version }
 
+    /// Creates a release; its features are numbered in order.
     public init(version: String, title: String, url: URL? = nil, hero: URL? = nil, features: [Feature] = []) {
         self.version = version
         self.title = title
         self.url = url
         self.hero = hero
-        self.features = features
+        var numbered = features
+        Self.numberFeatures(&numbered)
+        self.features = numbered
     }
 
+    /// Decodes lossily: a malformed feature drops that card, not the release.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(String.self, forKey: .version)
@@ -73,7 +85,15 @@ public struct WhatsNewRelease: Decodable, Equatable, Identifiable, Sendable {
                 }
             }
         }
+        Self.numberFeatures(&decoded)
         features = decoded
+    }
+
+    /// Gives each feature its position as its identity.
+    private static func numberFeatures(_ features: inout [Feature]) {
+        for index in features.indices where features[index].id != index {
+            features[index].id = index
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -99,6 +119,7 @@ public struct WhatsNewCatalog: Decodable, Equatable, Sendable {
 
     public var releases: [WhatsNewRelease]
 
+    /// Creates a catalog from already-decoded releases.
     public init(releases: [WhatsNewRelease]) {
         self.releases = releases
     }
@@ -169,8 +190,10 @@ public struct WhatsNewCatalog: Decodable, Equatable, Sendable {
 
 /// Dotted-numeric version comparison; missing components count as zero.
 public struct WhatsNewVersionComparator: Sendable {
+    /// Creates a comparator.
     public init() {}
 
+    /// Orders two dotted versions numerically, so `0.64.10` follows `0.64.9`.
     public func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
         let left = components(lhs)
         let right = components(rhs)
@@ -183,6 +206,7 @@ public struct WhatsNewVersionComparator: Sendable {
         return .orderedSame
     }
 
+    /// Each dot-separated component's leading digits; a component without any counts as zero.
     private func components(_ version: String) -> [Int] {
         version.split(separator: ".").map { part in
             Int(part.prefix { $0.isASCII && $0.isNumber }) ?? 0

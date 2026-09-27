@@ -16,7 +16,13 @@ import SwiftUI
 /// - off: nothing;
 /// - quiet (default): a dot on the sidebar help button until the recap is
 ///   opened; it never opens anything or takes focus;
-/// - sheet: the recap opens once after the first launch of a new version.
+/// - sheet: the recap opens once after the first launch of a new version,
+///   as a sheet on a main terminal window; with no such window it falls back
+///   to the quiet indicator rather than opening a window of its own.
+///
+/// The launch check runs once, when AppDelegate reports that startup session
+/// restore has settled (``startupSessionRestoreDidSettle()``), so the restored
+/// main windows exist before anything decides where the recap attaches.
 @MainActor
 @Observable
 final class WhatsNewCenter {
@@ -34,18 +40,25 @@ final class WhatsNewCenter {
     @ObservationIgnored private let loader: WhatsNewCatalogLoader
     @ObservationIgnored private var catalog: WhatsNewCatalog?
     @ObservationIgnored private var pendingReleases: [WhatsNewRelease] = []
-    @ObservationIgnored private var launchCheckScheduled = false
+    /// The one launch check; non-nil once startup restore has settled.
+    @ObservationIgnored private var launchTask: Task<Void, Never>?
+    /// The catalog load filling the open recap; cancelled when the recap
+    /// closes or shows other content.
+    @ObservationIgnored private var fillTask: Task<Void, Never>?
     @ObservationIgnored private var window: NSWindow?
     @ObservationIgnored private var viewModel: WhatsNewViewModel?
     @ObservationIgnored private var windowCloseObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var modeObserver: (any NSObjectProtocol)?
-    /// Whether this launch is a new user's first run, captured at app init
-    /// before the first workspace marks the welcome as shown.
-    nonisolated(unsafe) private static var launchIsFirstRun = false
+    /// Whether this launch is a new user's first run: a Mac that never showed
+    /// the welcome is a new install, not an update. Captured when the center
+    /// is created, which `cmuxApp.init` does before the first workspace marks
+    /// the welcome as shown.
+    @ObservationIgnored private let launchIsFirstRun: Bool
 
     init(defaults: UserDefaults = .standard, loader: WhatsNewCatalogLoader = WhatsNewCatalogLoader()) {
         self.defaults = defaults
         self.loader = loader
+        launchIsFirstRun = !defaults.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
     }
 
     private var currentVersion: String {
@@ -58,18 +71,12 @@ final class WhatsNewCenter {
 
     // MARK: - Launch
 
-    /// Records whether this is a new user's first run: a Mac that never
-    /// showed the welcome is a new install, not an update. Call once from
-    /// app init, before any workspace exists.
-    nonisolated static func captureFirstRunState(defaults: UserDefaults = .standard) {
-        launchIsFirstRun = !defaults.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey)
-    }
-
-    /// Runs the launch check once, a few seconds after launch so it never
-    /// competes with window restore.
-    func scheduleLaunchCheck() {
-        guard !launchCheckScheduled else { return }
-        launchCheckScheduled = true
+    /// Runs the launch check the first time startup session restore settles:
+    /// the snapshot was applied (every restored window created), or there was
+    /// nothing to restore. Later calls, such as a manual session reopen, do
+    /// nothing.
+    func startupSessionRestoreDidSettle() {
+        guard launchTask == nil else { return }
         // Switching to Off anywhere (Settings, cmux.json) clears the dot.
         modeObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -81,19 +88,20 @@ final class WhatsNewCenter {
                 self.hasUnseenHighlights = false
             }
         }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+        launchTask = Task { @MainActor [weak self] in
             await self?.runLaunchCheck()
         }
     }
 
+    /// Decides what this launch announces, loads the catalog when it needs
+    /// to, and then shows the sheet or the quiet indicator.
     private func runLaunchCheck() async {
         let decision = WhatsNewAutomaticPresentation().decide(
             mode: mode,
             flavor: BuildFlavor.current,
             currentVersion: currentVersion,
             lastSeenVersion: defaults.string(forKey: Self.lastSeenReleaseDefaultsKey),
-            isFirstRun: Self.launchIsFirstRun
+            isFirstRun: launchIsFirstRun
         )
         let since: String?
         let presents: Bool
@@ -120,8 +128,11 @@ final class WhatsNewCenter {
         // alone so a later launch can still announce them.
         guard !releases.isEmpty else { return }
         pendingReleases = releases
-        if presents {
-            present(releases: releases, source: "launch")
+        // The launch recap only ever attaches to a main terminal window and
+        // never activates cmux. With no window to attach to (all closed or
+        // minimized by the time the catalog arrives), keep the dot instead.
+        if presents, let parent = sheetParentCandidate() {
+            present(releases: releases, source: "launch", sheetParent: parent)
         } else {
             hasUnseenHighlights = true
         }
@@ -138,25 +149,32 @@ final class WhatsNewCenter {
         }
         let model = showWindow(phase: .loading, activates: true)
         markSeen()
-        Task { @MainActor [weak self] in
-            await self?.fill(model)
-        }
+        startFill(model)
     }
 
-    private func fill(_ model: WhatsNewViewModel) async {
+    /// Loads the recent releases into `model`, replacing any load in flight.
+    private func startFill(_ model: WhatsNewViewModel) {
+        fillTask?.cancel()
         model.phase = .loading
-        guard let catalog = try? await loadCatalog() else {
-            model.phase = .failed
-            return
+        fillTask = Task { @MainActor [weak self, weak model] in
+            let catalog = try? await self?.loadCatalog()
+            guard !Task.isCancelled, let self, let model else { return }
+            guard let catalog else {
+                model.phase = .failed
+                return
+            }
+            // A build without a parseable version shows the newest releases.
+            let current = WhatsNewAutomaticPresentation.releaseKey(self.currentVersion) ?? "\(Int.max)"
+            model.phase = .loaded(catalog.recentReleases(through: current))
         }
-        // A build without a parseable version shows the newest releases.
-        let current = WhatsNewAutomaticPresentation.releaseKey(currentVersion) ?? "\(Int.max)"
-        model.phase = .loaded(catalog.recentReleases(through: current))
     }
 
-    private func present(releases: [WhatsNewRelease], source: String) {
+    /// Shows `releases` in the recap and records them as seen.
+    private func present(releases: [WhatsNewRelease], source: String, sheetParent: NSWindow? = nil) {
+        fillTask?.cancel()
+        fillTask = nil
         // The launch path never steals focus from another app.
-        _ = showWindow(phase: .loaded(releases), activates: source != "launch")
+        _ = showWindow(phase: .loaded(releases), activates: source != "launch", sheetParent: sheetParent)
         markSeen()
 #if DEBUG
         cmuxDebugLog("whatsNew.present source=\(source) releases=\(releases.map(\.version).joined(separator: ","))")
@@ -171,6 +189,7 @@ final class WhatsNewCenter {
         hasUnseenHighlights = false
     }
 
+    /// The catalog, fetched once per process and then reused.
     private func loadCatalog() async throws -> WhatsNewCatalog {
         if let catalog { return catalog }
         let loaded = try await loader.load()
@@ -198,9 +217,14 @@ final class WhatsNewCenter {
         }
     }
 
-    /// Shows the recap, reusing an open one. It opens as a sheet on the
-    /// frontmost main window, or as a standalone window when there is none.
-    private func showWindow(phase: WhatsNewViewModel.Phase, activates: Bool) -> WhatsNewViewModel {
+    /// Shows the recap, reusing an open one. It opens as a sheet on
+    /// `sheetParent`, else on the frontmost main window, or as a standalone
+    /// window when there is none. Only an activating call brings it forward.
+    private func showWindow(
+        phase: WhatsNewViewModel.Phase,
+        activates: Bool,
+        sheetParent: NSWindow? = nil
+    ) -> WhatsNewViewModel {
         // A sheet whose parent closed never ran its completion; drop it.
         if let window, window.sheetParent == nil, !window.isVisible {
             forgetWindow()
@@ -208,7 +232,9 @@ final class WhatsNewCenter {
         if let window, let viewModel {
             viewModel.phase = phase
             viewModel.selectedModeID = mode.rawValue
-            (window.sheetParent ?? window).makeKeyAndOrderFront(nil)
+            if activates {
+                (window.sheetParent ?? window).makeKeyAndOrderFront(nil)
+            }
             return viewModel
         }
 
@@ -217,7 +243,7 @@ final class WhatsNewCenter {
             openURL: { url in NSWorkspace.shared.open(url) },
             retry: { [weak self, weak model] in
                 guard let self, let model else { return }
-                Task { @MainActor in await self.fill(model) }
+                self.startFill(model)
             },
             selectMode: { [weak self] rawValue in
                 guard let self, let selected = WhatsNewPresentationMode(rawValue: rawValue) else { return }
@@ -237,7 +263,7 @@ final class WhatsNewCenter {
         window = newWindow
         viewModel = model
 
-        if let parent = sheetParentCandidate() {
+        if let parent = sheetParent ?? sheetParentCandidate() {
             parent.beginSheet(newWindow) { [weak self] _ in
                 self?.forgetWindow()
             }
@@ -273,6 +299,7 @@ final class WhatsNewCenter {
         }
     }
 
+    /// Dismisses the recap, whether it is a sheet or a standalone window.
     private func closeWindow() {
         guard let window else { return }
         if let parent = window.sheetParent {
@@ -283,7 +310,10 @@ final class WhatsNewCenter {
         forgetWindow()
     }
 
+    /// Drops the recap window, its model, and any load still filling it.
     private func forgetWindow() {
+        fillTask?.cancel()
+        fillTask = nil
         if let windowCloseObserver {
             NotificationCenter.default.removeObserver(windowCloseObserver)
         }

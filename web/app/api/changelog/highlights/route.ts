@@ -15,8 +15,9 @@ import {
  *
  * Media paths in `changelog-media.ts` are relative to `/public`; they are
  * served here as absolute https URLs on the site origin so the app can load
- * them directly. Optional feature fields (`tryIt`, `video`) pass through when
- * an entry carries them.
+ * them directly. A feature clip is served as its H.264 mp4 (`video`), which
+ * AVPlayer plays; its poster stands in as the feature's still when the entry
+ * has no `image`.
  */
 
 const SITE_ORIGIN = "https://cmux.com";
@@ -42,12 +43,7 @@ export interface HighlightsPayload {
   releases: HighlightRelease[];
 }
 
-/** Fields another change may add to `FeatureHighlight`; read when present. */
-type FeatureWithOptionalFields = FeatureHighlight & {
-  tryIt?: string;
-  video?: string;
-};
-
+/** Builds the payload from `changelog-media.ts`-shaped entries, newest release first. */
 export function buildHighlights(
   media: Record<string, VersionMedia>,
   origin: string = SITE_ORIGIN,
@@ -59,6 +55,7 @@ export function buildHighlights(
   return { releases };
 }
 
+/** One release, linked to its changelog page. */
 function toRelease(version: string, entry: VersionMedia, origin: string): HighlightRelease {
   const release: HighlightRelease = {
     version,
@@ -71,21 +68,22 @@ function toRelease(version: string, entry: VersionMedia, origin: string): Highli
   return release;
 }
 
-function toFeature(input: FeatureHighlight, origin: string): HighlightFeature {
-  const feature = input as FeatureWithOptionalFields;
+/** One feature card with absolute media URLs and a trimmed `tryIt`. */
+function toFeature(feature: FeatureHighlight, origin: string): HighlightFeature {
   const output: HighlightFeature = {
     title: feature.title,
     description: feature.description,
   };
   const tryIt = feature.tryIt?.trim();
   if (tryIt) output.tryIt = tryIt;
-  const image = absoluteMediaURL(feature.image, origin);
+  const image = absoluteMediaURL(feature.image ?? feature.video?.poster, origin);
   if (image) output.image = image;
-  const video = absoluteMediaURL(feature.video, origin);
+  const video = absoluteMediaURL(feature.video?.src, origin);
   if (video) output.video = video;
   return output;
 }
 
+/** An https URL as-is, a `/public` path on `origin`, anything else dropped. */
 function absoluteMediaURL(path: string | undefined, origin: string): string | undefined {
   const value = path?.trim();
   if (!value) return undefined;
@@ -109,6 +107,7 @@ export function compareDottedVersions(a: string, b: string): number {
 const PAYLOAD = JSON.stringify(buildHighlights(changelogMedia));
 const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
 
+/** Serves the highlights JSON, answering a matching `If-None-Match` with 304. */
 export async function GET(request: Request): Promise<Response> {
   const ifNoneMatch = request.headers.get("if-none-match");
   if (ifNoneMatch?.split(",").some((value) => value.trim() === ETAG)) {
@@ -123,6 +122,7 @@ export async function GET(request: Request): Promise<Response> {
   });
 }
 
+/** Headers shared by the 200 and 304 responses. */
 function commonHeaders(): Record<string, string> {
   return {
     "Cache-Control": CACHE_CONTROL,
