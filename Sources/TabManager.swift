@@ -2780,7 +2780,12 @@ class TabManager: ObservableObject {
 
         let plan = closeWorkspacesPlan(for: workspaces)
         var closeAlreadyConfirmed = false
-        if shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose) {
+        // Members close below without their own prompts, so a batch holding a
+        // pinned workspace keeps the pinned gate instead of the workspace one.
+        let showsBatchConfirmation = plan.workspaces.contains(where: \.isPinned)
+            ? shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
+            : shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+        if showsBatchConfirmation {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,

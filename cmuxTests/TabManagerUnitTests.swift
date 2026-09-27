@@ -1605,6 +1605,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         let suiteName = "TabManagerWarnBeforeClosingWorkspaceTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
         if let warnBeforeClosingWorkspace {
             defaults.set(warnBeforeClosingWorkspace, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
         }
@@ -1675,6 +1676,24 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
 
         XCTAssertEqual(promptCount, 0)
         XCTAssertEqual(manager.tabs.map(\.id), [survivor])
+    }
+
+    func testMultiWorkspaceCloseWithPinnedTargetStillWarnsWhenSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        manager.setPinned(manager.tabs[1], pinned: true)
+        let targets = [manager.tabs[0].id, manager.tabs[1].id]
+        let originalIds = manager.tabs.map(\.id)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets, allowPinned: true)
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(Set(manager.tabs.map(\.id)), Set(originalIds))
     }
 
     func testPinnedWorkspaceCloseStillWarnsWhenSettingDisabled() {
