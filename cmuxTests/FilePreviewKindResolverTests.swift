@@ -84,6 +84,42 @@ struct FilePreviewKindResolverTests {
         #expect(panel.textContent.isEmpty)
     }
 
+    @Test(
+        "Common source and config extensions route straight to text preview",
+        arguments: ["exs", "nix", "tf", "typ", "zig", "svelte", "lua", "gradle", "cjs", "sty"]
+    )
+    func commonSourceAndConfigExtensionsRouteStraightToTextPreview(fileExtension: String) throws {
+        let url = try temporaryFile(extension: fileExtension, contents: "value = 1\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #expect(
+            FilePreviewKindResolver.initialMode(for: url) == .text,
+            "Expected .\(fileExtension) to open in the editor without a QuickLook round trip."
+        )
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    @Test(
+        "Extensionless project files route to text preview",
+        arguments: ["LICENSE", "Justfile", "Procfile", "CODEOWNERS", ".env.production"]
+    )
+    func extensionlessProjectFilesRouteToTextPreview(filename: String) throws {
+        let url = try temporaryFile(named: filename, contents: "value = 1\n")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    private func temporaryFile(named filename: String, contents: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(filename)
+        try Data(contents.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     private func temporaryFile(extension fileExtension: String, contents: String) throws -> URL {
         try temporaryFile(extension: fileExtension, data: Data(contents.utf8))
     }
