@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSidebar
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
