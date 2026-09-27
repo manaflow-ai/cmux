@@ -69,6 +69,7 @@ All notable changes to cmux are documented here.
 - iOS (beta): Settings > Reset > Erase All Data on This Device signs out and returns the app to a fresh-install state ([#14140](https://github.com/manaflow-ai/cmux/pull/14140))
 
 ### Changed
+- Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 - `cmux browser snapshot` names form fields by their `<label>` text, so plain HTML form inputs are no longer nameless ([#10231](https://github.com/manaflow-ai/cmux/pull/10231)) -- thanks @thingnoy!
 - `agent.resolve_delivery_target` socket responses echo the requested PID ([#11166](https://github.com/manaflow-ai/cmux/pull/11166)) -- thanks @danielraffel!

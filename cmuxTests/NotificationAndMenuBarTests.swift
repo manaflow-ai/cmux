@@ -1,6 +1,8 @@
 import XCTest
 import AppKit
+import Darwin
 import SwiftUI
+import Testing
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
@@ -32,6 +34,47 @@ private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return stored
+    }
+}
+
+@Suite("Notification hook process isolation")
+struct NotificationHookProcessIsolationTests {
+    @Test
+    func hookDoesNotInheritUnrelatedParentFileDescriptor() async throws {
+        var unrelatedPipe = [Int32](repeating: -1, count: 2)
+        try #require(Darwin.pipe(&unrelatedPipe) == 0)
+        defer {
+            for descriptor in unrelatedPipe where descriptor >= 0 {
+                Darwin.close(descriptor)
+            }
+        }
+        let unrelatedDescriptor = try #require(unrelatedPipe.first)
+        try #require(unrelatedDescriptor > STDERR_FILENO)
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "descriptor-isolation",
+            command: "if [ -e /dev/fd/\(unrelatedDescriptor) ]; then printf '{\"notification\":{\"body\":\"inherited\"}}'; else cat; fi",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(
+            request: request,
+            hooks: [hook]
+        )
+        let envelope = try result.get()
+        #expect(envelope.notification.body == "Body")
     }
 }
 

@@ -199,8 +199,8 @@ private struct SceneNodeContent: View {
     }
 
     /// Applies the node's style props in one fixed, documented order:
-    /// font → color → lineLimit/truncation → padding → background →
-    /// cornerRadius → border → frame → opacity → tap.
+    /// font → color → lineLimit/truncation → fixedSize → padding →
+    /// background → cornerRadius → border → frame → opacity → tap.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
         // Hover-revealed children (a row's close button): present only while
@@ -212,6 +212,7 @@ private struct SceneNodeContent: View {
             .modifier(SceneTextStyle(node: node))
             .modifier(OptionalForeground(color: resolvedColor))
             .modifier(SceneTextLimits(node: node))
+            .modifier(SceneFixedSize(node: node))
             .modifier(SceneTrailingFade(node: node))
             .modifier(SceneBoxStyle(node: node))
             // A truncating Text and a Spacer are both "flexible" to HStack
@@ -403,6 +404,21 @@ private struct SceneTextLimits: ViewModifier {
         content
             .lineLimit(node.double("lineLimit").map { Int($0) })
             .truncationMode(dslTruncationMode(node.string("truncation")))
+    }
+}
+
+/// `.fixedSize()`: keeps a view at its ideal size on the chosen axes, so a
+/// button or badge beside stretching text isn't squeezed.
+private struct SceneFixedSize: ViewModifier {
+    let node: SceneNode
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let axes = dslFixedSizeAxes(node.props["fixedSize"]) {
+            content.fixedSize(horizontal: axes.horizontal, vertical: axes.vertical)
+        } else {
+            content
+        }
     }
 }
 
