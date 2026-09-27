@@ -115,6 +115,14 @@ struct WindowOverlayChromeTests {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
+        // Reduce Transparency deliberately resolves the window backdrop to an
+        // opaque fill. The terminal surface applies that resolved plan when it
+        // mounts, so it is expected to remove a manually installed glass root
+        // even though this test starts with `useGlass == true`.
+        let preservesInstalledGlassRoot = useGlass &&
+            glassEffect.isAvailable &&
+            !DisplayAccessibilityOptions.current.reduceTransparency
+        let expectedRootAfterTerminalMount: NSView = preservesInstalledGlassRoot ? windowRoot : content
         if useGlass && glassEffect.isAvailable {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
@@ -135,7 +143,7 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
+            #expect(root === expectedRootAfterTerminalMount, "Portals must preserve the root resolved for the mounted terminal.")
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)
