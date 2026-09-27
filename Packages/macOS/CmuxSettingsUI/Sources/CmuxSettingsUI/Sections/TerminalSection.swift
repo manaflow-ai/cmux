@@ -492,7 +492,7 @@ public struct TerminalSection: View {
                 String(localized: "settings.terminal.textEditingGesturesInFullScreenApps", defaultValue: "Text Editing Gestures in Full-Screen Apps"),
                 subtitle: textEditingGesturesInFullScreenApps.current
                     ? String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOn", defaultValue: "Gestures also apply while a full-screen app such as vim, less, or tmux is running, so they keep working at a shell inside tmux, screen, or zellij.")
-                    : String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOff", defaultValue: "Full-screen apps such as vim, less, and tmux receive the original keys. tmux, screen, and zellij count as full-screen apps, including at their shell prompt.")
+                    : String(localized: "settings.terminal.textEditingGesturesInFullScreenApps.subtitleOff", defaultValue: "Full-screen apps such as vim, less, and tmux get keys as if gestures were off. tmux, screen, and zellij count as full-screen apps, including at their shell prompt.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGesturesInFullScreenApps.current }, set: { textEditingGesturesInFullScreenApps.set($0) }))
                     .labelsHidden()

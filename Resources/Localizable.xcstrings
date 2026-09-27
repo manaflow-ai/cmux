@@ -558650,55 +558650,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full-screen apps such as vim, less, and tmux receive the original keys. tmux, screen, and zellij count as full-screen apps, including at their shell prompt."
+            "value": "Full-screen apps such as vim, less, and tmux get keys as if gestures were off. tmux, screen, and zellij count as full-screen apps, including at their shell prompt."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتلقى التطبيقات بملء الشاشة مثل vim وless وtmux المفاتيح الأصلية. تُعد tmux وscreen وzellij تطبيقات بملء الشاشة، حتى عند موجه الصدفة فيها."
+            "value": "تتلقى التطبيقات بملء الشاشة مثل vim وless وtmux المفاتيح كما لو كانت الإيماءات متوقفة. تُعد tmux وscreen وzellij تطبيقات بملء الشاشة، حتى عند موجه الصدفة فيها."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vollbild-Apps wie vim, less und tmux erhalten die ursprünglichen Tasten. tmux, screen und zellij gelten als Vollbild-Apps, auch an ihrer Shell-Eingabeaufforderung."
+            "value": "Vollbild-Apps wie vim, less und tmux erhalten Tasten so, als wären die Gesten ausgeschaltet. tmux, screen und zellij gelten als Vollbild-Apps, auch an ihrer Shell-Eingabeaufforderung."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las apps a pantalla completa como vim, less y tmux reciben las teclas originales. tmux, screen y zellij cuentan como apps a pantalla completa, incluso en su prompt de shell."
+            "value": "Las apps a pantalla completa como vim, less y tmux reciben las teclas como si los gestos estuvieran desactivados. tmux, screen y zellij cuentan como apps a pantalla completa, incluso en su prompt de shell."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les apps plein écran comme vim, less et tmux reçoivent les touches d’origine. tmux, screen et zellij comptent comme des apps plein écran, y compris à leur invite du shell."
+            "value": "Les apps plein écran comme vim, less et tmux reçoivent les touches comme si les gestes étaient désactivés. tmux, screen et zellij comptent comme des apps plein écran, y compris à leur invite du shell."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vim、less、tmux などのフルスクリーンアプリには元のキーが届きます。tmux、screen、zellij は、そのシェルのプロンプトでもフルスクリーンアプリとして扱われます。"
+            "value": "vim、less、tmux などのフルスクリーンアプリには、ジェスチャーがオフのときと同じキーが届きます。tmux、screen、zellij は、そのシェルのプロンプトでもフルスクリーンアプリとして扱われます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vim, less, tmux 같은 전체 화면 앱은 원래 키를 받습니다. tmux, screen, zellij는 셸 프롬프트에서도 전체 화면 앱으로 간주됩니다."
+            "value": "vim, less, tmux 같은 전체 화면 앱은 제스처가 꺼져 있을 때와 같은 키를 받습니다. tmux, screen, zellij는 셸 프롬프트에서도 전체 화면 앱으로 간주됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vim、less 和 tmux 等全屏应用会收到原始按键。tmux、screen 和 zellij 都算作全屏应用，即使在其 shell 提示符下也是如此。"
+            "value": "vim、less 和 tmux 等全屏应用收到的按键与关闭手势时相同。tmux、screen 和 zellij 都算作全屏应用，即使在其 shell 提示符下也是如此。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vim、less 與 tmux 等全螢幕 App 會收到原本的按鍵。tmux、screen 與 zellij 都算是全螢幕 App，即使在其 shell 提示字元下也是如此。"
+            "value": "vim、less 與 tmux 等全螢幕 App 收到的按鍵與關閉手勢時相同。tmux、screen 與 zellij 都算是全螢幕 App，即使在其 shell 提示字元下也是如此。"
           }
         }
       }

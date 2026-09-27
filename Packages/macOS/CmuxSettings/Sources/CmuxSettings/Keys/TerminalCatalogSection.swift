@@ -75,7 +75,8 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     /// Whether text-editing gestures stay active while a full-screen
     /// application has the terminal on the alternate screen. Off by default,
-    /// so vim, less and htop receive the original chords. tmux, screen and
+    /// so vim, less and htop get keys as if gestures were off (Ghostty's own
+    /// key bindings still apply). tmux, screen and
     /// zellij keep the outer terminal on the alternate screen the whole time,
     /// so people who work inside a multiplexer turn this on to keep gestures
     /// at the multiplexed shell prompt.

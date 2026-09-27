@@ -32,8 +32,28 @@ extension TerminalSurface {
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return false }
         let data = Data(bytes: ptr, count: Int(exported.len))
+        return Self.renderGridExportIsAlternateScreen(data)
+    }
+
+    /// Reads `active_screen` from a render-grid export without decoding the
+    /// whole grid.
+    ///
+    /// The field is written after the row spans, so the scan runs from the
+    /// end. Row text is JSON-escaped, so every quote inside it follows a
+    /// backslash and cannot form the unescaped `"active_screen":"` key. An
+    /// export in another layout falls back to a full decode.
+    static func renderGridExportIsAlternateScreen(_ data: Data) -> Bool {
+        if data.range(of: alternateScreenMarker, options: .backwards) != nil {
+            return true
+        }
+        if data.range(of: primaryScreenMarker, options: .backwards) != nil {
+            return false
+        }
         return (try? JSONDecoder().decode(ActiveScreen.self, from: data))?.activeScreen == "alternate"
     }
+
+    private static let alternateScreenMarker = Data(#""active_screen":"alternate""#.utf8)
+    private static let primaryScreenMarker = Data(#""active_screen":"primary""#.utf8)
 }
 
 /// The one field of the render-grid export this reads.

@@ -357,9 +357,10 @@ extension AppDelegate {
     ///
     /// Every matcher (plain, numbered digit, directional, Tab) requires the
     /// event's modifiers to equal the relevant stroke's, so that is checked
-    /// first. Plain strokes then use the real matcher; the arrow, Tab, and
-    /// numbered-digit families fall back to the modifier check, which can
-    /// only over-approximate.
+    /// first. Numbered-digit actions then fall back to that modifier check,
+    /// which can only over-approximate. Everything else uses the real stroke
+    /// matcher, which already matches arrow and Tab strokes by physical key
+    /// code, so an unrelated Control+arrow never pays for the viewport read.
     private func shortcutEventMayTriggerAction(
         _ event: NSEvent,
         action: KeyboardShortcutSettings.Action
@@ -379,8 +380,7 @@ extension AppDelegate {
         guard ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags) == stroke.modifierFlags else {
             return false
         }
-        let arrowOrTabKeyCodes: Set<UInt16> = [48, 123, 124, 125, 126]
-        if action.usesNumberedDigitMatching || arrowOrTabKeyCodes.contains(event.keyCode) {
+        if action.usesNumberedDigitMatching {
             return true
         }
         return matchShortcutStroke(event: event, stroke: stroke)
