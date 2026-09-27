@@ -2313,6 +2313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
+        let quitReason = Self.currentQuitRequestReason()
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2320,6 +2321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
+                "quitReason": quitReason == .sessionEnd ? "sessionEnd" : "user",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
@@ -2330,12 +2332,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !quitConfirmationStore.shouldShowConfirmation(
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: hasDirtyWorkspaces,
-            isDevBuild: buildFlavor == .dev
+            isDevBuild: buildFlavor == .dev,
+            quitReason: quitReason
         ) {
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
-            if isQuitWarningConfirmed {
+            if quitReason == .sessionEnd {
+                reason = "sessionEnd"
+            } else if isQuitWarningConfirmed {
                 reason = "confirmed"
             } else if buildFlavor == .dev {
                 reason = "devBuild"
@@ -2362,6 +2367,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    /// Reads `kAEQuitReason` from the quit Apple Event AppKit is handling.
+    /// Logout, restart, and shutdown set it; Cmd+Q and the menu do not.
+    private static func currentQuitRequestReason() -> QuitRequestReason {
+        guard let descriptor = NSAppleEventManager.shared().currentAppleEvent?
+            .attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) else {
+            return .user
+        }
+        // loginwindow sends the reason as typeType; accept typeEnumerated too.
+        let code = descriptor.typeCodeValue != 0 ? descriptor.typeCodeValue : descriptor.enumCodeValue
+        return QuitRequestReason(appleEventQuitReason: code)
     }
 
     @discardableResult
@@ -15402,6 +15419,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             // Only consume when a focused terminal actually received the chord.
             return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .pasteLastScreenshot) {
+            if performFocusedDockShortcut(
+                .pasteLastScreenshot,
+                action: .pasteLastScreenshot,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.pasteLastScreenshotIntoFocusedTerminal() != true {
+                NSSound.beep()
+            }
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .clearScreenKeepScrollback) {

@@ -379,7 +379,8 @@ describe("changelog patch notes cards", () => {
   });
 
   test("the latest documented release says how to try each feature", () => {
-    for (const feature of changelogMedia["0.64.25"].features ?? []) {
+    const [latest] = Object.values(changelogMedia);
+    for (const feature of latest.features ?? []) {
       expect(feature.tryIt?.trim().length ?? 0).toBeGreaterThan(0);
     }
   });
