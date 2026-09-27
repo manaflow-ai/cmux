@@ -4971,8 +4971,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         // Synchronous lifecycle backstops cannot wait for the authoritative off-main load.
-        // Revalidate only the already-cached process generations and argv, and fail closed
-        // with an empty index when startup has not populated that cache yet.
+        // Revalidate only the already-cached process generations and argv (an empty agent
+        // index when startup has not populated that cache yet). No surface scan runs, so the
+        // surface binding index is unavailable and live bindings are not reconciled away.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
             restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
         )

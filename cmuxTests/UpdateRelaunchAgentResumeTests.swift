@@ -108,7 +108,7 @@ struct UpdateRelaunchAgentResumeTests {
 
     private static let planner = AgentRestorePlanner(
         isExecutableFile: { path in
-            ["/opt/homebrew/bin/sr", "/opt/homebrew/bin/teamclaude"].contains(path)
+            ["/opt/homebrew/bin/sr", "/opt/homebrew/bin/teamclaude", "/opt/homebrew/bin/codex"].contains(path)
         },
         isReadableFile: { _ in true },
         externalLaunchers: AgentExternalLauncherRegistry(launchers: [
@@ -199,9 +199,10 @@ struct UpdateRelaunchAgentResumeTests {
                 compatibilityBinding: nil,
                 restoredAgentExists: false
             )
+            let request = try Self.restoreRequest(from: record)
             let invocation = try #require(
                 Self.planner.invocation(
-                    for: Self.restoreRequest(from: record),
+                    for: request,
                     ambientEnvironment: Self.ambientEnvironment
                 ),
                 "\(testCase.label): the restore record could not be planned"
