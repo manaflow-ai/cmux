@@ -32,6 +32,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
     var showsCloudVPNWarning = false
+    /// Shows the Cloud Machines header's New Machine "+".
+    var canCreateCloudMachine: Bool = false
     var reveal: CloudTreeRevealRequest? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
@@ -75,7 +77,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
             source: source,
             devicesSection: devicesSection,
-            showsCloudVPNWarning: showsCloudVPNWarning
+            showsCloudVPNWarning: showsCloudVPNWarning,
+            canCreateCloudMachine: canCreateCloudMachine
         ))
         context.coordinator.reveal(reveal)
     }

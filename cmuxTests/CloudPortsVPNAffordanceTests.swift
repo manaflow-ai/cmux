@@ -199,7 +199,7 @@ struct CloudPortsVPNAffordanceTests {
             expansionStore: CloudTreeExpansionStore(defaults: try #require(UserDefaults(suiteName: "ports-section-\(UUID())"))),
             tabDragTransferRegistry: { nil })
         // The Machines panel always groups cloud machines under this section row.
-        coordinator.nodes = [CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection,
+        coordinator.nodes = [CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection(canCreateMachine: true),
             children: [machineNode(id: "paid")])]
         coordinator.performPortAction(.openShell, machineID: .cloud("paid"))
         coordinator.performPortAction(.refresh, machineID: .cloud("paid"))
