@@ -83,6 +83,7 @@ jobs:
       # the one shard (shard 8) instead, owned or Blacksmith (pr_runner_pool.py).
       unit_in_admission: ${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
+      ui_selectors: ${{ steps.suite.outputs.ui_selectors }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
@@ -1538,9 +1539,10 @@ jobs:
     # that no longer gates main, so refuse the run here instead of reporting
     # green on a diff nothing observed. A cmuxTests/ diff selects
     # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
-    # here. What does is cmuxUITests/, which no pull request job executes, and
-    # a diff that could not be read: "full-ci" runs everything, and
-    # "no-full-ci" records that skipping it is deliberate.
+    # here. A cmuxUITests/ diff runs the classes it changed in `ui-tests`. What
+    # lands here is a cmuxUITests/ change that maps to no test class (a helper),
+    # or a diff that could not be read: "no-full-ci" records that skipping it
+    # is deliberate, and for an unread diff "full-ci" runs everything.
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
@@ -1548,20 +1550,99 @@ jobs:
     steps:
       - name: Require the suite that judges this diff
         run: |
-          echo "This pull request changes cmuxUITests/, or its diff could not be" >&2
-          echo "read, and this run skipped the macOS suite, so nothing observed it." >&2
-          echo "(A cmuxTests/ change runs 'app-host unit tests' automatically.)" >&2
+          echo "This pull request changes cmuxUITests/ outside any test class (a" >&2
+          echo "helper every class may use), more classes than one focused run takes," >&2
+          echo "or its diff could not be read, so nothing observed it. (A changed UI" >&2
+          echo "test class runs in 'ui-tests', and a cmuxTests/ change runs 'app-host" >&2
+          echo "unit tests', automatically.)" >&2
           echo >&2
-          echo "No pull request job executes cmuxUITests/. Add the 'full-ci' label" >&2
-          echo "to run the suite on a fresh run, or 'no-full-ci' to record that" >&2
-          echo "skipping it is deliberate." >&2
+          echo "Run the affected UI tests with scripts/run-e2e.sh and add the" >&2
+          echo "'no-full-ci' label to record it, or add 'full-ci' when the diff" >&2
+          echo "could not be read." >&2
           exit 1
+
+  # The UI test classes a pull request changes, run once on its head through
+  # test-e2e.yml (scripts/run-e2e.sh): no pull request job executes
+  # cmuxUITests/ otherwise. The dispatch adopts the app-host product this run
+  # compiles for the merge, waiting for it, so this costs a test run, not a
+  # second compile, and routes to an owned Mac (e2e_runner_pool.py). A fork
+  # cannot dispatch it, so its run fails here until a maintainer runs the
+  # classes and adds 'no-full-ci'. It waits for the admission gate: the gate
+  # holds the compile it adopts, so the gate must not wait for it, and a fast
+  # Linux failure spends no test run. A run that reuses an earlier compile
+  # skips the gate, and still runs the classes: the dispatch adopts that
+  # compile by its product key.
+  #
+  # The one job in this workflow with actions: write, which dispatching takes.
+  # Only a same-repository pull request reaches the dispatch, and its author
+  # can already dispatch any workflow; a fork's token is read-only regardless.
+  ui-tests:
+    needs:
+      - changes
+      - macos-admission-gate
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # A compile wait of up to 50 minutes, then the tests.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Refuse a fork
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+        run: |
+          echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the changed UI test classes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          # A re-run of this job dispatches again, even past a failure at this head.
+          FORCE: ${{ github.run_attempt > 1 && '--force' || '' }}
+          # A job token cannot list repository variables (HTTP 403), so the
+          # dispatcher reads its routing inputs from these instead.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_LARGE_POOL_OVERFLOW || '' }}
+          CMUX_CI_PR_POOL_ORDER: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_ORDER || '' }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_MAX_QUEUED || '' }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_QUEUE_ROUNDS || '' }}
+          CMUX_CI_PR_POOL_OWNED: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED || '' }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_OWNED_POOL_SLOTS || '' }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          CMUX_CI_E2E_OWNED_UI: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CI_E2E_OWNED_UI || '' }}
+        run: |
+          set -uo pipefail
+          # A newer push cancels this job; the dispatched run would otherwise
+          # keep an owned Mac for a superseded head. Its URL is the "Run:" line.
+          log="$RUNNER_TEMP/ui-tests.log"
+          : > "$log"
+          cancel_dispatch() {
+            run_id="$(sed -n 's|^Run: https://github.com/.*/actions/runs/\([0-9]*\).*|\1|p' "$log" | tail -1)"
+            if [ -n "$run_id" ]; then
+              gh run cancel "$run_id" --repo "$GITHUB_REPOSITORY" || true
+            fi
+            exit 130
+          }
+          trap cancel_dispatch INT TERM
+          # shellcheck disable=SC2086
+          scripts/run-e2e.sh $SELECTORS --ref "$HEAD_SHA" --wait --no-video $FORCE > >(tee "$log") 2>&1 &
+          wait $!
 
   ci-status:
     needs:
       - changes
       - claude-wrapper
       - suite-coverage
+      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1623,6 +1704,7 @@ jobs:
       - changes
       - claude-wrapper
       - suite-coverage
+      - ui-tests
       - static-preflight
       - guards
       - ghosttykit-release-check
