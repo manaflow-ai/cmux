@@ -5,7 +5,6 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
-- Settings > App > Warn Before Closing Workspace (`app.warnBeforeClosingWorkspace`, on by default) turns off the "Close workspace?" prompts; pinned workspaces still ask ([#14979](https://github.com/manaflow-ai/cmux/pull/14979))
 - Switch to Nightly (in the stable app) and Switch to Stable (in cmux NIGHTLY) in the app menu, command palette and Settings > App open the other app, downloading, verifying and installing it first when it is missing ([#14995](https://github.com/manaflow-ai/cmux/pull/14995))
 - `cmux session move <session-id> --to <ssh-destination|local>` moves a stopped Claude Code session, its transcript, memory and git working tree, between this Mac and an SSH host and resumes it there ([#14959](https://github.com/manaflow-ai/cmux/pull/14959))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on, including under proxy or account-switching launchers ([#14902](https://github.com/manaflow-ai/cmux/pull/14902), [#14908](https://github.com/manaflow-ai/cmux/pull/14908))
@@ -69,6 +68,7 @@ All notable changes to cmux are documented here.
 - iOS (beta): Settings > About has a Support Information action that copies your account, install, and device IDs plus app version for support requests ([#13448](https://github.com/manaflow-ai/cmux/pull/13448)) -- thanks @azooz2003-bit!
 - iOS (beta): Version 1.0.6 shows a one-time notice with the minimum Mac versions it needs, then opens the Mac pairing guide ([#14112](https://github.com/manaflow-ai/cmux/pull/14112)) -- thanks @azooz2003-bit!
 - iOS (beta): Settings > Reset > Erase All Data on This Device signs out and returns the app to a fresh-install state ([#14140](https://github.com/manaflow-ai/cmux/pull/14140))
+- Settings > App > Warn Before Closing Workspace (`app.warnBeforeClosingWorkspace`, on by default) turns off the "Close workspace?" prompts; pinned workspaces still ask ([#14979](https://github.com/manaflow-ai/cmux/pull/14979))
 
 ### Changed
 - Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!

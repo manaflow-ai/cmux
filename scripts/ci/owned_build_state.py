@@ -8,6 +8,7 @@
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
     owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
     owned_build_state.py warm-keys STORE RUNNER POOL [FINGERPRINT]
+    owned_build_state.py evict-parked STORE [COUNT]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -157,6 +158,7 @@ requests never reach an owned pool.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -278,12 +280,13 @@ def sweep_discarded(store: Path) -> None:
 # STORE/pr-builds/pr-<n> (a rename, no copy), and `check` for pull request n swaps it back in before
 # anything else reads the kept state. glaeda's hook reads the parked stamp when it ranks roots, and
 # `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
-# PR_SLOTS parked builds, each for PR_SLOT_HOURS, and parks none while the volume has less than
-# MIN_FREE_GIB free, so parked builds never crowd the mini's disk.
+# PR_SLOTS parked builds, each for PR_SLOT_HOURS. There is no free-disk floor: parked builds are the
+# first thing given up when space runs out. `keep` that hits ENOSPC evicts every parked build on the
+# mini, oldest first, and retries, and `evict-parked` does the same for disk tooling (glaeda-disk).
+# A main build is never parked, so eviction never touches one.
 PR_BUILDS = "pr-builds"
 PR_SLOTS = 2
 PR_SLOT_HOURS = 6
-MIN_FREE_GIB = 140
 
 
 def pr_slot(store: Path, number: object) -> Path | None:
@@ -291,11 +294,29 @@ def pr_slot(store: Path, number: object) -> Path | None:
     return store / PR_BUILDS / key if key else None
 
 
-def free_gib(path: Path) -> float:
-    try:
-        return shutil.disk_usage(path).free / 1024**3
-    except OSError:
-        return 0.0
+def parked_slots(store: Path) -> list[Path]:
+    """Every parked build on STORE's mini (all canonical roots), oldest first."""
+    dated = []
+    for root in (store, *other_root_stores(store)):
+        try:
+            entries = list((root / PR_BUILDS).iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            if path.name.startswith("pr-"):
+                with contextlib.suppress(OSError):
+                    dated.append((path.stat().st_mtime, str(path), path))
+    return [path for _, _, path in sorted(dated)]
+
+
+def evict_parked(store: Path, count: int | None = None) -> list[str]:
+    """Remove the COUNT oldest parked builds on STORE's mini (all when None); returns what was removed."""
+    removed = []
+    for path in parked_slots(store)[:count]:
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(path)
+            removed.append(str(path))
+    return removed
 
 
 def prune_pr_slots(store: Path, now: float | None = None) -> None:
@@ -340,8 +361,6 @@ def park(store: Path) -> str:
     slot = pr_slot(store, stamp.get("pr"))
     if slot is None or not (store / DERIVED).is_dir() or not str(stamp.get("fingerprint") or "").endswith(STATE_VERSION):
         return ""
-    if free_gib(store) < MIN_FREE_GIB:
-        return ""
     incoming = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
     remove(incoming)
     incoming.mkdir(parents=True)
@@ -374,8 +393,9 @@ def unpark(store: Path, number: object, fingerprint: str) -> bool:
     current = read_stamp(store)
     if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
         return False  # the kept build is this pull request's already
-    # A current main build (no pull request) stays, and so does one a park refused for disk: the job
-    # starts from it instead. A kept build no router can read (stale or missing stamp) is replaced.
+    # A current main build (no pull request) stays, and so does one park() could not move: the job
+    # starts from it instead. (If another root's eviction removes the slot after the park, the rename
+    # below fails, check reports it, and the job starts cold with its kept build parked.) A kept build no router can read (stale or missing stamp) is replaced.
     kept_current = str(current.get("fingerprint") or "").endswith(f"-{STATE_VERSION}")
     if (store / DERIVED).exists() and kept_current and not park(store):
         return False
@@ -539,7 +559,20 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     store.mkdir(parents=True, exist_ok=True)
     sweep_discarded(store)
     incoming = store / f".{DERIVED}.incoming"
-    clone(derived, incoming)
+    try:
+        try:
+            clone(derived, incoming)
+        except OSError as error:
+            # Out of space: parked builds go first (oldest first), then the clone gets one more try.
+            # copytree's shutil.Error carries its per-file errors as text, without an errno.
+            full = error.errno == errno.ENOSPC or "No space left on device" in str(error)
+            if not full or not evict_parked(store):
+                raise
+            remove(incoming)
+            clone(derived, incoming)
+    except OSError:
+        remove(incoming)  # a partial clone would hold its space until the next keep
+        raise
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
@@ -985,6 +1018,11 @@ def package_store(argv: list[str]) -> Path | None:
 
 
 def main(argv: list[str]) -> int:
+    if (len(argv) == 3 or len(argv) == 4 and argv[3].isdigit()) and argv[1] == "evict-parked":
+        count = int(argv[3]) if len(argv) == 4 else None
+        for path in evict_parked(Path(argv[2]), count):
+            print(f"evicted {path}")
+        return 0
     if len(argv) in (5, 6) and argv[1] == "check":
         write_outputs(check(Path(argv[2]), argv[3], Path(argv[4]), package_store(argv),
                             os.environ.get("CMUX_OWNED_PR", "")))

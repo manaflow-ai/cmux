@@ -9,13 +9,19 @@ import SwiftUI
 @MainActor
 struct SidebarRowPalette {
     let model: SidebarWorkspaceRowModel
+    var isSelectionEmphasized: Bool = true
+    var increasesSelectionContrast: Bool = false
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
+            sidebarSelectionColorHex: model.settings.selectionColorHex,
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            subtleSelection: model.settings.subtleSelection,
+            isEmphasized: isSelectionEmphasized,
+            increaseContrast: increasesSelectionContrast
         )
     }
 
@@ -47,9 +53,9 @@ struct SidebarRowPalette {
 
     /// Link color for row-owned text. AppKit paints `.link` runs in
     /// `NSColor.linkColor` and ignores the row foreground, which is unreadable
-    /// on an active row because the sidebar selection background is the same
-    /// blue. Active rows therefore derive the link color from the selected
-    /// foreground so a custom `sidebarSelectionColorHex` stays legible.
+    /// on a solid accent selection fill. Active rows therefore derive the link
+    /// color from the selected foreground so a custom
+    /// `sidebarSelectionColorHex` stays legible.
     var linkText: NSColor {
         model.isActive ? selectedForeground(1.0) : semantic(.linkColor)
     }
