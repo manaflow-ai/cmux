@@ -539,6 +539,48 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func titlebarControlsStayInsideTheDefaultSidebar() {
+        // Controls start at the traffic-light inset and must end before the
+        // sidebar edge, or they straddle the sidebar/workspace boundary.
+        let leadingInset = CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset)
+        let sidebarEdge = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
+        for density in InterfaceDensity.allCases {
+            let config = TitlebarControlsStyle.classic.config(density: density)
+            let trailingEdge = leadingInset + TitlebarControlsLayoutMetrics.rowExtent(config: config)
+            #expect(
+                trailingEdge + TitlebarControlsDensityFit.edgeClearance <= sidebarEdge,
+                "\(density) controls end at \(trailingEdge), past the sidebar edge at \(sidebarEdge)"
+            )
+            // The unread badge stays inside the 28pt titlebar row.
+            let buttonTop = (WindowChromeMetrics.appTitlebarHeight - config.buttonSize) / 2
+            #expect(buttonTop + config.badgeOffset.height >= 0)
+        }
+    }
+
+    @Test
+    func titlebarControlsStepDownWhenTheSidebarIsTooNarrow() {
+        func fitted(_ requested: InterfaceDensity, _ width: CGFloat) -> InterfaceDensity {
+            TitlebarControlsDensityFit.effectiveDensity(requested: requested, availableWidth: width)
+        }
+        let comfortableExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .comfortable)
+        )
+        let standardExtent = TitlebarControlsLayoutMetrics.rowExtent(
+            config: TitlebarControlsStyle.classic.config(density: .standard)
+        )
+
+        #expect(fitted(.comfortable, comfortableExtent) == .comfortable)
+        #expect(fitted(.comfortable, comfortableExtent - 1) == .standard)
+        #expect(fitted(.comfortable, standardExtent - 1) == .compact)
+        #expect(fitted(.standard, standardExtent - 1) == .compact)
+        // Never steps up past the chosen density.
+        #expect(fitted(.compact, 1000) == .compact)
+        #expect(fitted(.standard, 1000) == .standard)
+        // Compact is the floor even when nothing fits.
+        #expect(fitted(.comfortable, 10) == .compact)
+    }
+
+    @Test
     func sidebarAccountPresentationFollowsDensity() {
         let comfortable = SidebarAccountButtonPresentation.resolve(
             isSignedIn: true,

@@ -57,9 +57,10 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         }
     }
 
-    /// Controls config at the stored `app.density`.
+    /// Controls config at the stored `app.density`, stepped down if needed so
+    /// the row fits inside the sidebar (see ``TitlebarControlsDensityFit``).
     var config: TitlebarControlsStyleConfig {
-        config(density: InterfaceDensity.stored())
+        config(density: TitlebarControlsDensityFit.effectiveDensity())
     }
 
     /// Controls config for `density`. Only the default `classic` style follows
@@ -73,7 +74,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: metrics.titlebarIconSize,
                 buttonSize: metrics.titlebarButtonSize,
                 badgeSize: metrics.titlebarBadgeSize,
-                badgeOffset: CGSize(width: 3, height: -3),
+                badgeOffset: CGSize(width: 3, height: metrics.titlebarBadgeYOffset),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
@@ -136,6 +137,52 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     }
 }
 
+/// Keeps the titlebar control row inside the sidebar.
+///
+/// The row starts at the traffic-light inset and sits over the sidebar in both
+/// the standard titlebar and the minimal-mode sidebar header. A row that runs
+/// past the sidebar's edge straddles the boundary into the workspace, so the
+/// controls use the largest density, up to the chosen one, whose row ends
+/// `edgeClearance` points before the narrowest the sidebar can be. Compact is
+/// the floor; a sidebar minimum too narrow even for it keeps compact.
+enum TitlebarControlsDensityFit {
+    static let edgeClearance: CGFloat = 8
+
+    static func effectiveDensity(defaults: UserDefaults = .standard) -> InterfaceDensity {
+        effectiveDensity(
+            requested: InterfaceDensity.stored(in: defaults),
+            availableWidth: availableRowWidth(defaults: defaults)
+        )
+    }
+
+    /// Width the row may use: the narrowest sidebar minus the controls'
+    /// leading inset and the edge clearance.
+    static func availableRowWidth(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults))
+            - MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
+            - edgeClearance
+    }
+
+    static func effectiveDensity(requested: InterfaceDensity, availableWidth: CGFloat) -> InterfaceDensity {
+        for candidate in steppedDown(from: requested) {
+            let config = TitlebarControlsStyle.classic.config(density: candidate)
+            if TitlebarControlsLayoutMetrics.rowExtent(config: config) <= availableWidth {
+                return candidate
+            }
+        }
+        return .compact
+    }
+
+    /// `requested` followed by every smaller density, largest first.
+    private static func steppedDown(from requested: InterfaceDensity) -> [InterfaceDensity] {
+        switch requested {
+        case .comfortable: return [.comfortable, .standard, .compact]
+        case .standard: return [.standard, .compact]
+        case .compact: return [.compact]
+        }
+    }
+}
+
 struct TitlebarControlsStyleConfig {
     let spacing: CGFloat
     let iconSize: CGFloat
@@ -187,7 +234,7 @@ final class TitlebarControlsLayoutModel {
         self.notificationCenter = notificationCenter
         self.contentSizeProvider = contentSizeProvider
         let style = TitlebarControlsStyle.stored(in: defaults)
-        let density = InterfaceDensity.stored(in: defaults)
+        let density = TitlebarControlsDensityFit.effectiveDensity(defaults: defaults)
         snapshot = TitlebarControlsLayoutModelSnapshot(
             style: style,
             density: density,
@@ -239,7 +286,7 @@ final class TitlebarControlsLayoutModel {
 
     private func refreshStyleIfNeeded() {
         let style = TitlebarControlsStyle.stored(in: defaults)
-        let density = InterfaceDensity.stored(in: defaults)
+        let density = TitlebarControlsDensityFit.effectiveDensity(defaults: defaults)
         guard style != snapshot.style || density != snapshot.density else { return }
         recompute(style: style, density: density)
     }
@@ -643,6 +690,12 @@ enum TitlebarControlsLayoutMetrics {
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
             + hintTrailingBaseInset
+    }
+
+    /// Distance from the controls' leading inset to the trailing edge of the
+    /// last button, including the outer leading padding.
+    static func rowExtent(config: TitlebarControlsStyleConfig) -> CGFloat {
+        TitlebarControlsHitRegions.buttonXRanges(config: config).last?.upperBound ?? 0
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {

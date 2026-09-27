@@ -727,7 +727,7 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
 
     static var hostWidth: CGFloat {
         // Read the density once: this runs on minimal-mode mouse moves.
-        let density = InterfaceDensity.stored()
+        let density = TitlebarControlsDensityFit.effectiveDensity()
         let widestButtonRow = TitlebarControlsStyle.allCases
             .map { TitlebarControlsLayoutMetrics.buttonRowWidth(config: $0.config(density: density)) }
             .max() ?? 0
