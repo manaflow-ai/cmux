@@ -394864,61 +394864,61 @@
         }
       }
     },
-    "shortcutDiscovery.button.help": {
+    "shortcutDiscovery.customize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show all shortcuts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのショートカットを表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示所有快捷键"
+            "value": "Customize…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Tastenkombinationen anzeigen"
+            "value": "Anpassen…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher tous les raccourcis"
+            "value": "Personnaliser…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار كافة الاختصارات"
+            "value": "تخصيص…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar todos los atajos"
+            "value": "Personalizar…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示所有快速鍵"
+            "value": "自訂…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 단축키 표시"
+            "value": "사용자화…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタマイズ…"
           }
         }
       }
@@ -558657,6 +558657,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "新機能"
+          }
+        }
+      }
+    },
+    "sidebar.help.whatsNew.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신규"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新着"
           }
         }
       }

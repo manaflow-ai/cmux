@@ -3,15 +3,16 @@ import CmuxAppKitSupportUI
 import CmuxSettingsUI
 import SwiftUI
 
-/// The compact sidebar account button for account-level actions.
+/// The compact sidebar account button for account-level actions. Signed out,
+/// a click starts sign-in; signed in, it opens a native account menu (see
+/// `SidebarFooterMenuAnchor` for why the footer uses `NSMenu`).
 struct SidebarAccountMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-    @State private var isPopoverPresented = false
-    @State private var popoverGroup = CmuxPopoverGroup()
+    @State private var menuAnchor = SidebarFooterMenuAnchor()
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
@@ -64,8 +65,12 @@ struct SidebarAccountMenuButton: View {
             hasProfilePicture: identity?.avatarURL != nil
         )
         Button {
-            if isSignedIn {
-                isPopoverPresented.toggle()
+            if let identity {
+                menuAnchor.popUp(makeMenu(
+                    avatarURL: identity.avatarURL,
+                    displayName: identity.displayName,
+                    email: identity.email
+                ))
             } else {
                 _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
                     tabManager: tabManager,
@@ -85,145 +90,95 @@ struct SidebarAccountMenuButton: View {
         .buttonStyle(SidebarFooterIconButtonStyle())
         .disabled(accountFlow?.isWorkingOnAuth == true)
         .frame(width: buttonSize, height: buttonSize)
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPopoverPresented,
-            preferredEdge: .maxY,
-            detachedGap: 4,
-            presentationAnimation: .enabled,
-            group: popoverGroup
-        ) {
-            SidebarAccountPopover(
-                accountFlow: accountFlow,
-                dismiss: { popoverGroup.dismissAll() }
-            )
-        })
+        .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityIdentifier("SidebarAccountMenuButton")
     }
+
+    /// Who you are, then what you can do with the account, then Sign Out
+    /// last and apart so it is never the item under a hurried click.
+    private func makeMenu(avatarURL: URL?, displayName: String, email: String) -> NSMenu {
+        let flow = accountFlow
+        let menu = NSMenu(title: title)
+        menu.autoenablesItems = false
+
+        let header = NSMenuItem()
+        header.isEnabled = false
+        let headerView = NSHostingView(rootView: SidebarAccountMenuHeader(
+            avatarURL: avatarURL,
+            displayName: displayName,
+            email: email
+        ))
+        headerView.frame.size = headerView.fittingSize
+        headerView.autoresizingMask = [.width]
+        header.view = headerView
+        menu.addItem(header)
+        menu.addSidebarFooterSeparator()
+
+        menu.addSidebarFooterItem(
+            String(localized: "menu.app.settings", defaultValue: "Settings…"),
+            identifier: "SidebarAccountSettingsButton",
+            shortcut: KeyboardShortcutSettings.shortcut(for: .openSettings)
+        ) {
+            AppDelegate.shared?.openPreferencesWindow(
+                debugSource: "sidebar.account.settings",
+                navigationTarget: .account
+            )
+        }
+        if flow?.isProUpgradeAvailable == true {
+            menu.addSidebarFooterItem(
+                String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                identifier: "SidebarAccountUpgradeButton"
+            ) {
+                flow?.openProUpgrade(source: .sidebarAccountMenu)
+            }
+        }
+
+        menu.addSidebarFooterSeparator()
+        menu.addSidebarFooterItem(
+            String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+            identifier: "SidebarAccountSignOutButton"
+        ) {
+            Task { await flow?.signOut() }
+        }
+        return menu
+    }
 }
 
-private struct SidebarAccountPopover: View {
-    let accountFlow: HostAccountFlow?
-    let dismiss: () -> Void
-    @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
-
-    private var settingsShortcutHint: String {
-        let _ = shortcutObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .openSettings).displayString
-    }
+/// Identity header for the account menu: the same avatar as the footer
+/// button, larger, beside the name and email it stands for.
+private struct SidebarAccountMenuHeader: View {
+    let avatarURL: URL?
+    let displayName: String
+    let email: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let identity = accountFlow?.currentIdentity {
-                HStack(spacing: 10) {
-                    SidebarAccountAvatar(
-                        avatarURL: identity.avatarURL,
-                        displayName: identity.displayName,
-                        email: identity.email,
-                        isSignedIn: true,
-                        size: 34
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(identity.displayName.isEmpty ? identity.email : identity.displayName)
-                            .cmuxFont(size: 13, weight: .semibold)
-                            .lineLimit(1)
-                        if !identity.email.isEmpty && identity.email != identity.displayName {
-                            Text(identity.email)
-                                .cmuxFont(size: 11)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                settingsRow
-            } else {
-                Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
+        HStack(spacing: 10) {
+            SidebarAccountAvatar(
+                avatarURL: avatarURL,
+                displayName: displayName,
+                email: email,
+                isSignedIn: true,
+                size: 28
+            )
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName.isEmpty ? email : displayName)
                     .cmuxFont(size: 13, weight: .semibold)
-                Button {
-                    dismiss()
-                    accountFlow?.startSignIn()
-                } label: {
-                    Label(
-                        String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
-                        systemImage: "person.crop.circle.badge.plus"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .accessibilityIdentifier("SidebarAccountSignInButton")
-            }
-            if accountFlow?.isProUpgradeAvailable == true {
-                if accountFlow?.currentIdentity == nil {
-                    Divider()
-                        .padding(.vertical, 4)
-                }
-                accountMenuRow(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                    systemImage: "sparkles"
-                ) {
-                    dismiss()
-                    accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
-                }
-                .accessibilityIdentifier("SidebarAccountUpgradeButton")
-            }
-            if accountFlow?.currentIdentity != nil {
-                accountMenuRow(
-                    title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
-                    systemImage: "rectangle.portrait.and.arrow.right"
-                ) {
-                    dismiss()
-                    Task { await accountFlow?.signOut() }
-                }
-                .accessibilityIdentifier("SidebarAccountSignOutButton")
-            }
-        }
-        .buttonStyle(SidebarAccountMenuButtonStyle())
-        .disabled(accountFlow?.isWorkingOnAuth == true)
-        .padding(12)
-        .frame(width: 220, alignment: .leading)
-    }
-
-    private var settingsRow: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Divider()
-                .padding(.vertical, 4)
-            Button {
-                dismiss()
-                AppDelegate.shared?.openPreferencesWindow(
-                    debugSource: "sidebar.account.settings",
-                    navigationTarget: .account
-                )
-            } label: {
-                HStack(spacing: 8) {
-                    Label(
-                        String(localized: "menu.app.settings", defaultValue: "Settings…"),
-                        systemImage: "gearshape"
-                    )
-                    Spacer(minLength: 8)
-                    Text(settingsShortcutHint)
+                    .lineLimit(1)
+                if !email.isEmpty && email != displayName {
+                    Text(email)
                         .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .accessibilityLabel(String(
-                format: String(localized: "sidebar.account.settingsLabel", defaultValue: "%1$@, %2$@"),
-                String(localized: "menu.app.settings", defaultValue: "Settings…"),
-                settingsShortcutHint
-            ))
-            .accessibilityIdentifier("SidebarAccountSettingsButton")
+            Spacer(minLength: 0)
         }
-    }
-
-
-    private func accountMenuRow(
-        title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .frame(minWidth: 220, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("SidebarAccountMenuHeader")
     }
 }

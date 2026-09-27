@@ -50,13 +50,15 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         )).firstMatch
         XCTAssertTrue(accountButton.waitForExistence(timeout: 10))
         accountButton.click()
-        XCTAssertTrue(app.buttons["SidebarAccountSignOutButton"].waitForExistence(timeout: 5))
-        capture("account-popover")
+        XCTAssertTrue(app.menuItems["SidebarAccountSignOutButton"].waitForExistence(timeout: 5))
+        capture("account-menu")
         XCTAssertFalse(
-            app.buttons["SidebarAccountTeamPickerButton"].waitForExistence(timeout: 2),
-            "The local account popover must not offer team switching."
+            app.descendants(matching: .any)["SidebarAccountTeamPickerButton"].waitForExistence(timeout: 2),
+            "The local account menu must not offer team switching."
         )
-        XCTAssertFalse(app.buttons["SidebarAccountCreateTeamButton"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["SidebarAccountCreateTeamButton"].exists)
+        // A native menu swallows the next outside click, so close it first.
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
 
         let cloudMode = app.buttons["RightSidebarModeButton.machines"]
         XCTAssertTrue(cloudMode.waitForExistence(timeout: 10))
@@ -75,7 +77,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         let create = app.buttons["CloudTeamPickerCreateTeamButton"]
         XCTAssertTrue(create.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["CloudTeamPickerButton"].exists)
-        XCTAssertFalse(app.buttons["SidebarAccountSignOutButton"].exists)
+        XCTAssertFalse(app.menuItems["SidebarAccountSignOutButton"].exists)
         capture("shortcut-opens-cloud-picker")
 
         create.click()
