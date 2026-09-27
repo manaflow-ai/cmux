@@ -93,8 +93,9 @@ audit, not independently timed by this countdown benchmark.
 
 Additional shell checks cover PR hints and HEAD changes (#1138), interactive
 bash job notifications, zsh PID reuse/zombie-parent/parent-death teardown
-(#10926), and the remaining zsh config parser. The #1138 test is registered in
-the automatic macOS shell lane. No native app build or live app dogfood is
+(#10926), and the remaining zsh config parser. The launch and #1138 tests run
+in the Linux guard job, including on thin PRs that skip the macOS shell lane;
+bash 3.2 is exercised locally on macOS. No local native app build or live app dogfood is
 part of this shell-only proof; app watcher sharing and lifecycle were audited
 in the existing owners and their tests, not reimplemented here.
 
