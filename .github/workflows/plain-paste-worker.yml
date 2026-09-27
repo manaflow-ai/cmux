@@ -15,7 +15,7 @@ permissions:
   contents: read
 jobs:
   macos-15:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -28,6 +28,8 @@ jobs:
         run: |
           sw_vers
           test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Build only the isolated helper and provider fixture
         run: |
           mkdir -p "$RUNNER_TEMP/plain-paste"

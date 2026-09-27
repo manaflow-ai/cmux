@@ -14,6 +14,21 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserWebContentTerminationLifecycleTests {
+    @Test("Content termination revokes readiness for the retained WebView")
+    func terminationRevokesCommittedDocumentReadiness() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let webView = panel.webView
+        let delegate = try #require(webView.navigationDelegate as? BrowserNavigationDelegate)
+        delegate.webView(webView, didCommit: nil)
+        #expect(panel.automationDocumentReadiness.hasCommittedDocument(for: panel.webViewInstanceID))
+
+        delegate.webViewWebContentProcessDidTerminate(webView)
+
+        #expect(panel.webView === webView)
+        #expect(!panel.automationDocumentReadiness.hasCommittedDocument(for: panel.webViewInstanceID))
+    }
+
     @Test
     func terminationCallbackDoesNotReplaceWebViewInsideWebKitCallback() {
         let panel = BrowserPanel(

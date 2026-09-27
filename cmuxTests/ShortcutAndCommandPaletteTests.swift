@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFoundation
@@ -414,6 +415,25 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
+@MainActor final class CommandPaletteRowHighlightTests: XCTestCase {
+    func testSelectionWinsOverHover() {
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: true), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: true, isHovered: false), .selected)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: true), .hovered)
+        XCTAssertEqual(CommandPaletteRowHighlight(isSelected: false, isHovered: false), .plain)
+    }
+
+    func testHoverIsClearlyQuieterThanSelection() {
+        let hovered = CommandPaletteRowHighlight.hovered.backgroundOpacity
+        let selected = CommandPaletteRowHighlight.selected.backgroundOpacity
+        XCTAssertGreaterThan(hovered, 0)
+        // Hover is a neutral primary tint and selection an accent tint; at half
+        // the selection opacity or more they read as the same strength in dark mode.
+        XCTAssertLessThan(hovered, selected / 2)
+        XCTAssertEqual(CommandPaletteRowHighlight.plain.backgroundOpacity, 0)
+    }
+}
+
 @MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
@@ -807,6 +827,13 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
         )
     }
 
+    func testToggleTerminalCopyModeCommandRestoresSurfaceAfterPaletteDismiss() {
+        XCTAssertEqual(
+            ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.toggleTerminalCopyMode"),
+            .terminal(.surface)
+        )
+    }
+
     func testOtherCommandPaletteCommandsDoNotForcePostRunFocusRestore() {
         XCTAssertNil(
             ContentView.commandPalettePostRunRestoreFocusIntent(forCommandId: "palette.terminalToggleTextBoxInput")
@@ -839,44 +866,6 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
         let defaults = makeDefaults()
         defaults.set(true, forKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey)
         XCTAssertTrue(CommandPaletteSettingsStore(defaults: defaults).renameSelectsAllOnFocus)
-    }
-}
-
-final class CommandPaletteAuthCommandTests: XCTestCase {
-    func testSignedOutContextShowsSignInCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, false)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignInCommandId])
-    }
-
-    func testSignedInContextShowsSignOutCommandOnly() {
-        var context = CommandPaletteContextSnapshot()
-        context.setBool(CommandPaletteContextKeys.authSignedIn, true)
-        context.setBool(CommandPaletteContextKeys.authWorking, false)
-
-        let visibleCommandIds = visibleAuthCommandIds(context)
-
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignOutCommandId])
-    }
-
-    func testWorkingAuthContextHidesSignInAndSignOutCommands() {
-        for signedIn in [false, true] {
-            var context = CommandPaletteContextSnapshot()
-            context.setBool(CommandPaletteContextKeys.authSignedIn, signedIn)
-            context.setBool(CommandPaletteContextKeys.authWorking, true)
-
-            XCTAssertTrue(visibleAuthCommandIds(context).isEmpty)
-        }
-    }
-
-    private func visibleAuthCommandIds(_ context: CommandPaletteContextSnapshot) -> [String] {
-        ContentView.commandPaletteAuthCommandContributions()
-            .filter { $0.when(context) }
-            .map(\.commandId)
     }
 }
 
@@ -1954,108 +1943,6 @@ final class BuildFlavorTests: XCTestCase {
             BuildFlavor.detect(bundleName: "cmux", bundleIdentifier: "com.cmuxterm.app"),
             .stable
         )
-    }
-}
-
-final class QuitConfirmationPolicyTests: XCTestCase {
-    func testDevAlwaysSkipsQuitConfirmation() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.dev == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.dev == .dev
-                )
-            )
-        }
-    }
-
-    func testStableHonorsConfirmQuitModes() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.always.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-
-            defaults.set(ConfirmQuitMode.never.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.stable == .dev
-                )
-            )
-        }
-    }
-
-    func testNightlyHonorsConfirmQuitModes() {
-        withIsolatedDefaults { defaults in
-            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
-            XCTAssertFalse(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: false,
-                    isDevBuild: BuildFlavor.nightly == .dev
-                )
-            )
-            XCTAssertTrue(
-                QuitConfirmationStore(defaults: defaults).shouldShowConfirmation(
-                    isQuitWarningConfirmed: false,
-                    hasDirtyWorkspaces: true,
-                    isDevBuild: BuildFlavor.nightly == .dev
-                )
-            )
-        }
-    }
-
-    func testLegacyWarnBeforeQuitMapsWhenConfirmQuitUnset() {
-        withIsolatedDefaults { defaults in
-            defaults.set(false, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
-            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .never)
-
-            defaults.set(true, forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey)
-            XCTAssertEqual(QuitConfirmationStore(defaults: defaults).confirmQuitMode, .always)
-        }
-    }
-
-    private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
-        let suiteName = "QuitConfirmationPolicyTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        body(defaults)
     }
 }
 

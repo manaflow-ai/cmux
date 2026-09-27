@@ -11,6 +11,42 @@ import Testing
 
 @Suite("Computer Use onboarding windows", .serialized)
 struct ComputerUseOnboardingWindowTests {
+    @Test @MainActor func dismissedWindowStaysClosedThroughRefreshAndToolRetry() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture(usesProductionPresenter: true)
+        defer { fixture.remove() }
+        let responder = try UnixSocketResponder(
+            path: fixture.persistence.paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
+        )
+        defer { responder.stop() }
+        try await fixture.enable()
+        let actions = HostSettingsActions(
+            configFileURL: fixture.persistence.root.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: fixture.runtime,
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
+            runComputerUseOnboardingAction: { startingPoint in
+                fixture.coordinator.presentOnboardingFromSettings(startingAt: startingPoint)
+            }
+        )
+        await fixture.send("cmux-cua.get_app_state")
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        window.close()
+        #expect(!window.isVisible)
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+        await actions.refreshComputerUsePermissions()
+        await fixture.send("cmux-cua.get_app_state")
+        #expect(!NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(fixture.coordinator.presentOnboardingFromSettings())
+        #expect(NSApp.windows.contains {
+            $0.identifier?.rawValue == "cmux.computerUse.onboarding" && $0.isVisible
+        })
+        #expect(!fixture.runtime.onboardingIsComplete)
+    }
+
     @Test @MainActor func offscreenCompanionReturnsWithoutMovingTheOverview() throws {
         var companions: [NSWindow] = []
         let controller = ComputerUseOnboardingWindowController(

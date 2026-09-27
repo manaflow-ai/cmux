@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as analytics from "../services/coderouter/analytics";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
@@ -18,7 +19,8 @@ let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
 let authenticatedTokens: string[] = [];
-const BOUND_TOKEN = "crt_bound-to-vm-1";
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
+const SIGNED_VM_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -42,7 +44,7 @@ const proxy = createCodexResponsesProxy({
     return {
       teamId: "team-1",
       stackUserId: "stack-user-1",
-      vmId: token === BOUND_TOKEN ? "vm-1" : null,
+      vmId: token === BOUND_TOKEN || token === SIGNED_VM_TOKEN ? "vm-1" : null,
     };
   },
   select: async (input) => {
@@ -627,11 +629,24 @@ describe("codex responses proxy VM-bound route tokens", () => {
   test("a bound token with the matching x-cmux-vm-id header is routed", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(edgeRequest({
-      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
       "x-cmux-vm-id": "vm-1",
     }));
     expect(response.status).toBe(200);
     expect(authenticatedTokens).toEqual([BOUND_TOKEN]);
+    expect(selectInputs[0]?.teamId).toBe("team-1");
+  });
+
+  test("a signed new-machine token reaches the typed no-account outcome", async () => {
+    accountsToServe = [];
+    const response = await proxy(edgeRequest({
+      "x-cmux-authorization": `Bearer ${SIGNED_VM_TOKEN}`,
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: "no_usable_account",
+      retryable: true,
+    });
     expect(selectInputs[0]?.teamId).toBe("team-1");
   });
 

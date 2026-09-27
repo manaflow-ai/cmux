@@ -299,6 +299,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
         startedTeams.contains(teamID ?? "")
     }
 
+    func isLoadBlocked(teamID: String?) -> Bool {
+        !(blockers[teamID ?? ""]?.isEmpty ?? true)
+    }
+
     func release(teamID: String?) {
         let key = teamID ?? ""
         guard var queued = blockers[key], !queued.isEmpty else { return }

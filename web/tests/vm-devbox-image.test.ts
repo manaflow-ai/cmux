@@ -115,6 +115,7 @@ describe("devbox image template", () => {
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
+      "cmux-prompt-sync",
       "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
@@ -371,8 +372,8 @@ describe("devbox image template", () => {
     expect(wait).toContain("exit 1");
     for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts", "check-devbox-image-reachable.ts"]) {
       const script = readScript(name);
-      expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
-        .toEqual({ name, sleeps: false });
+      const sleeps = /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script);
+      expect({ name, sleeps }).toEqual({ name, sleeps: name === "build-devbox-freestyle.ts" });
       expect({ name, waits: script.includes("devboxWaitForDaemonCommand") }).toEqual({ name, waits: true });
     }
     // The ladder rows are independent, so they run concurrently, and the full
@@ -484,13 +485,15 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, wiping cmux-remote's default root
-    // state dir on a clone, and holds the daemon on the builder itself.
+    // identity on the platform instance id and holds the daemon on the
+    // builder. A fork or checkpoint of a running machine carries its parent's
+    // remote identity, so a clone drops auth and connection state.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
     expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
-    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    expect(devboxBoot).toContain('find "$REMOTE_STATE_DIR/sessions"');
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR/connections"');
     // The supervisor owns the daemon as a background child so it can stop a
     // daemon that belongs to another machine (a clone of a live machine).
     expect(devboxBoot).toContain("daemon_pid=$!");

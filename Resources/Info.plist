@@ -44,6 +44,44 @@
 				<string>public.unix-executable</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Markdown document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.daringfireball.markdown</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Source code</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.source-code</string>
+				<string>public.json</string>
+				<string>public.yaml</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Plain text</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -92,16 +130,12 @@
 	<string>A program running within cmux would like to access your location.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>A program running within cmux would like to access your photo library.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>A program running within cmux would like to access the local network.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>A program running within cmux would like to access your system's audio.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>A program running within cmux would like to use speech recognition.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>A program running within cmux would like to access motion data.</string>
-	<key>NSSystemAdministrationUsageDescription</key>
-	<string>A program running within cmux requires elevated privileges.</string>
 	<key>NSSystemExtensionUsageDescription</key>
 	<string>cmux installs a network extension so this Mac can reach your Cloud machines on their private network. It runs only while you use cmux Cloud.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -134,14 +168,10 @@
 	<string>A program running within cmux would like to read and write your reminders.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>A program running within cmux would like to access your location.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>A program running within cmux would like to use speech recognition.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>A program running within cmux would like to perform system administration tasks.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>A program running within cmux would like to discover devices on your local network.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>A program running within cmux would like to access motion data.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -182,8 +212,6 @@
 			<string>Alternate</string>
 		</dict>
 	</array>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CMUXIrohRelayPolicyKeyID</key>
 	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
 	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
@@ -205,13 +233,6 @@
 	</array>
 	<key>CMUXSidebarExtensionPointIdentifier</key>
 	<string>$(CMUX_SIDEBAR_EXTENSION_POINT_ID)</string>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.developer-tools</string>
-	<key>LSArchitecturePriority</key>
-	<array>
-		<string>arm64</string>
-		<string>x86_64</string>
-	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
@@ -227,22 +248,8 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSAppleEventsUsageDescription</key>
-	<string>A program running within cmux would like to use AppleScript.</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>A program running within cmux would like to use your camera.</string>
-	<key>NSDockTilePlugIn</key>
-	<string>CmuxDockTilePlugin.plugin</string>
-	<key>NSHumanReadableCopyright</key>
-	<string></string>
-	<key>NSMainStoryboardFile</key>
-	<string></string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSServices</key>
@@ -300,47 +307,6 @@
 	<integer>86400</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>com.cmux.cloud-sidebar-row</string>
-            <key>UTTypeConformsTo</key>
-            <array><string>public.data</string></array>
-            <key>UTTypeDescription</key>
-            <string>Cloud Sidebar Row</string>
-        </dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.sidebar-tab-reorder</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux File Preview Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.filepreview.transfer</string>
-		</dict>
-	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -361,9 +327,43 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Markdown document</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.daringfireball.markdown</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>md</string>
+					<string>markdown</string>
+					<string>mkd</string>
+					<string>mdx</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>text/markdown</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.cloud-sidebar-row</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Cloud Sidebar Row</string>
+		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.splittabbar.tabtransfer</string>
@@ -413,52 +413,6 @@
 			<array>
 				<string>public.data</string>
 			</array>
-		</dict>
-	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<true/>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>cmux-loopback.localtest.me</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-			</dict>
-		</dict>
-	</dict>
-	<key>SUAutomaticallyUpdate</key>
-	<false/>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUFeedURL</key>
-	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
-	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
-	<key>SUSendProfileInfo</key>
-	<false/>
-	<key>SUPublicEDKey</key>
-	<string>$(SPARKLE_PUBLIC_KEY)</string>
-	<key>CMUXIrohRelayPolicyKeyID</key>
-	<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
-	<key>CMUXIrohRelayPolicyPublicKeyBase64</key>
-	<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
-	<key>CMUXIrohRelayPolicyTrustKeys</key>
-	<array>
-		<dict>
-			<key>keyID</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_KEY_ID)</string>
-			<key>publicKeyBase64</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64)</string>
-		</dict>
-		<dict>
-			<key>keyID</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID)</string>
-			<key>publicKeyBase64</key>
-			<string>$(CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64)</string>
 		</dict>
 	</array>
 </dict>

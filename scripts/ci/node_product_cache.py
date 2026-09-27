@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
 
-SCHEMA_GENERATION = 1
+SCHEMA_GENERATION = 2
 FORMAT_GENERATION = "app-host-products-tar-gz-v1"
 PROVIDER = "github-actions"
 ARCHIVE_NAME = "app-host-products.tar.gz"
@@ -37,12 +37,30 @@ REUSE_RECEIPT = "Build/Products/cmux-product-reuse.json"
 PRODUCT_RECEIPT = "Build/Products/cmux-test-products.json"
 DEFAULT_BUDGET_BYTES = 24 * 1024**3
 DEFAULT_WAIT_SECONDS = 180.0
+# How long a consumer in CI waits for another job's fill on the same node
+# unless CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS says otherwise. A filler only
+# publishes from its finalize step, after its whole download and restore
+# (about 130 s of download alone on a mini, plus extraction and the
+# canonical-root lock), so a waiter would usually time out and then download
+# anyway. Until the fill publishes right after its checksum, a waiter
+# downloads at once; the producing mini's seeded object still hits.
+CI_WAIT_SECONDS = 0.0
 DEFAULT_FILL_LEASE_SECONDS = 360.0
 DEFAULT_RESTORE_LEASE_SECONDS = 2 * 60 * 60
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_TAR_MEMBERS = 250_000
 MAX_WAITERS_PER_FILL = 64
+# glaeda names its runners `<mini>-glaeda` and `<mini>-glaeda-<n>`.
+OWNED_RUNNER = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]*-glaeda(?:-[0-9]+)?")
+OWNED_DEFAULT_ROOT = "/Users/Shared/cmux-build-fleet/node-products"
 _HEX64 = re.compile(r"[a-f0-9]{64}")
+# Where a published object came from, as stored in its metadata. Consumers on an
+# older revision delete entries whose class they do not know, so a LAN fetch
+# (glaeda's helper, peer_product_source.lan_fetch_exact) is stored as "peer"; "lan"
+# is only a finalize input (it verifies against GitHub's artifact metadata, not the
+# same-run shortcut) and a metrics value.
+SOURCE_CLASSES = frozenset({"github", "r2", "peer", "producer-local"})
+FINALIZE_SOURCE_CLASSES = SOURCE_CLASSES | {"lan"}
 _REVISION = re.compile(r"[a-f0-9]{6,64}")
 
 
@@ -68,6 +86,7 @@ class Identity:
     product_contract: str
     source_revision: str
     producer_run_id: int
+    producer_run_attempt: int = 1
     schema_generation: int = SCHEMA_GENERATION
     format_generation: str = FORMAT_GENERATION
     provider: str = PROVIDER
@@ -84,6 +103,7 @@ class Identity:
             "product_contract": self.product_contract,
             "source_revision": self.source_revision,
             "producer_run_id": self.producer_run_id,
+            "producer_run_attempt": self.producer_run_attempt,
         }
 
     def key(self) -> str:
@@ -108,6 +128,9 @@ class Identity:
             source_revision=revision,
             producer_run_id=_positive_int(
                 env.get("CMUX_PRODUCT_PRODUCER_RUN_ID", ""), "producer run id"
+            ),
+            producer_run_attempt=_positive_int(
+                env.get("CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT", "1"), "producer run attempt"
             ),
         )
 
@@ -222,8 +245,27 @@ class Store:
                 os.close(fd)
 
 
-def configured_store(env=os.environ) -> Store | None:
+def configured_root(env=os.environ) -> str | None:
+    """The store root: CMUX_NODE_PRODUCT_CACHE_ROOT, else OWNED_DEFAULT_ROOT on an owned Mac.
+
+    Every owned runner is persistent and named `<mini>-glaeda[-N]`, all as one
+    user, so one store per mini serves each of its runners. Until 2026-09-25 the
+    root came only from a repository variable that was never set, so every
+    owned consumer downloaded the ~830 MB product from GitHub (7 MiB/s, about
+    130 s) even on the mini whose admission had just built it. A disposable
+    runner (Blacksmith, GitHub-hosted) keeps no store unless the variable names
+    one; `off` turns the store off everywhere.
+    """
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_ROOT", "").strip()
+    if raw.lower() == "off":
+        return None
+    if raw:
+        return raw
+    return OWNED_DEFAULT_ROOT if OWNED_RUNNER.fullmatch(env.get("RUNNER_NAME", "").strip()) else None
+
+
+def configured_store(env=os.environ) -> Store | None:
+    raw = configured_root(env)
     if not raw:
         return None
     try:
@@ -246,11 +288,11 @@ def budget_bytes(env=os.environ) -> int:
 def wait_seconds(env=os.environ) -> float:
     raw = env.get("CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS", "").strip()
     if not raw:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     try:
         value = float(raw)
     except ValueError:
-        return DEFAULT_WAIT_SECONDS
+        return CI_WAIT_SECONDS
     return min(max(value, 0.0), 600.0)
 
 
@@ -262,7 +304,7 @@ def _metadata_matches(metadata: dict, identity: Identity) -> bool:
         and metadata.get("object_digest") == identity.archive_digest
         and isinstance(metadata.get("size"), int)
         and metadata["size"] > 0
-        and metadata.get("source_class") in {"github", "r2", "producer-local"}
+        and metadata.get("source_class") in SOURCE_CLASSES
     )
 
 
@@ -386,6 +428,7 @@ def _stats_update(store: Store, **increments) -> dict:
             "evictions": 0,
             "evicted_bytes": 0,
             "bytes_avoided_github": 0,
+            "bytes_avoided_peer": 0,
             "bytes_avoided_r2": 0,
         }
         for field, amount in increments.items():
@@ -426,6 +469,7 @@ def _snapshot(store: Store, stats: dict | None = None) -> dict:
         "evictions": evictions,
         "eviction_rate": round(evictions / lookups, 4) if lookups else 0.0,
         "bytes_avoided_github": int(stats.get("bytes_avoided_github", 0)),
+        "bytes_avoided_peer": int(stats.get("bytes_avoided_peer", 0)),
         "bytes_avoided_r2": int(stats.get("bytes_avoided_r2", 0)),
     }
 
@@ -537,7 +581,9 @@ def _hit_locked(
     avoided = metadata["size"]
     fallback = os.environ.get("CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE", "").strip()
     increments = {"hits": 1}
-    if fallback == "r2":
+    if fallback == "peer":
+        increments["bytes_avoided_peer"] = avoided
+    elif fallback == "r2":
         increments["bytes_avoided_r2"] = avoided
     elif fallback == "github":
         increments["bytes_avoided_github"] = avoided
@@ -669,6 +715,28 @@ def github_metadata(identity: Identity) -> dict:
         timeout=20,
     )
     return json.loads(raw)
+
+
+def same_run_provider_metadata(identity: Identity) -> dict:
+    """Reconstruct provider metadata only for this exact producing workflow attempt.
+
+    Same-run GitHub workflow outputs establish the accepted producer identity.
+    This keeps a verified peer hit usable during a GitHub API outage without
+    making the peer a new trust root.
+    """
+    if (
+        os.environ.get("GITHUB_REPOSITORY", "").casefold() != identity.repository.casefold()
+        or os.environ.get("GITHUB_RUN_ID", "") != str(identity.producer_run_id)
+        or os.environ.get("GITHUB_RUN_ATTEMPT", "1") != str(identity.producer_run_attempt)
+    ):
+        raise ValueError("peer product producer is not this workflow attempt")
+    return {
+        "id": identity.artifact_id,
+        "expired": False,
+        "digest": "sha256:" + identity.provider_digest,
+        "workflow_run": {"id": identity.producer_run_id},
+        "created_at": None,
+    }
 
 
 def _verify_provider(identity: Identity, metadata: dict) -> str | None:
@@ -824,7 +892,7 @@ def finalize(
 ) -> dict:
     if store is None:
         return {"status": "disabled"}
-    if source_class not in {"github", "r2", "producer-local"}:
+    if source_class not in FINALIZE_SOURCE_CLASSES:
         source_class = "github"
     key = identity.key()
     if not restore_succeeded:
@@ -844,7 +912,8 @@ def finalize(
                 if not fill or fill.get("token") != token:
                     return {"status": "lost-fill"}
                 metadata = _publish_locked(
-                    store, identity, archive, source_class, provider_created_at
+                    store, identity, archive, "peer" if source_class == "lan" else source_class,
+                    provider_created_at,
                 )
                 state = _state_update_locked(store, key, verified_restore_count=1)
                 fill_started = fill.get("created_epoch")
@@ -1079,15 +1148,19 @@ def main() -> None:
     elif command == "finalize":
         if len(sys.argv) != 3:
             raise SystemExit("usage: node-product-cache.py finalize ARCHIVE")
+        source_class = os.environ.get("CMUX_NODE_PRODUCT_SOURCE_CLASS", "github")
         result = finalize(
             store,
             identity,
             Path(sys.argv[2]),
             token=os.environ.get("CMUX_NODE_PRODUCT_CACHE_TOKEN", ""),
             lease_token=os.environ.get("CMUX_NODE_PRODUCT_CACHE_LEASE", ""),
-            source_class=os.environ.get("CMUX_NODE_PRODUCT_SOURCE_CLASS", "github"),
+            source_class=source_class,
             restore_succeeded=os.environ.get("CMUX_PRODUCT_RESTORE_SUCCEEDED") == "true",
             budget=budget_bytes(),
+            provider_metadata=(
+                same_run_provider_metadata if source_class == "peer" else github_metadata
+            ),
         )
     else:
         if len(sys.argv) != 3:

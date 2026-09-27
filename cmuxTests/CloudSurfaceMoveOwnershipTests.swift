@@ -1,7 +1,9 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxCore
 import CmuxRemoteSession
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -243,7 +245,9 @@ struct CloudSurfaceMoveOwnershipTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        live.register(workspace)
+        let catalog = SurfaceCatalog(live: live)
         let id = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "offline")
         catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: id)], workspaceID: workspace.id)
         #expect(workspace.machineOwningSurface(panelID, catalog: catalog) == .cloud("a"))

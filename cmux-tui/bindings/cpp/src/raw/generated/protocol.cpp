@@ -103,6 +103,7 @@ Result<AgentReportSource> Codec<AgentReportSource>::decode(const Json& value) {
 
 Result<Json> Codec<AgentSource>::encode(const AgentSource& value) {
     switch (value) {
+        case AgentSource::plugin: return Json(std::string("plugin"));
         case AgentSource::detected: return Json(std::string("detected"));
         case AgentSource::socket: return Json(std::string("socket"));
         case AgentSource::hook: return Json(std::string("hook"));
@@ -111,6 +112,7 @@ Result<Json> Codec<AgentSource>::encode(const AgentSource& value) {
 }
 
 Result<AgentSource> Codec<AgentSource>::decode(const Json& value) {
+    if (value == Json(std::string("plugin"))) return AgentSource::plugin;
     if (value == Json(std::string("detected"))) return AgentSource::detected;
     if (value == Json(std::string("socket"))) return AgentSource::socket;
     if (value == Json(std::string("hook"))) return AgentSource::hook;
@@ -3033,6 +3035,11 @@ Result<Json> Codec<ProcessInfoResult>::encode(const ProcessInfoResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("foreground_cwd", std::move(encoded).value());
     }
+    if (!value.foreground_executable.is_absent()) {
+        auto encoded = encode_value(value.foreground_executable);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("foreground_executable", std::move(encoded).value());
+    }
     if (value.pid) {
         auto encoded = encode_value(*value.pid);
         if (!encoded) return std::move(encoded).error();
@@ -3081,6 +3088,16 @@ Result<ProcessInfoResult> Codec<ProcessInfoResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_foreground_cwd);
             if (!decoded) return std::move(decoded).error();
             result.foreground_cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_foreground_executable = value.find("foreground_executable");
+    if (field_foreground_executable) {
+        if (field_foreground_executable->is_null()) {
+            result.foreground_executable = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_foreground_executable);
+            if (!decoded) return std::move(decoded).error();
+            result.foreground_executable = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_pid = value.find("pid");
@@ -13773,6 +13790,11 @@ Result<Json> Codec<AgentChangedEvent>::encode(const AgentChangedEvent& value) {
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("agent-changed")));
+    if (!value.agent.is_absent()) {
+        auto encoded = encode_value(value.agent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("agent", std::move(encoded).value());
+    }
     if (value.session) {
         auto encoded = encode_value(*value.session);
         if (!encoded) return std::move(encoded).error();
@@ -13799,6 +13821,16 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     AgentChangedEvent result{};
+    const Json* field_agent = value.find("agent");
+    if (field_agent) {
+        if (field_agent->is_null()) {
+            result.agent = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_agent);
+            if (!decoded) return std::move(decoded).error();
+            result.agent = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_session = value.find("session");
     if (!field_session) {
         return make_error(ErrorCode::decode, "missing required field 'session'");

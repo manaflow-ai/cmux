@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
@@ -64,7 +66,7 @@ final class CloudTreeNode: NSObject {
         case devicesSection(CloudTreeDevicesSection)
         /// The collapsible Cloud Machines section header.
         case cloudMachinesSection
-        /// Empty My Devices state with independent discovery actions.
+        /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
@@ -194,7 +196,10 @@ final class CloudTreeNode: NSObject {
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
-        case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+        case .devicesEmpty(let section):
+            return section.count == 0
+                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
 
@@ -578,7 +583,8 @@ enum CloudTreeNodeBuilder {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
         var identities = adoptedOperationIDs
-        for operation in pendingCreates where !operation.request.isBaseSetup {
+        for operation in pendingCreates where !operation.request.isBaseSetup &&
+            (operation.isRunning || operation.isReconciling) {
             if let id = operation.createdMachineID ?? operation.reconcilingMachineID, identities[id] == nil {
                 identities[id] = operation.id
             }
@@ -600,9 +606,8 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let failedIDs = Set(pendingCreates.filter { !$0.request.isBaseSetup && $0.failureOutput != nil }.compactMap(\.createdMachineID))
-        var seen = failedIDs
-        for machine in machines where !failedIDs.contains(machine.id) {
+        var seen = Set<String>()
+        for machine in machines {
             seen.insert(machine.id)
             let info = infoByMachine[.cloud(machine.id)]
             let stableID = identities[machine.id].map { nodeID(pendingCreate: $0) }

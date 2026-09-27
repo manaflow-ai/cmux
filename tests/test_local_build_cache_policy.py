@@ -134,7 +134,7 @@ class CachePolicyTests(unittest.TestCase):
     def ghostty_fixture(self):
         shutil.rmtree(self.repo / "GhosttyKit.xcframework")
         revision, checksum = "a" * 40, "b" * 64
-        (self.repo / "scripts").mkdir()
+        (self.repo / "scripts").mkdir(exist_ok=True)
         (self.repo / "scripts/ghosttykit-checksums.txt").write_text(revision + " " + checksum + "\n")
         return revision, checksum
 

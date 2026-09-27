@@ -292,18 +292,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
         let preserveNativeDragPresentation = hasActiveWorkspaceDragPresentation
-        // A writer can outlive this representable before AppKit calls
-        // `willBeginAt`. Keep only the immutable action snapshot and the source
-        // table/delegate path needed for that callback. The table is retained
-        // by the writer; the surrounding container and its hosted cells can be
-        // detached immediately, so repeated reconstruction cannot accumulate
-        // whole sidebar graphs.
+        // A writer can outlive this representable before AppKit calls `willBeginAt`.
+        // Keep only the writer-owned source table; detach rebuilt containers immediately.
         let preserveProvisionalWorkspaceDrag = !preserveNativeDragPresentation
             && (workspaceDragWriterOwnership.hasPendingTokens
                 || pendingWorkspaceDragWriter != nil)
+        var provisionalWriters: [SidebarWorkspaceDragPasteboardWriter] = []
         if preserveProvisionalWorkspaceDrag {
             pendingWorkspaceDragActions = actions ?? pendingWorkspaceDragActions
-            var provisionalWriters = (
+            provisionalWriters = (
                 pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
             ).compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
             if let pendingWorkspaceDragWriter,
@@ -327,6 +324,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 }
             }
         }
+        let provisionalWriterBelongsToContainer = preserveProvisionalWorkspaceDrag
+            && provisionalWriters.contains { $0.sourceViewForDrag === container.tableView }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container
             installDeferredDropLifecycle(on: container)
@@ -382,7 +381,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             clearDropViewActions(in: container)
         }
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
-        if !preserveNativeDragPresentation && !preserveProvisionalWorkspaceDrag {
+        if !preserveNativeDragPresentation,
+           !provisionalWriterBelongsToContainer {
             detachController(from: container.tableView)
         }
         container.clipView.workspaceController = nil
@@ -700,6 +700,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
             }
+            // Drop the preview first. configure() early-returns when the
+            // authoritative model equals the stored one, so a preview whose
+            // selection did not land (replaced by a newer click, or an
+            // unrelated apply arriving first) otherwise kept its paint.
+            dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
         }
         // Release pump geometry only when this apply actually supersedes the
@@ -762,6 +767,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
         var isSmallPureReorder = false
+        var pureEdit: SidebarWorkspaceTableRowEdit?
         if hasStructuralChanges {
             previousIds = previousRows.map(\.id)
             nextIds = nextRows.map(\.id)
@@ -777,6 +783,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             isSmallPureReorder = previousIds.count == nextIds.count
                 && mismatches <= Self.maxAnimatedReorderMoves
                 && Self.multisetEqual(previousIds, nextIds)
+            if !previousIds.isEmpty {
+                pureEdit = SidebarWorkspaceTableRowEdit(from: previousIds, to: nextIds)
+            }
         }
         let requiresAtomicReorderReload =
             hasStructuralChanges && !heightChanges.isEmpty && isSmallPureReorder
@@ -836,12 +845,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     table.endUpdates()
                     // Per-index state (first-row flag, drop-indicator geometry)
                     // shifts with the order even when per-id content didn't.
-                    let visible = table.rows(in: table.visibleRect)
-                    if visible.length > 0 {
-                        reconfigureVisibleRows(
-                            IndexSet(integersIn: visible.lowerBound..<(visible.lowerBound + visible.length))
-                        )
+                    reconfigureLoadedRows(in: table)
+                }
+            } else if let pureEdit {
+                // Closing or creating a workspace (or collapsing/expanding a
+                // group) only drops or adds rows. reloadData tore down every
+                // visible cell for that: rename and checklist drafts on
+                // unrelated rows committed early, their popovers closed, and
+                // every row repainted from a recycled cell. Touch only the
+                // affected rows; the rest keep their cells.
+                let table = containerView.tableView
+                performTableGeometryUpdateWithoutAnimation(heightChanges, in: table) {
+                    table.beginUpdates()
+                    switch pureEdit {
+                    case .remove(let indexes):
+                        table.removeRows(at: indexes, withAnimation: [])
+                    case .insert(let indexes):
+                        table.insertRows(at: indexes, withAnimation: [])
                     }
+                    table.endUpdates()
+                    // Per-index state (shortcut digits, first-row flag, group
+                    // counts) shifts with the edit even for rows whose own
+                    // content did not; configure skips cells whose model is equal.
+                    reconfigureLoadedRows(in: table)
                 }
             } else {
                 let table = containerView.tableView
@@ -2043,6 +2069,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
     }
 
+    /// `rows` still describes the table here (flushApply calls this before
+    /// installing the next rows), so indexes map to the mounted cells.
+    private func dropOptimisticPaint(onRowsWithIds ids: Set<SidebarWorkspaceRenderItemID>) {
+        guard let table = containerView?.tableView else { return }
+        table.enumerateAvailableRowViews { _, row in
+            guard rows.indices.contains(row), ids.contains(rows[row].id) else { return }
+            let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
+            (cellView as? SidebarWorkspaceRowTableCellView)?.restoreStoredModelPaint()
+            (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
+        }
+    }
+
     private func restoreVisibleCellPaint() {
         guard let table = containerView?.tableView else { return }
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
@@ -2101,16 +2139,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         setHoveredRowId(nil)
     }
 
-    func recomputeHoveredRow() {
+    /// `windowPoint` is the location an event just delivered; recomputes
+    /// without one read the live pointer.
+    func recomputeHoveredRow(windowPoint: NSPoint? = nil) {
         guard contextMenuRowId == nil,
               let table = containerView?.tableView else {
             return
         }
         let row = SidebarWorkspaceTableHoverResolver().hoveredRow(
-            windowPoint: table.lastPointerWindowLocation,
+            windowPoint: windowPoint ?? table.livePointerWindowLocation,
             convertToTable: { table.convert($0, from: nil) },
             rowAtPoint: { table.row(at: $0) },
-            rowCount: rows.count
+            rowCount: rows.count,
+            visibleRect: table.visibleRect
         )
         setHoveredRowId(row.map { rows[$0].id })
     }
@@ -2448,6 +2489,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 break
             }
         }
+    }
+
+    /// Row edits that keep cells (moves, inserts, removes) must refresh every
+    /// loaded row view, not just the visible ones: NSTableView keeps prepared
+    /// views above and below the viewport, and viewFor is not asked again
+    /// when they scroll in, so a visible-only pass left them stale.
+    private func reconfigureLoadedRows(in table: NSTableView) {
+        var loaded = IndexSet()
+        table.enumerateAvailableRowViews { _, row in
+            if row >= 0 { loaded.insert(row) }
+        }
+        reconfigureVisibleRows(loaded)
     }
 
     private func reconfigureVisibleRows(_ indexes: IndexSet) {

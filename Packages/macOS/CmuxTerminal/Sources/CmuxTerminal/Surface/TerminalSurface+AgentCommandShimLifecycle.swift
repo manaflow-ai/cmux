@@ -6,6 +6,19 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> (isReady: Bool, shims: AgentCommandShimSet?) {
+        agentCommandShimStateForSurface(
+            view: view,
+            source: source,
+            spawnPolicy: spawnPolicyProvider.currentSpawnPolicy()
+        )
+    }
+
+    @MainActor
+    func agentCommandShimStateForSurface(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource,
+        spawnPolicy: TerminalSurfaceSpawnPolicy
+    ) -> (isReady: Bool, shims: AgentCommandShimSet?) {
         // The embedder owns process execution for manual I/O. There is no
         // local child to consume PATH wrappers, so disk installation must not
         // gate creation of the empty renderer (or run for these surfaces).
@@ -23,28 +36,32 @@ extension TerminalSurface {
             (agentCommandShimPendingCreationSource ?? source).promoted(with: source)
 
         if agentCommandShimInstallTask == nil {
+            agentCommandShimSpawnPolicy = spawnPolicy
             let surfaceId = id
             // Explicit captures and arguments: the region-based isolation
             // checker cannot analyze the legacy closure's implicit captures
             // and in-closure default-argument evaluation.
             let runtimeFilesystem = runtimeFilesystem
             let temporaryDirectory = runtimeFilesystem.agentCommandShimTemporaryDirectory
+            let enabledCommands = spawnPolicy.enabledAgentCommandShims
             #if compiler(>=6.2)
             let installOperation: @concurrent @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, enabledCommands] in
                 await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory
+                    temporaryDirectory,
+                    enabledCommands
                 )
             }
             #else
             let installOperation: @Sendable () async -> AgentCommandShimSet? = {
-                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem] in
+                [wrapperDirectoryURL, surfaceId, temporaryDirectory, runtimeFilesystem, enabledCommands] in
                 await runtimeFilesystem.installAgentCommandShims(
                     wrapperDirectoryURL,
                     surfaceId,
-                    temporaryDirectory
+                    temporaryDirectory,
+                    enabledCommands
                 )
             }
             #endif

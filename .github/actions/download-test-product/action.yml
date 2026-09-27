@@ -54,6 +54,8 @@ runs:
             "runner_name": os.environ.get("RUNNER_NAME"),
             "runner_os": os.environ.get("RUNNER_OS"),
             "outcome": os.environ["TRANSFER_OUTCOME"],
+            "transport": "github",
+            "cache": None,
             "elapsed_seconds": elapsed,
             "archive_bytes": archive_bytes,
             # Includes artifact lookup, download/retries, and outer ZIP extraction.

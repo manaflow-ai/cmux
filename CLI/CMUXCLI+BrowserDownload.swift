@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension CMUXCLI {
@@ -51,9 +52,11 @@ extension CMUXCLI {
             if let timeoutMs = wait.timeoutMs {
                 params["timeout_ms"] = timeoutMs
             }
-            let requestedTimeoutMs = wait.timeoutMs ?? 10_000
-            let effectiveTimeoutMs = min(requestedTimeoutMs, 120_000)
-            let responseTimeout = Double(max(1, effectiveTimeoutMs)) / 1000.0 + 5.0
+            // The handler's own window plus reply slack, both owned by
+            // BrowserDownloadWaitTimeout so the client cannot give up while the
+            // app is still inside the window it is allowed to wait.
+            let responseTimeout = BrowserDownloadWaitTimeout.standard
+                .clientResponseTimeoutSeconds(requestedMilliseconds: wait.timeoutMs)
             let payload = try client.sendV2(
                 method: "browser.download.wait",
                 params: params,

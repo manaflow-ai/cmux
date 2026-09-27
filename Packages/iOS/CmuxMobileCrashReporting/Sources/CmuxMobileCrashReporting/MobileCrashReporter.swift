@@ -55,6 +55,24 @@ public struct MobileCrashReporter {
     ///   - crash: The DEBUG-only test crash function. Tests inject this closure
     ///     with `--cmux-test-crash` so they can assert trigger gating without
     ///     crashing the test process.
+    /// Pauses session replay capture while the user drives a scroll.
+    ///
+    /// Replay photographs the screen on the main thread, prioritizing
+    /// interactive run-loop modes; mid-fling that costs several frames and
+    /// reads as the list jumping. Capture resumes when the scroll settles.
+    /// Both calls are no-ops while replay is not running.
+    #if os(iOS)
+    @MainActor
+    public static func setReplayCapturePaused(_ paused: Bool) {
+        guard SentrySDK.isEnabled else { return }
+        if paused {
+            SentrySDK.replay.pause()
+        } else {
+            SentrySDK.replay.resume()
+        }
+    }
+    #endif
+
     public func startIfEnabled(
         consent: any AnalyticsConsentProviding,
         arguments: [String] = ProcessInfo.processInfo.arguments,

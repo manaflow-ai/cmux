@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import SwiftUI
 import Testing
 

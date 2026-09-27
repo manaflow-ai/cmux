@@ -10,10 +10,6 @@ import Testing
 
 @MainActor
 final class RemoteTmuxPanePortalTestHarness {
-    private final class KeyStatusTestWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     let window: NSWindow
     private let originalWindow: NSWindow?
     private let appDelegate: AppDelegate?
