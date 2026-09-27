@@ -107,11 +107,19 @@ extension AppDelegate {
         let destinationCustomTitle = hasCallerTitleArgument
             ? explicitTitle
             : normalizedDetachedWorkspaceTitle(detached.customTitle)
+        let destinationCustomTitleSource: Workspace.CustomTitleSource
+        if destinationCustomTitle == nil {
+            destinationCustomTitleSource = .auto
+        } else if hasCallerTitleArgument {
+            destinationCustomTitleSource = .user
+        } else {
+            destinationCustomTitleSource = detached.customTitleSource ?? .user
+        }
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
-            titleSource: destinationCustomTitle == nil ? .auto : .user,
+            titleSource: destinationCustomTitleSource,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
