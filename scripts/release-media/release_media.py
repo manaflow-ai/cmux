@@ -2,7 +2,7 @@
 """Capture release-note media for one changelog feature on a fleet Mac.
 
     scripts/release-media/release_media.py scenes/0.64.25/light-mode-terminals.json \\
-        --host cmux-austin-mini-0 [--allow-1x] [--keep-app] [--dry-run]
+        --host <capture-mac> [--allow-1x] [--keep-app] [--dry-run]
 
 Reads a scene file, runs host_agent.py on the capture host over SSH (it
 installs the latest nightly there, sets up the scene with the cmux CLI and
@@ -45,12 +45,11 @@ SCREEN_RECORDING_ASK = """\
 
 HOST_ASK = """\
 {host} cannot capture release media yet: {reason}.
-Tracked in manaflow-ai/cmuxterm-hq#771. Operator step on the capture mini:
+Operator step on {host} (needs Screen Sharing):
 
 {step}
 
-Reserve the mini while capturing:
-  glaeda-mini-fleet reserve {host} --for "release media" --hours 2 --yes
+Keep the host out of other GUI work while capturing.
 """
 
 SCENE_KEYS = {"version", "feature", "slug", "window", "capture", "tryIt", "settings", "setup", "zshrc", "output", "notes"}
@@ -219,13 +218,17 @@ def flatten_clip(capture, workdir, width, matte, crop):
         src_w, src_h = probe_size(capture["local"])
     pre = ""
     if crop and (src_w, src_h) != (crop["w"], crop["h"]):
-        # screencapture recorded more than the window: cut the window out.
+        # screencapture recorded the whole display: cut the window out. Any
+        # other size (a window plus its shadow, say) has no known offset.
+        if (src_w, src_h) != (crop["displayW"], crop["displayH"]):
+            raise SystemExit("clip is {}x{}, neither the window ({}x{}) nor the display".format(
+                src_w, src_h, crop["w"], crop["h"]))
         pre = "crop={w}:{h}:{x}:{y},".format(**crop)
         src_w, src_h = crop["w"], crop["h"]
     graph = (
         "color=c={matte}:s={w}x{h}:r={fps}[bg];"
         "[0:v]{pre}format=rgba[fg];"
-        "[bg][fg]overlay=shortest=1,fps={fps},{fit}"
+        "[bg][fg]overlay=shortest=1:format=auto,fps={fps},{fit}"
     ).format(matte=matte, w=src_w, h=src_h, fps=CLIP_FPS, pre=pre, fit=fit_filter(src_w, min(src_w, width)))
     ffmpeg(*source, "-filter_complex", graph, "-c:v", "ffv1", "-an", master)
     return master
@@ -385,6 +388,7 @@ def main(argv=None):
         capture["local"] = fetch(args.host, remote, workdir)
         window, scale = result["window"], result["display"]["scale"]
         crop = {k: int(round(window[v] * scale)) for k, v in (("x", "x"), ("y", "y"), ("w", "width"), ("h", "height"))}
+        crop["displayW"], crop["displayH"] = result["display"]["pixelsWide"], result["display"]["pixelsHigh"]
         master = flatten_clip(capture, workdir, width, output.get("matte", DEFAULT_MATTE), crop)
         seconds = float(scene["capture"]["seconds"])
         produced = encode_clip(master, stem, float(scene["capture"].get("posterAt", seconds / 2)))

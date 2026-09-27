@@ -22,10 +22,12 @@ It targets the system python3 (3.9) and uses only the standard library.
 Progress goes to stderr; stdout carries only the RESULT line.
 """
 import base64
+import fcntl
 import hashlib
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import subprocess
@@ -109,6 +111,16 @@ def check_console_user():
         )
 
 
+def processes():
+    """(pid, executable path) for every process, from `ps` (comm is the full path)."""
+    rows = []
+    for line in run(["ps", "-Axo", "pid=,comm="]).stdout.splitlines():
+        pid, _, comm = line.strip().partition(" ")
+        if pid.isdigit():
+            rows.append((int(pid), comm.strip()))
+    return rows
+
+
 def pgrep_lines(pattern):
     """`pgrep -fl` matches, minus this agent (its payload argument is arbitrary text)."""
     lines = run(["pgrep", "-fl", pattern], check=False).stdout.splitlines()
@@ -124,7 +136,7 @@ def check_not_busy(app_path):
             "another cmux NIGHTLY is running; launching a second copy would terminate it",
             {"processes": others},
         )
-    soaks = pgrep_lines("soak")
+    soaks = pgrep_lines("[-_]soak|soak[-_]")
     if soaks:
         raise AgentError("host-busy", "a soak is running on this host", {"processes": soaks})
 
@@ -169,11 +181,21 @@ def install_nightly():
     os.makedirs(base, exist_ok=True)
     dmg = os.path.join(base, "cmux-nightly.dmg")
     log("downloading the latest nightly DMG on this host")
-    # -z makes the download conditional on the remote copy being newer.
-    args = ["curl", "-fsSL", "--retry", "3", "-o", dmg, NIGHTLY_URL.format(arch=arch)]
+    # -z skips the download unless the upload is newer than our copy; -R keeps
+    # the upload's time on the file. Writing to .partial first means a failed
+    # download never leaves a truncated DMG that -z would then trust.
+    partial = dmg + ".partial"
+    if os.path.exists(partial):
+        os.unlink(partial)
+    args = ["curl", "-fsSLR", "--retry", "3", "-o", partial, NIGHTLY_URL.format(arch=arch)]
     if os.path.exists(dmg):
         args[1:1] = ["-z", dmg]
     run(args, timeout=900)
+    if os.path.exists(partial):
+        if os.path.getsize(partial) > 0:
+            os.replace(partial, dmg)
+        else:
+            os.unlink(partial)
     mount = tempfile.mkdtemp(prefix="rm-dmg-")
     run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmg], timeout=300)
     try:
@@ -191,9 +213,10 @@ def install_nightly():
         shutil.rmtree(mount, ignore_errors=True)
     # Keep one build: older copies are reproducible from their DMGs and each
     # is several hundred MB. A copy that is still running stays.
+    running = [path for _, path in processes()]
     for entry in os.listdir(base):
         old = os.path.join(base, entry)
-        if entry != build and os.path.isdir(old) and not run(["pgrep", "-f", old], check=False).stdout.strip():
+        if entry != build and os.path.isdir(old) and not any(path.startswith(old + "/") for path in running):
             shutil.rmtree(old)
     return {
         "app": app,
@@ -220,17 +243,22 @@ class Cmux:
         self.env = dict(os.environ, CMUX_SOCKET_PATH=self.socket, CMUX_QUIET="1")
 
     def pids(self):
-        out = run(["pgrep", "-f", self.executable], check=False).stdout
-        return [int(pid) for pid in out.split()]
+        """Processes running exactly this copy's main executable."""
+        return [pid for pid, path in processes() if path == self.executable]
+
+    def signal_all(self, signum):
+        for pid in self.pids():
+            try:
+                os.kill(pid, signum)
+            except ProcessLookupError:
+                pass
 
     def stop(self):
-        for pid in self.pids():
-            os.kill(pid, signal.SIGTERM)
+        self.signal_all(signal.SIGTERM)
         deadline = time.time() + 15
         while self.pids() and time.time() < deadline:
             time.sleep(0.25)
-        for pid in self.pids():
-            os.kill(pid, signal.SIGKILL)
+        self.signal_all(signal.SIGKILL)
         for path in (self.socket, self.socket + ".lock"):
             if os.path.exists(path):
                 os.unlink(path)
@@ -269,6 +297,35 @@ class Cmux:
 # Settings -------------------------------------------------------------------
 
 
+def parse_jsonc(text):
+    """Parse cmux.json, which cmux reads as JSONC: comments and trailing commas."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        elif c == "," and re.match(r"\s*[}\]]", text[i + 1:]):
+            i += 1  # trailing comma
+        else:
+            out.append(c)
+            i += 1
+    stripped = "".join(out)
+    try:
+        return json.loads(stripped) if stripped.strip() else {}
+    except ValueError as error:
+        raise AgentError("bad-settings", "cannot parse {}: {}".format(CMUX_JSON, error))
+
+
 def deep_merge(base, overlay):
     merged = dict(base)
     for key, value in overlay.items():
@@ -280,7 +337,10 @@ def deep_merge(base, overlay):
 
 
 class SettingsGuard:
-    """Merges scene settings into cmux.json and restores the original bytes."""
+    """Merges scene settings into cmux.json and restores the original bytes.
+
+    The merged file is plain JSON, so comments are gone until restore().
+    """
 
     def __init__(self):
         self.original = None
@@ -293,7 +353,7 @@ class SettingsGuard:
         current = {}
         if os.path.exists(CMUX_JSON):
             with open(CMUX_JSON) as handle:
-                current = json.load(handle)
+                current = parse_jsonc(handle.read())
         os.makedirs(os.path.dirname(CMUX_JSON), exist_ok=True)
         with open(CMUX_JSON, "w") as handle:
             json.dump(deep_merge(current, overlay), handle, indent=2)
@@ -365,17 +425,32 @@ def capture_still(backend, window_id, out):
 def capture_clip(backend, window_id, seconds, during, run_timed_step, rundir):
     """Record `seconds` of the window while running `during` steps at their offsets."""
     errors = []
+    stopped = threading.Event()
 
     def timeline(start):
         try:
             for step in sorted(during, key=lambda s: float(s["at"])):
-                delay = start + float(step["at"]) - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
+                # Event.wait returns True once recording has stopped: never run
+                # a step (it may rewrite cmux.json) after the caller cleaned up.
+                if stopped.wait(max(0.0, start + float(step["at"]) - time.monotonic())):
+                    return
                 run_timed_step(step)
         except Exception as error:  # surfaced after the recording stops
             errors.append(error)
 
+    thread = threading.Thread(target=timeline, args=(time.monotonic(),))
+    thread.start()
+    try:
+        result = record(backend, window_id, seconds, rundir)
+    finally:
+        stopped.set()
+        thread.join()
+    if errors:
+        raise errors[0]
+    return result
+
+
+def record(backend, window_id, seconds, rundir):
     if backend["name"] == "native":
         mov = os.path.join(rundir, "clip.mov")
         recorder = subprocess.Popen(
@@ -383,12 +458,11 @@ def capture_clip(backend, window_id, seconds, during, run_timed_step, rundir):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        thread = threading.Thread(target=timeline, args=(time.monotonic(),))
-        thread.start()
-        recorder.wait(timeout=seconds + 60)
-        thread.join()
-        if errors:
-            raise errors[0]
+        try:
+            recorder.wait(timeout=seconds + 60)
+        except subprocess.TimeoutExpired:
+            recorder.kill()
+            raise AgentError("capture-failed", "screencapture -v did not finish")
         if recorder.returncode != 0 or not os.path.exists(mov):
             raise AgentError("capture-failed", "screencapture -v failed: " + recorder.stderr.read().decode().strip())
         return {"kind": "mov", "path": mov}
@@ -399,16 +473,11 @@ def capture_clip(backend, window_id, seconds, during, run_timed_step, rundir):
     os.makedirs(frames_dir, exist_ok=True)
     frames = []
     start = time.monotonic()
-    thread = threading.Thread(target=timeline, args=(start,))
-    thread.start()
     while time.monotonic() - start < seconds:
         taken = time.monotonic() - start
         path = os.path.join(frames_dir, "frame-{:05d}.png".format(len(frames)))
         capture_still(backend, window_id, path)
         frames.append({"file": os.path.basename(path), "t": round(taken, 3)})
-    thread.join()
-    if errors:
-        raise errors[0]
     return {"kind": "frames", "dir": frames_dir, "frames": frames, "seconds": seconds}
 
 
@@ -416,6 +485,18 @@ def capture_clip(backend, window_id, seconds, during, run_timed_step, rundir):
 
 
 def main(payload):
+    """One capture at a time per host: a second run would kill the first's app
+    and snapshot its modified cmux.json as the original."""
+    os.makedirs(ROOT, exist_ok=True)
+    with open(os.path.join(ROOT, "lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise AgentError("host-busy", "another release-media capture is running on this host")
+        return capture(payload)
+
+
+def capture(payload):
     scene = payload["scene"]
     options = payload["options"]
     rundir = os.path.join(ROOT, "runs", time.strftime("%Y%m%dT%H%M%S") + "-" + scene["slug"])
@@ -482,10 +563,19 @@ def main(payload):
     return result
 
 
+def exit_on_signal(signum, _frame):
+    # Raise instead of dying so main's finally restores cmux.json and quits the app.
+    raise SystemExit(128 + signum)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGHUP, exit_on_signal)
+    signal.signal(signal.SIGTERM, exit_on_signal)
     payload = json.loads(base64.b64decode(sys.argv[1]))
     try:
         outcome = main(payload)
     except AgentError as error:
         outcome = {"error": error.code, "message": str(error), "details": error.details}
+    except Exception as error:
+        outcome = {"error": "internal", "message": "{}: {}".format(type(error).__name__, error), "details": {}}
     print("RESULT " + json.dumps(outcome))

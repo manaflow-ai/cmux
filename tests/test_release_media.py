@@ -173,6 +173,13 @@ class HostAgentTests(unittest.TestCase):
         self.assertEqual(merged, {"app": {"appearance": "dark", "language": "en"}, "shortcuts": {"x": 1}})
         self.assertEqual(base["app"]["appearance"], "system")
 
+    def test_settings_are_read_as_jsonc(self):
+        text = '// cmux template\n{\n  "a": "x // kept, }", /* note */\n  "b": [1, 2,],\n}\n'
+        self.assertEqual(host_agent.parse_jsonc(text), {"a": "x // kept, }", "b": [1, 2]})
+        self.assertEqual(host_agent.parse_jsonc("// only a comment\n"), {})
+        with self.assertRaises(host_agent.AgentError):
+            host_agent.parse_jsonc("{ nope }")
+
     def test_steps_substitute_and_save_handles(self):
         calls = []
 

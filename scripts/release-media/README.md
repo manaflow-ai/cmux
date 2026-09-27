@@ -10,12 +10,12 @@ convention itself is in that file's header.
 ## Run it
 
 ```bash
-glaeda-mini-fleet reserve cmux-austin-mini-0 --for "release media" --hours 1 --yes
-scripts/release-media/release_media.py scripts/release-media/scenes/0.64.25/light-mode-terminals.json --host cmux-austin-mini-0
-glaeda-mini-fleet release cmux-austin-mini-0
+scripts/release-media/release_media.py scripts/release-media/scenes/0.64.25/light-mode-terminals.json --host <capture-mac>
 ```
 
-- `--allow-1x` captures on a 1x display (every mini today); without it the tool stops and prints the host ask.
+`<capture-mac>` is an SSH host name. Keep that Mac out of other GUI work (CI, soaks) for the run; the agent also refuses to start while another capture, a soak, or another `cmux NIGHTLY` is running there.
+
+- `--allow-1x` captures on a 1x display; without it the tool stops and prints the host ask.
 - `--dry-run` captures and encodes but leaves `web/` alone. `--workdir DIR` keeps the raw frames, the lossless master, and `receipt.json`.
 - `--keep-app` leaves the nightly running on the host for poking at a scene.
 
@@ -27,7 +27,7 @@ A run takes about 30 s on the host, then the encode runs locally at low priority
 2. The agent checks the host: the SSH user owns the GUI session, the display scale, a capture backend, and that no other `cmux NIGHTLY` or soak is running (a second copy of the nightly bundle would terminate the first).
 3. It downloads `cmux-nightly-macos-<arch>.dmg` on the host itself (conditional on a newer upload) and copies the app to `~/release-media/nightly/<arch>/<build>/`. Nothing is relayed through the operator's Mac.
 4. It launches that copy with a private socket (`CMUX_SOCKET_MODE=allowAll`, `CMUX_SOCKET_PATH`) and a clean zsh (`ZDOTDIR` holding the scene's `zshrc`), merges the scene's settings into `~/.config/cmux/cmux.json`, opens a fresh window at the scene size, and runs the scene steps with the nightly's own `cmux` CLI.
-5. It captures that window by its CGWindowID, then restores `cmux.json`, closes the window, and quits the copy it launched (by executable path; nothing else is touched).
+5. It captures that window by its CGWindowID, then restores `cmux.json`, closes the window, and quits the copy it launched (matched by exact executable path; nothing else is touched). This cleanup also runs on SIGHUP/SIGTERM, and a lock file keeps one capture per host.
 6. `release_media.py` copies the raw capture back, encodes it, writes the files, and patches `changelog-media.ts` (it fails if the version or feature is not there yet: write the recap first).
 
 ### Capture backends
@@ -35,7 +35,7 @@ A run takes about 30 s on the host, then the encode runs locally at low priority
 | Backend | Used when | Still | Clip |
 | --- | --- | --- | --- |
 | `native` | the SSH session has Screen Recording (`CGPreflightScreenCaptureAccess` and a test `screencapture`) | `screencapture -x -o -l <id>` | `screencapture -v -V <secs> -l <id>`, full frame rate |
-| `helper` | an approved `CuaSshScreenCapture.app` (from [cua-ssh](https://github.com/manaflow-ai/cua-ssh)) is in `~/Applications` | helper `window <id>` | one helper `window <id>` frame at a time, about 6 fps, retimed to 30 fps |
+| `helper` | an approved `CuaSshScreenCapture.app` (the cua-ssh GUI capture helper) is in `~/Applications` | helper `window <id>` | one helper `window <id>` frame at a time, about 6 fps, retimed to 30 fps |
 
 Both capture the window alone, so dialogs or banners stacked over it never appear. Clips flatten the window's transparent corners onto `output.matte` (default `#fafafa`, the site's light background); PNG stills keep them transparent.
 
@@ -80,11 +80,12 @@ One JSON file per feature at `scenes/<version>/<slug>.json`:
 
 ## Host requirements
 
-Tracked in manaflow-ai/cmuxterm-hq#771. The tool prints the relevant ask when a host falls short.
+The tool prints the relevant operator step when a host falls short.
 
-- Screen Recording for the capture process: today only `CuaSshScreenCapture.app` on cmux-austin-mini-0 (approved) and `sshd-keygen-wrapper` on cmux-mac-mini.
-- A HiDPI display for 2x output. Every mini drives 1920x1080 at 1x, so captures come out at half the resolution the site expects until one gets a 4K dummy plug or a virtual HiDPI display.
+- Screen Recording for the capture process: `CuaSshScreenCapture.app` approved once under Screen & System Audio Recording, or `sshd-keygen-wrapper` for direct SSH captures.
+- A HiDPI display for 2x output. A headless Mac mini drives 1920x1080 at 1x, so captures come out at half the resolution the site expects until it gets a 4K dummy plug or a virtual HiDPI display.
 - A logged-in, unlocked GUI session for the SSH user.
+- `cmux.json` may hold comments; the agent reads it as JSONC, writes the merged scene settings as plain JSON, and puts the original bytes back afterwards.
 
 ## Tests
 
