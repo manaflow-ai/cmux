@@ -671,5 +671,11 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: "/tmp/project"
             ) == ["qoder", "--model", "best"]
         )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["copilot", "--no-auto-update", "--log-dir", "/tmp/log", "-C"],
+                workingDirectory: "/tmp/project"
+            ) == ["copilot", "--no-auto-update", "--log-dir", "/tmp/log"]
+        )
     }
 }

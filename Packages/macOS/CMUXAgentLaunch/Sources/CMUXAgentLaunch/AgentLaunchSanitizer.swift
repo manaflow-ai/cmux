@@ -255,11 +255,11 @@ public enum AgentLaunchSanitizer {
                 result.append(contentsOf: args[index...])
                 break
             }
-            if valueOptions.contains(arg),
-               index + 1 < args.count,
-               workingDirectoryValue(args[index + 1], matches: workingDirectory) {
-                index += 2
-                continue
+            if valueOptions.contains(arg) {
+                if index + 1 >= args.count || workingDirectoryValue(args[index + 1], matches: workingDirectory) {
+                    index += min(2, args.count - index)
+                    continue
+                }
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
                 let value = String(arg.dropFirst(prefix.count))
