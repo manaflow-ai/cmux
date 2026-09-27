@@ -57,7 +57,9 @@ struct ComputerUseOnboardingWindowTests {
             }
         )
         defer { controller.dismiss() }
-        let main = try #require(presentedOnboardingWindow { controller.present() })
+        let main = try #require(newWindow(identified: "cmux.computerUse.onboarding") {
+            controller.present()
+        } as? ComputerUseOnboardingWindow)
         let originalFrame = main.frame
         controller.configureForPermissionCompanion(
             main, frame: NSRect(origin: originalFrame.origin, size: ComputerUsePermissionCompanionLayout.size)
@@ -225,12 +227,11 @@ struct ComputerUseOnboardingWindowTests {
             mainWindow.close()
         }
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
+            )
         }
 
         #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
@@ -288,13 +289,11 @@ struct ComputerUseOnboardingWindowTests {
             height: companionSize.height
         )
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: destinationFrame
+            )
         }
         #expect(mainWindow.isVisible)
         #expect(mainWindow.frame == mainFrame)
@@ -327,12 +326,11 @@ struct ComputerUseOnboardingWindowTests {
             width: companionSize.width,
             height: companionSize.height
         )
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: destinationFrame
+            )
         }
         #expect(companionWindow?.isVisible == true)
         let visibleFrame = mainWindow.screen?.visibleFrame
@@ -373,15 +371,14 @@ struct ComputerUseOnboardingWindowTests {
             mainWindow.close()
         }
 
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(
-                origin: .zero,
-                size: ComputerUsePermissionCompanionLayout.size
+        let companionWindow = newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(
+                    origin: .zero,
+                    size: ComputerUsePermissionCompanionLayout.size
+                )
             )
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
         }
 
         let companionPanel = companionWindow as? NSPanel
@@ -402,19 +399,19 @@ struct ComputerUseOnboardingWindowTests {
             runtimeService: ComputerUseRuntimeService()
         )
         defer { controller.dismiss() }
-        let mainWindow = try #require(presentedOnboardingWindow { controller.present() })
+        let mainWindow = try #require(newWindow(identified: "cmux.computerUse.onboarding") {
+            controller.present()
+        } as? ComputerUseOnboardingWindow)
         #expect(mainWindow.level == .normal)
         #expect(mainWindow.collectionBehavior.contains(.managed))
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(
-                origin: mainWindow.frame.origin,
-                size: ComputerUsePermissionCompanionLayout.size
+        let companionWindow = try #require(newWindow(identified: "cmux.computerUse.onboarding.permissionCompanion") {
+            controller.configureForPermissionCompanion(
+                mainWindow,
+                frame: NSRect(
+                    origin: mainWindow.frame.origin,
+                    size: ComputerUsePermissionCompanionLayout.size
+                )
             )
-        )
-        let companionWindow = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue
-                == "cmux.computerUse.onboarding.permissionCompanion"
         })
         #expect(companionWindow.isVisible)
 
@@ -481,15 +478,15 @@ struct ComputerUseOnboardingWindowTests {
     }
 }
 
-/// The onboarding window `present` opened. An earlier test's onboarding window
-/// can still be in `NSApp.windows` (closed but retained, or left open), and a
-/// bare identifier lookup found it instead: run 36316398822 shard 3 read the
-/// same stale window, invisible, in two tests.
+/// The window with `identifier` that `action` opened. An earlier test's
+/// onboarding or companion window can still be in `NSApp.windows` (both are
+/// kept when closed), and a bare identifier lookup found it instead: run
+/// 36316398822 shard 3 read the same stale, invisible window in two tests.
 @MainActor
-private func presentedOnboardingWindow(_ present: () -> Void) -> ComputerUseOnboardingWindow? {
+private func newWindow(identified identifier: String, _ action: () -> Void) -> NSWindow? {
     let earlier = Set(NSApp.windows.map(ObjectIdentifier.init))
-    present()
+    action()
     return NSApp.windows.first {
-        !earlier.contains(ObjectIdentifier($0)) && $0.identifier?.rawValue == "cmux.computerUse.onboarding"
-    } as? ComputerUseOnboardingWindow
+        !earlier.contains(ObjectIdentifier($0)) && $0.identifier?.rawValue == identifier
+    }
 }
