@@ -31,7 +31,41 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
-    init() {}
+    /// Ssh-tmux's local browser-preview proxy (one forward per host,
+    /// refcounted by mirror workspace). Acquired lazily on first browser
+    /// preview, never at mirror creation. Feeds both the sibling browser tab
+    /// (`Workspace.newBrowserSurface`) and the side-by-side browser split
+    /// (`Workspace.newBrowserSplit`) via `ensureRemoteTmuxBrowserProxyForward()`.
+    let browserProxyRegistry: RemoteTmuxBrowserProxyRegistry
+
+    init() {
+        browserProxyRegistry = RemoteTmuxBrowserProxyRegistry()
+        browserProxyRegistry.transportProvider = { [weak self] host in
+            // Falls back to a fresh transport (rather than force-unwrapping)
+            // only if the controller has already been deallocated, which
+            // can't happen in practice since it owns the registry.
+            self?.transport(for: host) ?? RemoteTmuxSSHTransport(host: host)
+        }
+        browserProxyRegistry.existingTransport = { [weak self] host in
+            guard let self, self.transportRegistry.contains(connectionHash: host.connectionHash) else { return nil }
+            return self.transport(for: host)
+        }
+        transportRegistry.onHostRemoved = { [weak self] connectionHash in
+            self?.browserProxyRegistry.releaseHost(connectionHash: connectionHash)
+        }
+        // A host's forward is shared by every mirror workspace on it. The
+        // workspace that called `acquire` gets its result directly from the
+        // returned `Task`, but a teardown (SSH master exits, host removed)
+        // or a later change must also reach every OTHER mirror workspace
+        // still retaining that host, or their browser panels are left
+        // pointing at a dead listener with nothing to tell them otherwise.
+        browserProxyRegistry.onEndpointChange = { [weak self] connectionHash, endpoint in
+            guard let self else { return }
+            for mirror in self.sessionMirrors.values where mirror.host.connectionHash == connectionHash {
+                mirror.workspace?.applyRemoteProxyEndpointUpdate(endpoint)
+            }
+        }
+    }
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
     /// that run outside the SwiftUI update cycle. Resolves the same catalog key

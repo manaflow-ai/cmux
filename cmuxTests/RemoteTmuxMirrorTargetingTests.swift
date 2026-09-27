@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import Foundation
 import Testing
@@ -405,6 +406,154 @@ struct RemoteTmuxMirrorTargetingTests {
             "swap-window -d -s @0 -t @1",
             "swap-window -d -s @0 -t @2",
         ])
+    }
+
+    /// A mirror workspace with two tmux-window tabs ("one", "two") in its
+    /// single tab-strip pane, matching `programmaticMirrorReorderUpdatesTheTmuxWindowOrderLedger`'s
+    /// setup — shared by the side-by-side browser split tests below.
+    ///
+    /// Returns `controller` too, and the caller MUST keep it alive (e.g.
+    /// `withExtendedLifetime`) for as long as it uses `workspace`:
+    /// `RemoteTmuxController.sessionMirrors` is the only strong owner of the
+    /// `RemoteTmuxSessionMirror` backing this workspace (`workspace.remoteTmuxSessionMirror`
+    /// is `weak`), so letting `controller` deallocate silently drops the
+    /// mirror and every mirror-aware pane-resolution call site under test
+    /// falls back to plain `focusedPaneId ?? allPaneIds.first`.
+    private func twoWindowMirrorWorkspace() throws -> (
+        controller: RemoteTmuxController, workspace: Workspace, tabStripPaneId: PaneID, panelIds: [UUID]
+    ) {
+        let host = RemoteTmuxHost(destination: "split-\(UUID().uuidString)@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "work")
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-browser-split-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 0, lines: [], isError: false)
+        )
+        connection.handleMessageForTesting(.commandResult(
+            commandNumber: 1,
+            lines: [
+                "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
+                "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
+            ],
+            isError: false
+        ))
+        var rectsDrainGuard = 0
+        drain: while rectsDrainGuard < 16, let kind = connection.pendingCommandKindsForTesting.first {
+            rectsDrainGuard += 1
+            switch kind {
+            case let .paneRects(windowId, _):
+                let paneId = windowId == 1 ? 0 : 5
+                let size = windowId == 1 ? "80 24" : "90 30"
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2,
+                    lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                    isError: false
+                ))
+            case .other:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2, lines: [], isError: false))
+            default:
+                break drain
+            }
+        }
+
+        let controller = RemoteTmuxController()
+        controller.cacheConnection(connection)
+        let manager = TabManager()
+        try controller.mirrorSession(host: host, sessionName: "work", into: manager)
+        let workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelIds = workspace.bonsplitController.tabs(inPane: paneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+        #expect(panelIds.count == 2)
+        return (controller, workspace, paneId, panelIds)
+    }
+
+    @Test func browserSplitInMirrorCreatesASecondPaneCappedAtTwo() throws {
+        let (controller, workspace, tabStripPaneId, panelIds) = try twoWindowMirrorWorkspace()
+        try withExtendedLifetime(controller) {
+            let browserPanel = try #require(workspace.newBrowserSplit(
+                from: panelIds[0],
+                orientation: .horizontal
+            ))
+            #expect(workspace.bonsplitController.allPaneIds.count == 2)
+            let browserPaneId = try #require(workspace.paneId(forPanelId: browserPanel.id))
+            #expect(browserPaneId != tabStripPaneId)
+            let browserPaneTabs = workspace.bonsplitController.tabs(inPane: browserPaneId)
+                .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            #expect(browserPaneTabs == [browserPanel.id])
+
+            // Already at the 2-pane cap: splitting again is refused rather
+            // than opening a third pane, regardless of origin pane (the cap
+            // alone rules out splitting the browser pane itself too — a
+            // mirror's only pane before this split exists is always the
+            // tab-strip pane, so there is no separate "wrong origin" state
+            // to construct here).
+            #expect(workspace.newBrowserSplit(from: panelIds[1], orientation: .horizontal) == nil)
+            #expect(workspace.newBrowserSplit(from: browserPanel.id, orientation: .horizontal) == nil)
+        }
+    }
+
+    @Test func newTmuxWindowLandsInTabStripPaneEvenWhenBrowserPaneFocused() throws {
+        let (controller, workspace, tabStripPaneId, panelIds) = try twoWindowMirrorWorkspace()
+        try withExtendedLifetime(controller) {
+            let browserPanel = try #require(workspace.newBrowserSplit(
+                from: panelIds[0],
+                orientation: .horizontal
+            ))
+            let browserPaneId = try #require(workspace.paneId(forPanelId: browserPanel.id))
+            workspace.bonsplitController.focusPane(browserPaneId)
+            #expect(workspace.bonsplitController.focusedPaneId == browserPaneId)
+
+            // A tmux-window tab created while the browser pane is focused must
+            // still land in the tab-strip pane — the reconcile path that mounts
+            // it must not pick "whichever pane is focused" the way an ordinary
+            // user-initiated new tab would.
+            let newWindowPanel = try #require(workspace.addRemoteTmuxDisplayPane(
+                remotePaneId: 999,
+                onInput: { _ in }
+            ))
+            let landedPaneId = try #require(workspace.paneId(forPanelId: newWindowPanel.id))
+            #expect(landedPaneId == tabStripPaneId)
+        }
+    }
+
+    @Test func draggingTmuxWindowTabIntoBrowserPaneSnapsBackToTabStripPane() throws {
+        let (controller, workspace, tabStripPaneId, panelIds) = try twoWindowMirrorWorkspace()
+        try withExtendedLifetime(controller) {
+            let browserPanel = try #require(workspace.newBrowserSplit(
+                from: panelIds[0],
+                orientation: .horizontal
+            ))
+            let browserPaneId = try #require(workspace.paneId(forPanelId: browserPanel.id))
+            let draggedTabId = try #require(workspace.surfaceIdFromPanelId(panelIds[1]))
+
+            // Simulate a drag of the second tmux-window tab into the browser
+            // pane: Bonsplit's own `moveTab` relocates it and fires
+            // `didMoveTab` synchronously through the same `BonsplitDelegate`
+            // conformance the app uses — exercising the exact veto path in
+            // `Workspace.splitTabBar(_:didMoveTab:fromPane:toPane:)`.
+            _ = workspace.bonsplitController.moveTab(draggedTabId, toPane: browserPaneId)
+
+            // Snapped back to the tab-strip pane, not left in the browser pane.
+            #expect(workspace.paneId(forPanelId: panelIds[1]) == tabStripPaneId)
+            let stripPanelIds = Set(
+                workspace.bonsplitController.tabs(inPane: tabStripPaneId)
+                    .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            )
+            #expect(stripPanelIds == Set(panelIds))
+            let browserPaneTabs = workspace.bonsplitController.tabs(inPane: browserPaneId)
+                .compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            #expect(browserPaneTabs == [browserPanel.id])
+        }
     }
 
     @Test func multiPaneMirrorSurfaceTitlesUseWindowName() throws {
