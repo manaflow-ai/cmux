@@ -1,474 +1,61 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "browser.omnibar.accessibilityLabel": {
+    "cli.session.usage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Address and search bar"
+            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adress- und Suchleiste"
+            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nVerschiebt eine beendete Claude Code-Sitzung auf eine andere Maschine und setzt sie dort fort.\nBeende zuerst den Agenten: Die Verschiebung wird abgelehnt, solange die Sitzung auf einer Seite läuft.\n\nDie Verschiebung überträgt:\n  - den git-Checkout des cwd: HEAD (auf demselben Branch, wenn das sicher ist) sowie geänderte,\n    gelöschte und nicht ignorierte, nicht verfolgte Dateien; ein Worktree wird hinzugefügt, wenn\n    das Repository am Ziel existiert, der Pfad aber nicht\n  - das Transkript, sein Sitzungsverzeichnis, den Dateiverlauf und das Projektgedächtnis\n    (in beide Richtungen zusammengeführt, das Neueste gewinnt, nichts wird gelöscht)\n\nDanach öffnet sie am Ziel einen Workspace (`cmux ssh` für einen Host, einen lokalen Workspace\nfür `local`), der die Sitzung mit ihrem aufgezeichneten Launcher fortsetzt. Liegt das Home-\nVerzeichnis am Ziel nicht unter demselben absoluten Pfad, werden Pfade darunter umgeschrieben\nund das Projekt erhält einen neuen Slug.\n\nOptionen:\n  --to <destination>      SSH-Ziel (user@host oder ssh_config-Alias) oder local\n  --from <destination>    Wo die Sitzung jetzt ist (Standard: wohin die letzte Verschiebung sie gebracht hat, sonst local)\n  --name <title>          Workspace-Titel (Standard: die ersten 8 Zeichen der ID)\n  --no-code               Den git-Checkout nicht übertragen\n  --port <n>              SSH-Port\n  --identity <path>       SSH-Identitätsdatei\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --no-focus              Workspace öffnen, ohne dorthin zu wechseln\n\nBeispiele:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barre d’adresse et de recherche"
+            "value": "Utilisation: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nDéplace une session Claude Code arrêtée vers une autre machine et la reprend là-bas.\nQuittez d'abord l'agent : le déplacement est refusé tant que la session s'exécute d'un côté ou de l'autre.\n\nLe déplacement transfère :\n  - le checkout git du cwd : HEAD (sur la même branche quand c'est sûr) ainsi que les fichiers\n    modifiés, supprimés et non suivis non ignorés ; un worktree est ajouté quand le dépôt existe\n    sur la destination mais pas le chemin\n  - la transcription, son répertoire de session, l'historique des fichiers et la mémoire du\n    projet (fusionnée dans les deux sens, le plus récent l'emporte, rien n'est supprimé)\n\nIl ouvre ensuite un espace de travail sur la destination (`cmux ssh` pour un hôte, un espace\nlocal pour `local`) qui reprend la session avec son lanceur enregistré. Quand le dossier\npersonnel de destination n'a pas le même chemin absolu, les chemins qu'il contient sont\nconvertis et le projet reçoit un nouveau slug.\n\nOptions :\n  --to <destination>      Destination SSH (user@host ou alias ssh_config), ou local\n  --from <destination>    Où se trouve la session (par défaut : là où l'a mise le dernier déplacement, sinon local)\n  --name <title>          Titre de l'espace de travail (par défaut : les 8 premiers caractères de l'id)\n  --no-code               Ne pas transférer le checkout git\n  --port <n>              Port SSH\n  --identity <path>       Fichier d'identité SSH\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --no-focus              Ouvrir l'espace de travail sans y basculer\n\nExemples :\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شريط العنوان والبحث"
+            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nينقل جلسة Claude Code متوقفة إلى جهاز آخر ويستأنفها هناك.\nأغلق الوكيل أولًا: يُرفض النقل ما دامت الجلسة تعمل على أي من الجانبين.\n\nينقل الأمر:\n  - checkout الخاص بـ git في cwd: HEAD (على الفرع نفسه عندما يكون ذلك آمنًا) والملفات المعدّلة\n    والمحذوفة وغير المتتبعة وغير المتجاهلة؛ ويُضاف worktree عندما يوجد المستودع في الوجهة\n    ولا يوجد المسار\n  - نص الجلسة ودليل الجلسة وسجل الملفات ودليل ذاكرة المشروع\n    (مدمج في الاتجاهين، الأحدث يفوز، ولا يُحذف شيء)\n\nثم يفتح مساحة عمل في الوجهة (`cmux ssh` لمضيف، أو مساحة عمل محلية لـ `local`)\nتستأنف الجلسة بالمشغّل المسجّل لها. عندما لا يكون المجلد الرئيسي في الوجهة\nعلى المسار المطلق نفسه، تُحوَّل المسارات داخله\nويُعاد إنشاء slug للمشروع.\n\nالخيارات:\n  --to <destination>      وجهة SSH (user@host أو اسم مستعار من ssh_config)، أو local\n  --from <destination>    مكان الجلسة الآن (الافتراضي: حيث وضعها آخر نقل، وإلا local)\n  --name <title>          عنوان مساحة العمل (الافتراضي: أول 8 أحرف من المعرّف)\n  --no-code               لا تنقل checkout الخاص بـ git\n  --port <n>              منفذ SSH\n  --identity <path>       ملف هوية SSH\n  --ssh-option <opt>      خيار SSH إضافي -o (قابل للتكرار)\n  --no-focus              افتح مساحة العمل دون التبديل إليها\n\nأمثلة:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra de direcciones y búsqueda"
+            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMueve una sesión detenida de Claude Code a otra máquina y la reanuda allí.\nSal primero del agente: el movimiento se rechaza mientras la sesión se ejecute en cualquiera de los lados.\n\nEl movimiento lleva:\n  - el checkout de git del cwd: HEAD (en la misma rama cuando es seguro) más los archivos\n    modificados, eliminados y sin seguimiento no ignorados; se añade un worktree cuando el\n    repositorio existe en el destino pero la ruta no\n  - la transcripción, su directorio de sesión, el historial de archivos y la memoria del\n    proyecto (combinada en ambos sentidos, gana la más reciente, no se borra nada)\n\nDespués abre un espacio de trabajo en el destino (`cmux ssh` para un host, uno local para\n`local`) que reanuda la sesión con su lanzador registrado. Cuando el home del destino no está\nen la misma ruta absoluta, las rutas bajo él se convierten\ny el proyecto recibe un nuevo slug.\n\nOpciones:\n  --to <destination>      Destino SSH (user@host o alias de ssh_config), o local\n  --from <destination>    Dónde está la sesión ahora (por defecto: donde la dejó el último movimiento, si no local)\n  --name <title>          Título del espacio de trabajo (por defecto: los primeros 8 caracteres del id)\n  --no-code               No llevar el checkout de git\n  --port <n>              Puerto SSH\n  --identity <path>       Archivo de identidad SSH\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --no-focus              Abrir el espacio de trabajo sin cambiar a él\n\nEjemplos:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網址與搜尋列"
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n將已停止的 Claude Code 工作階段移到另一台機器並在那裡恢復。\n請先結束代理：只要工作階段仍在任一端執行，移動就會被拒絕。\n\n移動會帶上：\n  - cwd 的 git checkout：HEAD（安全時使用同一分支）加上已修改、已刪除\n    和未追蹤且未忽略的檔案；若目的地有儲存庫\n    但沒有該路徑，會新增 worktree\n  - 對話紀錄、其工作階段目錄、檔案歷史與專案記憶目錄\n    （雙向合併，較新者優先，不刪除任何內容）\n\n接著在目的地開啟工作區（主機用 `cmux ssh`，`local` 則開本機工作區），\n以記錄的啟動器恢復工作階段。\n若目的地的主目錄不在相同的絕對路徑，其下的路徑會被對應，\n專案也會重新產生 slug。\n\n選項：\n  --to <destination>      SSH 目的地（user@host 或 ssh_config 別名），或 local\n  --from <destination>    工作階段目前所在位置（預設：上次移動所放的位置，否則為 local）\n  --name <title>          工作區標題（預設：ID 的前 8 個字元）\n  --no-code               不帶上 git checkout\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH 身分檔案\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --no-focus              開啟工作區但不切換過去\n\n範例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "地址和搜索栏"
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n将已停止的 Claude Code 会话移到另一台机器并在那里恢复。\n请先退出代理：只要会话仍在任一端运行，移动就会被拒绝。\n\n移动会带上：\n  - cwd 的 git 检出：HEAD（安全时使用同一分支）以及已修改、已删除\n    和未跟踪且未忽略的文件；若目标上有仓库\n    但没有该路径，会添加 worktree\n  - 会话记录、其会话目录、文件历史和项目记忆目录\n    （双向合并，较新者优先，不删除任何内容）\n\n随后在目标上打开工作区（主机用 `cmux ssh`，`local` 则打开本地工作区），\n用记录的启动器恢复会话。\n若目标的主目录不在相同的绝对路径，其下的路径会被映射，\n项目也会重新生成 slug。\n\n选项：\n  --to <destination>      SSH 目标（user@host 或 ssh_config 别名），或 local\n  --from <destination>    会话当前所在位置（默认：上次移动放置的位置，否则为 local）\n  --name <title>          工作区标题（默认：ID 的前 8 个字符）\n  --no-code               不带上 git 检出\n  --port <n>              SSH 端口\n  --identity <path>       SSH 身份文件\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --no-focus              打开工作区但不切换过去\n\n示例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "주소 및 검색 막대"
+            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n중지된 Claude Code 세션을 다른 머신으로 옮기고 그곳에서 재개합니다.\n먼저 에이전트를 종료하세요. 어느 쪽에서든 세션이 실행 중이면 이동이 거부됩니다.\n\n이동하는 항목:\n  - cwd의 git 체크아웃: HEAD(안전하면 같은 브랜치)와 수정, 삭제,\n    무시되지 않은 추적 안 된 파일. 대상에 저장소는 있지만\n    경로가 없으면 worktree를 추가합니다\n  - 트랜스크립트, 세션 디렉터리, 파일 기록, 프로젝트 메모리 디렉터리\n    (양방향 병합, 최신 우선, 삭제 없음)\n\n그런 다음 대상에서 작업 공간(호스트는 `cmux ssh`, `local`은 로컬 작업 공간)을 열고\n기록된 런처로 세션을 재개합니다.\n대상의 홈이 같은 절대 경로에 있지 않으면 홈 아래 경로를 변환하고\n프로젝트 slug를 다시 만듭니다.\n\n옵션:\n  --to <destination>      SSH 대상(user@host 또는 ssh_config 별칭) 또는 local\n  --from <destination>    세션의 현재 위치(기본값: 마지막 이동으로 옮긴 곳, 없으면 local)\n  --name <title>          작업 공간 제목(기본값: ID의 처음 8자)\n  --no-code               git 체크아웃을 옮기지 않음\n  --port <n>              SSH 포트\n  --identity <path>       SSH ID 파일\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --no-focus              작업 공간으로 전환하지 않고 열기\n\n예시:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アドレスと検索バー"
-          }
-        }
-      }
-    },
-    "projectPanel.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload Project"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Projekt neu laden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recharger le projet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة تحميل المشروع"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recargar proyecto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入專案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载项目"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로젝트 다시 불러오기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロジェクトを再読み込み"
-          }
-        }
-      }
-    },
-    "projectPanel.reloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload returned errors: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le rechargement a renvoyé des erreurs : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أعادت إعادة التحميل أخطاء: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La recarga devolvió errores: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入時發生錯誤：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载时出现错误：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 불러오기 중 오류 발생: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込みでエラーが発生しました: %@"
-          }
-        }
-      }
-    },
-    "projectPanel.dismissReloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss Errors"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehler ausblenden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignorer les erreurs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجاهل الأخطاء"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descartar errores"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉錯誤"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭错误"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오류 닫기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーを閉じる"
-          }
-        }
-      }
-    },
-    "projectPanel.scheme": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scheme"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schéma"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المخطط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esquema"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스킴"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スキーム"
-          }
-        }
-      }
-    },
-    "projectPanel.configuration": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konfiguration"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration de build"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التكوين"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組態"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "構成"
-          }
-        }
-      }
-    },
-    "projectPanel.loadingFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wird geladen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تحميل %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 불러오는 중"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を読み込み中"
-          }
-        }
-      }
-    },
-    "projectPanel.failedFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehlgeschlagen: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失败：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실패: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗: %@"
+            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n停止した Claude Code セッションを別のマシンへ移動し、そこで再開します。\n先にエージェントを終了してください。どちらかでセッションが実行中の間は移動を拒否します。\n\n移動する内容:\n  - cwd の git チェックアウト: HEAD (安全なら同じブランチ) と、変更・削除されたファイル、\n    無視されていない未追跡ファイル。移動先にリポジトリはあるが\n    パスがない場合は worktree を追加します\n  - トランスクリプト、セッションディレクトリ、ファイル履歴、プロジェクトのメモリディレクトリ\n    (双方向にマージ、新しいほうを優先、削除はしません)\n\nその後、移動先でワークスペース (ホストなら `cmux ssh`、`local` ならローカルのワークスペース) を\n開き、記録されたランチャーでセッションを再開します。\n移動先のホームが同じ絶対パスにない場合は、ホーム配下のパスを変換し、\nプロジェクトの slug を作り直します。\n\nオプション:\n  --to <destination>      SSH 接続先 (user@host または ssh_config のエイリアス)、または local\n  --from <destination>    セッションの現在の場所 (既定: 前回の移動先、なければ local)\n  --name <title>          ワークスペースのタイトル (既定: ID の先頭 8 文字)\n  --no-code               git チェックアウトを移動しない\n  --port <n>              SSH ポート\n  --identity <path>       SSH の ID ファイル\n  --ssh-option <opt>      追加の SSH -o オプション (繰り返し可)\n  --no-focus              ワークスペースに切り替えずに開く\n\n例:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
           }
         }
       }
@@ -560014,6 +559601,2307 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：文字過大；經 JSON 跳脫後的上限為 %@ MiB"
+          }
+        }
+      }
+    },
+    "cli.session.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر session فرعي غير معروف: %@. الاستخدام: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter session-Unterbefehl: %@. Verwendung: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de session desconocido: %@. Uso: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande session inconnue : %@. Utilisation : cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な session サブコマンド: %@。使用方法: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 session 하위 명령: %@. 사용법: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 session 子命令：%@。用法：cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.branchDiverged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: branch %@ on the destination has commits the session's HEAD does not contain"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: الفرع %@ في الوجهة يحتوي على commits غير موجودة في HEAD الخاص بالجلسة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Der Branch %@ am Ziel enthält Commits, die im HEAD der Sitzung fehlen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la rama %@ en el destino tiene commits que el HEAD de la sesión no contiene"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la branche %@ sur la destination contient des commits absents du HEAD de la session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先のブランチ %@ にセッションの HEAD に含まれないコミットがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상의 %@ 브랜치에 세션 HEAD에 없는 커밋이 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目标上的分支 %@ 包含会话 HEAD 中没有的提交"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目的地的分支 %@ 含有此工作階段 HEAD 沒有的 commit"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.checkoutDirty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ on the destination has changes that did not come from this session; commit or stash them there first"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: يحتوي %@ في الوجهة على تغييرات لم تأتِ من هذه الجلسة؛ نفّذ commit لها أو stash هناك أولًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ am Ziel hat Änderungen, die nicht aus dieser Sitzung stammen; committe oder stashe sie dort zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ en el destino tiene cambios que no provienen de esta sesión; haz commit o stash allí primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : %@ sur la destination contient des modifications qui ne viennent pas de cette session ; validez-les ou mettez-les de côté (stash) d'abord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先の %@ にこのセッション由来ではない変更があります。先にそこでコミットまたは stash してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상의 %@에 이 세션에서 오지 않은 변경 사항이 있습니다. 먼저 그곳에서 커밋하거나 stash하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目标上的 %@ 有并非来自此会话的更改；请先在那里提交或 stash"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目的地的 %@ 有不是來自此工作階段的變更；請先在那裡 commit 或 stash"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.copyFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: copying %@ failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: فشل نسخ %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Kopieren von %1$@ fehlgeschlagen: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no se pudo copiar %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : échec de la copie de %1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@ のコピーに失敗しました: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@ 복사 실패: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：复制 %1$@ 失败：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：複製 %1$@ 失敗：%2$@"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.cwdMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ does not exist on the destination"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ غير موجود في الوجهة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ existiert am Ziel nicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ no existe en el destino"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : %@ n'existe pas sur la destination"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先に %@ が存在しません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상에 %@이(가) 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目标上不存在 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目的地上不存在 %@"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.flagRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ requires a value"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: يتطلب %@ قيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ benötigt einen Wert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ requiere un valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : %@ nécessite une valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ には値が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@에는 값이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：%@ 需要一个值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：%@ 需要一個值"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.gitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: git %@ failed: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: فشل git %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: git %1$@ fehlgeschlagen: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: falló git %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : échec de git %1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: git %1$@ に失敗しました: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: git %1$@ 실패: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：git %1$@ 失败：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：git %1$@ 失敗：%2$@"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.invalidSessionID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@' is not a session id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@' ليس معرّف جلسة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: „%@“ ist keine Sitzungs-ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@' no es un id de sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : '%@' n'est pas un identifiant de session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@' はセッション ID ではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@'은(는) 세션 ID가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：'%@' 不是会话 ID"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：'%@' 不是工作階段 ID"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.liveOnDestination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the session is already running on %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: الجلسة قيد التشغيل بالفعل على %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Sitzung läuft bereits auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la sesión ya se está ejecutando en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la session s'exécute déjà sur %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: セッションはすでに %@ で実行中です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 세션이 이미 %@에서 실행 중입니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：会话已在 %@ 上运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：此工作階段已在 %@ 上執行"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.liveOnSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the session is still running on %@; exit the agent at the end of its turn, then move it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: الجلسة لا تزال قيد التشغيل على %@؛ أغلق الوكيل عند نهاية دوره ثم انقلها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Sitzung läuft noch auf %@; beende den Agenten am Ende seines Zuges und verschiebe sie dann"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la sesión sigue ejecutándose en %@; sal del agente al final de su turno y luego muévela"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la session s'exécute encore sur %@ ; quittez l'agent à la fin de son tour, puis déplacez-la"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: セッションはまだ %@ で実行中です。ターンの終わりにエージェントを終了してから移動してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 세션이 아직 %@에서 실행 중입니다. 에이전트가 턴을 마치면 종료한 뒤 이동하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：会话仍在 %@ 上运行；请在代理本轮结束后退出，再移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：此工作階段仍在 %@ 上執行；請在代理完成本輪後結束它，再移動"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.repositoryMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no checkout at %@ and no repository at %@ on the destination; clone it there first"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: لا يوجد checkout في %1$@ ولا مستودع في %2$@ على الوجهة؛ انسخه (clone) هناك أولًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Am Ziel gibt es keinen Checkout unter %1$@ und kein Repository unter %2$@; klone es dort zuerst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no hay checkout en %1$@ ni repositorio en %2$@ en el destino; clónalo allí primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : aucun checkout à %1$@ et aucun dépôt à %2$@ sur la destination ; clonez-le d'abord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先の %1$@ にチェックアウトがなく、%2$@ にリポジトリもありません。先にそこでクローンしてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상의 %1$@에 체크아웃이 없고 %2$@에 저장소도 없습니다. 먼저 그곳에 클론하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目标上 %1$@ 没有检出，%2$@ 也没有仓库；请先在那里克隆"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目的地的 %1$@ 沒有 checkout，%2$@ 也沒有儲存庫；請先在那裡 clone"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.sameEndpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the session is already there"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: الجلسة موجودة هناك بالفعل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Sitzung ist bereits dort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la sesión ya está allí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la session y est déjà"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: セッションはすでにそこにあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 세션이 이미 그곳에 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：会话已经在那里"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：此工作階段已經在那裡"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.transcriptNewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the destination transcript is newer; the session continued there, so move it the other way"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: نص الجلسة في الوجهة أحدث؛ استمرت الجلسة هناك، لذا انقلها في الاتجاه الآخر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Das Transkript am Ziel ist neuer; die Sitzung wurde dort fortgesetzt, verschiebe sie also in die andere Richtung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la transcripción del destino es más reciente; la sesión continuó allí, así que muévela en sentido contrario"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la transcription de destination est plus récente ; la session s'y est poursuivie, déplacez-la dans l'autre sens"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先のトランスクリプトのほうが新しいです。セッションはそこで続行されたので、逆方向に移動してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상의 트랜스크립트가 더 최신입니다. 세션이 그곳에서 계속되었으니 반대 방향으로 이동하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目标上的记录更新；会话已在那里继续，请反向移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：目的地的對話紀錄較新；工作階段已在那裡繼續，請反向移動"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.transcriptNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no Claude transcript for this session on %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: لا يوجد نص Claude لهذه الجلسة على %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Kein Claude-Transkript für diese Sitzung auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no hay transcripción de Claude para esta sesión en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : aucune transcription Claude pour cette session sur %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@ にこのセッションの Claude トランスクリプトがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %@에 이 세션의 Claude 트랜스크립트가 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：%@ 上没有此会话的 Claude 记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：%@ 上沒有此工作階段的 Claude 對話紀錄"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.transcriptsDiverged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the transcripts diverged (the destination copy is not a prefix of the source); resolve by hand"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: تباعدت النصوص (نسخة الوجهة ليست بادئة للمصدر)؛ عالج ذلك يدويًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Die Transkripte sind auseinandergelaufen (die Kopie am Ziel ist kein Präfix der Quelle); bitte manuell auflösen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: las transcripciones divergieron (la copia del destino no es un prefijo del origen); resuélvelo a mano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : les transcriptions ont divergé (la copie de destination n'est pas un préfixe de la source) ; résolvez manuellement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: トランスクリプトが分岐しました (移動先のコピーが元の先頭部分ではありません)。手動で解決してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 트랜스크립트가 갈라졌습니다(대상 사본이 원본의 접두사가 아님). 직접 해결하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：记录已分叉（目标副本不是源的前缀）；请手动处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：對話紀錄已分歧（目的地的副本不是來源的前綴）；請手動處理"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: unknown flag '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: علم غير معروف '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: unbekanntes Flag „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: opción desconocida '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : option inconnue '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 不明なフラグ '%@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 알 수 없는 플래그 '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：未知标志 '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：未知的旗標 '%@'"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unknownSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no record of where this session was moved; pass --from <ssh-destination>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: لا يوجد سجل بالمكان الذي نُقلت إليه هذه الجلسة؛ مرّر --from <ssh-destination>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Kein Eintrag, wohin diese Sitzung verschoben wurde; gib --from <ssh-destination> an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no hay registro de adónde se movió esta sesión; pasa --from <ssh-destination>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : aucune trace de l'endroit où cette session a été déplacée ; passez --from <ssh-destination>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: このセッションの移動先の記録がありません。--from <ssh-destination> を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 이 세션을 어디로 옮겼는지 기록이 없습니다. --from <ssh-destination>을 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：没有此会话被移动到何处的记录；请传入 --from <ssh-destination>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：沒有此工作階段被移到何處的紀錄；請傳入 --from <ssh-destination>"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: cannot reach %@: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: تعذّر الوصول إلى %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@ ist nicht erreichbar: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no se puede acceder a %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : impossible de joindre %1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@ に接続できません: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@에 연결할 수 없습니다: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：无法连接 %1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：無法連線到 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unsupportedPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: paths with whitespace are not supported: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: المسارات التي تحتوي على مسافات غير مدعومة: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Pfade mit Leerzeichen werden nicht unterstützt: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no se admiten rutas con espacios: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : les chemins contenant des espaces ne sont pas pris en charge : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 空白を含むパスはサポートされていません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 공백이 포함된 경로는 지원하지 않습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：不支持包含空白的路径：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：不支援含有空白的路徑：%@"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unsupportedRoute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: moves go between this Mac and one host; move the session back with --to local first"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: يتم النقل بين هذا الـ Mac ومضيف واحد؛ أعد الجلسة أولًا باستخدام --to local"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Verschiebungen laufen zwischen diesem Mac und einem Host; verschiebe die Sitzung zuerst mit --to local zurück"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: los movimientos van entre este Mac y un host; primero devuelve la sesión con --to local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : les déplacements se font entre ce Mac et un hôte ; ramenez d'abord la session avec --to local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動はこの Mac と 1 台のホストの間で行います。先に --to local でセッションを戻してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 이동은 이 Mac과 한 호스트 사이에서만 가능합니다. 먼저 --to local로 세션을 되돌리세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：移动只在这台 Mac 与一台主机之间进行；请先用 --to local 把会话移回"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：移動只在這台 Mac 與一台主機之間進行；請先用 --to local 把工作階段移回來"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.unsupportedSSHTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: unsupported SSH destination or option for '%@' (use user@host or an ssh_config alias, without whitespace)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: وجهة أو خيار SSH غير مدعوم لـ '%@' (استخدم user@host أو اسمًا مستعارًا من ssh_config، بدون مسافات)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: nicht unterstütztes SSH-Ziel oder -Option für „%@“ (verwende user@host oder einen ssh_config-Alias, ohne Leerzeichen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: destino u opción SSH no admitidos para '%@' (usa user@host o un alias de ssh_config, sin espacios)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : destination ou option SSH non prise en charge pour '%@' (utilisez user@host ou un alias ssh_config, sans espaces)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@' の SSH 接続先またはオプションはサポートされていません (空白なしの user@host か ssh_config のエイリアスを使ってください)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: '%@'에 대한 SSH 대상 또는 옵션을 지원하지 않습니다(공백 없이 user@host 또는 ssh_config 별칭 사용)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：'%@' 的 SSH 目标或选项不受支持（请使用 user@host 或 ssh_config 别名，且不含空白）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：'%@' 的 SSH 目的地或選項不受支援（請使用 user@host 或 ssh_config 別名，且不含空白）"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux session move <session-id> --to <ssh-destination|local>"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.workingDirectoryUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: the transcript does not record the session's working directory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: لا يسجّل النص دليل العمل الخاص بالجلسة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Das Transkript enthält kein Arbeitsverzeichnis der Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: la transcripción no registra el directorio de trabajo de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : la transcription n'indique pas le répertoire de travail de la session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: トランスクリプトにセッションの作業ディレクトリが記録されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 트랜스크립트에 세션의 작업 디렉터리가 기록되어 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：记录中没有会话的工作目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：對話紀錄沒有記錄工作階段的工作目錄"
+          }
+        }
+      }
+    },
+    "cli.session.move.error.worktreeAddFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: could not add a worktree at %@: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: تعذّرت إضافة worktree في %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Worktree unter %1$@ konnte nicht hinzugefügt werden: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: no se pudo añadir un worktree en %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : impossible d'ajouter un worktree à %1$@ : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@ に worktree を追加できませんでした: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: %1$@에 worktree를 추가할 수 없습니다: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：无法在 %1$@ 添加 worktree：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：無法在 %1$@ 新增 worktree：%2$@"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code: %@ at %@ (%@) with working tree snapshot %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكود: %1$@ عند %2$@ (%3$@) مع لقطة شجرة العمل %4$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code: %1$@ auf %2$@ (%3$@) mit Snapshot des Arbeitsverzeichnisses %4$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código: %1$@ en %2$@ (%3$@) con la instantánea del árbol de trabajo %4$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code : %1$@ à %2$@ (%3$@) avec l'instantané de l'arbre de travail %4$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード: %1$@ は %2$@ (%3$@)、作業ツリーのスナップショット %4$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드: %1$@, %2$@ (%3$@), 작업 트리 스냅샷 %4$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码：%1$@ 位于 %2$@（%3$@），含工作树快照 %4$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼：%1$@ 位於 %2$@（%3$@），含工作樹快照 %4$@。"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منفصل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "losgelöst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desacoplado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "détaché"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분리됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分离"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分離"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.moved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved session %@ to %@ (cwd %@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نقل الجلسة %1$@ إلى %2$@ (cwd %3$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung %1$@ nach %2$@ verschoben (cwd %3$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión %1$@ movida a %2$@ (cwd %3$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session %1$@ déplacée vers %2$@ (cwd %3$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション %1$@ を %2$@ に移動しました (cwd %3$@)。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 %1$@을(를) %2$@(으)로 이동했습니다 (cwd %3$@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将会话 %1$@ 移到 %2$@（cwd %3$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將工作階段 %1$@ 移到 %2$@（cwd %3$@）。"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.notGit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code: %@ is not a git checkout; no files were moved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الكود: %@ ليس checkout لـ git؛ لم يتم نقل أي ملفات."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code: %@ ist kein git-Checkout; es wurden keine Dateien verschoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código: %@ no es un checkout de git; no se movió ningún archivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code : %@ n'est pas un checkout git ; aucun fichier n'a été déplacé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コード: %@ は git のチェックアウトではないため、ファイルは移動していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드: %@은(는) git 체크아웃이 아니므로 파일을 옮기지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代码：%@ 不是 git 检出；未移动任何文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式碼：%@ 不是 git checkout；未移動任何檔案。"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.pathsRewritten": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paths were rewritten: %@ -> %@. Absolute paths inside the transcript still name the old home."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة كتابة المسارات: %1$@ -> %2$@. لا تزال المسارات المطلقة داخل النص تشير إلى المجلد الرئيسي القديم."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfade wurden umgeschrieben: %1$@ -> %2$@. Absolute Pfade im Transkript nennen weiterhin das alte Home-Verzeichnis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reescribieron las rutas: %1$@ -> %2$@. Las rutas absolutas dentro de la transcripción aún nombran el home anterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chemins réécrits : %1$@ -> %2$@. Les chemins absolus de la transcription désignent encore l'ancien dossier personnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを書き換えました: %1$@ -> %2$@。トランスクリプト内の絶対パスは古いホームのままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경로를 다시 썼습니다: %1$@ -> %2$@. 트랜스크립트 안의 절대 경로는 여전히 이전 홈을 가리킵니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已改写路径：%1$@ -> %2$@。记录中的绝对路径仍指向旧的主目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已改寫路徑：%1$@ -> %2$@。對話紀錄中的絕對路徑仍指向舊的主目錄。"
+          }
+        }
+      }
+    },
+    "cli.session.move.output.sourceKept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The copy on %@ stays; do not resume it there too."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى النسخة على %@؛ لا تستأنفها هناك أيضًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopie auf %@ bleibt erhalten; setze sie dort nicht ebenfalls fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copia en %@ se conserva; no la reanudes también allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copie sur %@ est conservée ; ne la reprenez pas aussi là-bas."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のコピーは残ります。そちらでも再開しないでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 사본은 그대로 남습니다. 그곳에서도 재개하지 마세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的副本会保留；请勿也在那里恢复它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的副本會保留；請勿也在那裡恢復它。"
+          }
+        }
+      }
+    },
+    "cli.session.move.progress.addingWorktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: adding worktree %@ on the destination"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: جارٍ إضافة worktree %@ في الوجهة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: Worktree %@ wird am Ziel hinzugefügt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: añadiendo el worktree %@ en el destino"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move : ajout du worktree %@ sur la destination"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 移動先に worktree %@ を追加しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move: 대상에 worktree %@을(를) 추가하는 중"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：正在目标上添加 worktree %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session move：正在目的地新增 worktree %@"
+          }
+        }
+      }
+    },
+    "browser.omnibar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address and search bar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adress- und Suchleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’adresse et de recherche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان والبحث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de direcciones y búsqueda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網址與搜尋列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址和搜索栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주소 및 검색 막대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと検索バー"
+          }
+        }
+      }
+    },
+    "projectPanel.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Project"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt neu laden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger le projet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل المشروع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar proyecto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入專案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 다시 불러오기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを再読み込み"
+          }
+        }
+      }
+    },
+    "projectPanel.reloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload returned errors: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rechargement a renvoyé des erreurs : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعادت إعادة التحميل أخطاء: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La recarga devolvió errores: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入時發生錯誤：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载时出现错误：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 불러오기 중 오류 발생: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みでエラーが発生しました: %@"
+          }
+        }
+      }
+    },
+    "projectPanel.dismissReloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Errors"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les erreurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل الأخطاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar errores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉錯誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭错误"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーを閉じる"
+          }
+        }
+      }
+    },
+    "projectPanel.scheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schéma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخطط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킴"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキーム"
+          }
+        }
+      }
+    },
+    "projectPanel.configuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكوين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成"
+          }
+        }
+      }
+    },
+    "projectPanel.loadingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird geladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 불러오는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込み中"
+          }
+        }
+      }
+    },
+    "projectPanel.failedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗: %@"
           }
         }
       }
