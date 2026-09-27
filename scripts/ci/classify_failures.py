@@ -26,8 +26,9 @@ disk, or a script that spells a signature it never prints, does not count.
 `act` writes the verdicts to the job summary and to one bot comment on the
 pull request, edited in place, and re-runs the failed jobs when every failed
 job is machine. GitHub's attempt counter bounds that: only a failed attempt 1
-is re-run, only while it is still the run's latest attempt, the pull request
-is open and its head has not moved. owned_pool_rescue.py may re-run a refused
+is re-run (or a later attempt a person started: that one ran on the minis, and
+this re-run goes to Blacksmith), only while it is still the run's latest
+attempt, the pull request is open and its head has not moved. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
@@ -277,11 +278,13 @@ def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
     if report.get("conclusion") != "failure":
         return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
-    if report["attempt"] != 1:
-        return False, (f"Every failure is a machine failure, but this is attempt {report['attempt']}; "
-                       "only attempt 1 is re-run automatically. Re-run it by hand if it should go again.")
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
         return False, "Every failure is a machine failure; the run has been re-run already."
+    # Attempt 1, or a later attempt a person started: a person's re-run goes back to the minis
+    # (pr_runner_pool.host_fault_retry()), and this bot's re-run takes Blacksmith, which ends it.
+    if report["attempt"] != 1 and str((latest.get("triggering_actor") or {}).get("login") or "") == BOT:
+        return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
+                       "automatic re-run. Re-run it by hand if it should go again.")
     return True, "Every failure is a machine failure: re-ran the failed jobs as attempt 2 (the checks show its result)."
 
 

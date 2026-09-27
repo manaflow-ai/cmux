@@ -209,19 +209,29 @@ class RerunDecisionTests(unittest.TestCase):
             self.assertFalse(rerun)
             self.assertIn("`job 1`", line)
 
-    def test_only_attempt_one_is_rerun(self) -> None:
-        # GitHub's own counter bounds the re-runs; nothing a comment says can reset it.
+    def test_an_automatic_re_run_is_not_re_run_again(self) -> None:
+        # The bot's own re-run went to Blacksmith; nothing a comment says can restart it.
         rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=2),
-                                        {"run_attempt": 2, "status": "completed"})
+                                        {"run_attempt": 2, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
         self.assertFalse(rerun)
         self.assertIn("attempt 2", line)
+
+    def test_a_persons_re_run_that_a_mini_failed_goes_to_blacksmith_once(self) -> None:
+        # A person's re-run follows a code failure back to the minis; a machine
+        # failure there is re-run by the bot, whose re-run takes Blacksmith.
+        rerun, _ = cf.rerun_decision(self.report([cf.MACHINE], attempt=2),
+                                     {"run_attempt": 2, "status": "completed",
+                                      "triggering_actor": {"login": "teamleaderleo"}})
+        self.assertTrue(rerun)
 
     def test_a_cancelled_run_is_reported_not_rerun(self) -> None:
         # owned_pool_rescue cancels a stuck run before its own full re-run.
         self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE], conclusion="cancelled"), self.LATEST)[0])
 
     def test_a_run_someone_else_reran_is_left_alone(self) -> None:
-        for latest in ({"run_attempt": 2, "status": "completed"}, {"run_attempt": 1, "status": "in_progress"}):
+        for latest in ({"run_attempt": 2, "status": "completed", "triggering_actor": {"login": cf.BOT}},
+                       {"run_attempt": 1, "status": "in_progress"}):
             self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE]), latest)[0])
 
     def test_gates_alone_do_not_rerun(self) -> None:
