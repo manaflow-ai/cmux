@@ -5531,6 +5531,183 @@
         }
       }
     },
+    "settings.search.alias.setting.workspaceColors.subtle-selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent 控えめ 選択 ハイライト 淡い 枠線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent 柔和 选中 高亮 淡色 边框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent 柔和 選取 高亮 淡色 邊框"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent 은은한 선택 하이라이트 옅은 테두리"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent dezent Auswahl Hervorhebung Akzent Rand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent sutil selección resaltado acento borde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent discret sélection surlignage accent bordure"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent هادئ تحديد تمييز لون حافة"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.subtleSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtle Selection Highlight"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめな選択ハイライト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和的选中高亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和的選取高亮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "은은한 선택 하이라이트"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dezente Auswahlhervorhebung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resaltado de selección sutil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surlignage de la sélection discret"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمييز تحديد هادئ"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.subtleSelection.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom Selection Highlight color still uses a solid fill."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のワークスペースを、塗りつぶしではなく淡いアクセントカラーと細い枠線で表示します。カスタムの選択ハイライト色を設定している場合は塗りつぶしのままです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用淡淡的强调色和细边框显示选中的工作区，而不是实色填充。设置了自定义选中高亮颜色时仍使用实色填充。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以淡淡的強調色和細邊框顯示選取的工作區，而非實色填滿。設定了自訂選取高亮顏色時仍使用實色填滿。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 작업 공간을 단색 채우기 대신 옅은 강조 색상과 얇은 테두리로 표시합니다. 사용자 지정 선택 하이라이트 색상은 계속 단색으로 채웁니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt den ausgewählten Arbeitsbereich als zarte Akzentfarbe mit feinem Rand statt als volle Füllung. Eine eigene Farbe für die Auswahlhervorhebung bleibt eine volle Füllung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el espacio de trabajo seleccionado con un tono de acento suave y un borde fino en lugar de un relleno sólido. Un color de resaltado de selección personalizado sigue usando relleno sólido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche l’espace de travail sélectionné avec une légère teinte d’accentuation et une fine bordure au lieu d’un remplissage plein. Une couleur de surlignage de la sélection personnalisée reste un remplissage plein."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض مساحة العمل المحددة بلون تمييز خفيف وحافة رفيعة بدلاً من تعبئة كاملة. يظل لون تمييز التحديد المخصص يستخدم تعبئة كاملة."
+          }
+        }
+      }
+    },
     "socket.agentHook.error.barrierTimeout": {
       "extractionState": "manual",
       "localizations": {

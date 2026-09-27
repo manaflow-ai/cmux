@@ -283,15 +283,74 @@ enum SidebarRemoteErrorCopySupport {
     }
 }
 
+/// Selection treatment for the workspace sidebar. Selection is persistent
+/// state, so it reads as a faint wash with a 1 pt hairline instead of a
+/// saturated block: the user's accent while the window is active, and a
+/// neutral wash and edge when it isn't, the way Finder dims an inactive
+/// window's selection. Increase Contrast strengthens both. Picked from a
+/// pairwise comparison of eight treatments across accents and sidebar themes
+/// (manaflow-ai/cmux#14890).
+struct CmuxSelectionFill: Equatable {
+    let color: NSColor
+    let edgeColor: NSColor?
+
+    static func resolve(
+        colorScheme: ColorScheme,
+        isEmphasized: Bool,
+        increaseContrast: Bool = false,
+        isSecondary: Bool = false
+    ) -> CmuxSelectionFill {
+        let isDark = colorScheme == .dark
+        let base: NSColor
+        let fillAlpha: CGFloat
+        let edgeAlpha: CGFloat
+        if isEmphasized {
+            base = .controlAccentColor
+            fillAlpha = increaseContrast ? 0.26 : (isDark ? 0.14 : 0.11)
+            edgeAlpha = increaseContrast ? 0.95 : 0.60
+        } else {
+            base = .labelColor
+            fillAlpha = isDark ? 0.08 : 0.06
+            edgeAlpha = increaseContrast ? 0.45 : 0.20
+        }
+        // Secondary selections (multi-select members) sit at roughly half the
+        // primary strength so the active row stays the clear anchor.
+        let scale: CGFloat = isSecondary ? 0.55 : 1
+        let resolver = SidebarAppearanceColorResolver()
+        return CmuxSelectionFill(
+            color: resolver.resolvedColor(base, for: colorScheme, opacity: fillAlpha * scale),
+            edgeColor: resolver.resolvedColor(base, for: colorScheme, opacity: edgeAlpha * scale)
+        )
+    }
+}
+
+/// Opaque color the selected workspace row reads as, used to choose readable
+/// row foregrounds. A configured `sidebarSelectionColorHex`, the solid-fill
+/// indicator style, and the default (non-subtle) selection paint a solid
+/// fill; the opt-in subtle selection composites its tint over an approximate
+/// sidebar surface for the scheme.
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex")
+    sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail,
+    subtleSelection: Bool = false,
+    isEmphasized: Bool = true,
+    increaseContrast: Bool = false
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
         return parsed
     }
-    return cmuxAccentNSColor(for: colorScheme)
+    if activeTabIndicatorStyle == .solidFill || !subtleSelection {
+        return cmuxAccentNSColor(for: colorScheme)
+    }
+    let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
+    let fill = CmuxSelectionFill.resolve(
+        colorScheme: colorScheme,
+        isEmphasized: isEmphasized,
+        increaseContrast: increaseContrast
+    )
+    return cmuxCompositedNSColor(fill.color, over: surface)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -316,6 +375,7 @@ func sidebarSelectedWorkspaceForegroundNSColor(
 struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     let color: NSColor?
     let opacity: Double
+    var edgeColor: NSColor? = nil
 
     static let clear = Self(color: nil, opacity: 0)
 }
@@ -343,6 +403,8 @@ func sidebarWorkspaceRowBackgroundStyle(
     customColorHex: String?,
     colorScheme: ColorScheme,
     sidebarSelectionColorHex: String?,
+    subtleSelection: Bool = false,
+    isEmphasized: Bool = true,
     increaseContrast: Bool = false
 ) -> SidebarWorkspaceRowBackgroundStyle {
     // Increase Contrast: the multi-selection wash is otherwise too faint to
@@ -350,9 +412,25 @@ func sidebarWorkspaceRowBackgroundStyle(
     let multiSelectionOpacity = increaseContrast ? 0.45 : 0.25
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
-        sidebarSelectionColorHex: sidebarSelectionColorHex
+        sidebarSelectionColorHex: sidebarSelectionColorHex,
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        subtleSelection: subtleSelection,
+        isEmphasized: isEmphasized,
+        increaseContrast: increaseContrast
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)
+    // A configured selection color is an explicit request for a solid fill.
+    let usesSubtleSelection = subtleSelection
+        && sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } == nil
+    func calmFill(isSecondary: Bool) -> SidebarWorkspaceRowBackgroundStyle {
+        let fill = CmuxSelectionFill.resolve(
+            colorScheme: colorScheme,
+            isEmphasized: isEmphasized,
+            increaseContrast: increaseContrast,
+            isSecondary: isSecondary
+        )
+        return SidebarWorkspaceRowBackgroundStyle(color: fill.color, opacity: 1, edgeColor: fill.edgeColor)
+    }
     let customBackground = customColorHex.flatMap {
         WorkspaceTabColorSettings.displayNSColor(
             hex: $0,
@@ -364,12 +442,14 @@ func sidebarWorkspaceRowBackgroundStyle(
     switch activeTabIndicatorStyle {
     case .leftRail:
         if isActive {
+            if usesSubtleSelection { return calmFill(isSecondary: false) }
             return SidebarWorkspaceRowBackgroundStyle(
                 color: selectedBackground,
                 opacity: 1
             )
         }
         if isMultiSelected {
+            if usesSubtleSelection { return calmFill(isSecondary: true) }
             return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
         }
         return .clear
