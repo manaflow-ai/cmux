@@ -65,4 +65,37 @@ import Testing
         #expect(node?.kind == .vstack)
         #expect(node?.children.map(\.text) == ["X:a-b-c"])
     }
+    @Test func forwardTopLevelBindingsResolveAcrossDeclarationsAndWithinOneDeclaration() {
+        let node = interp.evaluate("""
+        let MARK = PREFIX, PREFIX = BASE
+        let BASE = "X:"
+        func label(_ v) -> String { return "\\(MARK)\\(v)" }
+        VStack { Text(label(s)) }
+        """, state: ["s": .string("ready")])
+        #expect(node?.children.map(\.text) == ["X:ready"])
+    }
+
+    @Test func forwardTopLevelReferencesInsideHelpersAndInterpolationResolve() {
+        let node = interp.evaluate("""
+        let MARK = prefix()
+        let TITLE = "\\(PREFIX)ready"
+        let PREFIX = "X:"
+        func prefix() -> String { return PREFIX }
+        VStack { Text(MARK); Text(TITLE) }
+        """)
+        #expect(node?.children.map(\.text) == ["X:", "X:ready"])
+    }
+
+    @Test func unresolvedTopLevelBindingsDoNotPreventIndependentViews() {
+        let node = interp.evaluate("""
+        let A = B
+        let B = A
+        let MISSING = unknown
+        let MARK = PREFIX
+        let PREFIX = "ready"
+        func label() -> some View { return Text(MARK) }
+        VStack { label() }
+        """)
+        #expect(node?.children.map(\.text) == ["ready"])
+    }
 }
