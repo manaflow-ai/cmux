@@ -459,6 +459,7 @@ extension AgentNotificationRegressionTests {
         #expect(code == "not_found")
     }
 
+    /// Relay-host agent status shows without a local agent PID.
     @Test("Relay-host agent status shows without a local agent PID")
     func relayHostAgentStatusIsVisibleWithoutLocalPID() throws {
         let fixture = try makeFixture()

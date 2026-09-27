@@ -1131,6 +1131,7 @@ func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time)
 	return dialer.Dial("unix", addr)
 }
 
+// dialTCP connects with a 2-second timeout, capped by deadline when set.
 func dialTCP(addr string, deadline time.Time) (net.Conn, string, error) {
 	dialer := net.Dialer{Timeout: 2 * time.Second, Deadline: deadline}
 	conn, err := dialer.Dial("tcp", addr)

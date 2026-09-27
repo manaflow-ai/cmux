@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
+// claudeHookTestEnv returns a getenv backed by a fixed map.
 func claudeHookTestEnv(values map[string]string) func(string) string {
 	return func(key string) string { return values[key] }
 }
 
+// TestClaudeHookRelayEnqueuesSurfaceScopedEvent checks the enqueue shape and that host paths are stripped.
 func TestClaudeHookRelayEnqueuesSurfaceScopedEvent(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
@@ -64,6 +66,7 @@ func TestClaudeHookRelayEnqueuesSurfaceScopedEvent(t *testing.T) {
 	}
 }
 
+// TestClaudeHookRelayFailsOpenWithoutRelay checks the hook answers {} when no relay is configured.
 func TestClaudeHookRelayFailsOpenWithoutRelay(t *testing.T) {
 	var stdout bytes.Buffer
 	code := runClaudeHookRelay("", []string{"stop"}, nil, strings.NewReader(`{"session_id":"s"}`), &stdout)
@@ -72,6 +75,7 @@ func TestClaudeHookRelayFailsOpenWithoutRelay(t *testing.T) {
 	}
 }
 
+// TestClaudeHookEnqueueParamsRejectsDecisionAndUnroutedEvents keeps decision hooks and surfaceless hooks local.
 func TestClaudeHookEnqueueParamsRejectsDecisionAndUnroutedEvents(t *testing.T) {
 	routed := claudeHookTestEnv(map[string]string{
 		"CMUX_WORKSPACE_ID": "11111111-1111-4111-8111-111111111111",
@@ -94,6 +98,7 @@ func TestClaudeHookEnqueueParamsRejectsDecisionAndUnroutedEvents(t *testing.T) {
 	}
 }
 
+// TestCompactClaudeHookPayloadBoundsLargeEvents checks oversized payloads fall back to bounded lifecycle fields.
 func TestCompactClaudeHookPayloadBoundsLargeEvents(t *testing.T) {
 	large := map[string]any{
 		"session_id":             "sess-2",
@@ -126,6 +131,7 @@ func TestCompactClaudeHookPayloadBoundsLargeEvents(t *testing.T) {
 	}
 }
 
+// TestClaudeArgsWithRelayHooksMergesLauncherSettings checks a launcher --settings file and inline JSON merge with the relay hooks.
 func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	dir := t.TempDir()
 	// `sr claude proxy` prepends its own --settings file.
@@ -182,12 +188,14 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	}
 }
 
+// TestClaudeArgsWithRelayHooksRejectsUnreadableSettings checks an unreadable --settings file skips injection.
 func TestClaudeArgsWithRelayHooksRejectsUnreadableSettings(t *testing.T) {
 	if _, err := claudeArgsWithRelayHooks([]string{"--settings", "/nonexistent/settings.json"}, "cmux", t.TempDir()); err == nil {
 		t.Fatal("expected an error for an unreadable --settings file")
 	}
 }
 
+// TestFindRealClaudeSkipsCmuxShims checks resolution skips shim and cmux bin directories.
 func TestFindRealClaudeSkipsCmuxShims(t *testing.T) {
 	root := t.TempDir()
 	shimDir := filepath.Join(root, "cmux-cli-shims", "surface")
@@ -208,6 +216,7 @@ func TestFindRealClaudeSkipsCmuxShims(t *testing.T) {
 	}
 }
 
+// TestClaudeWrapperSkipsInjectionForNonLaunchInvocations checks informational and management invocations pass through.
 func TestClaudeWrapperSkipsInjectionForNonLaunchInvocations(t *testing.T) {
 	sockPath := startMockV2Socket(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
@@ -230,6 +239,7 @@ func TestClaudeWrapperSkipsInjectionForNonLaunchInvocations(t *testing.T) {
 	}
 }
 
+// TestWriteClaudeSettingsFilePrunesIdleCopies checks idle copies are pruned and reused copies refreshed.
 func TestWriteClaudeSettingsFilePrunesIdleCopies(t *testing.T) {
 	dir := t.TempDir()
 	stale := filepath.Join(dir, "stale.json")
@@ -264,12 +274,14 @@ func TestWriteClaudeSettingsFilePrunesIdleCopies(t *testing.T) {
 	}
 }
 
+// TestClaudeArgsWithRelayHooksRejectsBareSettingsFlag checks a trailing --settings without a value skips injection.
 func TestClaudeArgsWithRelayHooksRejectsBareSettingsFlag(t *testing.T) {
 	if _, err := claudeArgsWithRelayHooks([]string{"--model", "opus", "--settings"}, "cmux", t.TempDir()); err == nil {
 		t.Fatal("a trailing --settings without a value must skip injection")
 	}
 }
 
+// TestPathWithoutCmuxShims checks shim directories are removed from PATH.
 func TestPathWithoutCmuxShims(t *testing.T) {
 	t.Setenv("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", "/custom/shim")
 	got := pathWithoutCmuxShims("/custom/shim:/tmp/cmux-cli-shims/s:/usr/bin::/bin")
@@ -278,6 +290,7 @@ func TestPathWithoutCmuxShims(t *testing.T) {
 	}
 }
 
+// TestWriteClaudeSettingsFileRestoresPrivateModes checks reuse resets file and directory modes to private.
 func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "settings")
 	data := []byte(`{"env":{"TOKEN":"x"}}`)
@@ -302,6 +315,7 @@ func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
 	}
 }
 
+// TestClaudeHookRelayGivesUpAtItsDeadline checks a silent relay cannot hold the hook past its deadline.
 func TestClaudeHookRelayGivesUpAtItsDeadline(t *testing.T) {
 	// A listener that accepts and never answers the relay handshake.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

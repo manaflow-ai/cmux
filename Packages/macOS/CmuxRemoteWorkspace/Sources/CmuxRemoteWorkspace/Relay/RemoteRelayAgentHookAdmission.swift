@@ -73,6 +73,7 @@ public struct RemoteRelayAgentHookAdmission: Sendable {
         return text
     }
 
+    /// Recursively drops `filesystemPayloadKeys` from objects and arrays.
     private func removingFilesystemKeys(_ value: Any) -> Any {
         if let object = value as? [String: Any] {
             var portable: [String: Any] = [:]

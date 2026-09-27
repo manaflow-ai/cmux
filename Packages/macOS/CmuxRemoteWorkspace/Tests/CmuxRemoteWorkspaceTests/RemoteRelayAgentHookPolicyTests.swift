@@ -7,6 +7,7 @@ struct RemoteRelayAgentHookPolicyTests {
     private let owner = UUID()
     private let ownedSurface = UUID()
 
+    /// Builds an in-contract hook request for the owned surface, with optional overrides.
     private func hookParameters(
         surfaceID: UUID? = nil,
         workspaceID: UUID? = nil,
@@ -25,6 +26,7 @@ struct RemoteRelayAgentHookPolicyTests {
         return parameters
     }
 
+    /// Runs the app-side authorization gate with owner provenance stamped.
     private func authorize(_ parameters: [String: Any]) -> RemoteRelayAuthorizationPolicy.Decision {
         var stamped = parameters
         stamped[RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey] = owner.uuidString
@@ -36,12 +38,14 @@ struct RemoteRelayAgentHookPolicyTests {
         )
     }
 
+    /// Runs the relay-side syntax gate on the request as one JSON-RPC line.
     private func evaluate(_ parameters: [String: Any]) throws -> RemoteRelayCommandPolicy.Verdict {
         let request: [String: Any] = ["id": "hook", "method": "agent.hook.enqueue", "params": parameters]
         let line = try JSONSerialization.data(withJSONObject: request)
         return RemoteRelayCommandPolicy().evaluate(commandLine: line, workspaceAliases: [:], surfaceAliases: [:])
     }
 
+    /// A lifecycle hook for an owned surface is admitted.
     @Test("a lifecycle hook for an owned surface is admitted", arguments: [
         "session-start", "prompt-submit", "stop", "notification", "session-end", "pre-tool-use",
     ])
@@ -51,6 +55,7 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(try evaluate(parameters) == .allow)
     }
 
+    /// `caller_tty` is optional.
     @Test("caller_tty is optional")
     func callerTTYIsOptional() throws {
         var parameters = hookParameters()
@@ -59,12 +64,14 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(try evaluate(parameters) == .allow)
     }
 
+    /// Hooks cannot target a surface or workspace the relay does not own.
     @Test("hooks cannot target a surface or workspace the relay does not own")
     func foreignTargetsAreDenied() {
         #expect(authorize(hookParameters(surfaceID: UUID())) != .allowed)
         #expect(authorize(hookParameters(workspaceID: UUID())) != .allowed)
     }
 
+    /// Hooks require explicit workspace and surface selectors.
     @Test("hooks require explicit workspace and surface selectors", arguments: ["workspace_id", "surface_id"])
     func missingSelectorIsDenied(key: String) {
         var parameters = hookParameters()
@@ -72,6 +79,7 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(authorize(parameters) != .allowed)
     }
 
+    /// Decision hooks, other agents, and local replay fields stay local-only.
     @Test("decision hooks, other agents, and local replay fields stay local-only", arguments: [
         ("subcommand", "feed"),
         ("subcommand", "cron-create-guard"),
@@ -98,6 +106,7 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(try evaluate(parameters) != .allow, "\(key)=\(value)")
     }
 
+    /// Admission derives the replay environment from the authorized selectors.
     @Test("admission derives the replay environment from the authorized selectors")
     func admissionRebuildsEnvironmentFromSelectors() throws {
         let ownerKey = RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey
@@ -120,6 +129,7 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(admitted["payload"] as? String == #"{"nested":{"keep":1},"session_id":"sess-1"}"#)
     }
 
+    /// Admission rejects requests without UUID selectors.
     @Test("admission rejects requests without UUID selectors")
     func admissionRequiresSelectors() {
         #expect(RemoteRelayAgentHookAdmission().queueParameters(
@@ -131,6 +141,7 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(RemoteRelayAgentHookAdmission().portablePayload("not json") == "{}")
     }
 
+    /// The direct barrier stays unavailable through the relay.
     @Test("the direct barrier stays unavailable through the relay")
     func barrierIsDenied() {
         let decision = RemoteRelayAuthorizationPolicy().validate(

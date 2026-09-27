@@ -290,6 +290,7 @@ struct ShellStartupMatrixTests {
         }
     }
 
+    /// The relay bootstrap wrapper execs the remote CLI when installed and otherwise the real `claude`, never the shim.
     @Test(arguments: [true, false])
     func relayClaudeWrapperHandsOffToRemoteCLI(remoteCLIInstalled: Bool) throws {
         let fileManager = FileManager.default

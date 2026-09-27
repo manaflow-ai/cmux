@@ -11,6 +11,7 @@ import CmuxRemoteWorkspace
 
 @Suite(.serialized)
 struct AgentHookDeliveryQueueTests {
+    /// Relay-admitted queue parameters build a relay-backed event.
     @Test("Relay-admitted queue parameters build a relay-backed event")
     func relayAdmittedParametersBuildRelayEvent() throws {
         let workspaceID = UUID().uuidString
