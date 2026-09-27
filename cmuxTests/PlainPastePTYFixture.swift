@@ -164,7 +164,7 @@ final class PlainPastePTYFixture {
 
     func close() {
         NSApp.mainMenu = previousMenu
-        surface.teardownSurface()
+        surface.teardownHostedSurfaceForTesting()
         window.orderOut(nil)
         try? FileManager.default.removeItem(at: root)
     }

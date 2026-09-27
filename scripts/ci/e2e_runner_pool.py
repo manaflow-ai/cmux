@@ -245,11 +245,14 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
 
 
 def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime,
-           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS) -> pr_runner_pool.Choice:
+           owned_slots: Mapping[str, int] | None = None, jobs: int = E2E_JOBS,
+           owned_choices: Sequence[str] | None = None) -> pr_runner_pool.Choice:
     """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default.
 
     `jobs` is the most machines one run holds at once (E2E_JOBS for an E2E
-    run); ios_runner_pool.py passes its own lane's peak.
+    run); ios_runner_pool.py passes its own lane's peak. `owned_choices`
+    limits which owned pools the run itself may take (None: any), while
+    the replay of newer runs still spreads over the whole order.
     """
     if load is None:
         return pr_runner_pool.Choice("", "", "no readable pool snapshot")
@@ -286,7 +289,8 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
             owned_slots=capacity, jobs=jobs, root_jobs=jobs,
         )
 
-    choice = rule(limits, pools)
+    choice = rule(limits, [label for label in pools if owned_choices is None or
+                           not pr_runner_pool.persistent(label) or label in owned_choices])
     blacksmith = [label for label in pools if not pr_runner_pool.persistent(label)]
     if limits.queue_rounds and blacksmith and choice.runner and not pr_runner_pool.persistent(choice.runner):
         # The rounds decide only whether an owned pool takes the run; the

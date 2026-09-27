@@ -1408,6 +1408,42 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(owned_choice(jammed, queue_rounds="").runner, LARGE)
         self.assertEqual(owned_choice(jammed, queue_rounds="2").runner, MINI)
 
+    def test_a_pool_the_run_starts_on_now_beats_an_earlier_one_it_queues_on(self):
+        # Run 36318303703 (2026-09-27): std fit only by its root queue places
+        # (0 of 17 root runners free) while light sat idle, so light never ran.
+        def counts(capacity, running):
+            return {"capacity": capacity, "running": running, "queued": 0}
+        load = {MINI: counts(42, 37), LIGHT: counts(4, 0)}
+        roots = {MINI: counts(19, 19), LIGHT: counts(2, 0)}
+        added = {MINI: 0, LIGHT: 0}
+
+        def picked(**kwargs):
+            return pool.pick(load, added, [MINI, LIGHT], 0, jobs=3, roots=roots, root_jobs=1, **kwargs)
+
+        self.assertEqual((picked(queue_rounds=2).label, picked(queue_rounds=2).how), (LIGHT, "owned"))
+        # Both idle: the order decides, std first.
+        roots[MINI] = counts(19, 0)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+        # Light's root runners busy too: std's queue, as before.
+        roots[MINI], roots[LIGHT] = counts(19, 19), counts(2, 2)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+
+    def test_a_replayed_run_takes_light_as_the_run_itself_did(self):
+        # The replay needs a root runner too: std's idle side runners alone
+        # would charge a newer run to std while it took light, and the next
+        # run would pile onto light behind it.
+        snap = fleet(busy=37)
+        snap["pools"][ROOT_MINI] = {"queued": 0, "running": 19}
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        snap["pools"]["glaeda-root-light-xcode-26.6"] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 42, ROOT_MINI: 19, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2})
+        first = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2")
+        self.assertEqual(first.runner, LIGHT)
+        self.assertIn("first owned pool free for this run now", first.reason)
+        self.assertIn(f"{MINI} not free now", first.reason)
+        second = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2", routed=1)
+        self.assertEqual(second.runner, MINI)
+
     def test_nothing_is_reserved_so_a_later_run_takes_idle_machines(self):
         # Run A took 3 of 11 minis for a full suite that peaks at 11; its shards
         # do not exist yet. Run B finds 8 idle minis and takes them: A's shards
@@ -2790,6 +2826,14 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13,
                                    queue_rounds="0")[0].persistent)
 
+    def test_simulator_runs_never_take_the_light_pool(self):
+        # Light minis carry no glaeda-ios-sim: an idle light pool does not beat
+        # std's queue for a run whose jobs need a simulator.
+        snap = sim_fleet(busy=40)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2")
+        self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+
     def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
         snap = self.incident_snapshot()
         # Enough newer runs replayed onto the std pool fill its queue bound: Blacksmith, the lane's default.
@@ -3110,10 +3154,15 @@ class E2EQueueRounds(unittest.TestCase):
             self.assertFalse(pool.persistent(choice.runner), rounds)
             self.assertIn("every pool is full", choice.reason)
         # With 2 rounds the run joins an owned root queue that starts it within 20 minutes.
-        choice = self.choice("2", 13)
-        self.assertTrue(pool.persistent(choice.runner))
-        self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
-        self.assertIn("queue places", choice.reason)
+        # The replay places each newer run as it picked, root runner included:
+        # 13 of them leave no owned root room, 3 leave light's root queue.
+        for since, runner in ((2, MINI), (3, self.LIGHT)):
+            choice = self.choice("2", since)
+            self.assertEqual(choice.runner, runner, since)
+            self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
+            self.assertIn("queue places", choice.reason)
+            self.assertNotIn("free for this run now", choice.reason)
+        self.assertFalse(pool.persistent(self.choice("2", 13).runner))
 
     def test_with_no_owned_room_the_blacksmith_pick_is_the_headroom_rules(self):
         # The rounds decide only whether an owned pool takes the run.

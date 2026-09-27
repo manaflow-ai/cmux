@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
 import CmuxSidebar
@@ -426,10 +427,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             isMultiSelected: model.isMultiSelected,
             customColorHex: snapshot.customColorHex,
             colorScheme: palette.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            increaseContrast: model.displayAccessibility.increaseContrast
         )
         applyBackgroundStyle(style)
-        if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
+        if settings.activeTabIndicatorStyle.drawsActiveBorder(
+            isActive: model.isActive,
+            increaseContrast: model.displayAccessibility.increaseContrast
+        ) {
             backgroundView.layer?.borderWidth = 1.5
             backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {
@@ -497,7 +502,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     hasOverride: true,
                     usesMonochrome: model.isActive,
                     fontScale: model.fontScale,
-                    colorScheme: palette.colorScheme
+                    colorScheme: palette.colorScheme,
+                    differentiateWithoutColor: model.displayAccessibility.differentiateWithoutColor
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
@@ -576,10 +582,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
             subtitleView.maximumNumberOfLines = subtitleLineLimit
-            subtitleView.stringValue = effectiveSubtitle.sidebarBoundedDisplayString(
+            let display = effectiveSubtitle.sidebarBoundedDisplayString(
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
+            subtitleView.stringValue = model.latestNotificationText == nil
+                ? display
+                : SidebarMarkdownRenderer(markdown: display).plainText
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
