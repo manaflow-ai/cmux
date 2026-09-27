@@ -2631,6 +2631,10 @@ import Testing
     }
 
     @Test func testIsolatedImplicitDiscoveryStaysInsideTheStateDirectory() throws {
+        #expect(
+            BundledCLITestSupport.isolatedSocketDiscoveryEnvironmentKey
+                == CLISocketPathResolver.isolatedDiscoveryEnvironmentKey
+        )
         let home = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let stateDirectory = CmuxStateDirectory.url(homeDirectory: home)
@@ -4097,12 +4101,12 @@ import Testing
 
     /// Points the stable last-socket-path marker inside `home` at a path of the test's own.
     ///
-    /// `CFFIXED_USER_HOME` moves the socket directory but not socket discovery: the CLI
-    /// reads the first marker file it can open, and the second candidate is the
-    /// machine-wide `/tmp/cmux-last-socket-path`, which on a developer's machine names the
-    /// socket of the cmux they are running. Writing the per-home marker keeps the candidate
-    /// list inside the test even when the test's own default socket is missing. The path
-    /// written is deliberately one that does not exist, so it can never be connected to.
+    /// `CFFIXED_USER_HOME` moves the socket directory but not the machine-wide
+    /// `/tmp/cmux-last-socket-path` marker, which names the socket of any cmux running as
+    /// the same user. ``BundledCLITestSupport/hermeticCLIEnvironment(home:base:)`` keeps
+    /// discovery off that marker; the per-home marker written here gives the candidate list
+    /// a stable-marker entry of the test's own. The path written is deliberately one that
+    /// does not exist, so it can never be connected to.
     private func writeStableSocketMarker(home: URL) throws {
         let directory = CmuxStateDirectory.url(homeDirectory: home)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
