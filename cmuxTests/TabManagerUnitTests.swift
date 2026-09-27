@@ -1559,6 +1559,33 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
     }
 
+    func testCloseWorkspacesWithConfirmationKeepsWindowWarningWhenTabWarningDisabled() {
+        let defaults = UserDefaults.standard
+        let tabKey = AppCatalogSection().warnBeforeClosingTab.userDefaultsKey
+        let windowKey = AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey
+        let originalTab = defaults.object(forKey: tabKey)
+        let originalWindow = defaults.object(forKey: windowKey)
+        defaults.set(false, forKey: tabKey)
+        defaults.set(true, forKey: windowKey)
+        defer {
+            if let originalTab { defaults.set(originalTab, forKey: tabKey) } else { defaults.removeObject(forKey: tabKey) }
+            if let originalWindow { defaults.set(originalWindow, forKey: windowKey) } else { defaults.removeObject(forKey: windowKey) }
+        }
+
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(manager.tabs.count, 2)
+    }
+
     func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
         let manager = TabManager()
         let second = manager.addWorkspace()

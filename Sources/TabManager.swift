@@ -2812,8 +2812,9 @@ class TabManager: ObservableObject {
             showsBatchConfirmation = shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
             dontAskAgain = []
         } else if plan.willCloseWindow {
+            // A batch that closes the whole window follows the window warning
+            // policy. The tab warning must not suppress this prompt.
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
-                && shouldConfirmClose(requiresConfirmation: true, source: .tabClose)
             dontAskAgain = .window
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
