@@ -115,17 +115,18 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         XCTAssertTrue(customRow.waitForExistence(timeout: 5.0), "Expected the custom status row to stay visible")
     }
 
+    /// A plain launch: CI's execution guard rejects a run whose launch was
+    /// wrapped in an expected activation failure.
     private func launchAndEnsureRunning(_ app: XCUIApplication) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
-            app.launch()
+        app.launch()
+        let activated = pollUntil(timeout: 2.0) {
+            if app.state == .runningForeground { return true }
+            app.activate()
+            return app.state == .runningForeground
         }
         XCTAssertTrue(
-            pollUntil(timeout: 10.0) {
-                app.state == .runningForeground || app.state == .runningBackground
-            },
-            "App failed to launch. state=\(app.state.rawValue)"
+            activated || pollUntil(timeout: 2.0) { app.state == .runningForeground },
+            "App did not reach runningForeground. state=\(app.state.rawValue)"
         )
     }
 
