@@ -321,7 +321,12 @@ When `keep` replaces another pull request's build, it parks that build in
 `owned_build_state.py evict-parked` does the same for disk tooling). Admission's
 `check` for that pull request (`CMUX_OWNED_PR`) swaps it back in,
 glaeda's hook ranks the root by it, and `roots` publishes it as `parked`, so
-distance routing sends a re-push to the mini holding its own build. That
+distance routing sends a re-push to the mini holding its own build.
+On a mini with more than one root, the root that keeps the mini's only main
+build stays at main (`holds_last_main`). A pull request compiled there is kept
+in its PR slot instead, its next push adopts from the slot (`check`'s
+`adopt_from`), and every other pull request starts near main's head.
+glaeda-idle-warm refreshes that root first when main moves. That
 start ranks far even when the pull request changes a package interface,
 where every other start rebuilds the app.
 

@@ -1,6 +1,7 @@
 public import AppKit
 import SwiftUI
 import CmuxCanvas
+public import CmuxFoundation
 /// The AppKit root of the canvas layout: owns the scroll view, document,
 /// pane views, content mounts, guides, drag/resize sessions, document
 /// sizing, and the explicit offscreen-pane lifecycle.
@@ -22,6 +23,14 @@ public final class CanvasRootView: NSView {
     let guidesView = CanvasGuidesView()
     let minimapView = CanvasMinimapView()
     var isMinimapInteractionActive = false
+    /// Accent for pane focus borders, guides and the minimap. The host
+    /// passes the resolved cmux accent on every update.
+    public var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            applyAccentColor()
+        }
+    }
     var paneViews: [CanvasPaneID: CanvasPaneView] = [:]
     /// One mount per pane: its selected tab's content. Keyed by panel id.
     private var mounts: [UUID: any CanvasPaneContentMounting] = [:]
@@ -145,6 +154,14 @@ public final class CanvasRootView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) {
         nil
+    }
+
+    private func applyAccentColor() {
+        guidesView.accentColor = accentColor
+        minimapView.accentColor = accentColor
+        for paneView in paneViews.values {
+            paneView.accentColor = accentColor
+        }
     }
 
     private func applyTheme() {
@@ -306,6 +323,7 @@ public final class CanvasRootView: NSView {
                 paneView = CanvasPaneView(paneID: pane.id)
                 paneView.delegate = self
                 paneView.paneBackground = themeProvider().paneBackground
+                paneView.accentColor = accentColor
                 documentView.addSubview(paneView)
                 paneViews[pane.id] = paneView
             }

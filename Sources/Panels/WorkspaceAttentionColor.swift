@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 /// The resolved color shared by pane flashes and unread notification rings.
@@ -9,14 +10,17 @@ import SwiftUI
 /// setting in their drawing loops.
 struct WorkspaceAttentionColor: Equatable, Sendable {
     private let rgb: UInt32?
+    /// The resolved cmux accent used when no valid color is configured.
+    private let accent: CmuxAccentColor
 
-    init(configuredHex: String?) {
+    init(configuredHex: String?, accent: CmuxAccentColor = CmuxAccentColor()) {
         self.rgb = Self.strictRGB(configuredHex)
+        self.accent = accent
     }
 
     var nsColor: NSColor {
         guard let rgb else {
-            return WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor
+            return WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: accent)
         }
         return NSColor(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,

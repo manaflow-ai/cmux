@@ -4359,8 +4359,8 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
 
     func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
-            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor(accent: CmuxAccentColor()).hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: CmuxAccentColor()).hexString()
         )
     }
 

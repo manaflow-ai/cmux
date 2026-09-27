@@ -14,6 +14,12 @@ struct SidebarRowPalette {
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
+    /// The resolved cmux accent from the settings snapshot.
+    var accent: CmuxAccentColor { model.settings.accentColor }
+
+    /// The accent in the row's concrete cmux scheme.
+    var accentColor: NSColor { accent.nsColor(for: colorScheme) }
+
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
@@ -21,7 +27,8 @@ struct SidebarRowPalette {
             activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
             subtleSelection: model.settings.subtleSelection,
             isEmphasized: isSelectionEmphasized,
-            increaseContrast: increasesSelectionContrast
+            increaseContrast: increasesSelectionContrast,
+            accent: accent
         )
     }
 
@@ -373,7 +380,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = .systemBlue
+            case .progress: color = palette.accentColor
             case .success: color = .systemGreen
             case .warning: color = .systemOrange
             case .error: color = .systemRed
