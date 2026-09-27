@@ -19,6 +19,14 @@ on:
           - relay-expiry
           - direct-only
           - private-path
+      environment:
+        description: Backend environment to verify
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
       v2_base_url:
         description: canonical v2 Worker origin used by the app and gate
         required: false
@@ -107,7 +115,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize isolated staging account
-        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        if: ${{ inputs.environment == 'staging' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -126,6 +134,26 @@ jobs:
             printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
+
+      - name: Materialize production Stack environment
+        if: ${{ inputs.environment == 'production' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
+        env:
+          STACK_PROJECT_ID: ${{ secrets.STACK_PROJECT_ID }}
+          STACK_PUBLISHABLE_CLIENT_KEY: ${{ secrets.STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "${STACK_PROJECT_ID:-}" ]] || { echo "::error::missing production Stack project id"; exit 1; }
+          [[ -n "${STACK_PUBLISHABLE_CLIENT_KEY:-}" ]] || { echo "::error::missing production Stack publishable key"; exit 1; }
+          [[ -n "${STACK_SECRET_SERVER_KEY:-}" ]] || { echo "::error::missing production Stack server key"; exit 1; }
+          production_env="$RUNNER_TEMP/cmux-production-stack.env"
+          umask 077
+          cat > "$production_env" <<EOF
+          NEXT_PUBLIC_STACK_PROJECT_ID=$STACK_PROJECT_ID
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$STACK_PUBLISHABLE_CLIENT_KEY
+          STACK_SECRET_SERVER_KEY=$STACK_SECRET_SERVER_KEY
+          EOF
+          chmod 600 "$production_env"
 
       - name: Run staging Iroh gate
         env:
@@ -146,9 +174,20 @@ jobs:
           GATE_ARGS=(
             --mode "${{ matrix.mode }}"
             --tag "$TAG"
-            --v2-base-url "${{ inputs.v2_base_url }}"
             --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
           )
+          if [[ "${{ inputs.environment }}" == production ]]; then
+            case "${{ matrix.mode }}" in
+              automatic|relay-only|relay-expiry) ;;
+              *) echo "::error::production verification supports automatic, relay-only, and relay-expiry modes"; exit 2 ;;
+            esac
+            GATE_ARGS+=(
+              --production
+              --stack-env-file "$RUNNER_TEMP/cmux-production-stack.env"
+            )
+          else
+            GATE_ARGS+=(--v2-base-url "${{ inputs.v2_base_url }}")
+          fi
           if [[ "${{ matrix.mode }}" == relay-only ]]; then
             GATE_ARGS+=(--soak-profile stress)
           fi
@@ -168,7 +207,11 @@ jobs:
       - name: Remove staging account
         # The runner user's home outlives the job on a reused machine; never
         # leave the staging credentials behind.
-        if: ${{ always() }}
+        if: ${{ always() && inputs.environment == 'staging' }}
         run: |
           rm -f "$HOME/.secrets/cmuxterm-dev.env"
           rmdir "$HOME/.secrets" 2>/dev/null || true
+
+      - name: Remove production Stack environment
+        if: ${{ always() && inputs.environment == 'production' }}
+        run: rm -f "$RUNNER_TEMP/cmux-production-stack.env"
