@@ -3,10 +3,9 @@ import Foundation
 /// Moves a stopped Claude session, its data and its code state between this
 /// machine and an SSH host. The caller then resumes it on the destination.
 ///
-/// Order matters: every refusal (liveness, code state, transcript prefix) is
-/// decided before session data is written on the destination, and code is
-/// carried before session data so a code refusal leaves the destination's
-/// session files untouched.
+/// Order matters: liveness and the transcript prefix are checked before the
+/// destination checkout changes, and code is carried before session data, so a
+/// refusal leaves the destination's session files untouched.
 public struct AgentSessionMover {
     private let runner: any AgentMoveCommandRunning
     private let rsyncExecutable: String
@@ -87,6 +86,20 @@ public struct AgentSessionMover {
         let destinationCwd = pathMap.destinationPath(for: sourceCwd)
         try requirePlain(destinationCwd)
 
+        let sourceProjectDirectory = (transcript as NSString).deletingLastPathComponent
+        let destinationSlug = sharesHome
+            ? (sourceProjectDirectory as NSString).lastPathComponent
+            : ClaudeProjectSlug().slug(forWorkingDirectory: destinationCwd)
+        let destinationProjectDirectory = destinationClaude + "/projects/" + destinationSlug
+        // Decided before code moves: a session that continued on the destination
+        // must not have its checkout rewritten to the older source state.
+        try requireDestinationTranscriptIsPrefix(
+            source: request.source,
+            sourceTranscript: sourceProjectDirectory + "/" + id + ".jsonl",
+            destination: request.destination,
+            destinationTranscript: destinationProjectDirectory + "/" + id + ".jsonl"
+        )
+
         let code: AgentMoveCodeOutcome
         if request.carriesCode {
             code = try AgentMoveCodeSync(mover: self, sessionID: id, pathMap: pathMap)
@@ -98,11 +111,6 @@ public struct AgentSessionMover {
             throw AgentMoveError.destinationWorkingDirectoryMissing(destinationCwd)
         }
 
-        let sourceProjectDirectory = (transcript as NSString).deletingLastPathComponent
-        let destinationSlug = sharesHome
-            ? (sourceProjectDirectory as NSString).lastPathComponent
-            : ClaudeProjectSlug().slug(forWorkingDirectory: destinationCwd)
-        let destinationProjectDirectory = destinationClaude + "/projects/" + destinationSlug
         try carrySessionData(
             sessionID: id,
             source: request.source,
@@ -135,13 +143,6 @@ public struct AgentSessionMover {
         destinationProjectDirectory: String
     ) throws {
         let sourceTranscript = sourceProjectDirectory + "/" + id + ".jsonl"
-        let destinationTranscript = destinationProjectDirectory + "/" + id + ".jsonl"
-        try requireDestinationTranscriptIsPrefix(
-            source: source,
-            sourceTranscript: sourceTranscript,
-            destination: destination,
-            destinationTranscript: destinationTranscript
-        )
         let history = "/file-history/"
         let made = try shell(destination, scripts.makeDirectories([destinationProjectDirectory, destinationClaude + "/file-history"]))
         guard made.succeeded else { throw AgentMoveError.copyFailed(path: destinationProjectDirectory, detail: made.failureDetail) }

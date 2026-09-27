@@ -8,7 +8,7 @@ extension CMUXCLI {
         String(
             localized: "cli.session.usage",
             // One literal so the localization tooling reads the English source.
-            defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n  --json                  Print the result as JSON\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
         )
     }
 
@@ -16,7 +16,6 @@ extension CMUXCLI {
         commandArgs: [String],
         socketPath: String,
         explicitPassword: String?,
-        jsonOutput: Bool,
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
@@ -31,7 +30,6 @@ extension CMUXCLI {
             ))
         }
         let options = try SessionMoveOptions(arguments: Array(commandArgs.dropFirst()))
-        let localJSON = jsonOutput || options.json
         let sessionID = options.sessionID.lowercased()
         let home = NSHomeDirectory()
         let recordStore = SessionMoveRecordStore(home: home)
@@ -93,11 +91,19 @@ extension CMUXCLI {
         ))
 
         let hookRecord = try? ClaudeHookSessionStore().lookup(sessionId: sessionID)
+        var launchCommand = hookRecord?.launchCommand
+        if !destination.isLocal {
+            // cmux-owned launchers (claude-teams, ...) resume through this Mac's cmux
+            // binary path, which the host does not have; resume the plain agent argv
+            // there. A user-declared external launcher is kept: it names a command
+            // the user runs on every machine.
+            launchCommand?.launcher = nil
+        }
         let localWorkingDirectory = source.isLocal ? outcome.sourceWorkingDirectory : outcome.destinationWorkingDirectory
         let resumeCommand = agentSurfaceResumeCommand(
             kind: "claude",
             sessionId: sessionID,
-            launchCommand: hookRecord?.launchCommand,
+            launchCommand: launchCommand,
             workingDirectory: outcome.destinationWorkingDirectory,
             environment: nil,
             observedPermissionMode: hookRecord?.lastPermissionMode,
@@ -155,10 +161,6 @@ extension CMUXCLI {
             )
         }
 
-        if localJSON {
-            print(jsonString(sessionMovePayload(outcome: outcome, source: source, destination: destination, resumeCommand: resumeCommand)))
-            return
-        }
         for line in sessionMoveSummary(outcome: outcome, source: source, destination: destination) {
             print(line)
         }
@@ -201,42 +203,6 @@ extension CMUXCLI {
             source.displayName
         ))
         return lines
-    }
-
-    private func sessionMovePayload(
-        outcome: AgentMoveOutcome,
-        source: AgentMoveEndpoint,
-        destination: AgentMoveEndpoint,
-        resumeCommand: String
-    ) -> [String: Any] {
-        var code: [String: Any] = [:]
-        switch outcome.code {
-        case .skipped:
-            code["status"] = "skipped"
-        case .notGitCheckout(let path):
-            code["status"] = "not_git"
-            code["path"] = path
-        case .synced(let checkout, let head, let branch, let snapshot, let addedWorktree):
-            code = [
-                "status": "synced",
-                "checkout": checkout,
-                "head": head,
-                "branch": branch ?? NSNull(),
-                "snapshot": snapshot,
-                "added_worktree": addedWorktree,
-            ]
-        }
-        return [
-            "session_id": outcome.sessionID,
-            "from": source.displayName,
-            "to": destination.displayName,
-            "source_cwd": outcome.sourceWorkingDirectory,
-            "cwd": outcome.destinationWorkingDirectory,
-            "transcript_path": outcome.destinationTranscriptPath,
-            "paths_rewritten": outcome.pathMap.rewritesPaths,
-            "code": code,
-            "resume_command": resumeCommand,
-        ]
     }
 
     private func sessionMoveErrorMessage(_ error: AgentMoveError) -> String {
@@ -291,7 +257,6 @@ struct SessionMoveOptions {
     var name: String?
     var noCode = false
     var noFocus = false
-    var json = false
     var port: String?
     var identity: String?
     var sshOptions: [String] = []
@@ -320,7 +285,6 @@ struct SessionMoveOptions {
             case "--ssh-option": sshOptions.append(try value(argument))
             case "--no-code": noCode = true
             case "--no-focus": noFocus = true
-            case "--json": json = true
             default:
                 if argument.hasPrefix("-") {
                     throw CLIError(message: String(
@@ -396,12 +360,18 @@ struct AgentMoveProcessRunner: AgentMoveCommandRunning {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = invocation.arguments
         process.environment = ProcessInfo.processInfo.environment.merging(invocation.environment) { _, new in new }
-        process.standardInput = FileHandle.nullDevice
+        let input = invocation.standardInput.map { _ in Pipe() }
+        process.standardInput = input ?? FileHandle.nullDevice
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output
         process.standardError = error
         try cliRunProcess(process)
+        if let input, let text = invocation.standardInput {
+            // Scripts are small; ssh reads them before the remote side produces output.
+            input.fileHandleForWriting.write(Data(text.utf8))
+            try? input.fileHandleForWriting.close()
+        }
         // Drain stderr concurrently so neither pipe fills and blocks the child.
         let errorBox = AgentMoveDataBox()
         let errorDrained = DispatchSemaphore(value: 0)

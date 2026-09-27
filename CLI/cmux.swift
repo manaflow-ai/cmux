@@ -5117,7 +5117,6 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg,
-                jsonOutput: jsonOutput,
                 idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
                 windowOverride: windowId
             )

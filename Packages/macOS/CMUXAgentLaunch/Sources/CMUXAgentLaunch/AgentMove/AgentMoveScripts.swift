@@ -7,10 +7,12 @@ import Foundation
 struct AgentMoveScripts {
     private let q = AgentMoveShellQuoting()
 
-    /// Prints `AM_HOME=<remote $HOME>` and whether it is the same directory as `localHome`.
+    /// Prints `AM_HOME=<physical path of $HOME>` and whether it is the same directory
+    /// as `localHome`. The physical path is what Claude records as the cwd and what
+    /// `git rev-parse --show-toplevel` prints, so path mapping uses it.
     func probeHome(localHome: String) -> String {
         """
-        printf 'AM_HOME=%s\\n' "$HOME"
+        printf 'AM_HOME=%s\\n' "$(cd "$HOME" && pwd -P)"
         if [ "$HOME" -ef \(q.quote(localHome)) ]; then echo AM_SAME=yes; else echo AM_SAME=no; fi
         """
     }
@@ -79,9 +81,12 @@ struct AgentMoveScripts {
         "git -C \(q.quote(path)) rev-parse --show-toplevel 2>/dev/null || true"
     }
 
-    /// Exits 0 when `path` is inside a git checkout.
+    /// Exits 0 when `path` is the top of a git checkout (not a folder inside another repository).
     func isCheckout(_ path: String) -> String {
-        "git -C \(q.quote(path)) rev-parse --git-dir >/dev/null 2>&1"
+        """
+        top=$(git -C \(q.quote(path)) rev-parse --show-toplevel 2>/dev/null) || exit 1
+        [ "$(cd "$top" && pwd -P)" = "$(cd \(q.quote(path)) && pwd -P)" ]
+        """
     }
 
     /// Prints the physical path of the checkout's common git directory.
@@ -106,7 +111,9 @@ struct AgentMoveScripts {
         set -e
         cd \(q.quote(checkout))
         idx=$(mktemp); rm -f "$idx"; trap 'rm -f "$idx"' EXIT
-        cp "$(git rev-parse --git-path index)" "$idx" 2>/dev/null || true
+        # -p keeps the index mtime: a fresh one would hide same-size edits made
+        # in the second the index was written (git's racy-clean check).
+        cp -p "$(git rev-parse --git-path index)" "$idx" 2>/dev/null || true
         GIT_INDEX_FILE="$idx" git add -A >/dev/null
         GIT_INDEX_FILE="$idx" git write-tree
         """
@@ -122,14 +129,17 @@ struct AgentMoveScripts {
         """
     }
 
-    /// Records the working tree as a commit whose parent is HEAD at `ref`, then
-    /// prints the snapshot, HEAD, and the current branch (empty when detached).
+    /// Records the working tree as a commit whose parent is HEAD at `ref` (the
+    /// outgoing ref, promoted only after the destination applied it), then prints
+    /// the snapshot, HEAD, and the current branch (empty when detached).
     func snapshot(checkout: String, ref: String, sessionID: String) -> String {
         """
         set -e
         cd \(q.quote(checkout))
         idx=$(mktemp); rm -f "$idx"; trap 'rm -f "$idx"' EXIT
-        cp "$(git rev-parse --git-path index)" "$idx" 2>/dev/null || true
+        # -p keeps the index mtime: a fresh one would hide same-size edits made
+        # in the second the index was written (git's racy-clean check).
+        cp -p "$(git rev-parse --git-path index)" "$idx" 2>/dev/null || true
         export GIT_INDEX_FILE="$idx"
         git add -A >/dev/null
         tree=$(git write-tree)
@@ -139,6 +149,14 @@ struct AgentMoveScripts {
         echo "AM_SNAP=$snap"
         echo "AM_HEAD=$(git rev-parse HEAD)"
         echo "AM_BRANCH=$(git symbolic-ref -q --short HEAD || true)"
+        """
+    }
+
+    /// Marks the source's working tree as the snapshot the destination now holds.
+    func promoteSnapshot(checkout: String, outgoingRef: String, ref: String, snapshot: String) -> String {
+        """
+        cd \(q.quote(checkout)) || exit 1
+        git update-ref \(q.quote(ref)) \(q.quote(snapshot)) && git update-ref -d \(q.quote(outgoingRef))
         """
     }
 

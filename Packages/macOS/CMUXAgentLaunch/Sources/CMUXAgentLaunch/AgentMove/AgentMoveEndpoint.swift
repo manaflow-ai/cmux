@@ -23,15 +23,18 @@ public enum AgentMoveEndpoint: Sendable, Equatable {
 
     /// The invocation that runs a POSIX `sh` script on this endpoint.
     ///
-    /// Remote scripts go through `sh -c` so the user's login shell (fish, csh, ...)
-    /// only has to parse one single-quoted word.
+    /// Remote scripts are sent on standard input to `sh -s`, so the user's login
+    /// shell (fish, csh, tcsh, ...) only parses `sh -s` and never the script. The
+    /// script is one brace group reading `/dev/null`: `sh` parses the whole group
+    /// before running it, so no command inside can consume the rest of the script.
     public func shellInvocation(_ script: String) -> AgentMoveInvocation {
         switch self {
         case .local:
             return AgentMoveInvocation(arguments: ["/bin/sh", "-c", script])
         case .ssh(let target):
             return AgentMoveInvocation(
-                arguments: ["ssh"] + target.sshArguments + [target.destination, "sh -c " + AgentMoveShellQuoting().quote(script)]
+                arguments: ["ssh"] + target.sshArguments + [target.destination, "sh -s"],
+                standardInput: "{\n\(script)\n} </dev/null\n"
             )
         }
     }

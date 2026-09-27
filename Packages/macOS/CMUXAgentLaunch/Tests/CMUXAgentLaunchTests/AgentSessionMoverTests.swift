@@ -34,8 +34,9 @@ struct AgentMovePathMapTests {
         let invocation = AgentMoveEndpoint.ssh(target).shellInvocation("echo 'hi'")
         #expect(invocation.arguments == [
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", "-p", "2222", "-i", "/k",
-            "-o", "StrictHostKeyChecking=no", "dev@box", "sh -c 'echo '\\''hi'\\'''",
+            "-o", "StrictHostKeyChecking=no", "dev@box", "sh -s",
         ])
+        #expect(invocation.standardInput == "{\necho 'hi'\n} </dev/null\n")
         #expect(AgentMoveEndpoint.ssh(target).transferPath("/x") == "dev@box:/x")
         #expect(target.isTransportSafe)
         #expect(!AgentMoveSSHTarget(destination: "ssh://box").isTransportSafe)
@@ -54,7 +55,8 @@ private struct LoopbackRunner: AgentMoveCommandRunning {
         var environment = ProcessInfo.processInfo.environment.merging(invocation.environment) { _, new in new }
         if arguments.first == "ssh" {
             #expect(arguments[arguments.count - 2] == Self.host)
-            arguments = ["/bin/sh", "-c", arguments[arguments.count - 1]]
+            #expect(arguments.last == "sh -s")
+            arguments = ["/bin/sh", "-s"]
             environment["HOME"] = remoteHome
         } else {
             environment.removeValue(forKey: "GIT_SSH_COMMAND")
@@ -79,7 +81,11 @@ private struct LoopbackRunner: AgentMoveCommandRunning {
         let err = Pipe()
         process.standardOutput = out
         process.standardError = err
+        let input = Pipe()
+        process.standardInput = input
         try process.run()
+        input.fileHandleForWriting.write(Data((invocation.standardInput ?? "").utf8))
+        try input.fileHandleForWriting.close()
         let outData = out.fileHandleForReading.readDataToEndOfFile()
         let errData = err.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -281,6 +287,30 @@ struct AgentSessionMoverTests {
         #expect(throws: AgentMoveError.destinationBranchDiverged(branch: "feature")) {
             try f.move(to: f.remote, from: .local)
         }
+        // A refused move does not mark the source tree as carried.
+        #expect(try f.sh("git -C \(f.localHome)/proj rev-parse -q --verify refs/agent-move/\(f.sessionID) || echo none") == "none")
+    }
+
+    @Test func folderInsideAnotherRepositoryIsNotTheCheckout() throws {
+        let f = try MoveFixture()
+        try f.makeRepositories()
+        try f.writeSession(cwd: f.localHome + "/proj")
+        // The remote home is itself a repository that ignores everything, and
+        // `proj` there is a plain folder inside it.
+        try f.sh("""
+        rm -rf \(f.remoteHome)/proj; mkdir -p \(f.remoteHome)/proj
+        cd \(f.remoteHome); git init -q -b main; printf '*\\n' > .gitignore
+        git -c user.email=t@t -c user.name=t commit -q --allow-empty -m home
+        """)
+        let homeHead = try f.sh("git -C \(f.remoteHome) rev-parse HEAD")
+        #expect(throws: AgentMoveError.destinationRepositoryMissing(
+            checkout: f.remoteHome + "/proj",
+            repository: f.remoteHome + "/proj/.git"
+        )) {
+            try f.move(to: f.remote, from: .local)
+        }
+        #expect(try f.sh("git -C \(f.remoteHome) rev-parse HEAD") == homeHead)
+        #expect(try f.sh("git -C \(f.remoteHome) symbolic-ref --short HEAD") == "main")
     }
 
     @Test func addsWorktreeWhenRepositoryExistsButPathDoesNot() throws {

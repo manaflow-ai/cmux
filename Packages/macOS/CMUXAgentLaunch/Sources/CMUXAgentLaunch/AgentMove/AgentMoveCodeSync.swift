@@ -21,6 +21,7 @@ struct AgentMoveCodeSync {
 
     private var ref: String { "refs/agent-move/\(sessionID)" }
     private var incomingRef: String { "refs/agent-move/incoming/\(sessionID)" }
+    private var outgoingRef: String { "refs/agent-move/outgoing/\(sessionID)" }
 
     func carry(
         from source: AgentMoveEndpoint,
@@ -36,7 +37,7 @@ struct AgentMoveCodeSync {
         let addedWorktree = try ensureDestinationCheckout(source: source, top: top, destination: destination, destinationTop: destinationTop)
         let resetFrom = try destinationResetPoint(destination: destination, checkout: destinationTop)
 
-        let snapshotResult = try mover.shell(source, scripts.snapshot(checkout: top, ref: ref, sessionID: sessionID))
+        let snapshotResult = try mover.shell(source, scripts.snapshot(checkout: top, ref: outgoingRef, sessionID: sessionID))
         guard snapshotResult.succeeded,
               let snapshot = mover.marker("AM_SNAP", in: snapshotResult.standardOutput), !snapshot.isEmpty,
               let head = mover.marker("AM_HEAD", in: snapshotResult.standardOutput), !head.isEmpty else {
@@ -62,6 +63,10 @@ struct AgentMoveCodeSync {
             }
             throw AgentMoveError.gitFailed(step: "apply", detail: applied.failureDetail)
         }
+        // Only now does the source ref say "the destination holds this tree"; a
+        // refused or failed move leaves the source's previous record untouched.
+        let promoted = try mover.shell(source, scripts.promoteSnapshot(checkout: top, outgoingRef: outgoingRef, ref: ref, snapshot: snapshot))
+        guard promoted.succeeded else { throw AgentMoveError.gitFailed(step: "update-ref", detail: promoted.failureDetail) }
         return .synced(checkout: destinationTop, head: head, branch: branch, snapshot: snapshot, addedWorktree: addedWorktree)
     }
 
@@ -127,7 +132,7 @@ struct AgentMoveCodeSync {
             )
         } else {
             invocation = AgentMoveInvocation(
-                arguments: ["git", "-C", destinationTop, "fetch", "-q", source.transferPath(top), "+\(ref):\(incomingRef)"],
+                arguments: ["git", "-C", destinationTop, "fetch", "-q", source.transferPath(top), "+\(outgoingRef):\(incomingRef)"],
                 environment: environment
             )
         }

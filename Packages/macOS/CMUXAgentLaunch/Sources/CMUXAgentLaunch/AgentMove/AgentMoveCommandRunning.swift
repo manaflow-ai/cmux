@@ -6,11 +6,14 @@ public struct AgentMoveInvocation: Sendable, Equatable {
     public var arguments: [String]
     /// Variables added to the inherited environment.
     public var environment: [String: String]
+    /// Text written to standard input, or `nil` for an empty standard input.
+    public var standardInput: String?
 
     /// Creates an invocation.
-    public init(arguments: [String], environment: [String: String] = [:]) {
+    public init(arguments: [String], environment: [String: String] = [:], standardInput: String? = nil) {
         self.arguments = arguments
         self.environment = environment
+        self.standardInput = standardInput
     }
 }
 
