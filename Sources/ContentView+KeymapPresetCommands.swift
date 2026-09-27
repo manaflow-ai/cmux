@@ -4,16 +4,12 @@ import CmuxSettings
 import CmuxSettingsUI
 
 extension ContentView {
-    private static var keymapPresetTitleFormat: String {
-        String(localized: "command.shortcutKeymap.title", defaultValue: "Base Keymap: %@")
-    }
-
     static func keymapPresetCommandID(_ preset: ShortcutKeymapPreset) -> String {
         "palette.shortcutKeymap.\(preset.rawValue)"
     }
 
     func appendKeymapPresetCommandContributions(to contributions: inout [CommandPaletteCommandContribution]) {
-        let format = Self.keymapPresetTitleFormat
+        let format = String(localized: "command.shortcutKeymap.title", defaultValue: "Base Keymap: %@")
         let subtitle = String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
         for preset in ShortcutKeymapPreset.allCases {
             contributions.append(
@@ -27,40 +23,22 @@ extension ContentView {
         }
     }
 
+    /// Opens Settings > Keyboard Shortcuts with the preset's preview. Nothing
+    /// is written until the user confirms there, the same path as the picker.
     func registerKeymapPresetCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         for preset in ShortcutKeymapPreset.allCases {
             registry.register(commandId: Self.keymapPresetCommandID(preset)) {
-                Task { @MainActor in await Self.applyKeymapPreset(preset) }
+                guard let appDelegate = AppDelegate.shared,
+                      let runtime = appDelegate.settingsRuntime else {
+                    NSSound.beep()
+                    return
+                }
+                runtime.keymapProposals.preset = preset
+                appDelegate.openPreferencesWindow(
+                    debugSource: Self.keymapPresetCommandID(preset),
+                    navigationTarget: .keyboardShortcuts
+                )
             }
         }
-    }
-
-    /// Applies `preset` through the same plan and store path as the Settings
-    /// picker, then reports what changed.
-    @MainActor
-    private static func applyKeymapPreset(_ preset: ShortcutKeymapPreset) async {
-        guard let runtime = AppDelegate.shared?.settingsRuntime else {
-            NSSound.beep()
-            return
-        }
-        let bindingsKey = runtime.catalog.shortcuts.bindingSnapshot
-        let plan = preset.plan(
-            from: await runtime.jsonStore.value(for: bindingsKey),
-            defaultShortcutResolver: runtime.shortcutDefaultResolver
-        )
-        let alert = NSAlert()
-        do {
-            try await runtime.jsonStore.applyShortcutKeymap(plan, bindingsID: bindingsKey.id)
-            runtime.hostActions.notifyShortcutSettingsDidChange()
-            alert.messageText = String.localizedStringWithFormat(keymapPresetTitleFormat, preset.displayName)
-            alert.informativeText = ShortcutKeymapPlanText.lines(for: plan).joined(separator: "\n")
-            alert.alertStyle = plan.systemConflicts.isEmpty ? .informational : .warning
-        } catch {
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.shortcutKeymap.failed.title", defaultValue: "Keymap Not Changed")
-            alert.informativeText = error.localizedDescription
-        }
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = alert.runCmuxModal()
     }
 }

@@ -560018,65 +560018,6 @@
         }
       }
     },
-    "dialog.shortcutKeymap.failed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keymap Not Changed"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يتم تغيير مخطط المفاتيح"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tastaturbelegung nicht geändert"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se cambió el mapa de teclas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disposition non modifiée"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーマップは変更されませんでした"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "키맵이 변경되지 않음"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未更改键位方案"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未變更按鍵配置"
-          }
-        }
-      }
-    },
     "settings.shortcuts.baseKeymap": {
       "extractionState": "manual",
       "localizations": {
@@ -562433,6 +562374,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "基礎按鍵配置 預設組合 iterm iterm2 terminal app tmux 前綴 快速鍵 其他終端機"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.baseKeymap.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Keymap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق مخطط المفاتيح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturbelegung anwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar mapa de teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquer la disposition"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーマップを適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키맵 적용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用键位方案"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用按鍵配置"
+          }
+        }
+      }
+    },
+    "shortcut.keymap.summary.iterm2Numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 will select tabs in the focused pane instead of workspaces. Workspaces move to ⌥⌘1…9."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيحدد ⌘1…9 علامات التبويب في الجزء المحدد بدلًا من مساحات العمل. تنتقل مساحات العمل إلى ⌥⌘1…9."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 wählt dann Tabs im fokussierten Bereich statt Arbeitsbereiche aus. Arbeitsbereiche wechseln zu ⌥⌘1…9."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 seleccionará pestañas del panel enfocado en lugar de espacios de trabajo. Los espacios de trabajo pasan a ⌥⌘1…9."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 sélectionnera les onglets du panneau actif au lieu des espaces de travail. Les espaces de travail passent à ⌥⌘1…9."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 はワークスペースではなく、フォーカス中のペインのタブを選択するようになります。ワークスペースは ⌥⌘1…9 に移ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9는 작업 공간 대신 포커스된 패널의 탭을 선택합니다. 작업 공간은 ⌥⌘1…9로 이동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 将选择当前窗格中的标签页，而不是工作区。工作区改用 ⌥⌘1…9。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 將選取目前窗格中的分頁，而不是工作區。工作區改用 ⌥⌘1…9。"
           }
         }
       }

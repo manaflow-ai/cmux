@@ -18,8 +18,13 @@ public struct ShortcutKeymapChange: Sendable, Equatable {
 /// The `shortcuts.bindings` edits that switch the file to a keymap preset.
 ///
 /// A preset only replaces overrides that are absent or that another preset
-/// wrote. A binding the user set by hand stays and is listed in ``kept``, so
-/// switching presets never discards the user's own edits.
+/// wrote. A binding the user set by hand, in `cmux.json` or as a legacy
+/// UserDefaults shortcut, stays and is listed in ``kept``.
+///
+/// Ownership is inferred from values, not recorded: nothing marks which
+/// preset wrote a binding. A binding typed by hand that equals some preset's
+/// value for that action therefore counts as preset-owned, and switching to
+/// another preset (including cmux) replaces or removes it.
 public struct ShortcutKeymapPlan: Sendable, Equatable {
     /// The preset this plan switches to.
     public let preset: ShortcutKeymapPreset
@@ -42,11 +47,15 @@ extension ShortcutKeymapPreset {
     ///
     /// - Parameters:
     ///   - snapshot: The current `shortcuts.bindings` contents of `cmux.json`.
+    ///   - legacyBindings: Shortcuts saved in UserDefaults by older Settings
+    ///     builds, keyed by action id. They apply when `cmux.json` doesn't
+    ///     manage the action and count as set by hand.
     ///   - defaultShortcutResolver: The host's factory defaults, used to show
     ///     effective before/after values and to skip writes that equal a default.
     /// - Returns: The overrides to write or remove, plus the user bindings kept.
     public func plan(
         from snapshot: ShortcutBindingsSnapshot,
+        legacyBindings: [String: StoredShortcut] = [:],
         defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) -> ShortcutKeymapPlan {
         let targetOverrides = overrides
@@ -58,16 +67,20 @@ extension ShortcutKeymapPreset {
             let managed = current != nil || snapshot.managedActionIDs.contains(action.rawValue)
             let defaultShortcut = (action.defaultShortcut(using: defaultShortcutResolver) ?? .unbound)
                 .canonicalized()
-            let before = managed ? (current ?? defaultShortcut) : defaultShortcut
+            // A file override hides the legacy value; removing it reveals it again.
+            let legacyValue = legacyBindings[action.rawValue]?.canonicalized()
+            let legacy = managed ? nil : legacyValue
+            let before = managed ? (current ?? defaultShortcut) : (legacy ?? defaultShortcut)
             let ownedByPreset = current.map { Self.isPresetValue($0, for: action) } ?? false
+            let setByHand = (managed && !ownedByPreset) || legacy != nil
 
             if let binding = targetOverrides[action], let target = binding.shortcut {
                 guard current != target else { continue }
-                guard !managed || ownedByPreset else {
+                if !managed && target == before { continue }
+                guard !setByHand else {
                     kept.append(action)
                     continue
                 }
-                if !managed && target == defaultShortcut { continue }
                 changes.append(ShortcutKeymapChange(
                     action: action,
                     before: before,
@@ -76,12 +89,13 @@ extension ShortcutKeymapPreset {
                     systemConflicts: MacOSSystemShortcut.conflicts(with: target, for: action)
                 ))
             } else if ownedByPreset {
+                let after = legacyValue ?? defaultShortcut
                 changes.append(ShortcutKeymapChange(
                     action: action,
                     before: before,
-                    after: defaultShortcut,
+                    after: after,
                     write: nil,
-                    systemConflicts: MacOSSystemShortcut.conflicts(with: defaultShortcut, for: action)
+                    systemConflicts: MacOSSystemShortcut.conflicts(with: after, for: action)
                 ))
             }
         }
@@ -97,6 +111,7 @@ extension ShortcutKeymapPreset {
     /// actions, or to a preset's own actions, don't hide the preset.
     public static func active(
         in snapshot: ShortcutBindingsSnapshot,
+        legacyBindings: [String: StoredShortcut] = [:],
         defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) -> ShortcutKeymapPreset? {
         for preset in allCases where preset != .cmux {
@@ -104,12 +119,16 @@ extension ShortcutKeymapPreset {
                 snapshot.bindings[action.rawValue]?.canonicalized() == binding.shortcut
             }
             if applied,
-               preset.plan(from: snapshot, defaultShortcutResolver: defaultShortcutResolver).isEmpty {
+               preset.plan(
+                   from: snapshot,
+                   legacyBindings: legacyBindings,
+                   defaultShortcutResolver: defaultShortcutResolver
+               ).isEmpty {
                 return preset
             }
         }
         return ShortcutKeymapPreset.cmux
-            .plan(from: snapshot, defaultShortcutResolver: defaultShortcutResolver)
+            .plan(from: snapshot, legacyBindings: legacyBindings, defaultShortcutResolver: defaultShortcutResolver)
             .isEmpty ? .cmux : nil
     }
 

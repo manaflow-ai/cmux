@@ -80,6 +80,45 @@ struct ShortcutKeymapPresetTests {
         #expect(toCmux.changes.contains { $0.action == .resizePaneLeft })
     }
 
+    @Test func legacyUserDefaultsBindingsCountAsSetByHand() {
+        let legacyCopyMode = StoredShortcut(first: ShortcutStroke(key: "x", command: true, shift: true))
+        let legacy = [
+            ShortcutAction.toggleTerminalCopyMode.rawValue: legacyCopyMode,
+            ShortcutAction.resizePaneLeft.rawValue: ShortcutKeymapBinding.stroke("cmd+ctrl+left").shortcut!,
+        ]
+
+        let plan = ShortcutKeymapPreset.iTerm2.plan(from: empty, legacyBindings: legacy)
+
+        #expect(plan.kept == [.toggleTerminalCopyMode])
+        #expect(!plan.changes.contains { $0.action == .toggleTerminalCopyMode })
+        // Already the preset's value, so there is nothing to write or keep.
+        #expect(!plan.changes.contains { $0.action == .resizePaneLeft })
+        #expect(ShortcutKeymapPreset.active(in: snapshot(applied(.iTerm2)), legacyBindings: legacy) == .iTerm2)
+    }
+
+    @Test func removingAPresetOverrideRevealsTheLegacyBinding() throws {
+        let legacyCopyMode = StoredShortcut(first: ShortcutStroke(key: "x", command: true, shift: true))
+
+        let plan = ShortcutKeymapPreset.cmux.plan(
+            from: snapshot(applied(.iTerm2)),
+            legacyBindings: [ShortcutAction.toggleTerminalCopyMode.rawValue: legacyCopyMode]
+        )
+
+        let copyMode = try #require(plan.changes.first { $0.action == .toggleTerminalCopyMode })
+        #expect(copyMode.write == nil)
+        #expect(copyMode.after == legacyCopyMode)
+    }
+
+    @Test func handTypedPresetValueIsTreatedAsPresetOwned() {
+        // Ownership is inferred from values, so a hand-typed binding equal to
+        // a preset's value is removed when switching back to cmux.
+        let typed = snapshot([.toggleTerminalCopyMode: ShortcutKeymapBinding.stroke("cmd+shift+c").shortcut!])
+
+        let plan = ShortcutKeymapPreset.cmux.plan(from: typed)
+
+        #expect(plan.changes.map(\.action) == [.toggleTerminalCopyMode])
+    }
+
     @Test func malformedManagedBindingCountsAsACustomization() {
         let managed = ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: ["toggleTerminalCopyMode"])
 

@@ -79,13 +79,12 @@ extension MacOSSystemShortcut {
     }
 }
 
-/// Plain-text lines describing a keymap preset switch, shared by the Settings
-/// row and the Command Palette confirmation.
-public enum ShortcutKeymapPlanText {
-    /// One line per changed shortcut, then one per macOS conflict, then one per
-    /// user binding the preset kept.
-    public static func lines(for plan: ShortcutKeymapPlan) -> [String] {
-        guard !plan.isEmpty || !plan.kept.isEmpty else {
+extension ShortcutKeymapPlan {
+    /// Plain-text preview of the switch: a note for presets that move a
+    /// familiar shortcut family, one line per changed shortcut, one per macOS
+    /// conflict, then one per binding set by hand that the preset keeps.
+    public var summaryLines: [String] {
+        guard !isEmpty || !kept.isEmpty else {
             return [String(localized: "shortcut.keymap.summary.none", defaultValue: "No shortcuts changed.")]
         }
         let changeFormat = String(localized: "shortcut.keymap.summary.change", defaultValue: "%1$@: %2$@ → %3$@")
@@ -97,30 +96,37 @@ public enum ShortcutKeymapPlanText {
             localized: "shortcut.keymap.summary.kept",
             defaultValue: "Kept your own shortcut for %@."
         )
-        var lines = plan.changes.map { change in
+        var lines: [String] = []
+        if preset == .iTerm2, changes.contains(where: { $0.action == .selectSurfaceByNumber }) {
+            lines.append(String(
+                localized: "shortcut.keymap.summary.iterm2Numbers",
+                defaultValue: "⌘1…9 will select tabs in the focused pane instead of workspaces. Workspaces move to ⌥⌘1…9."
+            ))
+        }
+        lines += changes.map { change in
             String.localizedStringWithFormat(
                 changeFormat,
                 change.action.displayName,
-                display(change.before, for: change.action),
-                display(change.after, for: change.action)
+                keymapDisplayString(change.before, for: change.action),
+                keymapDisplayString(change.after, for: change.action)
             )
         }
-        for change in plan.systemConflicts {
+        for change in systemConflicts {
             let names = change.systemConflicts.map(\.displayName).joined(separator: ", ")
             lines.append(String.localizedStringWithFormat(
                 conflictFormat,
-                display(change.after, for: change.action),
+                keymapDisplayString(change.after, for: change.action),
                 names
             ))
         }
-        lines += plan.kept.map { String.localizedStringWithFormat(keptFormat, $0.displayName) }
+        lines += kept.map { String.localizedStringWithFormat(keptFormat, $0.displayName) }
         return lines
     }
+}
 
-    private static func display(_ shortcut: StoredShortcut, for action: ShortcutAction) -> String {
-        guard !shortcut.isUnbound else {
-            return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
-        }
-        return shortcutDisplayString(shortcut, numbered: action.usesNumberedDigitMatching)
+private func keymapDisplayString(_ shortcut: StoredShortcut, for action: ShortcutAction) -> String {
+    guard !shortcut.isUnbound else {
+        return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
     }
+    return shortcutDisplayString(shortcut, numbered: action.usesNumberedDigitMatching)
 }

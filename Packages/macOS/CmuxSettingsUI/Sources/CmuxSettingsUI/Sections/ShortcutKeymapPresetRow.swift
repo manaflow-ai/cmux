@@ -2,12 +2,14 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// The **Base Keymap** picker: switches `shortcuts.bindings` to a preset and
-/// lists what changed, including shortcuts macOS may take first.
+/// The **Base Keymap** picker. Choosing a preset (here or from the Command
+/// Palette) previews what would change, including shortcuts macOS may take
+/// first, and writes `shortcuts.bindings` only after the user confirms.
 @MainActor
 struct ShortcutKeymapPresetRow: View {
     let model: ShortcutListModel
-    @State private var lastPlan: ShortcutKeymapPlan?
+    let proposals: ShortcutKeymapProposalInbox?
+    @State private var proposedPlan: ShortcutKeymapPlan?
     @State private var isApplying = false
 
     private var snapshot: ShortcutBindingsSnapshot {
@@ -18,7 +20,11 @@ struct ShortcutKeymapPresetRow: View {
     }
 
     private var activePreset: ShortcutKeymapPreset? {
-        ShortcutKeymapPreset.active(in: snapshot, defaultShortcutResolver: model.defaultShortcutResolver)
+        ShortcutKeymapPreset.active(
+            in: snapshot,
+            legacyBindings: model.legacyBindings,
+            defaultShortcutResolver: model.defaultShortcutResolver
+        )
     }
 
     var body: some View {
@@ -36,16 +42,16 @@ struct ShortcutKeymapPresetRow: View {
                 Picker(
                     String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"),
                     selection: Binding(
-                        get: { activePreset },
+                        get: { proposedPlan?.preset ?? activePreset },
                         set: { preset in
-                            if let preset { apply(preset) }
+                            if let preset { propose(preset) }
                         }
                     )
                 ) {
                     ForEach(ShortcutKeymapPreset.allCases, id: \.self) { preset in
                         Text(preset.displayName).tag(Optional(preset))
                     }
-                    if activePreset == nil {
+                    if proposedPlan == nil, activePreset == nil {
                         Text(String(localized: "settings.shortcuts.baseKeymap.custom", defaultValue: "Custom"))
                             .tag(ShortcutKeymapPreset?.none)
                     }
@@ -55,43 +61,86 @@ struct ShortcutKeymapPresetRow: View {
                 .disabled(isApplying)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapPicker")
             }
-            if let lastPlan {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(Array(ShortcutKeymapPlanText.lines(for: lastPlan).enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .cmuxFont(.caption)
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                    }
-                    if !lastPlan.systemConflicts.isEmpty {
-                        Label(
-                            String(
-                                localized: "settings.shortcuts.baseKeymap.conflictHint",
-                                defaultValue: "Change or turn off the macOS shortcut in System Settings > Keyboard > Keyboard Shortcuts."
-                            ),
-                            systemImage: "exclamationmark.triangle"
-                        )
-                        .cmuxFont(.caption)
-                        .foregroundColor(.orange)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 9)
-                .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapSummary")
+            if let proposedPlan {
+                preview(proposedPlan)
             }
         }
+        .onAppear { takeProposal() }
+        .onChange(of: proposals?.preset) { _, _ in takeProposal() }
     }
 
-    private func apply(_ preset: ShortcutKeymapPreset) {
-        let plan = preset.plan(from: snapshot, defaultShortcutResolver: model.defaultShortcutResolver)
-        lastPlan = plan
-        guard !plan.isEmpty else { return }
+    @ViewBuilder
+    private func preview(_ plan: ShortcutKeymapPlan) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(plan.summaryLines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+                    .cmuxFont(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+            if !plan.systemConflicts.isEmpty {
+                Label(
+                    String(
+                        localized: "settings.shortcuts.baseKeymap.conflictHint",
+                        defaultValue: "Change or turn off the macOS shortcut in System Settings > Keyboard > Keyboard Shortcuts."
+                    ),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .cmuxFont(.caption)
+                .foregroundColor(.orange)
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                Button(String(localized: "common.cancel", defaultValue: "Cancel")) {
+                    proposedPlan = nil
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapCancel")
+                Button(String(localized: "settings.shortcuts.baseKeymap.apply", defaultValue: "Apply Keymap")) {
+                    apply(plan)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(plan.isEmpty || isApplying)
+                .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapApply")
+            }
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 9)
+        .accessibilityIdentifier("SettingsKeyboardShortcutsBaseKeymapPreview")
+    }
+
+    private func propose(_ preset: ShortcutKeymapPreset) {
+        guard preset != activePreset else {
+            proposedPlan = nil
+            return
+        }
+        proposedPlan = preset.plan(
+            from: snapshot,
+            legacyBindings: model.legacyBindings,
+            defaultShortcutResolver: model.defaultShortcutResolver
+        )
+    }
+
+    private func takeProposal() {
+        guard let proposals, let preset = proposals.preset else { return }
+        proposals.preset = nil
+        proposedPlan = preset.plan(
+            from: snapshot,
+            legacyBindings: model.legacyBindings,
+            defaultShortcutResolver: model.defaultShortcutResolver
+        )
+    }
+
+    private func apply(_ plan: ShortcutKeymapPlan) {
         isApplying = true
         Task {
             defer { isApplying = false }
             do {
                 try await model.jsonStore.applyShortcutKeymap(plan, bindingsID: model.catalog.shortcuts.bindings.id)
                 model.onShortcutsChanged()
+                proposedPlan = nil
             } catch {
                 model.errorLog.record(error, keyID: model.catalog.shortcuts.bindings.id)
             }

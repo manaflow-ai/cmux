@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
+    private let keymapProposals: ShortcutKeymapProposalInbox?
     @State private var model: ShortcutListModel
     @State private var paneResizeStep: DefaultsValueModel<Int>
 
@@ -22,15 +23,18 @@ public struct KeyboardShortcutsSection: View {
     ///   - errorLog: The error sink for failed JSON writes.
     ///   - hostActions: Host callbacks for opening the external configuration editor.
     ///   - defaultShortcutResolver: Host-scoped factory defaults for dynamic actions.
+    ///   - keymapProposals: Base keymap choices from outside Settings to preview here.
     public init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions,
-        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn,
+        keymapProposals: ShortcutKeymapProposalInbox? = nil
     ) {
         self.hostActions = hostActions
+        self.keymapProposals = keymapProposals
         _model = State(initialValue: ShortcutListModel(
             jsonStore: jsonStore,
             userDefaultsStore: userDefaultsStore,
@@ -53,7 +57,7 @@ public struct KeyboardShortcutsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
-                ShortcutKeymapPresetRow(model: model)
+                ShortcutKeymapPresetRow(model: model, proposals: keymapProposals)
                 SettingsCardDivider()
                 chordsRow
                 SettingsCardDivider()
