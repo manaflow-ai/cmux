@@ -53,6 +53,43 @@ import Testing
         #expect(harness.workspace.panels.count == panelsBefore + 1)
     }
 
+    /// A mirrored pane lives in the mirror's nested Bonsplit tree, so its drop
+    /// context names a pane the workspace tree has never seen. The mirror must
+    /// own that target: without an owner every Finder file drop snapped back
+    /// (https://github.com/manaflow-ai/cmux/issues/14896).
+    @Test func mirrorPaneDropContextResolvesToTheWindowMirror() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness()
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+        let panel = try #require(harness.mirror.panel(forPane: tmuxPaneID))
+        let paneID = try #require(harness.mirror.paneIdByPaneId[tmuxPaneID])
+        let context = PaneDropContext(
+            workspaceId: harness.workspace.id,
+            panelId: panel.id,
+            paneId: paneID
+        )
+
+        let container = try #require(harness.appDelegate.paneDropContainer(for: context))
+
+        #expect(container === harness.mirror)
+        #expect(container.fileDropTextDestinationKind(in: paneID, hasHostedTerminal: false) == .terminal)
+        #expect(!container.canPerformPortalPaneDrop(
+            PaneDragTransfer(
+                tabId: UUID(),
+                sourcePaneId: UUID(),
+                sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+            ),
+            source: .surface
+        ))
+
+        let otherPanel = try #require(harness.mirror.panel(forPane: 11))
+        #expect(harness.appDelegate.paneDropContainer(for: PaneDropContext(
+            workspaceId: harness.workspace.id,
+            panelId: otherPanel.id,
+            paneId: paneID
+        )) == nil)
+    }
+
     @Test func windowMirrorSplitRejectsWhileConnecting() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         let mirror = RemoteTmuxWindowMirror(

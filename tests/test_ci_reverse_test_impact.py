@@ -512,7 +512,7 @@ class WorkflowGuardTests(unittest.TestCase):
         needed = {"scripts/ci/reverse_test_impact.py", "scripts/ci/cmux-unit-test-timings.json"}
         pending = [source]
         while pending:
-            for module in re.findall(r"^from (\w+) import", pending.pop(), re.M):
+            for module in re.findall(r"^\s*(?:from|import)\s+(\w+)", pending.pop(), re.M):
                 path = SCRIPTS / f"{module}.py"
                 relative = f"scripts/ci/{module}.py"
                 if path.exists() and relative not in needed:

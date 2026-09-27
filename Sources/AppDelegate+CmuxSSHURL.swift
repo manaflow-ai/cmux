@@ -244,7 +244,13 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         if isTerminalShellScript(fileURL: fileURL, contentType: contentType) {
             return true
         }
-        return contentType?.conforms(to: .unixExecutable) == true || isExecutable
+        if contentType?.conforms(to: .unixExecutable) == true {
+            return true
+        }
+        // cmux is also an Open With viewer for text and source files, so the executable bit
+        // alone must not run a typed text file such as a chmod +x script.py or notes.md.
+        // Extensionless scripts and binaries are typed as executables or plain data and still run.
+        return isExecutable && contentType?.conforms(to: .text) != true
     }
 
     private static func isTerminalShellScript(fileURL: URL, contentType: UTType?) -> Bool {

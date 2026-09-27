@@ -14,6 +14,12 @@ did not finish, samples the test processes' stacks where `sample` exists
 (macOS), kills the process group, and exits 124 with an `::error::` annotation
 that names the tests and says "timed out". If the runner cancels the step
 first, the same in-flight report is printed before exiting.
+
+`--stall-seconds` watches test progress rather than raw output: once the build
+is done (SwiftPM's "Build complete!" or the first test event), no test starting
+or finishing for that long is a hang even while something keeps printing. The
+annotation then names the tests that started and did not finish and says "made
+no progress".
 """
 
 from __future__ import annotations
@@ -63,6 +69,10 @@ SWIFT_RUN = re.compile(r"^run(?: |$)")
 
 XCTEST_STARTED = re.compile(r"^\s*Test Case '(?P<name>[^']+)' started")
 XCTEST_FINISHED = re.compile(r"^\s*Test Case '(?P<name>[^']+)' (?:passed|failed|skipped)\b")
+XCTEST_SUITE = re.compile(r"^\s*Test Suite '[^']+' (?:started|passed|failed)\b")
+# SwiftPM's last build line; the stall clock starts here, so a slow compile or
+# link is bounded only by the total timeout.
+BUILD_COMPLETE = re.compile(r"^(?:\[\d+/\d+\] )?Build complete!")
 
 # Process names worth a stack sample: the XCTest bundle runner and the Swift
 # Testing helper SwiftPM launches. Everything else in the group is a driver.
@@ -99,28 +109,45 @@ class TestProgress:
         self._xctest: list[Started] = []
         self._line = 0
         self._last_line = ""
+        # Test events seen so far; the stall clock restarts when this changes.
+        self.events = 0
+        # True once the build finished or a test event arrived.
+        self.testing = False
 
     def feed(self, line: str) -> None:
         line = ANSI.sub("", line).rstrip("\r\n")
         self._line += 1
         if line.strip():
             self._last_line = line.strip()
+        if BUILD_COMPLETE.match(line):
+            self._progress()
+            return
         xctest = XCTEST_STARTED.match(line)
         if xctest:
+            self._progress()
             self._xctest.append(Started(xctest["name"], self._line, self._clock()))
             return
         xctest = XCTEST_FINISHED.match(line)
         if xctest:
+            self._progress()
             _finish(self._xctest, xctest["name"])
+            return
+        if XCTEST_SUITE.match(line):
+            self._progress()
             return
         event = SWIFT_EVENT.match(line)
         if not event:
             return
+        self._progress()
         rest = event["rest"]
         if event["kind"] == "Suite":
             self._suite_event(rest)
         elif not SWIFT_RUN.match(rest) and not SWIFT_ISSUE.match(rest):
             self._test_event(rest)
+
+    def _progress(self) -> None:
+        self.events += 1
+        self.testing = True
 
     def _suite_event(self, rest: str) -> None:
         started = SWIFT_STARTED.match(rest)
@@ -218,6 +245,22 @@ def hung_summary(state: InFlight) -> str:
     if len(state.suites) == 1:
         summary += f" (suite {state.suites[0].name})"
     return summary
+
+
+def stalled_summary(state: InFlight) -> str:
+    """Names the tests that stopped making progress, for the annotation."""
+    names = [test.name for test in state.tests] + [case.name for case in state.xctest_cases]
+    if not names:
+        detail = "no test in flight"
+        if state.last_line:
+            detail += f" (last output: {state.last_line[:200]})"
+        return detail
+    shown = ", ".join(names[:MAX_NAMED_TESTS])
+    if len(names) > MAX_NAMED_TESTS:
+        shown += f" and {len(names) - MAX_NAMED_TESTS} more"
+    if len(state.suites) == 1:
+        shown += f" (suite {state.suites[0].name})"
+    return shown
 
 
 def escape_annotation(message: str) -> str:
@@ -341,13 +384,15 @@ def run(
     timeout_seconds: float,
     sample_seconds: int,
     log_path: Optional[Path],
+    stall_seconds: float = 0,
     drain_seconds: float = 2.0,
 ) -> int:
     out = Output()
     progress = TestProgress()
     log = log_path.open("wb") if log_path else None
     process, fd = spawn(command, out)
-    started = last_output = time.monotonic()
+    started = last_output = last_progress = time.monotonic()
+    seen_events = 0
     exited_at: Optional[float] = None
     pending = b""
     eof = False
@@ -403,6 +448,16 @@ def run(
                 if silence_seconds and now - last_output >= silence_seconds:
                     reason = f"timed out after {silence_seconds:g}s with no output"
                     break
+                if progress.events != seen_events:
+                    seen_events = progress.events
+                    last_progress = now
+                elif (
+                    stall_seconds
+                    and progress.testing
+                    and now - last_progress >= stall_seconds
+                ):
+                    reason = None
+                    break
             if eof:
                 time.sleep(0.05)
                 continue
@@ -428,7 +483,12 @@ def run(
         sample_stacks(tree, sample_seconds, out)
         terminate(process, tree=tree)
         title = escape_property(f"Hung test in {label}")
-        message = escape_annotation(f"{label} {reason}, {hung_summary(state)}")
+        if reason is None:
+            message = escape_annotation(
+                f"{label}: {stalled_summary(state)} made no progress for {stall_seconds:g}s"
+            )
+        else:
+            message = escape_annotation(f"{label} {reason}, {hung_summary(state)}")
         out.line(f"::error title={title}::{message}")
         return TIMEOUT_EXIT
     except RunnerSignal as received:
@@ -461,6 +521,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="fail when the command writes nothing for this long (0 disables)",
     )
     parser.add_argument(
+        "--stall-seconds",
+        type=float,
+        default=0,
+        help="after the build, fail when no test starts or finishes for this long (0 disables)",
+    )
+    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=0,
@@ -479,16 +545,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a command is required after --")
-    if args.silence_seconds < 0 or args.timeout_seconds < 0 or args.sample_seconds < 0:
+    if min(args.silence_seconds, args.stall_seconds, args.timeout_seconds, args.sample_seconds) < 0:
         parser.error("durations must not be negative")
-    if not args.silence_seconds and not args.timeout_seconds:
-        parser.error("set --silence-seconds, --timeout-seconds, or both")
+    if not (args.silence_seconds or args.stall_seconds or args.timeout_seconds):
+        parser.error("set --silence-seconds, --stall-seconds, or --timeout-seconds")
     if args.log:
         args.log.parent.mkdir(parents=True, exist_ok=True)
     return run(
         command,
         label=args.label or shlex.join(command)[:120],
         silence_seconds=args.silence_seconds,
+        stall_seconds=args.stall_seconds,
         timeout_seconds=args.timeout_seconds,
         sample_seconds=args.sample_seconds,
         log_path=args.log,

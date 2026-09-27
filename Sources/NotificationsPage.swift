@@ -308,6 +308,7 @@ struct ShortcutAnnotation: View {
 }
 
 struct NotificationRow: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Closures and the focus binding are recreated by the parent on every render
     // and excluded from ==. Equality compares only the value snapshot the row
     // actually renders, so `.equatable()` can suppress body re-evaluation for
@@ -333,11 +334,11 @@ struct NotificationRow: View, Equatable {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                        .fill(notification.isRead ? Color.clear : cmuxAccent.color)
                         .frame(width: 8, height: 8)
                         .overlay(
                             Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                                .stroke(cmuxAccent.color.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
                         .padding(.top, 6)
 
@@ -386,6 +387,7 @@ struct NotificationRow: View, Equatable {
             // description, so the icon-only button needs an explicit label (the prior
             // SwiftUI system-symbol path used to supply one implicitly).
             .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            .safeHelp(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)
         .background(
