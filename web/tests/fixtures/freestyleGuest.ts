@@ -18,7 +18,11 @@ export type GuestExecRequest = {
   linuxUser: string;
 };
 
-const testDistribution = await (async () => {
+// Built on first use, not with top-level await: several test files import this
+// fixture, and a module that suspends during evaluation leaves its exports in
+// the temporal dead zone for importers Bun evaluates concurrently.
+let testDistribution: Promise<GuestCliDistribution> | undefined;
+const syntheticDistribution = () => (testDistribution ??= (async () => {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-cli-fixture-"));
   const source = join(root, "source");
   mkdirSync(source);
@@ -37,7 +41,7 @@ const testDistribution = await (async () => {
     archiveSha256: digest(readFileSync(archive)),
     binaries: { "cmux-cloud-cli": digest(facade), coderouter: digest(core) },
   } satisfies GuestCliDistribution;
-})();
+})());
 
 /** Real pinned SDK, synthetic HTTP only. No provider credentials or network. */
 export function freestyleGuestFixture(options: {
@@ -111,7 +115,7 @@ export function freestyleGuestFixture(options: {
       client,
       handle.providerVmId,
       createOptions.promptIdentity,
-      options.guestCliDistribution ?? testDistribution,
+      options.guestCliDistribution ?? await syntheticDistribution(),
     )));
     if (install._tag === "Right") {
       return handle;
