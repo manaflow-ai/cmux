@@ -216,6 +216,7 @@ def start_distance(current: Mapping[str, list], start: Mapping[str, list] | None
 _deadline: list[float] = [float("inf")]
 GIT_TIMEOUT_SECONDS = 10
 FETCH_TIMEOUT_SECONDS = 20
+FETCH_RESERVE_SECONDS = 2  # of the picker's budget, kept for the diffs after the base fetch
 RECORD_BUDGET_SECONDS = 60
 PICKER_BUDGET_SECONDS = 8
 
@@ -624,7 +625,7 @@ HOOK_DEFAULT_MODEL = {"near_app_swift_files": 5, "hot_files": [],
 HOOK_MAX_FILES = 400
 # Distinct kept merge bases compared per decision (one tree diff each; one fetch brings all that are missing).
 MAX_ROUTE_BASES = 24
-DISTANCE_BUDGET_SECONDS = 15
+DISTANCE_BUDGET_SECONDS = 30  # two fetch attempts of ~14 s: a checkout fetch took 11.5 s on a slow runner
 WARM_SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -729,10 +730,11 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
     report: dict[str, Any] = {"missing": len(missing), "attempts": 0}
     started = time.monotonic()
     env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
-    for _ in range(2):
+    for attempt in range(2):
         if not missing:
             break
-        timeout = min(FETCH_TIMEOUT_SECONDS, _deadline[0] - time.monotonic())
+        # Leave room for a second attempt and the diffs (tens of milliseconds each) after a slow failure.
+        timeout = min(FETCH_TIMEOUT_SECONDS, (_deadline[0] - time.monotonic() - FETCH_RESERVE_SECONDS) / (2 - attempt))
         if timeout <= 0:
             report["error"] = "no time left"
             break
@@ -743,6 +745,8 @@ def fetch_bases(workspace: Path, shas: Iterable[str]) -> dict[str, Any]:
                                     capture_output=True, text=True, timeout=timeout, env=env)
             if result.returncode != 0:
                 report["error"] = f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
+            else:
+                report.pop("error", None)
         except subprocess.TimeoutExpired:
             report["error"] = f"timed out after {timeout:.0f} s"
         except OSError as error:
