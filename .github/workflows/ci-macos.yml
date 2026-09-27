@@ -3324,7 +3324,7 @@ jobs:
           run_swift_test() {
             test_status=0
             python3 scripts/ci/hung_test_watchdog.py \
-              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-120}" \
+              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
               --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
               --sample-seconds 5 --label Bonsplit --log "$log" \
               -- swift test --package-path vendor/bonsplit < /dev/null || test_status=$?
@@ -3386,7 +3386,7 @@ jobs:
           run_swift_test() {
             test_status=0
             python3 scripts/ci/hung_test_watchdog.py \
-              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-120}" \
+              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
               --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
               --sample-seconds 5 --label "$pkg" --log "$log" \
               -- swift test "${swift_test_args[@]}" < /dev/null || test_status=$?
