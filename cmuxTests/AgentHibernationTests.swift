@@ -135,7 +135,7 @@ struct AgentHibernationTests {
     }
 
     @Test
-    func testPlannerOnlySelectsIdleUnprotectedExcessLiveAgents() {
+    func testPlannerSelectsIdleAndNeedsInputUnprotectedExcessLiveAgents() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let idleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -166,7 +166,7 @@ struct AgentHibernationTests {
             now: now
         )
 
-        expectEqual(selected, Set([idleOld]))
+        expectEqual(selected, Set([idleOld, needsInputOld]))
     }
 
     @Test
