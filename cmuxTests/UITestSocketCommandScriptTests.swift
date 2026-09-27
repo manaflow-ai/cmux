@@ -48,6 +48,20 @@ struct UITestSocketCommandScriptTests {
     }
 
     @Test
+    func waitPausesWithoutSendingAnything() throws {
+        let script = try #require(UITestSocketCommandScript(environment: [
+            UITestSocketCommandScript.commandsKey: "wait 250\nping\nwait nope",
+        ]))
+        var sent: [String] = []
+        var slept: [Int] = []
+        let replies = script.run({ sent.append($0); return "PONG" }, sleep: { slept.append($0) })
+
+        #expect(slept == [250])
+        #expect(sent == ["ping", "wait nope"])
+        #expect(replies == ["OK", "PONG", "PONG"])
+    }
+
+    @Test
     func uuidExtractionTakesTheLastIdInAReply() {
         let id = UUID().uuidString
         #expect(UITestSocketCommandScript.lastUUID(in: "OK workspace:1 \(id)") == id)

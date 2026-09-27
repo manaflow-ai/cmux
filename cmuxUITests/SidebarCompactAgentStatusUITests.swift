@@ -50,13 +50,16 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         // The app runs these itself (UITestSocketCommandScript); `{last}` is
         // the workspace the preceding new_workspace created.
         let commands = scenarios.flatMap { scenario in
-            ["new_workspace \(scenario.title)"]
+            ["new_workspace \(scenario.title)", "select_workspace {last}", "wait 400"]
                 + scenario.commands.map { $0.replacingOccurrences(of: "{tab}", with: "{last}") }
         }
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchArguments += ["-sidebarCompactAgentStatus", compact ? "YES" : "NO"]
         app.launchArguments += ["-socketControlMode", "allowAll"]
+        // Keep the reported branches: the watcher would replace them with the
+        // real (non-repo) state of the test's working directory.
+        app.launchArguments += ["-sidebarWatchGitStatus", "NO"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-compact-status-\(token.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_COMMANDS"] = commands.joined(separator: "\n")
@@ -64,7 +67,7 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
 
         launchAndEnsureRunning(app)
         var result: [String: Any] = [:]
-        let finished = pollUntil(timeout: 20.0) {
+        let finished = pollUntil(timeout: 40.0) {
             guard let data = FileManager.default.contents(atPath: resultPath),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
             result = object

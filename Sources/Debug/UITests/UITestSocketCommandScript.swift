@@ -9,7 +9,9 @@ import Foundation
 ///
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS`: newline-separated commands, run in
 ///   order. `{last}` is replaced by the id the most recent `new_*` command
-///   returned (`new_workspace`, `new_split`, ...).
+///   returned (`new_workspace`, `new_split`, ...). `wait <ms>` pauses without
+///   sending anything, e.g. to let a new workspace's terminal panel appear
+///   before per-panel reports (`set_agent_lifecycle`, `report_git_branch`).
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS_RESULT_PATH`: JSON written when done:
 ///   `{"done": "1", "replies": [...], "failed": "0|1"}`; wait on it before
 ///   asserting on the UI.
@@ -31,10 +33,18 @@ struct UITestSocketCommandScript: Equatable {
 
     /// Runs every command through `handle`, substituting `{last}`, and
     /// returns the replies in order.
-    func run(_ handle: (String) -> String) -> [String] {
+    func run(
+        _ handle: (String) -> String,
+        sleep: (Int) -> Void = { usleep(useconds_t(max(0, $0)) * 1000) }
+    ) -> [String] {
         var last: String?
         var replies: [String] = []
         for command in commands {
+            if let milliseconds = Self.waitMilliseconds(command) {
+                sleep(milliseconds)
+                replies.append("OK")
+                continue
+            }
             let line = Self.substitute(command, last: last)
             let reply = handle(line)
             replies.append(reply)
@@ -43,6 +53,12 @@ struct UITestSocketCommandScript: Equatable {
             }
         }
         return replies
+    }
+
+    static func waitMilliseconds(_ command: String) -> Int? {
+        let parts = command.split(separator: " ")
+        guard parts.count == 2, parts[0] == "wait", let value = Int(parts[1]), value >= 0 else { return nil }
+        return min(value, 10_000)
     }
 
     static func substitute(_ command: String, last: String?) -> String {
