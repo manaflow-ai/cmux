@@ -9,9 +9,10 @@
 //! one private file that also carries the hooks. Any failure starts Claude
 //! unchanged.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::{CString, OsStr, OsString};
 use std::fs;
 use std::io::Read as _;
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
@@ -273,9 +274,15 @@ fn find_real_claude(path: &OsStr, shim_dir: Option<&Path>) -> Option<PathBuf> {
     std::env::split_paths(path)
         .filter(|dir| !dir.as_os_str().is_empty() && !is_shim_directory(dir, shim_dir))
         .map(|dir| dir.join("claude"))
-        .find(|candidate| {
-            agent_hook_install::is_executable_file(candidate) && !is_claude_shim(candidate)
-        })
+        .find(|candidate| current_process_can_execute(candidate) && !is_claude_shim(candidate))
+}
+
+fn current_process_can_execute(path: &Path) -> bool {
+    let Ok(path) = CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: `path` is a live NUL-terminated CString for the duration of the call.
+    unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
 }
 
 /// Drops shim directories so Claude and everything it starts see the real
@@ -763,12 +770,26 @@ mod tests {
         let linked = root.path().join("linked");
         fs::create_dir_all(&linked).unwrap();
         std::os::unix::fs::symlink(shim_dir.join("claude"), linked.join("claude")).unwrap();
+        // An owned file with only the "other execute" bit set looks
+        // executable to a bitmask check but is not executable by its owner.
+        let inaccessible = root.path().join("inaccessible");
+        fs::create_dir_all(&inaccessible).unwrap();
+        fs::write(inaccessible.join("claude"), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(
+            inaccessible.join("claude"),
+            fs::Permissions::from_mode(0o001),
+        )
+        .unwrap();
         let real = root.path().join("real");
         write_executable(&real.join("claude"), "#!/bin/sh\n");
 
-        let path = std::env::join_paths([&shim_dir, &copied, &linked, &real]).unwrap();
+        let path =
+            std::env::join_paths([&shim_dir, &copied, &linked, &inaccessible, &real]).unwrap();
         assert_eq!(find_real_claude(&path, Some(shim_dir.as_path())), Some(real.join("claude")));
-        assert_eq!(path_without_shims(&path, Some(shim_dir.as_path())), real.into_os_string());
+        assert_eq!(
+            path_without_shims(&path, Some(shim_dir.as_path())),
+            std::env::join_paths([&inaccessible, &real]).unwrap()
+        );
         let only_shims = std::env::join_paths([&shim_dir, &copied]).unwrap();
         assert_eq!(find_real_claude(&only_shims, Some(shim_dir.as_path())), None);
     }
