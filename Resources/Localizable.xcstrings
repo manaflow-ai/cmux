@@ -555024,6 +555024,419 @@
           }
         }
       }
+    },
+    "terminal.unsafePasteConfirmation.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد ينفّذ هذا النص أوامر فور لصقه، مثلًا لأنه يحتوي على فاصل أسطر. الصقه فقط إذا كنت تثق به."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Text könnte beim Einfügen sofort Befehle ausführen, zum Beispiel weil er einen Zeilenumbruch enthält. Füge ihn nur ein, wenn du ihm vertraust."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This text could run commands as soon as it is pasted, for example because it contains a line break. Paste it only if you trust it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este texto podría ejecutar comandos en cuanto se pegue, por ejemplo porque contiene un salto de línea. Pégalo solo si confías en él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce texte pourrait exécuter des commandes dès qu’il est collé, par exemple parce qu’il contient un saut de ligne. Ne le collez que si vous lui faites confiance."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このテキストには改行が含まれているなどの理由で、貼り付けた直後にコマンドが実行される可能性があります。信頼できる場合にのみ貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 텍스트는 줄바꿈이 들어 있는 등의 이유로 붙여넣는 즉시 명령을 실행할 수 있습니다. 신뢰할 수 있을 때만 붙여넣으세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段文本可能在粘贴后立即运行命令，例如因为其中包含换行。只有在你信任它时才粘贴。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這段文字可能在貼上後立即執行指令，例如因為其中包含換行。只有在你信任它時才貼上。"
+          }
+        }
+      }
+    },
+    "terminal.unsafePasteConfirmation.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لصق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上"
+          }
+        }
+      }
+    },
+    "terminal.unsafePasteConfirmation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد لصق نص قد يكون غير آمن؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Möglicherweise unsicheren Text einfügen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Potentially Unsafe Text?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Pegar texto potencialmente no seguro?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller un texte potentiellement dangereux ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でない可能性のあるテキストを貼り付けますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전하지 않을 수 있는 텍스트를 붙여넣을까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要粘贴可能不安全的文本吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要貼上可能不安全的文字嗎？"
+          }
+        }
+      }
+    },
+    "settings.terminal.confirmUnsafePaste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تأكيد اللصق غير الآمن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsicheres Einfügen bestätigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Unsafe Pastes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar pegados no seguros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmer les collages non sûrs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でない貼り付けを確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전하지 않은 붙여넣기 확인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认不安全的粘贴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認不安全的貼上"
+          }
+        }
+      }
+    },
+    "settings.terminal.confirmUnsafePaste.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم اللصق الذي يصنّفه Ghostty على أنه غير آمن دون سؤال."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von Ghostty als unsicher markierte Einfügungen werden ohne Nachfrage ausgeführt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastes Ghostty flags as unsafe go through without asking."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los pegados que Ghostty marca como no seguros se realizan sin preguntar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les collages que Ghostty signale comme non sûrs sont effectués sans demander."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty が安全でないと判定した貼り付けも、確認せずに実行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty가 안전하지 않다고 표시한 붙여넣기도 묻지 않고 진행합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 标记为不安全的粘贴会直接执行，不会询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 標記為不安全的貼上會直接執行，不會詢問。"
+          }
+        }
+      }
+    },
+    "settings.terminal.confirmUnsafePaste.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتظر اللصق الذي يصنّفه Ghostty على أنه غير آمن، مثل عدة أسطر في برنامج لا يستخدم اللصق المحاط (bracketed paste)، تأكيدك في ورقة مرفقة بالنافذة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Einfügen, das Ghostty als unsicher markiert, etwa mehrere Zeilen in ein Programm ohne Bracketed Paste, wartet auf deine Bestätigung in einem Sheet am Fenster."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A paste Ghostty flags as unsafe, such as several lines into a program without bracketed paste, waits for you to confirm it in a sheet on the window."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pegado que Ghostty marca como no seguro, como varias líneas en un programa sin pegado entre corchetes (bracketed paste), espera tu confirmación en una hoja de la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un collage que Ghostty signale comme non sûr, par exemple plusieurs lignes dans un programme sans collage entre crochets (bracketed paste), attend votre confirmation dans une feuille attachée à la fenêtre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty が安全でないと判定した貼り付け（ブラケットペーストを使わないプログラムへの複数行の貼り付けなど）は、ウインドウのシートで確認するまで待機します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty가 안전하지 않다고 표시한 붙여넣기(예: 브래킷 붙여넣기를 쓰지 않는 프로그램에 여러 줄 붙여넣기)는 창에 붙은 시트에서 확인할 때까지 기다립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 标记为不安全的粘贴（例如将多行文本粘贴到未启用括号粘贴的程序中）会先在窗口上的表单中等待你确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 標記為不安全的貼上（例如將多行文字貼到未啟用括號貼上的程式中）會先在視窗上的表單中等待你確認。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.confirm-unsafe-paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet لصق غير آمن تأكيد تحذير عدة أسطر فاصل أسطر حافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet unsicher einfügen bestätigen warnung mehrzeilig zeilenumbruch zwischenablage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet pegar no seguro confirmar advertencia varias líneas salto de línea portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet coller non sûr confirmer avertissement plusieurs lignes saut de ligne presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet 貼り付け ペースト 安全でない 確認 警告 複数行 改行 クリップボード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet 붙여넣기 안전하지 않음 확인 경고 여러 줄 줄바꿈 클립보드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet 粘贴 不安全 确认 警告 多行 换行 剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet 貼上 不安全 確認 警告 多行 換行 剪貼簿"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
