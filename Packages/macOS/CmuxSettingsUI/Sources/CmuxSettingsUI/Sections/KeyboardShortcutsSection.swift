@@ -3,8 +3,8 @@ import CmuxSettings
 import SwiftUI
 
 /// **Keyboard Shortcuts** section — mirrors the legacy in-app
-/// section: one `SettingsCard` containing the chord docs link,
-/// the Reset Defaults action, and a per-action recorder row for
+/// section: one `SettingsCard` containing the base keymap picker,
+/// the chord docs link, the Reset Defaults action, and a per-action recorder row for
 /// every `ShortcutAction` (using the new package recorder).
 @MainActor
 public struct KeyboardShortcutsSection: View {
@@ -53,6 +53,8 @@ public struct KeyboardShortcutsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
+                ShortcutKeymapPresetRow(model: model)
+                SettingsCardDivider()
                 chordsRow
                 SettingsCardDivider()
                 ModifierHoldHintsSettingsRow()
