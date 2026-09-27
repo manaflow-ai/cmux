@@ -324,12 +324,25 @@ runs:
         uid="$(id -u)"
         # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
         # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
-        # Problem Reporter owns the crash dialog that covered a dogfood tour.
-        for process in UserNotificationCenter SecurityAgent "Problem Reporter"; do
+        # A "cmux DEV cannot be opened because of a problem" dialog outlived
+        # this step on cmux11s (2026-09-27) and sat over a dogfood tour;
+        # CoreServicesUIAgent draws LaunchServices launch failures and
+        # Problem Reporter draws crash reports.
+        for process in UserNotificationCenter SecurityAgent "Problem Reporter" CoreServicesUIAgent; do
           if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
+        # Name whatever still owns an on-screen window so the next leftover
+        # dialog can be attributed from this log. Owner names need no
+        # screen recording permission.
+        echo "runner user $(id -un), console user $(stat -f %Su /dev/console 2>/dev/null)"
+        osascript -l JavaScript -e '
+          ObjC.import("CoreGraphics");
+          const info = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, 0)));
+          const owners = [...new Set(info.filter(w => w.kCGWindowLayer >= 0 && w.kCGWindowLayer < 25).map(w => w.kCGWindowOwnerName + " (pid " + w.kCGWindowOwnerPID + ")"))];
+          "on-screen window owners: " + owners.join(", ");
+        ' 2>/dev/null || true
 
     - name: Run selected tests
       id: tests
