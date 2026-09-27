@@ -919,8 +919,10 @@ CLI_LANE_INPUT_PREFIXES = (
 # ---------------------------------------------------------------------------
 
 SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
-# The job's package list, as a shell array inside its "Select package tests"
-# step. Reading it here keeps one list rather than a copy that can drift.
+# The job's package list, as a shell array in the lane script the job runs
+# (on a runner or as a fleet step). Reading it here keeps one list rather than
+# a copy that can drift.
+SWIFT_PACKAGE_LANE_SCRIPT_PATH = "scripts/ci/package-test-lane.sh"
 _SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
     r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
 )
@@ -948,14 +950,14 @@ def swift_package_test_packages() -> Optional[tuple[str, ...]]:
     """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
     root = Path(__file__).resolve().parents[2]
     try:
-        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+        script = (root / SWIFT_PACKAGE_LANE_SCRIPT_PATH).read_text(encoding="utf-8")
     except OSError as error:
-        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        print(f"Could not read {SWIFT_PACKAGE_LANE_SCRIPT_PATH}: {error}", file=sys.stderr)
         return None
-    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(script)
     if len(matches) != 1:
         print(
-            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"Expected one PACKAGES=( ... ) list in {SWIFT_PACKAGE_LANE_SCRIPT_PATH}, "
             f"found {len(matches)}",
             file=sys.stderr,
         )
