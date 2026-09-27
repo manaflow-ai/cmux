@@ -171,8 +171,8 @@ fn args_with_hooks(
             let value = args.get(index).context("--settings requires a value")?;
             index += 1;
             value.clone()
-        } else if let Some(value) = argument.to_str().and_then(|a| a.strip_prefix("--settings=")) {
-            OsString::from(value)
+        } else if let Some(value) = argument.as_bytes().strip_prefix(b"--settings=") {
+            OsStr::from_bytes(value).to_owned()
         } else {
             remaining.push(argument.clone());
             continue;
@@ -755,6 +755,10 @@ mod tests {
         ] {
             assert!(args_with_hooks(&args, hooks.clone(), root.path()).is_err(), "{args:?}");
         }
+        // A non-UTF-8 `--settings=` value is still read, not passed through
+        // after the merged file where it would win and drop the hooks.
+        let non_utf8 = OsStr::from_bytes(b"--settings=/nonexistent/\xff.json").to_owned();
+        assert!(args_with_hooks(&[non_utf8], hooks, root.path()).is_err());
     }
 
     /// Resolution skips the shim directory, copies of the shim, and links to it.
@@ -800,7 +804,7 @@ mod tests {
         assert_eq!(find_real_claude(&path, Some(shim_dir.as_path())), Some(real.join("claude")));
         assert_eq!(
             path_without_shims(&path, Some(shim_dir.as_path())),
-            std::env::join_paths([&inaccessible, &real]).unwrap()
+            std::env::join_paths([&directory_candidate, &inaccessible, &real]).unwrap()
         );
         let only_shims = std::env::join_paths([&shim_dir, &copied]).unwrap();
         assert_eq!(find_real_claude(&only_shims, Some(shim_dir.as_path())), None);

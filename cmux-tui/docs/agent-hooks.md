@@ -49,6 +49,11 @@ The wrapper leaves Claude unchanged when:
 - a `--settings` argument cannot be read. It prints one line and starts
   Claude without the hooks.
 
+A launcher that is itself named `claude` and sits earlier on PATH than the
+real Claude receives the merged `--settings`. If it then adds a `--settings`
+of its own, that later flag wins and the hooks are dropped. Launchers with
+another name that look up `claude` on PATH are not affected.
+
 With `agent hook install claude` also in place and its `cmux-tui-hook`
 helper present, both copies use the same command, and Claude Code runs it
 once. When the wrapper finds no helper (neither the installed copy nor one
