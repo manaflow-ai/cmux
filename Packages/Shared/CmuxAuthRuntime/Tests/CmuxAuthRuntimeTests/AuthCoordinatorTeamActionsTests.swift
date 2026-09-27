@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite("Auth coordinator team actions")
 struct AuthCoordinatorTeamActionsTests {
-    private func makeCoordinator(client: FakeAuthClient) -> AuthCoordinator {
+    private func makeCoordinator(client: FakeAuthClient, launch: AuthLaunchOptions = .plain()) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(
             client: client,
@@ -15,7 +15,7 @@ struct AuthCoordinatorTeamActionsTests {
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: launch
         )
     }
 
@@ -62,4 +62,30 @@ struct AuthCoordinatorTeamActionsTests {
         }
         #expect(coordinator.resolvedTeamID == "team-a")
     }
+
+    #if DEBUG
+    @Test func fixtureSessionLoadsTeamsFromInjectedClient() async {
+        let client = FakeAuthClient()
+        await client.setTeams([
+            CMUXAuthTeam(id: "team-a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team-b", displayName: "Beta")
+        ])
+        let coordinator = makeCoordinator(
+            client: client,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: ["CMUX_UITEST_AUTH_FIXTURE": "1"],
+                includesDevAuth: false
+            )
+        )
+
+        await coordinator.checkExistingSession()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
+        #expect(coordinator.resolvedTeamID == "team-a")
+        #expect(coordinator.authenticatedTeamScope?.teamID == "team-a")
+    }
+    #endif
 }

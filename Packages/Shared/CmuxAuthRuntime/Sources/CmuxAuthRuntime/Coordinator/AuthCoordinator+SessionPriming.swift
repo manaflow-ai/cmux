@@ -156,6 +156,9 @@ extension AuthCoordinator {
             currentUser = fixtureUser
             isAuthenticated = true
             publishAuthenticatedSessionIdentity()
+            // Fixture launches still load membership so UI tests can drive
+            // team pickers through an injected client.
+            await refreshTeams(generation: generation)
             return
         }
 
