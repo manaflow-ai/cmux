@@ -209,7 +209,7 @@ jobs:
           else
             GATE_ARGS+=(--v2-base-url "${{ inputs.v2_base_url }}")
           fi
-          if [[ "${{ matrix.mode }}" == relay-only ]]; then
+          if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
             GATE_ARGS+=(--soak-profile stress)
           fi
           ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
