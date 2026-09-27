@@ -208,6 +208,9 @@ has ready-to-copy ones.
   selected workspace.
 - `workspaceColors.selectionColor` and `workspaceColors.notificationBadgeColor`
   override those colors.
+- `workspaceColors.subtleSelection`: `true` swaps the solid left-rail selection
+  for a light accent tint with a hairline edge. Off by default; ignored with
+  `solidFill` or a custom `selectionColor`.
 - `workspaceColors.colors` is the named palette shown in the workspace color
   picker. It replaces the built-in palette, so copy the default entries from the
   schema that you want to keep.
