@@ -7046,6 +7046,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
         }
+        // Clear under the previous configuration so a switch away from a relay
+        // does not leave hidden relay-host lifecycle entries behind.
+        clearRelayHostAgentStatus()
         remoteConfiguration = configuration
         // Publish this workspace's owned-ID set (identity entries) before the
         // remote shell's first relay RPC can arrive (GHSA-9vmv-3hjw-j28c).
@@ -7075,7 +7078,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteControllerConnectionState = .disconnected
         remoteControllerConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-        clearRelayHostAgentStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
         remoteLastErrorFingerprint = nil

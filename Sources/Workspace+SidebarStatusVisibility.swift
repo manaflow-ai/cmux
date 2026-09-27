@@ -76,9 +76,12 @@ extension Workspace {
     /// Drops relay-host agent status and lifecycle once the relay is down: no
     /// local PID can prove the remote agent survived, and a hook that would
     /// clear it can no longer arrive. The next relayed hook reports afresh.
+    /// Keys a local agent PID still owns are left alone.
     func clearRelayHostAgentStatus() {
         guard showsRelayHostAgentStatus else { return }
-        for statusKey in AgentHibernationLifecycleStatusKeys.allowedStatusKeys {
+        let localAgentKeys = Set(agentPIDs.keys)
+        for statusKey in AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+            where !localAgentKeys.contains(statusKey) {
             if statusEntries[statusKey] != nil {
                 statusEntries.removeValue(forKey: statusKey)
             }
