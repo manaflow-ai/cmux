@@ -14,8 +14,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### Prompt input caret stops and selection
 
-- Branch: `cmux/prompt-input-selection` ([manaflow-ai/ghostty#235](https://github.com/manaflow-ai/ghostty/pull/235))
-- Commits: `218d80ead`, `d3edc8ede`; merged to fork `main` as `1015e149c`
+- Branches: `cmux/prompt-input-selection` ([manaflow-ai/ghostty#235](https://github.com/manaflow-ai/ghostty/pull/235)),
+  `cmux/prompt-input-right-prompt` ([manaflow-ai/ghostty#237](https://github.com/manaflow-ai/ghostty/pull/237))
+- Commits: `218d80ead`, `d3edc8ede`, `cda3f06df`; merged to fork `main` as
+  `1015e149c` and `f8f8f828a`
 - Summary: `ghostty_surface_prompt_input` reports the OSC 133 shell input the
   cursor is editing (length and caret in caret stops, plus the selection when it
   lies wholly inside the input), and `ghostty_surface_select_prompt_input`
@@ -25,16 +27,16 @@ When we change the fork, update this document and the parent submodule SHA.
   text-field selection at the prompt. Both refuse the alternate screen, a
   running command, a line with no `.prompt` cell before its input (fzf
   `--height` and completion menus draw in input mode), and a line holding a
-  multi-codepoint grapheme.
-- Coverage: seven `Screen: promptInput ...` Zig tests, run by
+  multi-codepoint grapheme. The input ends at the first empty cell at or after
+  the cursor, because zle draws RPROMPT after OSC 133 B by moving across the
+  gap, which makes a right prompt `.input` text.
+- Coverage: ten `Screen: promptInput ...` Zig tests, run by
   `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
-  Hosted [run 36312095021](https://github.com/manaflow-ai/cmux/actions/runs/36312095021)
-  passed 80 tests with this filter at `1015e149c` (74 with the single-test
-  pacer filter, so all seven ran) and published GhosttyKit.
+  Hosted run RUNURL passed 83 tests with this filter at `f8f8f828a` (74 with
+  the single-test pacer filter, so all ten ran) and published GhosttyKit.
 - Artifact:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-1015e149c871576443ba478e45603dda9ad9eb62-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `eefce058ad801d5da1224f0ef93e139c42d2bbf24d5dcf1b5198f3aa95d2f287`
-  is pinned in `scripts/ghosttykit-checksums.txt`.
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-f8f8f828a4bd0c691ade20f15074ae18c69e4ba6-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `CHECKSUM` is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: everything lives in new functions (`Screen.promptInput`,
   `Screen.promptInputSelection`, `Surface.promptInput`,
   `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
