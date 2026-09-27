@@ -89,6 +89,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
     // default no-op. See SidebarLazyContractProbe.
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 #endif
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
@@ -176,7 +177,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 if let statusGlyph {
                     SidebarCompactStatusGlyphView(
                         glyph: statusGlyph,
-                        pointSize: metrics.iconFontSize,
+                        pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: globalFontMagnificationPercent),
                         color: statusGlyph.color(isActive: false, selected: .labelColor, secondary: .secondaryLabelColor)
                     )
                 } else if anchorUnreadCount > 0 {

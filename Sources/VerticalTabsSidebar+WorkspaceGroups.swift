@@ -50,12 +50,14 @@ extension VerticalTabsSidebar {
             }
             return liveAnchorId.map { unreadSnapshot.unreadCount(forWorkspaceId: $0) } ?? 0
         }()
+        // The tooltip leads with the notification text only where rows show it.
+        let showsNotificationMessage = settings.showsNotificationMessage
         let statusGlyph = SidebarCompactStatusGlyph.groupHeader(
             isCollapsed: group.isCollapsed,
             anchorId: liveAnchorId,
             memberIds: memberWorkspaceIds,
             members: memberStatusGlyphs,
-            unread: { (unreadSnapshot.unreadCount(forWorkspaceId: $0), unreadSnapshot.summary(forWorkspaceId: $0).latestNotificationText) }
+            unread: { (unreadSnapshot.unreadCount(forWorkspaceId: $0), showsNotificationMessage ? unreadSnapshot.summary(forWorkspaceId: $0).latestNotificationText : nil) }
         )
         let anchorIds = liveAnchorId.map { [$0] } ?? []
         let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
@@ -137,7 +139,7 @@ extension VerticalTabsSidebar {
             unreadRebuild: {
                 [model, liveAnchorId,
                  isCollapsed = group.isCollapsed, memberWorkspaceIds,
-                 nonAnchorMemberIds, memberStatusGlyphs] snapshot in
+                 nonAnchorMemberIds, memberStatusGlyphs, showsNotificationMessage] snapshot in
                 // Membership and collapse are structural row inputs, so their
                 // changes rebuild this configuration. Reuse the render context's
                 // indexed members instead of rescanning every tab per unread row.
@@ -167,7 +169,7 @@ extension VerticalTabsSidebar {
                     anchorId: liveAnchorId,
                     memberIds: memberWorkspaceIds,
                     members: memberStatusGlyphs,
-                    unread: { (snapshot.unreadCount(forWorkspaceId: $0), snapshot.summary(forWorkspaceId: $0).latestNotificationText) }
+                    unread: { (snapshot.unreadCount(forWorkspaceId: $0), showsNotificationMessage ? snapshot.summary(forWorkspaceId: $0).latestNotificationText : nil) }
                 )
                 return fresh
             }
@@ -223,7 +225,7 @@ extension VerticalTabsSidebar {
             members: memberStatusGlyphs,
             unread: {
                 let summary = unreadSummariesByWorkspaceId[$0]
-                return (summary?.unreadCount ?? 0, summary?.latestNotificationText)
+                return (summary?.unreadCount ?? 0, settings.showsNotificationMessage ? summary?.latestNotificationText : nil)
             }
         )
         let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(
