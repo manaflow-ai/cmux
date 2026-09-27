@@ -114,7 +114,11 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   }
   case "$SOAK_PROFILE" in
     basic) REPORT_TIMEOUT=840 ;;
-    stress) REPORT_TIMEOUT=3840 ;;
+    stress)
+      # Relay-only stress adds the 330-second rollover probe after the
+      # one-hour workload. Leave enough time for that probe and teardown.
+      REPORT_TIMEOUT="$([[ "$MODE" == relay-only ]] && printf 4200 || printf 3840)"
+      ;;
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
   # Keep relay-only stress runs on relay_rollover. The soak workload proves
