@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -53,7 +54,7 @@ struct SidebarScrollViewConfiguratorTests {
     @Test func firstApplyEstablishesOverlayConfiguration() {
         let scrollView = SetterCountingScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
 
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         #expect(!scrollView.hasHorizontalScroller)
         #expect(scrollView.hasVerticalScroller)
@@ -68,10 +69,10 @@ struct SidebarScrollViewConfiguratorTests {
         // in-flight knob fade without rescheduling it, leaving the knob
         // permanently visible.
         let scrollView = SetterCountingScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         scrollView.configPropertyWrites = 0
-        SidebarScrollViewConfigurator.apply(to: scrollView)
+        scrollView.applySidebarOverlayScrollerConfiguration()
 
         #expect(scrollView.configPropertyWrites == 0)
     }
@@ -95,7 +96,7 @@ struct SidebarScrollViewConfiguratorTests {
         resolver.onResolve = { resolved in
             resolveCount += 1
             guard let resolved else { return }
-            SidebarScrollViewConfigurator.apply(to: resolved)
+            resolved.applySidebarOverlayScrollerConfiguration()
         }
         documentView.addSubview(resolver)
         await yieldUntil { resolveCount > 0 }
@@ -124,11 +125,11 @@ struct SidebarScrollViewConfiguratorTests {
     /// Yields the main actor until `condition` holds (bounded, no wall-clock
     /// sleeps), so the resolver's deferred main-actor hop — enqueued
     /// synchronously by the lifecycle callback or notification under test —
-    /// has run before the test continues. The bound keeps a regression a
-    /// clean assertion failure instead of a hang.
+    /// has run before the test continues. The real deadline keeps a regression
+    /// a clean assertion failure instead of a hang under scheduler load.
     private func yieldUntil(_ condition: () -> Bool) async {
-        for _ in 0..<1000 {
-            if condition() { return }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
     }

@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import CmuxFoundation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -369,7 +370,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
             )
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -385,7 +386,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 .appendingPathComponent("config.ghostty", isDirectory: false)
 
             XCTAssertEqual(
-                CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+                CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
                     currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3518",
                     appSupportDirectory: appSupportDirectory
                 ),
@@ -500,7 +501,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
-    private func withTemporaryAppSupportDirectory(
+    func withTemporaryAppSupportDirectory(
         _ body: (URL) throws -> Void
     ) throws {
         let fileManager = FileManager.default
@@ -522,7 +523,7 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         try body(directory)
     }
 
-    private func writeAppSupportConfig(
+    func writeAppSupportConfig(
         appSupportDirectory: URL,
         bundleIdentifier: String,
         filename: String,

@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cmux-tui-sdk-targets.cmake")
+
+check_required_components(cmux_tui_sdk)

@@ -1,21 +1,31 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import {
   flatNavItems,
+  hasNavItemContent,
   navItems,
+  navItemsForLocale,
 } from "../app/[locale]/components/docs-nav-items";
-import { changelogMedia } from "../app/[locale]/docs/changelog/changelog-media";
+import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
 import { routing } from "../i18n/routing";
 
 const projectRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(projectRoot, "..");
 const siteDir = path.join(projectRoot, ".pagefind-site");
 const outputDir = path.join(projectRoot, "public", "pagefind");
+const cacheDir = path.join(projectRoot, ".next", "cache", "cmux-docs-search");
+const cacheOutputDir = path.join(cacheDir, "pagefind");
+const cacheManifestPath = path.join(cacheDir, "manifest");
 const rawMessagesCache = new Map();
 const mergedMessagesCache = new Map();
+
+function docsSearchChannel() {
+  return process.env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
+}
 
 const searchAliases = {
   apiReference: [
@@ -52,15 +62,16 @@ const docsPageMessageKeys = {
   apiReference: "api",
 };
 
-export function docsSearchRoutes() {
-  const links = flatNavItems(navItems);
+export function docsSearchRoutes(channel = docsSearchChannel()) {
   return routing.locales.flatMap((locale) =>
-    links.map((navItem) => ({
-      locale,
-      navItem,
-      href: navItem.href,
-      path: localizedDocsPath(locale, navItem.href),
-    })),
+    flatNavItems(navItemsForLocale(locale, channel))
+      .filter((navItem) => hasNavItemContent(navItem, locale))
+      .map((navItem) => ({
+        locale,
+        navItem,
+        href: navItem.href,
+        path: localizedDocsPath(locale, navItem.href),
+      })),
   );
 }
 
@@ -74,11 +85,42 @@ async function main() {
   await rm(outputDir, { force: true, recursive: true });
   await mkdir(siteDir, { recursive: true });
 
-  const pages = await docsSearchPages();
+  const channel = docsSearchChannel();
+  const pages = await docsSearchPages(channel);
+  const htmlByPath = new Map(pages.map((page) => [page.path, pageHtml(page)]));
+  const fingerprint = createHash("sha256")
+    // The lockfile covers the installed Pagefind version. The generator source
+    // also invalidates cached output when Pagefind arguments change.
+    .update(await readFile(path.join(projectRoot, "bun.lock")))
+    .update("\0")
+    .update(await readFile(fileURLToPath(import.meta.url)))
+    .update("\0")
+    .update(channel)
+    .update("\0")
+    .update(
+      pages
+        .map((page) => `${page.path}\0${htmlByPath.get(page.path) ?? ""}`)
+        .join("\0"),
+    )
+    .digest("hex");
 
   try {
-    await Promise.all(pages.map(writePageHtml));
-    await runPagefind();
+    const cachedFingerprint = await readFile(cacheManifestPath, "utf8").catch(() => "");
+    if (cachedFingerprint === fingerprint && await pathExists(cacheOutputDir)) {
+      await cp(cacheOutputDir, outputDir, { recursive: true, force: true });
+      console.log(`Docs search index restored for ${pages.length} localized pages`);
+    } else {
+      await Promise.all(
+        pages.map((page) => writePageHtml(page, htmlByPath.get(page.path) ?? "")),
+      );
+      await runPagefind();
+      await mkdir(cacheDir, { recursive: true });
+      // An interrupted copy must not leave a valid manifest for partial data.
+      await rm(cacheManifestPath, { force: true });
+      await rm(cacheOutputDir, { force: true, recursive: true });
+      await cp(outputDir, cacheOutputDir, { recursive: true });
+      await writeFile(cacheManifestPath, fingerprint, "utf8");
+    }
     const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(2);
     console.log(
       `Docs search index built for ${pages.length} localized pages in ${elapsedSeconds}s`,
@@ -88,10 +130,10 @@ async function main() {
   }
 }
 
-export async function docsSearchPages() {
+export async function docsSearchPages(channel = docsSearchChannel()) {
   const contentByHref = await docsContentByHref();
   const changelogText = await changelogSearchText();
-  const routes = docsSearchRoutes();
+  const routes = docsSearchRoutes(channel);
   const pages = [];
 
   for (const route of routes) {
@@ -250,7 +292,7 @@ function deepMerge(base, override) {
 
 function docsPageSourcePath(href) {
   const docsPath = href.replace(/^\//, "");
-  return path.join(projectRoot, "app", "[locale]", docsPath, "page.tsx");
+  return path.join(projectRoot, "app", "[locale]", "(landing)", docsPath, "page.tsx");
 }
 
 async function docsContentByHref() {
@@ -598,10 +640,19 @@ async function changelogSearchText() {
   return uniqueText([...markdownText, ...mediaText]);
 }
 
-async function writePageHtml(page) {
+async function writePageHtml(page, html) {
   const filePath = path.join(siteDir, page.path.slice(1), "index.html");
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, pageHtml(page));
+  await writeFile(filePath, html);
+}
+
+async function pathExists(filePath) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function pageHtml(page) {

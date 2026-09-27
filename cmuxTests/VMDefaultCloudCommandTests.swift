@@ -1,0 +1,1201 @@
+import XCTest
+import Darwin
+
+/// Counts vm.create round trips across mock-server connections so a handler
+/// can fail the first attempt and succeed the retry.
+private final class VMCreateCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
+    }
+}
+
+private final class ProcessRunResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CLINotifyProcessIntegrationRegressionTests.ProcessRunResult?
+
+    func store(_ result: CLINotifyProcessIntegrationRegressionTests.ProcessRunResult) {
+        lock.lock()
+        value = result
+        lock.unlock()
+    }
+
+    func load() -> CLINotifyProcessIntegrationRegressionTests.ProcessRunResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+extension CLINotifyProcessIntegrationRegressionTests {
+    func testVMNewFailsWithAnActionableAuthErrorBeforeProvisioning() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-auth-required")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: [
+                    "code": "auth_required",
+                    "message": "Cloud VM access requires sign-in. Run `cmux auth login`, then retry.",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("cmux auth login"),
+            result.stdout + result.stderr
+        )
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.create"]
+        )
+    }
+
+    func testVMNewDefaultReusesSeededTerminalOverPrivateCmuxRemote() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-sshd")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        // The CLI remembers the machine's trusted route under the home directory
+        // (~/.cmuxterm/vm-tui-devices.json); a private one keeps the developer's
+        // own store untouched. CFFIXED_USER_HOME is what NSHomeDirectory() reads.
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-home-\(UUID().uuidString)", isDirectory: true)
+        let vmID = "vm-persistent-freestyle"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let workspaceRef = "workspace:sshd"
+        let windowID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                // Bare `vm new`: backend-chosen provider, a desktop by kind (#12239), no image id.
+                XCTAssertNil(params["provider"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
+                XCTAssertNil(params["image"])
+                XCTAssertNil(params["persistent_home"], "Freestyle does not support persistent home volumes")
+                XCTAssertNil(params["per_machine_home"], "Freestyle does not support per-machine home volumes")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": vmID,
+                        "provider": "freestyle",
+                        "image": "snapshot-default",
+                        "kind": "desktop",
+                    ]
+                )
+            case "vm.cmux_remote_info":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "route": "ws://10.40.0.10:1337/v1/link",
+                        "session": "cloud",
+                        "trusted_carrier": true,
+                        "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                    ]
+                )
+            case "workspace.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["initial_command"] as? String, "sleep 60")
+                XCTAssertEqual(params["title"] as? String, "Cloud VM")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "window_id": windowID,
+                    ]
+                )
+            case "workspace.cloud_vm_bind":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["vm_id"] as? String, vmID)
+                XCTAssertEqual(params["base"] as? Bool, false); XCTAssertEqual(params["generated_title"] as? String, "Cloud VM")
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "surface.catalog":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["machine"] as? String, vmID)
+                return self.v2Response(id: id, ok: true, result: [
+                    "machines": [[
+                        "id": vmID, "link_state": "connected",
+                        "remote_workspaces": [["id": "ws_cloud", "name": "workspace-1", "focused": true]],
+                    ]],
+                    "resources": [[
+                        "id": "\(vmID)/terminal/term_cloud_shell", "machine": vmID,
+                        "key": "term_cloud_shell", "kind": "terminal", "lifecycle": "running",
+                        "remote_views": [["workspace": ["id": "ws_cloud"], "tab_id": "tab_cloud", "focused": true]],
+                    ]],
+                ])
+            case "surface.project":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["resource"] as? String, "\(vmID)/terminal/term_cloud_shell")
+                XCTAssertEqual(params["remote_workspace_id"] as? String, "ws_cloud")
+                XCTAssertEqual(params["remote_tab_id"] as? String, "tab_cloud")
+                XCTAssertEqual(params["reuse"] as? Bool, false)
+                XCTAssertEqual(params["focus"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surface_id": "surface-cloud-shell",
+                        "terminal_id": "term_cloud_shell",
+                        "remote_workspace_id": "ws_cloud",
+                    ]
+                )
+            case "vm.status":
+                return self.v2Response(id: id, ok: true, result: ["id": vmID, "kind": "desktop"])
+            case "vm.desktop_open":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
+                XCTAssertEqual(params["focus"] as? Bool, false)
+                return self.v2Response(id: id, ok: true, result: [
+                    "surface_id": "surface-cloud-desktop", "url": "http://127.0.0.1:6901/vnc.html",
+                ])
+            case "surface.focus":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "workspace.select":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+        environment["AppleLanguages"] = "(en)"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Created Cloud VM \(vmID)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) transport=cmux-remote terminal=term_cloud_shell"), result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        // The trusted listener the app proved is recorded per machine; the CLI's
+        // next open reads this record (openVMTuiWorkspace's `known` branch) to dial
+        // the private route without the control-plane check.
+        let devicesData = try Data(contentsOf: homeURL.appendingPathComponent(".cmuxterm/vm-tui-devices.json"))
+        let devices = try XCTUnwrap(JSONSerialization.jsonObject(with: devicesData) as? [String: [String: Any]])
+        XCTAssertEqual(devices[vmID]?["deviceFingerprint"] as? String, "carrier", "vm new records the trusted-carrier marker")
+        let requests = state.commands.compactMap { self.jsonObject($0) }
+        let methods = requests.compactMap { $0["method"] as? String }
+        XCTAssertFalse(methods.contains("vm.status"), "cmux_remote_info must not issue a redundant status read")
+        XCTAssertEqual(methods.filter { $0 == "workspace.create" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "surface.project" }.count, 1)
+        XCTAssertFalse(methods.contains("surface.new_terminal"), "Opening a new machine must reuse its seeded terminal")
+        XCTAssertFalse(methods.contains("workspace.action"), "New machines use regular workspaces")
+        let bindings = requests.filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
+        let lastBinding = bindings.last?["params"] as? [String: Any]
+        XCTAssertEqual(lastBinding?["remote_workspace_id"] as? String, "ws_cloud")
+        XCTAssertFalse(methods.contains("vm.desktop_open"), "New workspaces start with only the seeded terminal")
+
+        // Exercise consumption of the saved identity in a new CLI process,
+        // not just persistence. The mock rejects any unhandled enrollment path.
+        let firstRequestCount = state.commands.count
+        let reopened = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "shell", vmID],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(reopened.timedOut, reopened.stdout + reopened.stderr)
+        XCTAssertEqual(reopened.status, 0, reopened.stdout + reopened.stderr)
+        let secondRequests = state.commands.dropFirst(firstRequestCount).compactMap { self.jsonObject($0) }
+        let infos = secondRequests.filter { $0["method"] as? String == "vm.cmux_remote_info" }
+        XCTAssertEqual(infos.count, 1)
+        let infoParams = infos.first?["params"] as? [String: Any]
+        XCTAssertEqual(infoParams?["device_fingerprint"] as? String, "carrier")
+        let secondMethods = secondRequests.compactMap { $0["method"] as? String }
+        XCTAssertFalse(secondMethods.contains("vm.create"))
+        XCTAssertFalse(secondMethods.contains("surface.new_terminal"))
+        XCTAssertEqual(secondMethods.filter { $0 == "surface.project" }.count, 1)
+        XCTAssertFalse(secondMethods.contains("vm.desktop_open"), "Reopening the shell must not add a VNC split")
+    }
+
+    func testVMNewExplicitFreestyleProviderCreatesSeparateDetachedVM() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-explicit-freestyle")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-explicit-freestyle-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["provider"] as? String, "freestyle")
+                XCTAssertEqual(params["kind"] as? String, "desktop")
+                XCTAssertNil(params["image"])
+                XCTAssertNotEqual(params["idempotency_key"] as? String, "cmux-default-freestyle-sshd-v1")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": "vm-explicit-freestyle",
+                        "provider": "freestyle",
+                        "image": "snapshot-default",
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+        // The ready line is localized; the assertion reads its English form.
+        environment["AppleLanguages"] = "(en)"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("vm-explicit-freestyle is ready"), result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.create"]
+        )
+    }
+
+    func testVMNewMintsFreshIdempotencyKeyAfterRecordedCreateFailure() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-failed-key-reset")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let counter = VMCreateCallCounter()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-failed-key-reset-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            if counter.next() == 1 {
+                // The backend recorded a definitive create failure for this key
+                // and will replay it on every retry with the same key.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "vm_error",
+                        "message": "Cloud VM temporarily unavailable (HTTP 500: vm_create_failed)",
+                        "data": ["backend_code": "vm_create_failed", "http_status": 500],
+                    ]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": "vm-fresh-after-failure",
+                    "provider": "freestyle",
+                    "image": "snapshot-default",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+
+        let firstRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(firstRun.timedOut, firstRun.stdout + firstRun.stderr)
+        XCTAssertNotEqual(firstRun.status, 0, firstRun.stdout)
+
+        let secondRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(secondRun.timedOut, secondRun.stdout + secondRun.stderr)
+        XCTAssertEqual(secondRun.status, 0, secondRun.stdout + secondRun.stderr)
+
+        let keys = state.snapshot().compactMap { line -> String? in
+            let payload = self.jsonObject(line)
+            guard payload?["method"] as? String == "vm.create" else { return nil }
+            return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
+        }
+        XCTAssertEqual(keys.count, 2, "\(keys)")
+        let firstKey = try XCTUnwrap(keys.first, "Expected the first vm.create idempotency key")
+        let secondKey = try XCTUnwrap(keys.dropFirst().first, "Expected the retried vm.create idempotency key")
+        XCTAssertFalse(firstKey.isEmpty)
+        XCTAssertFalse(secondKey.isEmpty)
+        XCTAssertNotEqual(
+            firstKey,
+            secondKey,
+            "a recorded create failure must clear the stored key; reusing it can only replay the failure"
+        )
+    }
+
+    func testVMNewReusesIdempotencyKeyWhileCreateStillInProgress() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-new-in-progress-key-reuse")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let counter = VMCreateCallCounter()
+        let homeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-new-in-progress-key-reuse-\(UUID().uuidString)", isDirectory: true)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: homeURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "vm.create")
+            if counter.next() == 1 {
+                // A create is still running for this key: resending the same key
+                // joins the in-flight attempt, so the CLI must keep it.
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "vm_error",
+                        "message": "A Cloud VM create is already running for this request. (HTTP 409: vm_create_in_progress)",
+                        "data": ["backend_code": "vm_create_in_progress", "http_status": 409],
+                    ]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "id": "vm-joined-in-progress",
+                    "provider": "freestyle",
+                    "image": "snapshot-default",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = homeURL.path
+        environment["CFFIXED_USER_HOME"] = homeURL.path
+
+        let firstRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(firstRun.timedOut, firstRun.stdout + firstRun.stderr)
+        XCTAssertNotEqual(firstRun.status, 0, firstRun.stdout)
+
+        let secondRun = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--provider", "freestyle", "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(secondRun.timedOut, secondRun.stdout + secondRun.stderr)
+        XCTAssertEqual(secondRun.status, 0, secondRun.stdout + secondRun.stderr)
+
+        let keys = state.snapshot().compactMap { line -> String? in
+            let payload = self.jsonObject(line)
+            guard payload?["method"] as? String == "vm.create" else { return nil }
+            return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
+        }
+        XCTAssertEqual(keys.count, 2, "\(keys)")
+        let firstKey = try XCTUnwrap(keys.first, "Expected the first vm.create idempotency key")
+        let secondKey = try XCTUnwrap(keys.dropFirst().first, "Expected the retried vm.create idempotency key")
+        XCTAssertEqual(
+            firstKey,
+            secondKey,
+            "an in-progress create must keep the stored key so the retry joins the running attempt"
+        )
+    }
+
+    func testDefaultFreestyleSSHAttachScopesTmuxSessionToCallerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-attach-surface-tmux")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeExpectPath = tempDirectory.appendingPathComponent("expect").path
+        let capturedArgsPath = tempDirectory.appendingPathComponent("ssh-args").path
+
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        : > "$CMUX_FAKE_SSH_ARGS"
+        for arg in "$@"; do
+          printf '%s\\n' "$arg" >> "$CMUX_FAKE_SSH_ARGS"
+        done
+        exit 0
+        """.write(toFile: fakeExpectPath, atomically: true, encoding: .utf8)
+        chmod(fakeExpectPath, 0o755)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "vm-ssh.freestyle.sh",
+                        "port": 22,
+                        "username": "\(vmID)+cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "lease-token",
+                        ],
+                    ]
+                )
+            case "vm.exec":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": "", "stderr": ""])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
+        environment["CMUX_FAKE_SSH_ARGS"] = capturedArgsPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
+
+        let capturedArgs = try String(contentsOfFile: capturedArgsPath, encoding: .utf8)
+        let decodedRemoteBootstrap = try XCTUnwrap(decodedFirstEmbeddedStartupScript(capturedArgs), capturedArgs)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("apt-get"),
+            "interactive SSH attach must not install packages before the prompt: \(decodedRemoteBootstrap)"
+        )
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("sudo"),
+            "interactive SSH attach must not depend on foreground sudo before the prompt: \(decodedRemoteBootstrap)"
+        )
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux"),
+            "interactive SSH attach must leave cmux CLI provisioning to vm.exec: \(decodedRemoteBootstrap)"
+        )
+        XCTAssertTrue(
+            decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"),
+            decodedRemoteBootstrap
+        )
+        XCTAssertTrue(
+            decodedRemoteBootstrap.contains("unset CMUX_CLOUD_TMUX_SESSION"),
+            decodedRemoteBootstrap
+        )
+        XCTAssertTrue(decodedRemoteBootstrap.contains("if [ \"$cmux_cloud_tty_scope\" = default ]; then"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("cmux_tmux_status=$?"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("exec zsh -l"), decodedRemoteBootstrap)
+    }
+
+    func testDefaultFreestyleSSHAttachRejectedCredentialDoesNotExposePasswordPrompt() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-attach-rejected-credential")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSHPath = tempDirectory.appendingPathComponent("ssh").path
+
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        stty -echo 2>/dev/null || true
+        printf "lease@vm-ssh.freestyle.sh's password: " >&2
+        IFS= read -r _cmux_password
+        [ "$_cmux_password" = "expired-lease-token" ] || exit 64
+        printf '\\nPermission denied, please try again.\\n' >&2
+        printf "lease@vm-ssh.freestyle.sh's password: " >&2
+        IFS= read -r _cmux_password_again
+        exit 255
+        """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
+        chmod(fakeSSHPath, 0o755)
+        try installRealExpectCloudSSHFixture(in: tempDirectory)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "vm-ssh.freestyle.sh",
+                        "port": 22,
+                        "username": "\(vmID)+cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "expired-lease-token",
+                        ],
+                    ]
+                )
+            case "vm.exec":
+                return self.v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": "", "stderr": ""])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertEqual(result.status, 255, result.stdout + result.stderr)
+        XCTAssertTrue(result.stderr.contains("Cloud VM SSH credential was rejected"), result.stderr)
+        XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
+        XCTAssertFalse((result.stdout + result.stderr).contains("expired-lease-token"))
+    }
+
+    func testDefaultFreestyleSSHAttachRelaysAfterDelayedSuccessfulCredential() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-attach-delayed-success")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSHPath = tempDirectory.appendingPathComponent("ssh").path
+
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let readyPath = tempDirectory.appendingPathComponent("ssh-ready").path
+        let releasePath = tempDirectory.appendingPathComponent("ssh-release").path
+        XCTAssertEqual(mkfifo(releasePath, 0o600), 0)
+        try """
+        #!/bin/sh
+        stty -echo 2>/dev/null || true
+        printf "lease@vm-ssh.freestyle.sh's password: " >&2
+        IFS= read -r _cmux_password
+        [ "$_cmux_password" = "lease-token" ] || exit 64
+        exec 3<> "$CMUX_FAKE_SSH_RELEASE"
+        : > "$CMUX_FAKE_SSH_READY"
+        IFS= read -r _cmux_release <&3
+        exec 3>&-
+        printf 'CMUX_DELAYED_RELAY_OK\\n'
+        exit 0
+        """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
+        chmod(fakeSSHPath, 0o755)
+        try installRealExpectCloudSSHFixture(in: tempDirectory)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "vm-ssh.freestyle.sh",
+                        "port": 22,
+                        "username": "\(vmID)+cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "lease-token",
+                        ],
+                    ]
+                )
+            case "vm.exec":
+                return self.v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": "", "stderr": ""])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_FAKE_SSH_READY"] = readyPath
+        environment["CMUX_FAKE_SSH_RELEASE"] = releasePath
+        environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
+
+        let processFinished = expectation(description: "delayed successful SSH attach completed")
+        let resultBox = ProcessRunResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.store(self.runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+                environment: environment,
+                timeout: 15
+            ))
+            processFinished.fulfill()
+        }
+
+        guard waitForSocketFile(at: readyPath, timeout: 5) else {
+            XCTFail("fake SSH never reached credential checkpoint")
+            // runProcess has its own bounded timeout. Join it before leaving
+            // the test so no background XCTest work survives this failure.
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        let releaseFD = Darwin.open(releasePath, O_WRONLY | O_NONBLOCK)
+        guard releaseFD >= 0 else {
+            XCTFail("fake SSH release FIFO has no reader (errno=\(errno))")
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        defer { Darwin.close(releaseFD) }
+        var releaseByte: UInt8 = 0x0A
+        XCTAssertEqual(Darwin.write(releaseFD, &releaseByte, 1), 1)
+
+        wait(for: [processFinished, serverHandled], timeout: 15)
+        let result = try XCTUnwrap(resultBox.load())
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("CMUX_DELAYED_RELAY_OK"),
+            result.stdout + result.stderr
+        )
+        XCTAssertFalse(result.stderr.contains("credential prompt timed out"), result.stderr)
+        XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
+        XCTAssertFalse((result.stdout + result.stderr).contains("lease-token"))
+    }
+
+    func testDefaultFreestyleSSHAttachFailsClosedWhenVMIsMissing() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-attach-missing")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "missing-default-vm"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "vm_not_found", "message": "The requested Cloud VM was not found."]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("no longer exists"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cmux vm new"), result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info"]
+        )
+    }
+
+    func testDefaultFreestyleSSHAttachReportsLocalServerRetryCountdown() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-attach-local-down")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "backend_unreachable",
+                        "message": """
+                        Cannot reach the cmux Cloud VM service at http://localhost:3777.
+
+                        Details:
+                          Could not connect to the server.
+                        """,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] = "1"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout + result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("Waiting for the local cmux web server at http://localhost:3777."),
+            result.stderr
+        )
+        XCTAssertTrue(result.stderr.contains("Retrying in 1s (attempt 1/1)."), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Cloud VM service is temporarily unavailable; retrying"), result.stderr)
+        XCTAssertEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info", "vm.ssh_info"]
+        )
+    }
+
+    func testDefaultFreestyleSSHAttachHonorsGenericCloudRetryEnvironment() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-attach-cloud-retry-env")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-cloud-retry-env"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "vm_cloud_service_unavailable",
+                        "message": "The Cloud VM service could not complete this request.",
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLOUD_ATTACH_RETRY_LIMIT"] = "1"
+        environment["CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS"] = "0"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] = "120"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] = "2"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout + result.stderr)
+        XCTAssertTrue(result.stderr.contains("Retrying now (attempt 1/1)."), result.stderr)
+        XCTAssertEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
+            ["vm.ssh_info", "vm.ssh_info"]
+        )
+    }
+
+    func testDefaultFreestyleSSHAttachHidesPersistentRetryLimitInCountdown() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-ssh-attach-local-down-persistent")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "backend_unreachable",
+                        "message": """
+                        Cannot reach the cmux Cloud VM service at http://localhost:3777.
+
+                        Details:
+                          Could not connect to the server.
+                        """,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] = "86400"
+        environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] = "0.1"
+
+        let child = try StreamingChildProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment
+        )
+        defer { child.terminate() }
+
+        // The second countdown is the real signal that the attach kept retrying
+        // instead of exiting, so the test never waits out the retry budget.
+        XCTAssertTrue(
+            child.waitForStandardError(containing: "Retrying in 0.1s (attempt 2).", timeout: 20),
+            child.standardOutput + child.standardError
+        )
+        // The mock fulfills when its connection closes. Stop the persistent
+        // client after observing progress, before waiting for that teardown.
+        child.terminate()
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertTrue(child.standardError.contains("Retrying in 0.1s (attempt 1)."), child.standardError)
+        XCTAssertFalse(child.standardError.contains("attempt 1/86400"), child.standardError)
+        XCTAssertFalse(child.standardError.contains("/86400"), child.standardError)
+        XCTAssertGreaterThanOrEqual(
+            state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }.count,
+            2
+        )
+    }
+
+    func decodedReusableShellStartupCommand(_ command: String) -> String {
+        var decoded = command
+        for _ in 0..<4 {
+            let next = decodedSingleEmbeddedStartupScript(decoded)
+            guard next != decoded else {
+                return decoded
+            }
+            decoded = next
+        }
+        return decoded
+    }
+
+    private func decodedSingleEmbeddedStartupScript(_ command: String) -> String {
+        SSHStartupCommandTestSupport.decodedScript(in: command) ?? command
+    }
+
+    private func installRealExpectCloudSSHFixture(in directory: URL) throws {
+        // Production pins /usr/bin/ssh. Redirect only that argv entry at the
+        // expect boundary while retaining the real credential/PTY state machine.
+        let expectPath = directory.appendingPathComponent("expect").path
+        try """
+        #!/bin/sh
+        [ "$#" -ge 2 ] && [ "$2" = /usr/bin/ssh ] || exit 64
+        cmux_fixture_script="$1"
+        shift 2
+        cmux_fixture_ssh="$(dirname "$0")/ssh"
+        exec /usr/bin/expect "$cmux_fixture_script" "$cmux_fixture_ssh" "$@"
+        """.write(toFile: expectPath, atomically: true, encoding: .utf8)
+        chmod(expectPath, 0o755)
+    }
+
+    private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
+        if let script = SSHStartupCommandTestSupport.decodedScript(in: command) {
+            return script
+        }
+        for markerText in ["printf %s ", "printf %%s "] {
+            guard let marker = command.range(of: markerText) else {
+                continue
+            }
+            let suffix = command[marker.upperBound...]
+            guard let end = suffix.firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" }),
+                  end > suffix.startIndex else {
+                continue
+            }
+            let encoded = String(suffix[..<end])
+            guard let data = Data(base64Encoded: encoded),
+                  let decoded = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            return decoded
+        }
+        return nil
+    }
+}

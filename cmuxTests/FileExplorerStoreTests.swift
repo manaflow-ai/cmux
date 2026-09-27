@@ -90,13 +90,22 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     var homePath = "/home/dev"
     var isAvailable = true
     private(set) var listCallPaths: [String] = []
+    /// Set the instant `listDirectory` hands its resumed value back to the store's
+    /// load task. Because that value is delivered on the same MainActor-isolated
+    /// continuation that then runs the store's synchronous post-`await` tail
+    /// (cancellation check + error handling), observing this flag from any other
+    /// MainActor work means the resumed load task has fully run. This lets the
+    /// cancelled-load test wait on the real completion signal instead of sleeping.
+    private(set) var didCompleteListing = false
     private var continuation: CheckedContinuation<[FileExplorerEntry], Error>?
 
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         listCallPaths.append(path)
-        return try await withCheckedThrowingContinuation { continuation in
+        let entries = try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
+        didCompleteListing = true
+        return entries
     }
 
     func resumeListing(returning entries: [FileExplorerEntry]) {
@@ -184,6 +193,34 @@ struct FileExplorerStoreTests {
         store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
         #expect(store.displayRootPath == "~/project")
+    }
+
+    @Test
+    func testRemoteShellPathWordKeepsASCIIPathsSingleQuoted() {
+        #expect(ProcessSSHFileExplorerTransport.remoteShellPathWord("/tmp/it's.md") == #"'/tmp/it'\''s.md'"#)
+    }
+
+    @Test
+    func testRemoteShellPathWordPreservesNFCBytesThroughProcessArguments() throws {
+        // https://github.com/manaflow-ai/cmux/issues/14891: Process decomposes
+        // argv to NFD, so a precomposed remote name must not appear literally.
+        for name in ["モデル.md", "보고서.md", "résumé.md", "отчёт.md", "it's é.md"] {
+            let path = "/tmp/nfd/" + name.precomposedStringWithCanonicalMapping
+            let word = ProcessSSHFileExplorerTransport.remoteShellPathWord(path)
+            let wordIsASCII = word.unicodeScalars.allSatisfy { $0.isASCII }
+            #expect(wordIsASCII)
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", "printf '%s' \(word)"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            let output = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+            #expect(output == Data(path.utf8))
+        }
     }
 
     @Test
@@ -380,7 +417,12 @@ struct FileExplorerStoreTests {
             FileExplorerEntry(name: "stale", path: "/home/dev/stale", isDirectory: true),
         ])
 
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Wait on the real completion signal: the resumed (already-cancelled) root
+        // load task running to completion. `didCompleteListing` flips on the same
+        // MainActor continuation that runs the load task's post-`await` tail, so once
+        // it is observed the cancelled task has finished and can no longer mutate
+        // state. Then assert it left the unavailable status and empty tree intact.
+        try await waitFor("cancelled root load finished") { provider.didCompleteListing }
 
         #expect(store.rootStatusMessage == unavailableMessage)
         #expect(store.rootNodes.isEmpty)
@@ -578,6 +620,119 @@ struct FileExplorerStoreTests {
         #expect(
             FileExplorerSelectionRestoration.scrollRow(anchorRow: nil, exactRows: []) == nil
         )
+    }
+
+    // MARK: - Outline refresh
+
+    @Test
+    func testOutlineReplacesNestedRowsWhenContentRevisionChangesWithoutCountChanges() async throws {
+        let rootPath = "/home/user/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("initial root loaded") { store.rootNodes.count == 1 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("initial nested file loaded") {
+            sourceNode.children?.map(\.name) == ["Removed.swift"]
+        }
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+        #expect((outlineView.item(atRow: 1) as? FileExplorerNode)?.name == "Removed.swift")
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested file") {
+            store.rootNodes.first?.children?.map(\.name) == ["Added.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["Sources", "Added.swift"])
+        withExtendedLifetime(container) {}
+    }
+
+    @Test
+    func testRevisionReloadRestoresNestedExpansionAndSelection() async throws {
+        let rootPath = "/home/user/project"
+        let projectPath = "\(rootPath)/App"
+        let sourcePath = "\(projectPath)/Sources"
+        let keepPath = "\(sourcePath)/Keep.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "App", path: projectPath, isDirectory: true),
+        ])
+        provider.listings[projectPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("nested root loaded") { store.rootNodes.count == 1 }
+
+        let projectNode = try #require(store.rootNodes.first)
+        store.expand(node: projectNode)
+        try await waitFor("nested project loaded") { projectNode.children?.count == 1 }
+        let sourceNode = try #require(projectNode.children?.first)
+        store.expand(node: sourceNode)
+        try await waitFor("nested source loaded") { sourceNode.children?.count == 2 }
+        let keepNode = try #require(sourceNode.children?.first { $0.path == keepPath })
+        store.select(node: keepNode)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested hierarchy") {
+            store.rootNodes.first?.children?.first?.children?.map(\.name) == ["Added.swift", "Keep.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        let selectedNames = outlineView.selectedRowIndexes.compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["App", "Sources", "Added.swift", "Keep.swift"])
+        #expect(selectedNames == ["Keep.swift"])
+        withExtendedLifetime(container) {}
     }
 
     // MARK: - Collapse/Expand
@@ -806,13 +961,64 @@ struct FileSearchControllerTests {
             container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: searchField))
         }
 
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // Wait on the real completion signal (the debounce firing and issuing its one
+        // search) instead of sleeping for the debounce window. The seven synchronous
+        // keystrokes feed a single Combine `.debounce`, so it emits exactly once; this
+        // returns the instant that single search lands.
+        try await waitForSearchRequestCount(1, in: searchController)
 
         #expect(
             searchController.searchRequests.count <= 1,
             "A burst of typing should coalesce into one ripgrep search per debounce window."
         )
         #expect(searchController.searchRequests.last?.query == "private")
+    }
+
+    @Test
+    func testSearchFieldReturnCommitsWhenOpenSelectionShortcutsAreUnbound() throws {
+        try withIsolatedShortcutSettings {
+            let store = FileExplorerStore()
+            let state = FileExplorerState()
+            let searchController = SpyFileSearchController()
+            var openedPaths: [String] = []
+            let coordinator = FileExplorerPanelView.Coordinator(
+                store: store,
+                state: state,
+                onOpenFilePreview: { path in
+                    openedPaths.append(path)
+                }
+            )
+            let container = FileExplorerContainerView(
+                coordinator: coordinator,
+                presentation: .find,
+                searchController: searchController
+            )
+            store.provider = MockFileExplorerProvider(homePath: "/tmp")
+            store.setRootPath("/tmp/cmux-find-return-fallback-test")
+            container.updateHeader(store: store)
+            container.updatePresentation(.find)
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelection)
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
+
+            let searchField = try #require(Self.findSearchField(in: container))
+            let result = Self.searchResult(relativePath: "selected.txt")
+            searchController.publish(FileSearchSnapshot(
+                query: "needle",
+                results: [result],
+                status: .matches,
+                isSearching: false
+            ))
+
+            let handled = container.control(
+                searchField,
+                textView: NSTextView(),
+                doCommandBy: #selector(NSResponder.insertNewline(_:))
+            )
+
+            #expect(handled)
+            #expect(openedPaths == [result.path])
+        }
     }
 
     @Test
@@ -895,6 +1101,10 @@ struct FileSearchControllerTests {
         // updateVisibility runs on every store/content update and is unguarded; a second
         // identical pass must not invalidate layout.
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        // This container is windowless and never runs a layout pass, so the real invalidations
+        // above leave layout pending and `needsLayout = false` does not take effect. Run the
+        // pending pass first so each probe below measures only new invalidations.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         #expect(
@@ -904,6 +1114,7 @@ struct FileSearchControllerTests {
 
         // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
         // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updatePresentation(.find)
         #expect(
@@ -913,6 +1124,7 @@ struct FileSearchControllerTests {
 
         // Positive control: a genuine visibility change must still invalidate layout, so
         // the no-op assertions above are meaningful rather than vacuous.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
         #expect(
@@ -1042,6 +1254,19 @@ struct FileSearchControllerTests {
             columnNumber: 1,
             preview: "needle"
         )
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-file-explorer-store"
+        )
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        }
+
+        try body()
     }
 
     private func waitForSearchRequestCount(

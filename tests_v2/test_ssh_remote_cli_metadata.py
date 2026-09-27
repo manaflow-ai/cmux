@@ -70,6 +70,18 @@ def _run_cli_json(cli: str, args: list[str], *, extra_env: dict[str, str] | None
         raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {output!r} ({exc})")
 
 
+def _run_cli_failure(cli: str, args: list[str]) -> str:
+    env = dict(os.environ)
+    env.pop("CMUX_WORKSPACE_ID", None)
+    env.pop("CMUX_SURFACE_ID", None)
+    env.pop("CMUX_TAB_ID", None)
+    cmd = [cli, "--socket", SOCKET_PATH, *args]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
+    merged = f"{proc.stdout}\n{proc.stderr}".strip()
+    _must(proc.returncode != 0, f"CLI should reject {' '.join(args)}: {merged}")
+    return merged
+
+
 def _extract_control_path(ssh_command: str) -> str:
     match = re.search(r"ControlPath=([^\s]+)", ssh_command)
     return match.group(1) if match else ""
@@ -129,6 +141,20 @@ def main() -> int:
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
     _must("cmux ssh" in help_text, "ssh --help output should include command header")
     _must("Create a new workspace" in help_text, "ssh --help output should describe workspace creation")
+    _must("--command <text>" in help_text, "ssh --help output should document the initial command flag")
+    command_conflict = _run_cli_failure(
+        cli,
+        ["ssh", "127.0.0.1", "--command", "echo command", "echo", "trailing"],
+    )
+    _must(
+        "--command cannot be combined" in command_conflict,
+        f"ssh should reject ambiguous initial and trailing commands: {command_conflict}",
+    )
+    empty_command = _run_cli_failure(cli, ["ssh", "127.0.0.1", "--command", " \t "])
+    _must(
+        "--command requires non-empty command text" in empty_command,
+        f"ssh should reject an empty initial command: {empty_command}",
+    )
 
     workspace_id = ""
     workspace_id_without_name = ""
@@ -137,11 +163,21 @@ def main() -> int:
     workspace_id_invalid_proxy_port = ""
     workspaces_to_close: list[str] = []
     ssh_workspace_name = "ssh-meta-test"
+    initial_command = r'''printf '%s\n' "spaces 'single' \"double\" $CMUX_REMOTE_VALUE $(printf remote-substitution)" >> "$HOME/cmux initial command.txt"'''
     with cmux(SOCKET_PATH) as client:
         try:
             payload = _run_cli_json(
                 cli,
-                ["ssh", "127.0.0.1", "--port", "1", "--name", ssh_workspace_name],
+                [
+                    "ssh",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                    "--name",
+                    ssh_workspace_name,
+                    "--command",
+                    initial_command,
+                ],
             )
             payload_workspace_id = _resolve_workspace_id_from_payload(client, payload)
             selected_workspace_id = ""
@@ -227,6 +263,27 @@ def main() -> int:
                 f"cmux ssh startup script should embed the remote bootstrap payload: {ssh_startup_command!r}",
             )
             remote_bootstrap = base64.b64decode(str(bootstrap_b64_match.group(1))).decode("utf-8")
+            initial_command_b64_match = re.search(
+                r"^\s*if \(umask 077; printf %s '([A-Za-z0-9+/=]+)' > \"\$cmux_initial_command_tmp\"\)",
+                remote_bootstrap,
+                re.MULTILINE,
+            )
+            _must(
+                initial_command_b64_match is not None,
+                f"cmux ssh should stage the initial command as inert base64 data: {remote_bootstrap!r}",
+            )
+            _must(
+                "export CMUX_INITIAL_COMMAND_B64" not in remote_bootstrap
+                and "export CMUX_INITIAL_COMMAND_FILE" in remote_bootstrap,
+                f"cmux ssh should expose only the private payload path to shell startup: {remote_bootstrap!r}",
+            )
+            decoded_initial_command = base64.b64decode(
+                str(initial_command_b64_match.group(1))
+            ).decode("utf-8")
+            _must(
+                decoded_initial_command == initial_command,
+                f"cmux ssh should preserve initial command bytes exactly: expected={initial_command!r} actual={decoded_initial_command!r}",
+            )
             ssh_env_overrides = payload.get("ssh_env_overrides") or {}
             _must(
                 str(ssh_env_overrides.get("GHOSTTY_SHELL_FEATURES") or "").endswith("ssh-env,ssh-terminfo"),
@@ -262,19 +319,21 @@ def main() -> int:
                 f"cmux ssh should still pin the relay socket path in the remote bootstrap: {remote_bootstrap!r}",
             )
             _must(
-                "export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'" in remote_bootstrap,
-                f"cmux ssh should export the remote workspace id into the bootstrap shell: {remote_bootstrap!r}",
+                "cmux_workspace_id='__CMUX_WORKSPACE_ID__'" in remote_bootstrap
+                and 'export CMUX_WORKSPACE_ID="$cmux_workspace_id"' in remote_bootstrap,
+                f"cmux ssh should safely export the remote workspace id into the bootstrap shell: {remote_bootstrap!r}",
             )
             _must(
-                "export CMUX_TAB_ID='__CMUX_WORKSPACE_ID__'" in remote_bootstrap,
+                'export CMUX_TAB_ID="$cmux_workspace_id"' in remote_bootstrap,
                 f"cmux ssh should keep CMUX_TAB_ID aligned with the workspace id for shell integration: {remote_bootstrap!r}",
             )
             _must(
-                "export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'" in remote_bootstrap,
-                f"cmux ssh should export the remote surface id into the bootstrap shell: {remote_bootstrap!r}",
+                "cmux_surface_id='__CMUX_SURFACE_ID__'" in remote_bootstrap
+                and 'export CMUX_SURFACE_ID="$cmux_surface_id"' in remote_bootstrap,
+                f"cmux ssh should safely export the remote surface id into the bootstrap shell: {remote_bootstrap!r}",
             )
             _must(
-                "export CMUX_PANEL_ID='__CMUX_SURFACE_ID__'" in remote_bootstrap,
+                'export CMUX_PANEL_ID="$cmux_surface_id"' in remote_bootstrap,
                 f"cmux ssh should keep CMUX_PANEL_ID aligned with the surface id for shell integration: {remote_bootstrap!r}",
             )
             _must(
@@ -716,7 +775,7 @@ def main() -> int:
                 except Exception:
                     pass
 
-    print("PASS: cmux ssh marks workspace as remote, exposes remote metadata, and does not require --name")
+    print("PASS: cmux ssh preserves initial command text and remote workspace metadata")
     return 0
 
 

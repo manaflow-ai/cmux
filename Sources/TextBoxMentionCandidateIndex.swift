@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import Foundation
 
 struct TextBoxMentionCandidateIndex: Sendable {
@@ -124,8 +125,7 @@ struct TextBoxMentionCandidateIndex: Sendable {
         }
         guard !filteredEntries.isEmpty else { return [] }
 
-        return CommandPaletteSearchEngine.search(
-            entries: filteredEntries,
+        return CommandPaletteSearchEngine(entries: filteredEntries).search(
             query: query,
             resultLimit: limit,
             historyBoost: { _, _ in 0 },

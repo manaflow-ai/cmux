@@ -3,12 +3,47 @@
 // Takes the raw payload returned by the `mobile.attach_ticket.create` RPC
 // (`{ ticket: { routes, version, ... }, ... }`), optionally filters the ticket
 // routes by id/kind, base64url-encodes the (filtered) ticket, and builds the
-// `cmux-ios://attach?v=<n>&payload=<b64>` URL the phone consumes.
+// `<scheme>://attach?v=<n>&payload=<b64>` URL the phone consumes.
+//
+// The scheme is the exact target bundle identifier, mirroring
+// `CmxPairingURLScheme` in `Packages/Shared/CMUXMobileCore`. Historical shared
+// schemes remain parse-only for old URLs; this encoder never creates one.
 //
 // This is the single source of truth for the encode recipe, shared by
 // `scripts/mobile-attach-qr.sh` (QR/HTML rendering) and `scripts/dev-setup.sh`
 // (headless auto-pair mint). Keep it pure (no I/O) so it is unit-testable with
 // `node --test scripts/lib/attach-url.test.mjs`.
+
+/** The pairing/attach URL scheme development (DEBUG/tagged) builds emit. */
+export const DEV_URL_SCHEME = "cmux-ios-dev";
+
+/** The pairing/attach URL scheme Release (beta + prod) builds emit. */
+export const RELEASE_URL_SCHEME = "cmux-ios";
+
+export function schemeForIOSBundleIdentifier(bundleIdentifier) {
+  const normalized = String(bundleIdentifier || "").trim().toLowerCase();
+  if (
+    !normalized.includes(".") ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(normalized)
+  ) {
+    throw new Error("An exact iOS bundle identifier is required");
+  }
+  return `cmux-ios-${normalized}`;
+}
+
+export function isCanonicalAttachURL(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/attach\?/.exec(value);
+  if (!match) return false;
+  const scheme = match[1].toLowerCase();
+  if ([DEV_URL_SCHEME, RELEASE_URL_SCHEME].includes(scheme)) return true;
+  if (!scheme.startsWith("cmux-ios-")) return false;
+  const bundleIdentifier = scheme.slice("cmux-ios-".length);
+  return bundleIdentifier.includes(".") &&
+    /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(bundleIdentifier);
+}
 
 /**
  * Filter a ticket's routes by id and/or kind. Returns the matching subset.
@@ -37,13 +72,15 @@ export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
 }
 
 /**
- * Build the `cmux-ios://attach` deep link from a raw attach-ticket payload.
+ * Build the `<scheme>://attach` deep link from a raw attach-ticket payload.
  *
  * The returned `attachURL` is a bearer credential: it grants the holder the
  * paired Mac's terminals for the ticket's TTL. Never log it.
  *
  * @param {object} payload The raw `mobile.attach_ticket.create` result.
- * @param {{routeID?: string, routeKind?: string}} [filter]
+ * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
+ *   `scheme` is the exact-bundle URL scheme. It is required when the Mac did
+ *   not provide a canonical URL.
  * @returns {{attachURL: string, routes: Array<object>, payload: object}}
  *   `payload` is a shallow clone with `ticket.routes`/`routes` narrowed to the
  *   filtered set, so callers (e.g. the QR HTML renderer) can show the addresses.
@@ -56,16 +93,42 @@ export function buildAttachURL(payload, filter = {}) {
     );
   }
 
-  const routes = filterRoutes(payload.ticket.routes, filter);
+  const { routeID, routeKind, scheme } = filter;
+  const routes = filterRoutes(payload.ticket.routes, { routeID, routeKind });
 
   const ticket = { ...payload.ticket, routes };
   const result = { ...payload, ticket, routes };
+
+  // Newer Mac builds return the canonical pairing URL from the Swift ticket
+  // store. Prefer it when the caller did not narrow the route set locally:
+  // the Swift path may emit the v2 bare-route QR grammar, while this JS module
+  // can only reconstruct the older v1 JSON payload. If a caller filters an
+  // unfiltered payload locally, the canonical URL may point at a different
+  // route set, so fall through to the lossless v1 reconstruction.
+  if (
+    isCanonicalAttachURL(payload.attach_url) &&
+    routes.length === payload.ticket.routes.length
+  ) {
+    result.attach_url = payload.attach_url;
+    return { attachURL: result.attach_url, routes, payload: result };
+  }
+
+  const exactBundleIdentifier = typeof scheme === "string" &&
+    scheme.startsWith("cmux-ios-")
+    ? scheme.slice("cmux-ios-".length)
+    : "";
+  if (
+    !exactBundleIdentifier.includes(".") ||
+    !/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(exactBundleIdentifier)
+  ) {
+    throw new Error("An exact-bundle pairing URL scheme is required");
+  }
 
   const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(
     "base64url",
   );
   const version = ticket.version || 1;
-  result.attach_url = `cmux-ios://attach?v=${version}&payload=${encodedPayload}`;
+  result.attach_url = `${scheme}://attach?v=${version}&payload=${encodedPayload}`;
 
   return { attachURL: result.attach_url, routes, payload: result };
 }

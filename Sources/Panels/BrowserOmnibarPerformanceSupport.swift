@@ -1,8 +1,10 @@
 import AppKit
 import Foundation
 import Observation
+import CmuxBrowser
 
 struct BrowserOpenTabSuggestionSnapshot: Equatable {
+    let host: PanelHost
     let workspaceId: UUID
     let panelId: UUID
     let url: String
@@ -10,32 +12,76 @@ struct BrowserOpenTabSuggestionSnapshot: Equatable {
     let lowercasedURL: String
     let lowercasedTitle: String
 
-    init?(workspaceId: UUID, panelId: UUID, url: String?, title: String?) {
+    init?(
+        host: PanelHost,
+        panelId: UUID,
+        url: String?,
+        title: String?
+    ) {
         guard let normalizedURL = url?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalizedURL.isEmpty else { return nil }
         let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.workspaceId = workspaceId
+        self.host = host
+        self.workspaceId = host.ownerID
         self.panelId = panelId
         self.url = normalizedURL
         self.title = normalizedTitle?.isEmpty == false ? normalizedTitle : nil
         self.lowercasedURL = normalizedURL.lowercased()
         self.lowercasedTitle = self.title?.lowercased() ?? ""
     }
+
+    init?(
+        workspaceId: UUID,
+        panelId: UUID,
+        url: String?,
+        title: String?
+    ) {
+        self.init(
+            host: .workspace(workspaceId),
+            panelId: panelId,
+            url: url,
+            title: title
+        )
+    }
 }
 
 struct OmnibarOpenTabMatch: Equatable {
+    let host: PanelHost
     let tabId: UUID
     let panelId: UUID
     let url: String
     let title: String?
     let isKnownOpenTab: Bool
 
-    init(tabId: UUID, panelId: UUID, url: String, title: String?, isKnownOpenTab: Bool = true) {
-        self.tabId = tabId
+    init(
+        host: PanelHost,
+        panelId: UUID,
+        url: String,
+        title: String?,
+        isKnownOpenTab: Bool = true
+    ) {
+        self.host = host
+        self.tabId = host.ownerID
         self.panelId = panelId
         self.url = url
         self.title = title
         self.isKnownOpenTab = isKnownOpenTab
+    }
+
+    init(
+        tabId: UUID,
+        panelId: UUID,
+        url: String,
+        title: String?,
+        isKnownOpenTab: Bool = true
+    ) {
+        self.init(
+            host: .workspace(tabId),
+            panelId: panelId,
+            url: url,
+            title: title,
+            isKnownOpenTab: isKnownOpenTab
+        )
     }
 }
 
@@ -73,6 +119,7 @@ final class BrowserOpenTabSuggestionIndex {
     func matching(
         for query: String,
         currentWorkspaceId: UUID,
+        currentHost: PanelHost? = nil,
         currentPanelId: UUID,
         currentPanelSnapshot: BrowserOpenTabSuggestionSnapshot?,
         includeCurrentPanelForSingleCharacterQuery: Bool,
@@ -86,6 +133,8 @@ final class BrowserOpenTabSuggestionIndex {
 
         let loweredQuery = trimmedQuery.lowercased()
         let singleCharacterQuery = omnibarSingleCharacterQuery(for: trimmedQuery)
+        let resolvedCurrentHost = currentHost
+            ?? .workspace(currentWorkspaceId)
         var matches: [OmnibarOpenTabMatch] = []
         matches.reserveCapacity(min(limit, suggestionOrder.count + 1))
         var seenKeys = Set<String>()
@@ -105,7 +154,7 @@ final class BrowserOpenTabSuggestionIndex {
         func append(_ snapshot: BrowserOpenTabSuggestionSnapshot, isKnownOpenTab: Bool) {
             guard matches.count < limit else { return }
             let key = [
-                snapshot.workspaceId.uuidString.lowercased(),
+                snapshot.host.identityKey,
                 snapshot.panelId.uuidString.lowercased(),
                 snapshot.lowercasedURL,
             ].joined(separator: "|")
@@ -113,7 +162,7 @@ final class BrowserOpenTabSuggestionIndex {
             guard seenKeys.insert(key).inserted else { return }
             matches.append(
                 OmnibarOpenTabMatch(
-                    tabId: snapshot.workspaceId,
+                    host: snapshot.host,
                     panelId: snapshot.panelId,
                     url: snapshot.url,
                     title: snapshot.title,
@@ -129,7 +178,8 @@ final class BrowserOpenTabSuggestionIndex {
         for panelId in suggestionOrder {
             guard matches.count < limit else { break }
             guard let snapshot = suggestionsByPanelId[panelId] else { continue }
-            let isCurrentPanel = snapshot.workspaceId == currentWorkspaceId && snapshot.panelId == currentPanelId
+            let isCurrentPanel = snapshot.host == resolvedCurrentHost &&
+                snapshot.panelId == currentPanelId
             if isCurrentPanel && !includeCurrentPanelForSingleCharacterQuery {
                 continue
             }
@@ -238,6 +288,7 @@ extension TabManager {
     func matchingOpenBrowserTabSuggestions(
         for query: String,
         currentWorkspaceId: UUID,
+        currentHost: PanelHost? = nil,
         currentPanelId: UUID,
         currentPanelSnapshot: BrowserOpenTabSuggestionSnapshot?,
         includeCurrentPanelForSingleCharacterQuery: Bool,
@@ -246,6 +297,7 @@ extension TabManager {
         browserOpenTabSuggestionIndex.matching(
             for: query,
             currentWorkspaceId: currentWorkspaceId,
+            currentHost: currentHost,
             currentPanelId: currentPanelId,
             currentPanelSnapshot: currentPanelSnapshot,
             includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
@@ -255,8 +307,8 @@ extension TabManager {
     }
 
     private func browserOpenTabSuggestionSeedSnapshots() -> [BrowserOpenTabSuggestionSnapshot] {
-        tabs.flatMap { workspace in
-            workspace.panels.compactMap { _, panel in
+        let workspaceSnapshots = tabs.flatMap { workspace in
+            workspace.panels.compactMap { _, panel -> BrowserOpenTabSuggestionSnapshot? in
                 guard let browserPanel = panel as? BrowserPanel else { return nil }
                 return BrowserOpenTabSuggestionSnapshot(
                     workspaceId: workspace.id,
@@ -266,6 +318,55 @@ extension TabManager {
                 )
             }
         }
+        let dockSnapshots = DockSplitStore.liveStores
+            .filter {
+                AppDelegate.shared?.dockReferenceTabManager(for: $0) === self
+            }
+            .flatMap { dock in
+                dock.panels.values.compactMap { panel -> BrowserOpenTabSuggestionSnapshot? in
+                    guard let browser = panel as? BrowserPanel else {
+                        return nil
+                    }
+                    let host: PanelHost = dock.scope == .global
+                        ? .windowDock(dock.workspaceId)
+                        : .workspaceDock(dock.workspaceId)
+                    return BrowserOpenTabSuggestionSnapshot(
+                        host: host,
+                        panelId: browser.id,
+                        url: browser.preferredURLStringForOmnibar(),
+                        title: browser.pageTitle
+                    )
+                }
+            }
+        return workspaceSnapshots + dockSnapshots
+    }
+}
+
+extension DockSplitStore {
+    func publishBrowserOpenTabSuggestion(for browserPanel: BrowserPanel) {
+        guard let manager = AppDelegate.shared?.dockReferenceTabManager(
+            for: self
+        ) else {
+            return
+        }
+        let host: PanelHost = scope == .global
+            ? .windowDock(workspaceId)
+            : .workspaceDock(workspaceId)
+        guard let snapshot = BrowserOpenTabSuggestionSnapshot(
+            host: host,
+            panelId: browserPanel.id,
+            url: browserPanel.preferredURLStringForOmnibar(),
+            title: browserPanel.pageTitle
+        ) else {
+            manager.removeBrowserOpenTabSuggestion(panelId: browserPanel.id)
+            return
+        }
+        manager.upsertBrowserOpenTabSuggestion(snapshot)
+    }
+
+    func removeBrowserOpenTabSuggestion(panelId: UUID) {
+        AppDelegate.shared?.dockReferenceTabManager(for: self)?
+            .removeBrowserOpenTabSuggestion(panelId: panelId)
     }
 }
 

@@ -10,23 +10,19 @@ import {
   withApiRouteSpan,
 } from "@/services/telemetry";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import {
+  DEFAULT_FROM_EMAIL,
+  buildFoundersWelcomeEmail,
+  buildProWelcomeEmail,
+} from "./welcome-email";
+import {
+  sessionProductMarkerIsAuthoritative,
+  welcomeTriggerForCheckout,
+} from "./welcome-trigger";
+import { locales, type Locale } from "../../../../i18n/routing";
+import { personalProWelcomeOwnsDelivery } from "../../../../services/billing/personalProWelcome";
+import { stripe } from "../../../../services/billing/stripe";
 
-// Stripe checkout sessions created from the cmux Founder's Edition payment link
-// carry this metadata key (copied automatically onto each session). We only send
-// the welcome email when it is present and truthy.
-const FOUNDERS_METADATA_KEY = "founders_edition";
-
-// Default sender/recipients. Sender is overridable via env so the verified Resend
-// domain can change without a code edit; the founders are always copied so both
-// see exactly what the customer received.
-const DEFAULT_FROM_EMAIL = "austin@manaflow.ai";
-const FOUNDER_CC = ["austin@manaflow.ai", "lawrence@manaflow.ai"];
-const REPLY_TO = "austin@manaflow.ai";
-const EMAIL_SUBJECT = "cmux Founder's Edition";
-
-// Stripe signs webhooks with a 5-minute default tolerance; reject older payloads
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
@@ -34,6 +30,25 @@ type FoundersConfig = {
   resendApiKey: string;
   webhookSecret: string;
   fromEmail: string;
+};
+
+type FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () => boolean;
+  retrieveSubscription: (
+    subscriptionId: string,
+  ) => Promise<{ metadata?: Record<string, string> | null }>;
+};
+
+const defaultDependencies: FoundersWelcomeDependencies = {
+  personalProWelcomeEnabled: () =>
+    personalProWelcomeOwnsDelivery({
+      enabled: env.CMUX_PERSONAL_PRO_WELCOME_ENABLED,
+      resendApiKey: env.RESEND_API_KEY,
+      webhookSecret: env.STRIPE_FOUNDERS_WEBHOOK_SECRET,
+      stripeSecretKey: env.STRIPE_SECRET_KEY,
+    }),
+  retrieveSubscription: async (subscriptionId) =>
+    stripe().subscriptions.retrieve(subscriptionId),
 };
 
 function resolveConfig(): FoundersConfig | null {
@@ -99,36 +114,16 @@ function isValidStripeSignature(
   });
 }
 
-function firstName(fullName: string | null | undefined): string {
-  const trimmed = (fullName ?? "").trim();
-  if (!trimmed) {
-    return "there";
-  }
-  return trimmed.split(/\s+/)[0];
-}
-
-function buildBody(name: string): string {
-  return [
-    `Hi ${name}!`,
-    "",
-    "Thank you for being one of the first ever customers of cmux :)",
-    "",
-    "My number is +1(714) 699-0169 and Lawrence's number is +1(949) 302-0749. " +
-      "Our emails are austin@manaflow.ai and lawrence@manaflow.ai. Feel free to " +
-      "text me on iMessage or WhatsApp, or we can just continue talking here. " +
-      "I've CC'd my cofounder as well.",
-    "",
-    "Best,",
-    "Austin",
-  ].join("\n");
-}
-
-export async function POST(request: Request) {
-  return withApiRouteSpan(
-    request,
-    "/api/stripe/founders-welcome",
-    { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
-    async (span): Promise<Response> => {
+export function makeFoundersWelcomeHandler(
+  dependencies: Partial<FoundersWelcomeDependencies> = {},
+) {
+  const resolvedDependencies = { ...defaultDependencies, ...dependencies };
+  return async function POST(request: Request) {
+    return withApiRouteSpan(
+      request,
+      "/api/stripe/founders-welcome",
+      { "cmux.subsystem": "stripe", "cmux.stripe.operation": "founders_welcome" },
+      async (span): Promise<Response> => {
       const config = resolveConfig();
       if (!config) {
         return jsonError("Founders welcome endpoint is not configured", 503);
@@ -156,37 +151,81 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Only react to completed checkout sessions flagged as Founder's Edition.
-      // Everything else (including renewals, which never create a checkout
-      // session) is acknowledged with 200 so Stripe stops retrying.
-      if (event.type !== "checkout.session.completed") {
+      // This endpoint owns the personal welcome for Founder's Edition and Pro.
+      // Team and unrecognized checkouts are acknowledged without mail. Explicit
+      // Session product markers take precedence. Some Stripe checkout flows
+      // put the product metadata only on the expanded subscription, so pass
+      // that metadata to the shared classifier as a fallback.
+      if (
+        event.type !== "checkout.session.completed" &&
+        event.type !== "checkout.session.async_payment_succeeded"
+      ) {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
-      const isFounders =
-        session?.metadata?.[FOUNDERS_METADATA_KEY] === "true";
+      let subscriptionMetadata =
+        session?.subscription && typeof session.subscription === "object"
+          ? session.subscription.metadata
+          : null;
+      if (
+        !subscriptionMetadata &&
+        typeof session?.subscription === "string" &&
+        !sessionProductMarkerIsAuthoritative(session.metadata)
+      ) {
+        try {
+          subscriptionMetadata = (
+            await resolvedDependencies.retrieveSubscription(session.subscription)
+          ).metadata ?? null;
+        } catch (error) {
+          recordSpanError(span, error);
+          console.error("stripe.founders_welcome.subscription_lookup_failed");
+          return jsonError("Unable to resolve checkout metadata", 503);
+        }
+      }
+      const trigger = welcomeTriggerForCheckout(
+        session?.metadata,
+        subscriptionMetadata,
+      );
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
-        "cmux.stripe.is_founders": isFounders,
+        "cmux.stripe.is_founders": trigger === "founders_edition",
+        "cmux.stripe.welcome_trigger": trigger,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
-      if (!isFounders) {
-        return NextResponse.json({ ok: true, skipped: "not_founders" });
+      if (trigger !== "founders_edition" && trigger !== "pro_plan") {
+        return NextResponse.json({ ok: true, skipped: "not_welcome_eligible" });
+      }
+      if (
+        trigger === "pro_plan" &&
+        !resolvedDependencies.personalProWelcomeEnabled()
+      ) {
+        return NextResponse.json({ ok: true, skipped: "pro_rollout_disabled" });
+      }
+      if (
+        event.type === "checkout.session.completed" &&
+        session?.payment_status !== "paid" &&
+        session?.payment_status !== "no_payment_required"
+      ) {
+        // Delayed payment methods can emit `completed` before funds settle;
+        // wait for `async_payment_succeeded` before sending a welcome.
+        return NextResponse.json({ ok: true, skipped: "payment_pending" });
       }
       if (!customerEmail) {
-        // Distinct from "not_founders" so a Founder's session that arrives
-        // without a customer email is diagnosable in telemetry rather than a
-        // silent miss.
+        // A completed session that arrives without a customer email is
+        // diagnosable in telemetry rather than a silent miss.
         return NextResponse.json({ ok: true, skipped: "no_customer_email" });
       }
 
-      const name = firstName(session?.customer_details?.name);
       // Stripe delivers webhooks at least once and retries after a transient
       // failure (including one observed after Resend already accepted the
-      // message), so key the send by the checkout session id. Resend
-      // deduplicates identical sends for 24h, so redelivery of the same
-      // purchase will not send a second welcome email.
-      const idempotencyKey = `founders-welcome/${session?.id ?? event.id ?? customerEmail}`;
+      // message), so key the send by the checkout session id. This same ref
+      // both deduplicates the send (via the Resend idempotency key, which
+      // dedupes identical sends for 24h) and threads the email (via the
+      // X-Entity-Ref-ID header inside buildFoundersWelcomeEmail): redelivery of
+      // the same purchase neither sends a second welcome nor spawns a second
+      // Gmail thread, while a new subscription gets its own thread.
+      const sessionRef = session?.id ?? event.id ?? customerEmail;
+      const idempotencyKey = `founders-welcome/${sessionRef}`;
       // Only attach the personal display name to the default sender. If the
       // address is overridden to a shared/team inbox, send from the bare
       // address rather than a mismatched "Austin Wang" identity.
@@ -195,15 +234,22 @@ export async function POST(request: Request) {
           ? `Austin Wang <${config.fromEmail}>`
           : config.fromEmail;
       const resend = new Resend(config.resendApiKey);
+      const emailPayload = trigger === "pro_plan"
+        ? await buildProWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+            locale: localeForSession(session),
+          })
+        : buildFoundersWelcomeEmail({
+            from: fromAddress,
+            to: customerEmail,
+            customerName: session?.customer_details?.name,
+            sessionRef,
+          });
       const { error } = await resend.emails.send(
-        {
-          from: fromAddress,
-          to: [customerEmail],
-          cc: FOUNDER_CC,
-          replyTo: REPLY_TO,
-          subject: EMAIL_SUBJECT,
-          text: buildBody(name),
-        },
+        emailPayload,
         { idempotencyKey },
       );
 
@@ -218,9 +264,12 @@ export async function POST(request: Request) {
         { ok: true, sent: true },
         { headers: { "Cache-Control": "no-store" } },
       );
-    },
-  );
+      },
+    );
+  };
 }
+
+export const POST = makeFoundersWelcomeHandler();
 
 function jsonError(message: string, status: number): Response {
   return NextResponse.json(
@@ -236,10 +285,50 @@ type StripeEvent = {
     object?: {
       id?: string;
       metadata?: Record<string, string> | null;
+      subscription?:
+        | string
+        | {
+            metadata?: Record<string, string> | null;
+          }
+        | null;
       customer_details?: {
         email?: string | null;
         name?: string | null;
       } | null;
+      payment_status?: string | null;
+      locale?: string | null;
     };
   };
 };
+
+type StripeSessionPayload = NonNullable<
+  NonNullable<StripeEvent["data"]>["object"]
+>;
+
+function localeForSession(session: StripeSessionPayload | undefined): Locale {
+  const value =
+    session && typeof session === "object" && "locale" in session
+      ? (session as { locale?: unknown }).locale
+      : undefined;
+  if (typeof value !== "string") return "en";
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  const aliases: Record<string, Locale> = {
+    "en-gb": "en",
+    "es-419": "es",
+    "fr-ca": "fr",
+    nb: "no",
+    pt: "pt-BR",
+    "pt-br": "pt-BR",
+    zh: "zh-CN",
+    "zh-cn": "zh-CN",
+    "zh-hk": "zh-TW",
+    "zh-tw": "zh-TW",
+  };
+  // Keep the catalog's case-sensitive regional keys when Stripe already
+  // supplied one, while accepting lowercase provider aliases as well.
+  const aliased = aliases[normalized] ?? trimmed;
+  return (locales as readonly string[]).includes(aliased)
+    ? (aliased as Locale)
+    : "en";
+}

@@ -1,4 +1,7 @@
+import CmuxFoundation
+import CmuxCore
 import AppKit
+import CmuxCommandPalette
 import Darwin
 import Foundation
 
@@ -705,7 +708,7 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock:
@@ -799,7 +802,7 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock, .endOfFile:
@@ -935,5 +938,14 @@ enum WorkspaceShortcutMapper {
             }
         }
         return nil
+    }
+}
+
+extension CommandPaletteContextKeys {
+    /// Typed app-side overload over the package's raw-value key builder, so
+    /// palette context keys keep the exact `terminal.openTarget.<raw>.available`
+    /// format without the package importing the terminal domain.
+    static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> CommandPaletteContextKeys {
+        terminalOpenTargetAvailable(rawValue: target.rawValue)
     }
 }

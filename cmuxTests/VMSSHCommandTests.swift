@@ -25,10 +25,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
 
             switch method {
-            case "vm.attach_info":
+            case "vm.ssh_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -52,6 +51,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": "33333333-3333-3333-3333-333333333333",
                     ]
                 )
             case "workspace.rename":
@@ -104,8 +104,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["vm.ssh_info", "workspace.create", "workspace.remote.configure", "workspace.select"]
         )
+
+        let createRequest = try XCTUnwrap(
+            requests.first { $0["method"] as? String == "workspace.create" },
+            "Expected workspace.create RPC request"
+        )
+        let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let initialScriptPath = initialCommand.trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+        let initialScript = try String(contentsOfFile: initialScriptPath, encoding: .utf8)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password() { rm -rf"), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_session_end() {"), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password;"), initialScript)
+        XCTAssertTrue(initialScript.contains("-o NumberOfPasswordPrompts=1"), initialScript)
+        XCTAssertTrue(initialScript.contains("-o LogLevel=QUIET"), initialScript)
+        XCTAssertFalse(initialScript.contains("trap 'rm -rf \"$cmux_ssh_askpass_dir\"'"), initialScript)
+        try? FileManager.default.removeItem(atPath: initialScriptPath)
 
         let configureRequest = try XCTUnwrap(
             requests.first { $0["method"] as? String == "workspace.remote.configure" },
@@ -114,10 +130,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux@gateway.freestyle.sh")
+        XCTAssertEqual(configureParams["managed_cloud_vm_id"] as? String, vmID)
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
         XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
         XCTAssertEqual(configureParams["skip_daemon_bootstrap"] as? Bool, true)
-        XCTAssertNotNil(configureParams["terminal_startup_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let decodedStartupCommand = decodedReusableShellStartupCommand(terminalStartupCommand)
+        XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
+        XCTAssertFalse(decodedStartupCommand.contains("lease-token"), decodedStartupCommand)
+        XCTAssertFalse(decodedStartupCommand.contains("bGVhc2UtdG9rZW4="), decodedStartupCommand)
         XCTAssertNotNil(configureParams["relay_port"] as? Int)
     }
 
@@ -131,6 +152,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let windowID = "22222222-2222-2222-2222-222222222222"
         let callerWorkspaceID = "33333333-3333-3333-3333-333333333333"
         let callerSurfaceID = "44444444-4444-4444-4444-444444444444"
+        let surfaceID = "55555555-5555-5555-5555-555555555555"
 
         defer {
             Darwin.close(listenerFD)
@@ -149,9 +171,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["window_id"] as? String, windowID)
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowID])
-            case "workspace.create":
+            case "workspace.ssh.open":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["window_id"] as? String, windowID)
+                XCTAssertEqual(params["destination"] as? String, "cmux-macmini")
+                XCTAssertEqual(params["focus"] as? Bool, false)
                 XCTAssertNil(params["workspace_id"])
                 XCTAssertNil(params["surface_id"])
                 return self.v2Response(
@@ -159,20 +183,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
-                        "window_id": windowID,
-                    ]
-                )
-            case "workspace.remote.configure":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
                         "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": "connecting",
-                        ],
+                        "surface_id": surfaceID,
+                        "surface_ref": "surface:3",
+                        "window_id": windowID,
                     ]
                 )
             default:
@@ -206,7 +220,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
+        XCTAssertEqual(result.stdout, "OK \(workspaceRef) surface:3\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
@@ -215,7 +229,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["window.focus", "workspace.create", "workspace.remote.configure"]
+            ["window.focus", "workspace.ssh.open"]
         )
     }
 
@@ -271,7 +285,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("ssh cmux@gateway.freestyle.sh -p 2222"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("password:  lease-token"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("password:  <redacted; run `cmux vm ssh \(vmID)` to connect>"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("lease-token"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info"]

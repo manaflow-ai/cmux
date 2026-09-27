@@ -1,0 +1,698 @@
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { getTranslations } from "next-intl/server";
+import { redirect } from "next/navigation";
+
+import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
+import {
+  MAX_CHECKOUT_URL,
+  GO_CHECKOUT_URL,
+  PRO_CHECKOUT_URL,
+  TEAM_CHECKOUT_URL,
+  withCheckoutSource,
+  withCheckoutInterval,
+} from "@/app/lib/billing";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import {
+  FeatureList,
+  PlanCard,
+  visibleProFeatures,
+} from "@/app/components/pricing-shared";
+import {
+  PricingCheckoutButton,
+  PricingView,
+} from "@/app/components/pricing-checkout";
+import { cloudDb } from "@/db/client";
+import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
+import { Link } from "@/i18n/navigation";
+import {
+  ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
+  PRO_PLAN_ID,
+  TEAM_PLAN_ID,
+  isPaidPlanId,
+  manualVmPlanOverride,
+  resolveProPlanStatus,
+} from "@/services/billing/pro";
+import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import {
+  MAX_PRICING_USD,
+  GO_PRICING_USD,
+  PRO_PRICING_USD,
+  TEAM_PRICING_USD,
+} from "@/services/billing/plans";
+import { isVaultEnabled } from "@/services/vault/config";
+import { isGoPlanEnabled } from "@/services/billing/goPlanFlag";
+import { AccountPlanBadge } from "../components/account-plan-badge";
+
+
+type SearchParams = {
+  billing?: string | string[];
+  interval?: string | string[];
+};
+
+type StripeSubscriptionRow = {
+  id: string;
+  plan?: string;
+  status: string;
+  priceId: string | null;
+  seats: number | null;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+  raw: Record<string, unknown> | null;
+};
+
+export default async function DashboardBillingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams?: Promise<SearchParams>;
+}) {
+  const [{ locale }, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve(undefined),
+  ]);
+
+  if (!isStackConfigured()) {
+    redirect("/");
+  }
+  const user = await getStackServerApp().getUser({ or: "return-null" });
+  if (!user) {
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/billing")));
+  }
+
+  const billingTeamPromise = resolveBillingTeam(user);
+  const [
+    t,
+    pricingT,
+    status,
+    billingTeam,
+    subscription,
+  ] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.billing" }),
+    getTranslations({ locale, namespace: "pricing" }),
+    resolveProPlanStatus(user),
+    billingTeamPromise,
+    latestActiveStripeSubscription(user.id),
+  ]);
+  const [teamSubscription, hasTeamStripeCustomer] = await teamBillingDetails(billingTeam?.id);
+  const goPlanEnabled = await isGoPlanEnabled(user.id);
+  const banner = billingBanner(firstBillingParam(query?.billing));
+  // Use the resolver's authoritative recoverability state for the personal
+  // billing action. A customer-only or terminally canceled row must show the
+  // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
+  const canManagePersonalBilling = status.billingManagement === "stripe";
+  const isFreePlan = !status.isPro && !canManagePersonalBilling && !teamSubscription;
+  // Only a paid operator grant (pro, team, founders) is shown as granted Pro;
+  // a "free" or unknown cmuxVmPlan value is not an entitlement.
+  const hasPaidManualGrant = isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata));
+  const personalPaymentPastDue = subscription?.status === "past_due";
+  const teamPaymentPastDue = teamSubscription?.status === "past_due";
+
+  return (
+    <div className="mx-auto w-full max-w-5xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+        <div className="mt-2">
+          <AccountPlanBadge />
+        </div>
+      </div>
+
+      {banner ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          {t(`banners.${banner}`)}
+        </div>
+      ) : null}
+
+      {personalPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
+      {teamPaymentPastDue ? (
+        <div className="mb-3 border border-border bg-background p-3 text-sm">
+          <span>{t("banners.pastDue")}</span>{" "}
+          {/* The portal route creates a session and needs a full document navigation. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/billing/portal?scope=team" className="underline">
+            {t("actions.manageBilling")}
+          </a>
+        </div>
+      ) : null}
+
+      {isFreePlan ? (
+        <FreePlanUpsell t={t} pricingT={pricingT} goPlanEnabled={goPlanEnabled} />
+      ) : !status.isPro ? (
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
+      ) : subscription ? (
+        <StripePlan
+          t={t}
+          locale={locale}
+          subscription={subscription}
+          canManageBilling={canManagePersonalBilling}
+        />
+      ) : hasPaidManualGrant ? (
+        <GrantedPlan t={t} />
+      ) : (
+        <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
+      )}
+
+      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} canManageBilling={canManagePersonalBilling} t={t} pricingT={pricingT} />
+
+      {billingTeam && teamSubscription ? (
+        <TeamPlan
+          t={t}
+          locale={locale}
+          team={billingTeam}
+          subscription={teamSubscription}
+          canManageBilling={hasTeamStripeCustomer}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function MaxUpsell({ isFreePlan, planId, canManageBilling, t, pricingT }: {
+  isFreePlan: boolean; planId: string;
+  canManageBilling: boolean;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+}) {
+  if (isFreePlan || !canManageBilling || !["go", "pro"].includes(planId)) return null;
+  return (
+        <section className="mt-3 border border-border p-3">
+          <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
+          <p className="mt-2 text-muted">{t("max.upsell")}</p>
+          <a className="mt-3 inline-block underline" href={withCheckoutSource(planId !== "free" ? "/api/billing/portal?flow=switch_plan&plan=max" : MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
+        </section>
+  );
+}
+
+async function latestActiveStripeSubscription(stackUserId: string): Promise<StripeSubscriptionRow | null> {
+  const rows = await cloudDb()
+    .select({
+      id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
+      status: stripeSubscriptions.status,
+      priceId: stripeSubscriptions.priceId,
+      seats: stripeSubscriptions.seats,
+      currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+      raw: stripeSubscriptions.raw,
+    })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      ),
+    )
+    .orderBy(desc(sql`${stripeSubscriptions.plan} = 'max'`), desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function latestActiveStripeSubscriptionForTeam(stackTeamId: string): Promise<StripeSubscriptionRow | null> {
+  const rows = await cloudDb()
+    .select({
+      id: stripeSubscriptions.id,
+      plan: stripeSubscriptions.plan,
+      status: stripeSubscriptions.status,
+      priceId: stripeSubscriptions.priceId,
+      seats: stripeSubscriptions.seats,
+      currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
+      raw: stripeSubscriptions.raw,
+    })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackTeamId, stackTeamId),
+        eq(stripeSubscriptions.scope, "team"),
+        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+      ),
+    )
+    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
+  const rows = await cloudDb()
+    .select({ id: stripeCustomers.id })
+    .from(stripeCustomers)
+    .where(eq(stripeCustomers.stackTeamId, stackTeamId))
+    .limit(1);
+  return rows.length > 0;
+}
+
+function FreePlan({
+  t,
+  showBillingPortal = false,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  showBillingPortal?: boolean;
+}) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("free.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
+      {showBillingPortal ? (
+        // The portal route creates a Stripe session and needs a full document
+        // navigation rather than a Next.js client transition.
+        // eslint-disable-next-line @next/next/no-html-link-for-pages
+        <a
+          href="/api/billing/portal"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.manageBilling")}
+        </a>
+      ) : (
+        <Link
+          href="/pricing"
+          className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+        >
+          {t("actions.viewPricing")}
+        </Link>
+      )}
+    </section>
+  );
+}
+
+// Pro granted by an operator (`cmuxVmPlan`), with no Stripe subscription to
+// manage. Shown so a granted account never reads as Free with an upgrade CTA.
+function GrantedPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">{t("pro.grantedBody")}</p>
+    </section>
+  );
+}
+
+function FreePlanUpsell({
+  t,
+  pricingT,
+  goPlanEnabled,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  pricingT: Awaited<ReturnType<typeof getTranslations>>;
+  goPlanEnabled: boolean;
+}) {
+  const proFeatures = visibleProFeatures({
+    base: pricingT.raw("pro.features") as string[],
+    vault: pricingT.raw("pro.vaultFeatures") as string[],
+    hostedNetworking: pricingT.raw("pro.hostedNetworkingFeatures") as string[],
+    visibility: {
+      vault: isVaultEnabled(),
+      hostedNetworking: false,
+    },
+  });
+  const maxFeatures = pricingT.raw("max.features") as string[];
+  const goFeatures = pricingT.raw("go.features") as string[];
+  const teamFeatures = pricingT.raw("team.features") as string[];
+  const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const goCheckoutHref = withCheckoutSource(GO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+
+  return (
+    <PricingView surface="dashboard_billing">
+      <div className="space-y-3">
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("free.name")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
+        </section>
+
+        <section>
+          <div className="mb-2">
+            <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
+            <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
+          </div>
+          <div className={`grid gap-3 md:grid-cols-2 ${goPlanEnabled ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+            {goPlanEnabled ? <PlanCard
+              name={pricingT("go.name")}
+              price={`$${GO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton href={goCheckoutHref} location="dashboard_billing" plan="go">
+                {pricingT("go.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("go.featuresLead")}</p>
+              <FeatureList items={goFeatures} />
+            </PlanCard> : null}
+
+            <PlanCard
+              name={pricingT("pro.name")}
+              price={`$${PRO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton
+                href={proCheckoutHref}
+                location="dashboard_billing"
+              >
+                {pricingT("pro.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("pro.featuresLead")}</p>
+              <FeatureList items={proFeatures} />
+            </PlanCard>
+
+            <PlanCard
+              name={pricingT("max.name")}
+              price={`$${MAX_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
+            >
+              <PricingCheckoutButton
+                href={maxCheckoutHref}
+                location="dashboard_billing"
+                plan="max"
+              >
+                {pricingT("max.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("max.featuresLead")}</p>
+              <FeatureList items={maxFeatures} />
+            </PlanCard>
+
+            <PlanCard
+              name={pricingT("team.name")}
+              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perUserMonth")}
+            >
+              <PricingCheckoutButton
+                href={teamCheckoutHref}
+                location="dashboard_billing"
+                plan="team"
+              >
+                {pricingT("team.cta")}
+              </PricingCheckoutButton>
+              <p className="mt-5 text-sm font-medium">{pricingT("team.featuresLead")}</p>
+              <FeatureList items={teamFeatures} />
+            </PlanCard>
+          </div>
+        </section>
+
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("free.testflightTitle")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("free.testflightBody")}</p>
+          <Link
+            href="/dashboard/testflight"
+            className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+          >
+            {t("free.testflightCta")}
+          </Link>
+        </section>
+      </div>
+    </PricingView>
+  );
+}
+
+function StripePlan({
+  t,
+  locale,
+  subscription,
+  canManageBilling,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  locale: string;
+  subscription: StripeSubscriptionRow;
+  canManageBilling: boolean;
+}) {
+  const plan = subscription.plan === "max" ? "max" : subscription.plan === "go" ? "go" : "pro";
+  const price = priceCopy(subscription, t, plan);
+  const periodDate = subscription.currentPeriodEnd
+    ? formatBillingDate(subscription.currentPeriodEnd, locale)
+    : t("dates.unknown");
+
+  return (
+    <section className="border border-border p-3">
+      <h2 className="text-sm font-medium">{t(`${plan}.name`)}</h2>
+      <p className="mt-2 max-w-2xl text-muted">
+        {subscription.cancelAtPeriodEnd
+          ? t(`${plan}.pendingBody`, { date: periodDate })
+          : t(`${plan}.activeBody`, { date: periodDate })}
+      </p>
+
+      <div className="mt-4 grid border border-border sm:grid-cols-2">
+        <BillingMetric
+          label={subscription.cancelAtPeriodEnd ? t("details.endsOn") : t("details.renewsOn")}
+          value={periodDate}
+        />
+        {price ? <BillingMetric label={t("details.price")} value={price} /> : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        {subscription.cancelAtPeriodEnd ? (
+          <form method="post" action="/api/billing/subscription">
+            <input type="hidden" name="action" value="resume" />
+            <button
+              type="submit"
+              className="border border-border bg-foreground px-3 py-1.5 text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+            >
+              {t("actions.resume")}
+            </button>
+          </form>
+        ) : (
+          <details className="border border-border px-3 py-1.5">
+            <summary className="cursor-pointer text-foreground">{t("actions.cancelSummary")}</summary>
+            <form method="post" action="/api/billing/subscription" className="mt-3 max-w-md">
+              <input type="hidden" name="action" value="cancel" />
+              <p className="text-muted">{t("cancel.body", { date: periodDate })}</p>
+              <label className="mt-3 flex items-start gap-2 text-muted">
+                <input
+                  required
+                  type="checkbox"
+                  name="confirm"
+                  value="yes"
+                  className="mt-0.5"
+                />
+                <span>{t("cancel.checkbox")}</span>
+              </label>
+              <button
+                type="submit"
+                className="mt-3 border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+              >
+                {t("actions.confirmCancel")}
+              </button>
+            </form>
+          </details>
+        )}
+
+        {canManageBilling ? (
+          // This API route creates a Stripe portal session and must perform a
+          // full document navigation rather than a Next.js client transition.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
+          <a
+            href="/api/billing/portal"
+            className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+          >
+            {t("actions.manageBilling")}
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function TeamPlan({
+  t,
+  locale,
+  team,
+  subscription,
+  canManageBilling,
+}: {
+  t: Awaited<ReturnType<typeof getTranslations>>;
+  locale: string;
+  team: BillingTeamLike;
+  subscription: StripeSubscriptionRow;
+  canManageBilling: boolean;
+}) {
+  const periodDate = subscription.currentPeriodEnd
+    ? formatBillingDate(subscription.currentPeriodEnd, locale)
+    : t("dates.unknown");
+  const seats = String(subscription.seats ?? 1);
+  const price = priceCopy(subscription, t, "team");
+
+  return (
+    <section className="mt-3 border border-border p-3">
+      <h2 className="text-sm font-medium">{t("team.name")}</h2>
+      <p className="mt-2 max-w-2xl text-muted">
+        {subscription.cancelAtPeriodEnd
+          ? t("team.pendingBody", { date: periodDate, team: team.displayName ?? t("team.fallbackName") })
+          : t("team.activeBody", { date: periodDate, team: team.displayName ?? t("team.fallbackName") })}
+      </p>
+
+      <div className="mt-4 grid border border-border sm:grid-cols-3">
+        <BillingMetric
+          label={subscription.cancelAtPeriodEnd ? t("details.endsOn") : t("details.renewsOn")}
+          value={periodDate}
+        />
+        <BillingMetric label={t("details.seats")} value={seats} />
+        {price ? <BillingMetric label={t("details.price")} value={price} /> : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        {subscription.cancelAtPeriodEnd ? (
+          <form method="post" action="/api/billing/subscription">
+            <input type="hidden" name="scope" value="team" />
+            <input type="hidden" name="teamId" value={team.id} />
+            <input type="hidden" name="action" value="resume" />
+            <button
+              type="submit"
+              className="border border-border bg-foreground px-3 py-1.5 text-background focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+            >
+              {t("actions.resume")}
+            </button>
+          </form>
+        ) : (
+          <details className="border border-border px-3 py-1.5">
+            <summary className="cursor-pointer text-foreground">{t("actions.cancelSummary")}</summary>
+            <form method="post" action="/api/billing/subscription" className="mt-3 max-w-md">
+              <input type="hidden" name="scope" value="team" />
+              <input type="hidden" name="teamId" value={team.id} />
+              <input type="hidden" name="action" value="cancel" />
+              <p className="text-muted">{t("cancel.teamBody", { date: periodDate })}</p>
+              <label className="mt-3 flex items-start gap-2 text-muted">
+                <input
+                  required
+                  type="checkbox"
+                  name="confirm"
+                  value="yes"
+                  className="mt-0.5"
+                />
+                <span>{t("cancel.checkbox")}</span>
+              </label>
+              <button
+                type="submit"
+                className="mt-3 border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+              >
+                {t("actions.confirmCancel")}
+              </button>
+            </form>
+          </details>
+        )}
+
+        {canManageBilling ? (
+          // This API route creates a Stripe portal session and must perform a
+          // full document navigation rather than a Next.js client transition.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
+          <a
+            href="/api/billing/portal?scope=team"
+            className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+          >
+            {t("actions.manageBilling")}
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function BillingMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-b border-border p-3 sm:border-b-0 sm:border-r">
+      <p className="text-xs text-muted">{label}</p>
+      <p className="mt-2 font-mono text-xs tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function billingBanner(value: string | undefined) {
+  return value === "cancelled" || value === "resumed" || value === "nosub" || value === "error"
+    ? value
+    : null;
+}
+
+/**
+ * What this subscription actually charges, read from its Stripe price. Amounts
+ * are immutable per Price, so grandfathered rows ($30/mo, $240/yr, $288/yr,
+ * and the Stack-era prices with no lookup key) render their own figure without
+ * a per-key copy table that has to grow on every price change.
+ */
+function priceCopy(
+  subscription: StripeSubscriptionRow,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+  plan: "go" | "pro" | "max" | "team",
+): string | null {
+  const price = stripePrice(subscription);
+  const unitAmount = price?.unit_amount;
+  const interval = priceRecurringInterval(subscription);
+  // unit_amount is in the currency's minor unit; only USD is formatted here.
+  // A non-USD row (possible only for an operator-managed subscription) shows
+  // no figure rather than a false dollar amount.
+  if (
+    price?.currency !== "usd" ||
+    typeof unitAmount !== "number" ||
+    !Number.isFinite(unitAmount) ||
+    !interval
+  ) {
+    return null;
+  }
+  const dollars = unitAmount / 100;
+  if (interval === "month") {
+    return t(plan === "pro" ? "pro.monthlyPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.price", {
+      amount: formatUsd(dollars),
+    });
+  }
+  return t(plan === "pro" ? "pro.annualPrice" : plan === "go" ? "go.monthlyPrice" : plan === "max" ? "max.monthlyPrice" : "team.annualPrice", {
+    monthly: formatUsd(dollars / 12),
+  });
+}
+
+function formatUsd(amount: number): string {
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+function stripePrice(
+  subscription: StripeSubscriptionRow,
+): Record<string, unknown> | null {
+  const raw = subscription.raw;
+  const items = raw && typeof raw === "object" ? raw.items : null;
+  const data = items && typeof items === "object" && "data" in items
+    ? (items as { data?: unknown }).data
+    : null;
+  const firstItem = Array.isArray(data) ? data[0] : null;
+  const price = firstItem && typeof firstItem === "object" && "price" in firstItem
+    ? (firstItem as { price?: unknown }).price
+    : null;
+  return price && typeof price === "object"
+    ? (price as Record<string, unknown>)
+    : null;
+}
+
+function priceRecurringInterval(
+  subscription: StripeSubscriptionRow,
+): "month" | "year" | null {
+  const recurring = stripePrice(subscription)?.recurring;
+  const interval = recurring && typeof recurring === "object"
+    ? (recurring as { interval?: unknown }).interval
+    : null;
+  return interval === "month" || interval === "year" ? interval : null;
+}
+
+function formatBillingDate(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+}
+
+async function teamBillingDetails(teamId: string | undefined) {
+  if (!teamId) return [null, false] as const;
+  return Promise.all([latestActiveStripeSubscriptionForTeam(teamId), hasTeamCustomerRow(teamId)]);
+}
+
+function firstBillingParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}

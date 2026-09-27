@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-nonisolated enum RemoteShellTransport: Sendable {
+enum RemoteShellTransport: Sendable {
     case ssh
     case eternalTerminal
 
@@ -26,7 +26,7 @@ nonisolated enum RemoteShellTransport: Sendable {
     }
 }
 
-nonisolated enum RemoteShellSessionParsing {
+enum RemoteShellSessionParsing {
     private static let eternalTerminalNoArgumentFlags = Set("efhNx")
     private static let eternalTerminalValueArgumentFlags = Set("cklprtu")
     private static let eternalTerminalLongValueOptions: Set<String> = [

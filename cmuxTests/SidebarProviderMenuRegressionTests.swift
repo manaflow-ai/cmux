@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
+import CmuxSwiftRenderUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -128,6 +130,29 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
+    /// Selections saved before #13930 used a dotted key. Launch moves them to the
+    /// flat key the sidebar's `@AppStorage` reads, and never lets a leftover legacy
+    /// value replace a selection made since.
+    @Test
+    func legacyDottedSelectionKeyMigratesToFlatKey() throws {
+        let suiteName = "SidebarProviderMenuRegressionTests.legacyKey.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // The on-disk key builds before #13930 wrote.
+        let legacyKey = "cmuxExtensionSidebar.providerId"
+        let projectWorktrees = "com.example.cmux.sidebar.project-worktrees"
+
+        defaults.set(projectWorktrees, forKey: legacyKey)
+        CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
+        #expect(defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == projectWorktrees)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+
+        defaults.set("com.example.cmux.sidebar.attention-queue", forKey: legacyKey)
+        CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
+        #expect(defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == projectWorktrees)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+    }
+
     /// The host renders the selected view through an
     /// `any CmuxSidebarProvider` existential
     /// (`CmuxExtensionSidebarSelection.provider(for:)?.render(snapshot:)`).
@@ -146,6 +171,256 @@ struct SidebarProviderMenuRegressionTests {
             (model?.sections.flatMap(\.rows).count ?? 0) == 3,
             "Selected view rendered no rows through the host existential (empty-sidebar regression)"
         )
+    }
+
+    /// `VerticalTabsSidebar.body` decides whether to show the default workspaces
+    /// sidebar or an extension sidebar on every render. It used to do that with
+    /// `descriptor(for:).id == defaultWorkspacesID`, which rebuilds the full
+    /// `descriptors` list — constructing a `SettingCatalog` twice and scanning
+    /// the custom-sidebars directory — on every body pass. That per-pass cost was
+    /// the multiplier behind the sustained ~100% CPU re-render loop in #5970.
+    /// `resolvesToDefaultSidebar(effectiveProviderId:)` is the cheap replacement;
+    /// these tests pin that it routes identically to the old descriptor lookup
+    /// for every effective selection.
+    @Test
+    func resolvesToDefaultSidebarMatchesDescriptorRoutingForBuiltInViews() {
+        for betaEnabled in [false, true] {
+            withExtensionsBeta(betaEnabled) {
+                for builtInID in Self.builtInViewIDs {
+                    let cheap = CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: builtInID)
+                    let viaDescriptor = CmuxExtensionSidebarSelection.descriptor(for: builtInID).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID
+                    #expect(
+                        cheap == viaDescriptor,
+                        "Routing mismatch for \(builtInID) (extensionsBeta=\(betaEnabled)): cheap=\(cheap) descriptor=\(viaDescriptor)"
+                    )
+                }
+                // The default view routes to the workspaces sidebar; every bundled
+                // preset routes to an extension sidebar.
+                #expect(
+                    CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                        effectiveProviderId: CmuxExtensionSidebarSelection.defaultProviderId
+                    )
+                )
+                for presetID in Self.builtInViewIDs.dropFirst() {
+                    #expect(
+                        !CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: presetID),
+                        "Bundled preset \(presetID) must route to an extension sidebar, not the default"
+                    )
+                }
+            }
+        }
+    }
+
+    /// The hosted-extensions provider only appears in `effectiveProviderId`'s
+    /// output while the Extensions beta is on, and then it must route to an
+    /// extension sidebar (not the default). Matches the descriptor lookup.
+    @Test
+    func resolvesToDefaultSidebarRoutesHostedExtensionToExtensionSidebar() {
+        withExtensionsBeta(true) {
+            let hosted = CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+            #expect(!CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: hosted))
+            #expect(
+                CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: hosted)
+                    == (CmuxExtensionSidebarSelection.descriptor(for: hosted).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+            )
+        }
+    }
+
+    /// An unknown/stale provider id (e.g. a deleted custom sidebar) has no
+    /// renderable provider, so routing falls back to the default workspaces
+    /// sidebar — exactly as `descriptor(for:)`'s `?? .defaultWorkspaces` did.
+    @Test
+    func resolvesToDefaultSidebarFallsBackForUnknownProvider() {
+        withExtensionsBeta(true) {
+            let unknown = "com.example.cmux.sidebar.does-not-exist-\(UUID().uuidString)"
+            #expect(CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: unknown))
+            #expect(
+                CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: unknown)
+                    == (CmuxExtensionSidebarSelection.descriptor(for: unknown).id
+                        == CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+            )
+
+            // A custom-prefixed selection whose backing file does not exist also
+            // falls back to the default sidebar.
+            let missingCustom = CmuxExtensionSidebarSelection.customSidebarProviderPrefix
+                + "missing-\(UUID().uuidString)"
+            #expect(CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: missingCustom))
+        }
+    }
+
+    /// Custom provider ids are persisted strings, so the fast path must keep the
+    /// old descriptor enumeration boundary: only files directly inside the
+    /// sidebars directory are renderable.
+    @Test
+    func customSidebarFileURLRejectsPathTraversalProviderIds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-custom-sidebar-test-\(UUID().uuidString)", isDirectory: true)
+        let sidebarsDirectory = root.appendingPathComponent("sidebars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidebarsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let validName = "valid-\(UUID().uuidString)"
+        let validURL = sidebarsDirectory.appendingPathComponent("\(validName).swift", isDirectory: false)
+        try Data().write(to: validURL)
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + validName,
+                sidebarsDirectory: sidebarsDirectory
+            ) == validURL
+        )
+
+        let escapedName = "outside-\(UUID().uuidString)"
+        let escapedURL = root.appendingPathComponent("\(escapedName).swift", isDirectory: false)
+        try Data().write(to: escapedURL)
+        #expect(
+            CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "../\(escapedName)",
+                sidebarsDirectory: sidebarsDirectory
+            ) == nil
+        )
+    }
+
+    @Test
+    func customSidebarOnboardingCreatesDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-folder-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+        let created = try CmuxExtensionSidebarSelection.ensureCustomSidebarsDirectory(directory)
+        var isDirectory: ObjCBool = false
+        #expect(created == directory)
+        #expect(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+    }
+
+    @Test
+    func customSidebarOnboardingCreatesValidatedStarterAndDiscoversIt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-create-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let template = try #require(CustomSidebarOnboardingAssets().starterTemplate())
+        let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "my-sidebar.swift",
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: false,
+            sidebarsDirectory: directory
+        )
+        guard case let .created(name, fileURL) = first else {
+            Issue.record("Expected starter creation, got \(first)")
+            return
+        }
+
+        #expect(name == "my-sidebar")
+        #expect(fileURL.lastPathComponent == "my-sidebar.swift")
+        #expect(CustomSidebarValidator().validate(fileURL: fileURL).errorMessage == nil)
+        #expect(
+            CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(sidebarsDirectory: directory)
+                == ["my-sidebar"]
+        )
+
+        #expect(
+            CmuxExtensionSidebarSelection.writeCustomSidebar(
+                named: "my-sidebar",
+                fileExtension: template.fileExtension,
+                source: template.source,
+                uniquingIfNeeded: false,
+                sidebarsDirectory: directory
+            ) == .alreadyExists
+        )
+        #expect(
+            CmuxExtensionSidebarSelection.writeCustomSidebar(
+                named: "../escape",
+                fileExtension: template.fileExtension,
+                source: template.source,
+                uniquingIfNeeded: false,
+                sidebarsDirectory: directory
+            ) == .invalidName
+        )
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("escape.swift").path))
+    }
+
+    @Test
+    func customSidebarOnboardingCopiesBundledExampleWithoutOverwriting() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-example-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let template = try #require(CustomSidebarOnboardingAssets().exampleTemplate(id: "focus"))
+        let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: template.suggestedName,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: true,
+            sidebarsDirectory: directory
+        )
+        let second = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: template.suggestedName,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: true,
+            sidebarsDirectory: directory
+        )
+
+        guard case let .created(firstName, firstURL) = first,
+              case let .created(secondName, secondURL) = second else {
+            Issue.record("Expected two example copies, got \(first) and \(second)")
+            return
+        }
+
+        #expect(firstName == "focus")
+        #expect(secondName == "focus-2")
+        #expect(firstURL != secondURL)
+        #expect(CustomSidebarValidator().validate(fileURL: firstURL).errorMessage == nil)
+        #expect(CustomSidebarValidator().validate(fileURL: secondURL).errorMessage == nil)
+        #expect(
+            CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(sidebarsDirectory: directory)
+                == ["focus", "focus-2"]
+        )
+    }
+
+    @Test(arguments: [false, true])
+    func customSidebarCreationPreservesCaseCollisions(uniquing: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidebar-case-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let existing = directory.appendingPathComponent("Focus.swift")
+        let original = "Text(\"User-authored sidebar\")"
+        try original.write(to: existing, atomically: true, encoding: .utf8)
+        let result = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "focus", fileExtension: "swift", source: "Text(\"New sidebar\")",
+            uniquingIfNeeded: uniquing, sidebarsDirectory: directory
+        )
+        #expect(try String(contentsOf: existing, encoding: .utf8) == original)
+        if uniquing {
+            #expect(result == .created(name: "focus-2", fileURL: directory.appendingPathComponent("focus-2.swift")))
+        } else {
+            #expect(result == .alreadyExists)
+        }
+    }
+
+    @Test
+    func customSidebarCreationPreservesDanglingSymlink() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidebar-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let link = directory.appendingPathComponent("focus.swift")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "missing.swift")
+        let result = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "focus", fileExtension: "swift", source: "Text(\"New sidebar\")",
+            uniquingIfNeeded: true, sidebarsDirectory: directory
+        )
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == "missing.swift")
+        #expect(result == .created(name: "focus-2", fileURL: directory.appendingPathComponent("focus-2.swift")))
     }
 
     private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {

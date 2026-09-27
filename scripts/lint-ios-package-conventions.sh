@@ -18,14 +18,24 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
-for d in Packages/CMUXMobile* Packages/CmuxMobile* ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 
 fail=0
+baselined() { # rule, file, fingerprint
+  local key
+  [ -f "$BASELINE_FILE" ] || return 1
+  key="$(printf '%s\t%s\t%s' "$1" "$2" "$3")"
+  grep -Fxq "$key" "$BASELINE_FILE"
+}
+
 report() { # rule, severity, file, line, text
+  baselined "$1" "$3" "$5" && return 1
   printf '%-7s %-28s %s:%s  %s\n' "$2" "$1" "$3" "$4" "$5"
+  return 0
 }
 
 suppressed() { # file lineno
@@ -49,9 +59,10 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
     echo "$text" | grep -qE '^[[:space:]]*//' && continue
     if [ "$carve" = 1 ]; then carveout_ok "$f" "$n" && continue
     else suppressed "$f" "$n" && continue; fi
-    report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"
-    [ "$sev" = ERROR ] && fail=1
-  done < <(grep -rnE "$pat" "$@" --include='*.swift' 2>/dev/null)
+    if report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"; then
+      [ "$sev" = ERROR ] && fail=1
+    fi
+  done < <(grep -rnE "$pat" "$@" --include='*.swift' --exclude-dir=.build 2>/dev/null)
 }
 
 echo "== singletons (no shared-singleton accessors) =="
@@ -74,48 +85,23 @@ echo "== untyped wire payloads =="
 scan untyped WARN '\[String: Any\]' 1 "${SCOPES[@]}"
 
 echo "== hardcoded global state in packages (inject instead) =="
-scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/CMUXMobile* Packages/CmuxMobile* 2>/dev/null || true
+scan global WARN '\b(UserDefaults\.standard|FileManager\.default|Bundle\.main)\b' 1 Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* 2>/dev/null || true
 
 echo "== free functions (scope functionality to a type) =="
 scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private |fileprivate )?func [a-zA-Z]' 0 "${SCOPES[@]}"
 
-echo "== namespace-enums (caseless enum with static members) =="
-while IFS= read -r f; do
-  case "$f" in */Tests/*|*Tests.swift|*/.build/*) continue ;; esac
-  python3 - "$f" <<'PY'
-import re, sys
-path = sys.argv[1]
-src = open(path).read()
-for m in re.finditer(r'(?:public\s+|package\s+)?enum\s+(\w+)[^{]*\{', src):
-    name = m.group(1)
-    i, depth = m.end(), 1
-    while i < len(src) and depth:
-        depth += src[i] == '{'
-        depth -= src[i] == '}'
-        i += 1
-    body = src[m.end():i]
-    # Only DECLARATION-level cases count: strip nested {...} bodies first so
-    # switch-statement cases inside member funcs don't mask a caseless enum.
-    top, depth = [], 0
-    for ch in body:
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-        elif depth == 0:
-            top.append(ch)
-    top_level = ''.join(top)
-    if not re.search(r'(^|\n)\s*(indirect\s+)?case\s', top_level) and 'static' in body:
-        head = src[:m.start()]
-        ctx = head[head.rfind('\n', 0, head.rfind('\n'))+1:]
-        if 'lint:allow' in ctx:
-            continue
-        line = head.count('\n') + 1
-        print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> scope onto the owning type')
-PY
-done < <(grep -rlE '\benum [A-Z]' "${SCOPES[@]}" --include='*.swift' 2>/dev/null) | tee /tmp/.lint-ns-enum-$$
-grep -q ERROR /tmp/.lint-ns-enum-$$ 2>/dev/null && fail=1
-rm -f /tmp/.lint-ns-enum-$$
+echo "== namespace-enums and namespace-types =="
+NS_TYPE_ROOTS=()
+for d in Packages/*/*/Sources ios/cmuxPackage/Sources ios/cmux; do
+  [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
+done
+if ! python3 scripts/lint_swift_namespaces.py \
+  --baseline scripts/lint-namespace-types-baseline.txt \
+  --general-baseline "$BASELINE_FILE" \
+  --enum-roots "${SCOPES[@]}" \
+  --type-roots "${NS_TYPE_ROOTS[@]}"; then
+  fail=1
+fi
 
 echo
 if [ "$fail" = 1 ]; then

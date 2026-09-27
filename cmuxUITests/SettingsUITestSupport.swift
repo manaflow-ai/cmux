@@ -37,7 +37,7 @@ class SettingsUITestCase: XCTestCase {
     // MARK: - Launch / window
 
     func makeLaunchedApp() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
@@ -103,6 +103,14 @@ class SettingsUITestCase: XCTestCase {
             timeout: timeout,
             description: "toggle \(id)"
         )
+    }
+
+    /// Reads a toggle's on state from its accessibility value.
+    func isOn(_ control: XCUIElement) -> Bool {
+        let value = String(describing: control.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "on"
     }
 
     /// Deletes UserDefaults keys from the debug suite so a test starts

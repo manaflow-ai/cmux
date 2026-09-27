@@ -1,4 +1,5 @@
 import CFNetwork
+import CmuxBrowser
 import Foundation
 import Network
 import Testing
@@ -12,13 +13,16 @@ import Testing
 // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5888:
 // the browser pane must reach loopback directly even when a macOS system
 // proxy is active. WebKit has no implicit loopback bypass, so an active
-// system proxy must be mirrored into explicit proxy configurations whose
-// excluded domains cover loopback plus the user's proxy bypass list — and
-// the mirror must fail closed (keep the system proxy) whenever the system
-// policy cannot be represented faithfully.
+// system proxy is mirrored into explicit proxy configurations only when
+// Network.framework can represent it faithfully. The produced configurations
+// must exclude loopback plus the user's proxy bypass list, and the mirror must
+// fail closed (keep the system proxy) whenever the system policy cannot be
+// represented faithfully.
 @Suite struct BrowserSystemProxyMirrorTests {
-    /// The matched HTTP + HTTPS web-proxy pair that global-proxy tools
-    /// (Clash/mihomo/Surge) write into the system settings.
+    /// A matched HTTP + HTTPS system web-proxy pair (both enabled, one
+    /// endpoint). With a loopback `host` this is the common Clash/Surge/mihomo
+    /// mixed-port setup that is mirrored as a single CONNECT proxy with loopback
+    /// excluded (#5703); the default remote host stays fail-closed (#5959).
     private func webProxySettings(
         host: String = "proxy.example.com",
         port: Any = 8888,
@@ -42,13 +46,18 @@ import Testing
 
     private func socksProxySettings(
         host: String = "socks.example.com",
-        port: Any = 1080
+        port: Any = 1080,
+        bypassList: [Any]? = nil
     ) -> [String: Any] {
-        [
+        var settings: [String: Any] = [
             kCFNetworkProxiesSOCKSEnable as String: 1,
             kCFNetworkProxiesSOCKSProxy as String: host,
             kCFNetworkProxiesSOCKSPort as String: port,
         ]
+        if let bypassList {
+            settings[kCFNetworkProxiesExceptionsList as String] = bypassList
+        }
+        return settings
     }
 
     // MARK: - Proxy inactive
@@ -74,14 +83,48 @@ import Testing
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
     }
 
-    // MARK: - CONNECT vs SOCKS mapping
+    // MARK: - Mirrored proxy mapping
 
-    @Test("A matched HTTP+HTTPS web proxy mirrors to an HTTP CONNECT proxy")
-    func matchedWebProxyMirrorsToHTTPCONNECT() throws {
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5703:
+    // macOS bypasses the system proxy for `localhost` but NOT for `*.localhost`
+    // subdomains, so a matched HTTP+HTTPS system web proxy on loopback (the
+    // common Clash/Surge/mihomo mixed-port setup on 127.0.0.1) leaves
+    // `tenant.localhost:PORT` dev servers unreachable in the browser pane. A
+    // matched loopback web proxy is now mirrored as a single CONNECT proxy with
+    // the loopback family excluded.
+    @Test("A matched loopback HTTP+HTTPS web proxy mirrors as CONNECT with loopback excluded (#5703)")
+    func matchedLoopbackWebProxyMirrorsAsHTTPCONNECT() throws {
         let mirror = try #require(
-            BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
+            BrowserSystemProxyMirror(systemProxySettings: webProxySettings(host: "127.0.0.1"))
         )
-        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 8888))
+        #expect(mirror.proxy == .httpCONNECT(host: "127.0.0.1", port: 8888))
+        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
+    }
+
+    @Test("A remote (non-loopback) matched web proxy is not mirrored as CONNECT")
+    func remoteMatchedWebProxyDeclinesTheMirror() {
+        // A corporate/remote forward proxy may be forward-only or require auth a
+        // CONNECT ProxyConfiguration cannot carry, so it stays on WebKit's
+        // native system-proxy path (#5959). "127.proxy.corp.example" is a DNS
+        // name, not the 127.0.0.0/8 loopback block, so the loopback gate must
+        // not treat its "127." prefix as a local proxy.
+        for host in ["proxy.example.com", "10.0.0.5", "127.proxy.corp.example"] {
+            #expect(
+                BrowserSystemProxyMirror(systemProxySettings: webProxySettings(host: host)) == nil,
+                "host=\(host)"
+            )
+        }
+    }
+
+    @Test("Every loopback proxy-host form mirrors as CONNECT (#5703)")
+    func loopbackProxyHostVariantsMirror() throws {
+        for host in ["localhost", "::1", "127.0.0.5"] {
+            let mirror = try #require(
+                BrowserSystemProxyMirror(systemProxySettings: webProxySettings(host: host)),
+                "host=\(host)"
+            )
+            #expect(mirror.proxy == .httpCONNECT(host: host, port: 8888), "host=\(host)")
+        }
     }
 
     @Test("A SOCKS proxy with no web proxy mirrors to a SOCKSv5 proxy")
@@ -92,26 +135,26 @@ import Testing
         #expect(mirror.proxy == .socksV5(host: "socks.example.com", port: 1080))
     }
 
-    @Test("A matched web proxy wins over SOCKS when both are enabled")
-    func matchedWebProxyWinsOverSOCKS() throws {
-        var settings = webProxySettings()
+    @Test("A matched loopback web proxy mirrors (as CONNECT) even while SOCKS is also active")
+    func matchedLoopbackWebProxyMirrorsEvenWithSOCKS() throws {
+        var settings = webProxySettings(host: "127.0.0.1")
         settings.merge(socksProxySettings()) { current, _ in current }
         let mirror = try #require(BrowserSystemProxyMirror(systemProxySettings: settings))
-        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 8888))
+        #expect(mirror.proxy == .httpCONNECT(host: "127.0.0.1", port: 8888))
+        #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
     }
 
-    @Test("Web-proxy hosts are trimmed, matched case-insensitively, and accept the highest port")
-    func hostsAreTrimmedAndMatchedCaseInsensitively() throws {
+    @Test("SOCKS host is trimmed and accepts the highest port")
+    func socksHostIsTrimmed() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     host: " proxy.example.com ",
-                    port: 65535,
-                    httpHost: "Proxy.Example.Com"
+                    port: 65535
                 )
             )
         )
-        #expect(mirror.proxy == .httpCONNECT(host: "proxy.example.com", port: 65535))
+        #expect(mirror.proxy == .socksV5(host: "proxy.example.com", port: 65535))
     }
 
     @Test("Boolean enable flags are accepted")
@@ -176,7 +219,7 @@ import Testing
 
     @Test("PAC configurations are not mirrored")
     func pacConfigurationIsNotMirrored() {
-        var settings = webProxySettings()
+        var settings = socksProxySettings()
         settings[kCFNetworkProxiesProxyAutoConfigEnable as String] = 1
         settings[kCFNetworkProxiesProxyAutoConfigURLString as String] = "http://pac.example.com/proxy.pac"
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
@@ -184,16 +227,32 @@ import Testing
 
     @Test("WPAD auto-discovery is not mirrored")
     func wpadAutoDiscoveryIsNotMirrored() {
-        var settings = webProxySettings()
+        var settings = socksProxySettings()
         settings[kCFNetworkProxiesProxyAutoDiscoveryEnable as String] = 1
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
     }
 
     @Test("Exclude-simple-hostnames declines the mirror")
     func excludeSimpleHostnamesDeclinesTheMirror() {
-        var settings = webProxySettings()
+        var settings = socksProxySettings()
         settings[kCFNetworkProxiesExcludeSimpleHostnames as String] = 1
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
+    }
+
+    @Test("Exclude-simple-hostnames declines before any bypass-list processing")
+    func excludeSimpleHostnamesDeclinesRegardlessOfBypassList() {
+        // The decline takes precedence over the bypass-list merge, so neither a
+        // representable domain entry nor a deliberate CIDR changes the outcome:
+        // mirroring would route dot-less intranet hosts (which the OS bypasses
+        // under this flag) to the proxy, a privacy regression we avoid.
+        for bypassList in [["intranet.corp.example"], ["10.0.0.0/8"], ["intranet.corp.example", "10.0.0.0/8"]] {
+            var settings = socksProxySettings(bypassList: bypassList)
+            settings[kCFNetworkProxiesExcludeSimpleHostnames as String] = 1
+            #expect(
+                BrowserSystemProxyMirror(systemProxySettings: settings) == nil,
+                "bypassList=\(bypassList)"
+            )
+        }
     }
 
     @Test("Invalid endpoints are not mirrored")
@@ -205,7 +264,7 @@ import Testing
             (host: "proxy.example.com", port: 65536),
         ]
         for endpoint in invalidEndpoints {
-            let settings = webProxySettings(host: endpoint.host, port: endpoint.port)
+            let settings = socksProxySettings(host: endpoint.host, port: endpoint.port)
             #expect(
                 BrowserSystemProxyMirror(systemProxySettings: settings) == nil,
                 "host=\(endpoint.host) port=\(endpoint.port)"
@@ -216,10 +275,8 @@ import Testing
     @Test("A missing port is not mirrored")
     func missingPortIsNotMirrored() {
         let settings: [String: Any] = [
-            kCFNetworkProxiesHTTPEnable as String: 1,
-            kCFNetworkProxiesHTTPProxy as String: "proxy.example.com",
-            kCFNetworkProxiesHTTPSEnable as String: 1,
-            kCFNetworkProxiesHTTPSProxy as String: "proxy.example.com",
+            kCFNetworkProxiesSOCKSEnable as String: 1,
+            kCFNetworkProxiesSOCKSProxy as String: "socks.example.com",
         ]
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
     }
@@ -229,7 +286,7 @@ import Testing
     @Test("Loopback and the metadata endpoint are always excluded from the mirrored proxy")
     func loopbackIsAlwaysExcluded() throws {
         let mirror = try #require(
-            BrowserSystemProxyMirror(systemProxySettings: webProxySettings())
+            BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
         )
         #expect(mirror.excludedDomains == BrowserSystemProxyMirror.implicitExclusions)
         for host in ["localhost", "127.0.0.1", "::1", "local", "169.254.169.254", "169.254.170.2"] {
@@ -241,7 +298,7 @@ import Testing
     func bypassListMergesAfterLoopbackDefaults() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     bypassList: ["intranet.corp.example", "printer.home.arpa"]
                 )
             )
@@ -257,7 +314,7 @@ import Testing
     func bypassEntriesAreNormalizedAndDeduplicated() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     bypassList: [
                         "*.local",
                         "MyHost.Corp",
@@ -281,7 +338,7 @@ import Testing
     func defaultLinkLocalCIDRIsSkippedWithoutBlocking() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     bypassList: ["*.local", "169.254/16", "169.254.0.0/16", "kept.example.com"]
                 )
             )
@@ -295,7 +352,7 @@ import Testing
     @Test("Deliberate CIDR bypass rules decline the mirror")
     func deliberateCIDRBypassRulesDeclineTheMirror() {
         for cidr in ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "fd00::/8"] {
-            let settings = webProxySettings(bypassList: [cidr])
+            let settings = socksProxySettings(bypassList: [cidr])
             #expect(
                 BrowserSystemProxyMirror(systemProxySettings: settings) == nil,
                 "cidr=\(cidr)"
@@ -305,7 +362,7 @@ import Testing
 
     @Test("Non-leading wildcard bypass rules decline the mirror")
     func wildcardBypassRulesDeclineTheMirror() {
-        let settings = webProxySettings(bypassList: ["host.*.example.com"])
+        let settings = socksProxySettings(bypassList: ["host.*.example.com"])
         #expect(BrowserSystemProxyMirror(systemProxySettings: settings) == nil)
     }
 
@@ -313,7 +370,7 @@ import Testing
     func noiseBypassEntriesAreDroppedWithoutBlocking() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     bypassList: ["", "   ", "*.", "kept.example.com"]
                 )
             )
@@ -328,7 +385,7 @@ import Testing
     func nonStringBypassEntriesAreIgnored() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(
+                systemProxySettings: socksProxySettings(
                     bypassList: [42, NSNull(), "kept.example.com"]
                 )
             )
@@ -355,11 +412,11 @@ import Testing
         return domains
     }
 
-    @Test("A CONNECT mirror produces one proxy configuration carrying the exclusions")
-    func connectMirrorProducesConfigurationWithExclusions() throws {
+    @Test("A SOCKS mirror produces one proxy configuration carrying the exclusions")
+    func socksMirrorProducesConfigurationWithExclusions() throws {
         let mirror = try #require(
             BrowserSystemProxyMirror(
-                systemProxySettings: webProxySettings(bypassList: ["intranet.corp.example"])
+                systemProxySettings: socksProxySettings(bypassList: ["intranet.corp.example"])
             )
         )
         let configurations = mirror.proxyConfigurations()
@@ -369,10 +426,17 @@ import Testing
         #expect(configuration.allowFailover == false)
     }
 
-    @Test("A SOCKS mirror produces one proxy configuration carrying the exclusions")
-    func socksMirrorProducesConfigurationWithExclusions() throws {
+    @Test("A matched loopback web-proxy mirror produces one CONNECT configuration carrying the exclusions")
+    func webProxyMirrorProducesConfigurationWithExclusions() throws {
         let mirror = try #require(
-            BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
+            BrowserSystemProxyMirror(
+                systemProxySettings: webProxySettings(host: "127.0.0.1", bypassList: ["intranet.corp.example"])
+            )
+        )
+        #expect(mirror.proxy == .httpCONNECT(host: "127.0.0.1", port: 8888))
+        #expect(
+            mirror.excludedDomains ==
+                BrowserSystemProxyMirror.implicitExclusions + ["intranet.corp.example"]
         )
         let configurations = mirror.proxyConfigurations()
         #expect(configurations.count == 1)

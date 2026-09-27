@@ -84,10 +84,13 @@ def main() -> int:
         )
 
         client.simulate_type(restore_token)
-        time.sleep(0.15)
-        restore_text = client.read_terminal_text(panel_id)
-        if restore_token not in restore_text:
-            raise cmuxError("terminal did not receive typing after closing command palette")
+        # Terminal echo is asynchronous (input -> pty -> render -> read_text); poll
+        # the real signal instead of asserting after a fixed sleep.
+        _wait_until(
+            lambda: restore_token in client.read_terminal_text(panel_id),
+            timeout_s=5.0,
+            message="terminal did not receive typing after closing command palette",
+        )
 
     print("PASS: command palette steals and restores terminal focus")
     return 0

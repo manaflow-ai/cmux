@@ -12,7 +12,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../../Packages/CmuxSidebarProviderKit"),
+        .package(path: "../../Packages/macOS/CmuxSidebarProviderKit"),
     ],
     targets: [
         .target(
