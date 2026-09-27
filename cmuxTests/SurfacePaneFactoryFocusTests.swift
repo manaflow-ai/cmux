@@ -257,6 +257,10 @@ import SwiftUI
             window.displayIfNeeded()
             try await Task.sleep(for: .milliseconds(10))
         }
+        try #require(
+            source.hostedView.bounds.width >= 300,
+            "The source pane must be wide enough for the card before presenting it"
+        )
         let request = store.beginRequest()
         harness.workspace.presentCloudPaneCreationFailure(
             machine: .cloud("overlay-test"),
