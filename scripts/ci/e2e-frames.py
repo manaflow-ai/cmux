@@ -135,14 +135,51 @@ def to_jpg(source: Path, destination: Path) -> None:
         raise OSError(f"sips wrote nothing for {source.name}")
 
 
+# Samples a recording with AVFoundation, for hosts without ffmpeg (the owned minis): every macOS
+# runner has `xcrun swift` with Xcode. Arguments: movie, output directory, frame width.
+AVFOUNDATION_SAMPLER = r"""
+import AVFoundation
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+let args = CommandLine.arguments
+let asset = AVURLAsset(url: URL(fileURLWithPath: args[1]))
+let generator = AVAssetImageGenerator(asset: asset)
+generator.appliesPreferredTrackTransform = true
+generator.maximumSize = CGSize(width: Double(args[3])!, height: 10000)
+generator.requestedTimeToleranceBefore = .zero
+generator.requestedTimeToleranceAfter = .zero
+let seconds = CMTimeGetSeconds(asset.duration)
+var index = 1
+var second = 0.5
+while second < seconds {
+    if let image = try? generator.copyCGImage(at: CMTime(seconds: second, preferredTimescale: 600), actualTime: nil) {
+        let url = URL(fileURLWithPath: args[2]).appendingPathComponent(String(format: "%04d.jpg", index))
+        if let out = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(out, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+            CGImageDestinationFinalize(out)
+        }
+    }
+    index += 1
+    second += 1
+}
+"""
+
+
 def sample_recording(source: Path, into: Path) -> list[tuple[float, Path]]:
     """One frame a second from a recording, as (seconds into it, file)."""
-    if not shutil.which("ffmpeg"):
-        print(f"skipped recording {source.name}: needs ffmpeg", file=sys.stderr)
-        return []
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(source), "-vf", f"fps=1,scale={FRAME_WIDTH}:-2",
-                    "-q:v", "5", str(into / "%04d.jpg")], check=False)
-    return [(index - 0.5, path) for index, path in enumerate(sorted(into.glob("*.jpg")), start=1)]
+    if shutil.which("ffmpeg"):
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(source), "-vf", f"fps=1,scale={FRAME_WIDTH}:-2",
+                        "-q:v", "5", str(into / "%04d.jpg")], check=False)
+    else:
+        sampler = into / "sample.swift"
+        sampler.write_text(AVFOUNDATION_SAMPLER)
+        done = subprocess.run(["xcrun", "swift", str(sampler), str(source), str(into), str(FRAME_WIDTH)],
+                              capture_output=True, text=True)
+        if done.returncode:
+            print(f"skipped recording {source.name}: no ffmpeg, and AVFoundation sampling failed "
+                  f"({done.stderr.strip()[:200]})", file=sys.stderr)
+    return [(int(path.stem) - 0.5, path) for path in sorted(into.glob("*.jpg"))]
 
 
 def has_drawtext() -> bool:
