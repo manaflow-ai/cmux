@@ -46,6 +46,11 @@ final class SidebarRowSwiftUIPopoverPresenter: NSObject, NSPopoverDelegate {
     /// must know whether a close already began check this as well.
     private(set) var isClosing = false
 
+#if DEBUG
+    /// The current popover's `animates`, or nil when none is presented.
+    var animatesForTesting: Bool? { popover?.animates }
+#endif
+
     func present(
         _ root: AnyView,
         relativeTo rect: NSRect,
