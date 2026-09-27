@@ -10465,6 +10465,9 @@ impl Mux {
         result.map(|(commit, _)| commit)
     }
 
+    /// Commit one agent report as the terminal's durable projection and
+    /// publish its upsert or delete. Hook reports carry the agent's native
+    /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
     fn commit_agent_report(
         &self,
@@ -24135,6 +24138,8 @@ mod tests {
             .collect()
     }
 
+    /// A Claude hook journal event for `terminal_id` with the given native
+    /// payload.
     fn claude_hook(
         terminal_id: &TerminalPublicId,
         event: &str,
@@ -24149,6 +24154,8 @@ mod tests {
         .unwrap()
     }
 
+    /// The published session id tracks the hook session through start, turn,
+    /// a retained socket report, end (delete), and a new session.
     #[test]
     fn agent_session_id_follows_the_hook_session_on_the_agent_roster() {
         let mux = test_mux();
@@ -24202,6 +24209,7 @@ mod tests {
         assert_eq!(snapshot_agents()[0]["extra"]["agent_session_id"], "claude-session-2");
     }
 
+    /// Detected, socket, and session-less hook agents publish no session id.
     #[test]
     fn agent_session_id_is_absent_without_a_hook_session() {
         let mux = test_mux();
@@ -24244,6 +24252,7 @@ mod tests {
         assert_eq!(snapshot_agent(&terminal_id)["extra"].get("agent_session_id"), None);
     }
 
+    /// The session id persists with the projection across a registry reopen.
     #[test]
     fn agent_session_id_survives_restart() {
         let root = std::env::temp_dir()

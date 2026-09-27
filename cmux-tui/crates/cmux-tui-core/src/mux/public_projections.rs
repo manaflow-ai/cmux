@@ -15,6 +15,8 @@ pub(super) struct RestoredPublicProjections {
     pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
+/// Rebuild the in-memory notification ledger, agent records (with their
+/// published hook session ids), and hook fences from durable projections.
 pub(super) fn restore_public_projections(
     state: &State,
     projections: RegistryPublicProjections,

@@ -69,6 +69,8 @@ pub(crate) struct RegistryAgentHookState {
 }
 
 impl RegistryAgentProjection {
+    /// The public `AgentSnapshot` value for this projection, including
+    /// `extra.agent_session_id` when a hook reported one.
     pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
         let extra = agent_projection_extra(self.agent.as_deref(), self.agent_session_id.as_deref());
         json!({
@@ -233,6 +235,9 @@ impl WorkspaceRegistry {
         })
     }
 
+    /// Current agent projections, optionally filtered by terminal and state,
+    /// decoded from their stored results (adapter and hook session id
+    /// included).
     pub(crate) fn public_agent_projections(
         &self,
         terminal: Option<&TerminalPublicId>,
