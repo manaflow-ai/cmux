@@ -1001,17 +1001,27 @@ strip_cmux_node_options() {
     local -a tokens=()
     local -a kept=()
     local index=0
+    local token
     read -r -a tokens <<<"$1"
     while (( index < ${#tokens[@]} )); do
-        if [[ "${tokens[$index]}" == --require=*/cmux-claude-node-options/restore-node-options.cjs ]]; then
-            index=$((index + 1))
+        token="${tokens[$index]}"
+        index=$((index + 1))
+        # node_options_require_flag quotes the path when $HOME has spaces;
+        # rejoin the quoted flag before matching it.
+        if [[ "$token" == --require=\"* ]]; then
+            while [[ "$token" != --require=\"*\" && $index -lt ${#tokens[@]} ]]; do
+                token+=" ${tokens[$index]}"
+                index=$((index + 1))
+            done
+        fi
+        if [[ "$token" == --require=*/cmux-claude-node-options/restore-node-options.cjs ||
+              "$token" == --require=\"*/cmux-claude-node-options/restore-node-options.cjs\" ]]; then
             if [[ "${tokens[$index]:-}" == "--max-old-space-size=4096" ]]; then
                 index=$((index + 1))
             fi
             continue
         fi
-        kept+=("${tokens[$index]}")
-        index=$((index + 1))
+        kept+=("$token")
     done
     if (( ${#kept[@]} > 0 )); then
         printf '%s' "${kept[*]}"
