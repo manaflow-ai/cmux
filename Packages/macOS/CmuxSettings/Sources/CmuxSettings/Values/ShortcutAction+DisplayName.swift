@@ -97,6 +97,8 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel:
             return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
+        case .toggleSurfacePip:
+            return String(localized: "shortcut.toggleSurfacePip.label", defaultValue: "Toggle Surface Picture in Picture")
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:

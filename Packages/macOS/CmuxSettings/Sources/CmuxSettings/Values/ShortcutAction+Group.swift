@@ -27,7 +27,7 @@ extension ShortcutAction {
              .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
-             .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
+             .newSurface, .toggleSurfacePip, .toggleTerminalCopyMode, .focusTextBoxInput,
              .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot,
              .clearScreenKeepScrollback:
             return .navigation
