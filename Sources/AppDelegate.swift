@@ -10299,7 +10299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore()
+        let cmuxConfigStore = CmuxConfigStore(pluginActions: { CmuxPluginRuntime.shared.configActions() })
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 
@@ -17773,7 +17773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didSplit { onExecuted?() }
                 return didSplit
             }
-        case .command, .agent, .workspaceCommand, .workspace:
+        case .command, .agent, .workspaceCommand, .workspace, .plugin:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }

@@ -889,6 +889,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     case workspaceCommand(String)
     case workspace(CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)
     case actionReference(String)
+    /// An enabled extension plugin's action, by its `plugin.<name>.<action>` id.
+    case plugin(String)
 
     var defaultId: String {
         switch self {
@@ -902,7 +904,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return "workspaceCommand." + Self.generatedCommandId(for: commandName)
         case .workspace(let definition, _):
             return "workspace." + Self.generatedCommandId(for: definition.name ?? "workspace")
-        case .actionReference(let identifier):
+        case .actionReference(let identifier), .plugin(let identifier):
             return identifier
         }
     }
@@ -923,6 +925,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return .symbol("rectangle.stack.badge.plus")
         case .actionReference:
             return .symbol("questionmark.circle")
+        case .plugin:
+            return CmuxPluginRuntime.actionIcon
         }
     }
 
@@ -933,7 +937,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
         case .agent(let agent, let args):
             let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
-        case .builtIn, .workspaceCommand, .workspace, .actionReference:
+        case .builtIn, .workspaceCommand, .workspace, .actionReference, .plugin:
             return nil
         }
     }
@@ -943,6 +947,11 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return name
         }
         return nil
+    }
+
+    var isPlugin: Bool {
+        if case .plugin = self { return true }
+        return false
     }
 
     /// Inline workspace payload for `type: "workspace"` actions.
@@ -1076,7 +1085,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             switch action {
             case .builtIn(let builtIn):
                 return builtIn.bonsplitAction ?? .custom(id)
-            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            case .command, .agent, .workspaceCommand, .workspace, .actionReference, .plugin:
                 return .custom(id)
             }
         }()
@@ -1300,7 +1309,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
-        case .actionReference(let identifier):
+        case .actionReference(let identifier), .plugin(let identifier):
             try container.encode(identifier, forKey: .action)
         }
     }
@@ -1481,7 +1490,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             return definition.name ?? id
         case .builtIn(let builtIn):
             return builtIn.configID
-        case .actionReference(let identifier):
+        case .actionReference(let identifier), .plugin(let identifier):
             return identifier
         }
     }
@@ -1797,6 +1806,9 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    /// Actions contributed by enabled extension plugins. They enter the
+    /// registry before cmux.json, so cmux.json can rebind or retitle them.
+    private let pluginActions: @MainActor () -> [CmuxResolvedConfigAction]
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1901,9 +1913,11 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        pluginActions: @escaping @MainActor () -> [CmuxResolvedConfigAction] = { [] }
     ) {
         self.globalConfigPath = globalConfigPath
+        self.pluginActions = pluginActions
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
@@ -2617,6 +2631,9 @@ final class CmuxConfigStore: ObservableObject {
                 ($0.configID, CmuxResolvedConfigAction.builtIn($0))
             }
         )
+        for action in pluginActions() where registry[action.id] == nil {
+            registry[action.id] = action
+        }
 
         func apply(_ entries: [String: ActionEntry]) {
             for (id, entry) in entries {

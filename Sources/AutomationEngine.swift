@@ -17,6 +17,8 @@ final class AutomationEngine {
     /// `DisableAutomationWebhooks` (MDM), read per webhook action.
     typealias PolicyCheck = @Sendable () -> Bool
     typealias WorkspaceTagsResolver = @MainActor (UUID) -> [String]
+    /// Rules owned by enabled plugins' `[[events]]`, merged after the file.
+    typealias PluginRulesProvider = @MainActor () -> [AutomationRule]
 
     private static let maximumLogRecords = 256
     private static let maximumChainDepth = 16
@@ -40,10 +42,14 @@ final class AutomationEngine {
     private let webhookRunner: WebhookRunner?
     private let isWebhookDisabledByPolicy: PolicyCheck
     private let workspaceTagsResolver: WorkspaceTagsResolver
+    private let pluginRulesProvider: PluginRulesProvider
     private let payloadRedactor = AutomationPayloadRedactor()
     private let recoverySleeper: RecoverySleeper
 
     private var rules: [AutomationRule] = []
+    /// Plugin-owned rules are enabled and disabled with `cmux plugin`, not
+    /// by rewriting automations.json.
+    private var pluginRuleIDs = Set<String>()
     private var rulesByEventName: [String: [AutomationRule]] = [:]
     private var rulesByCategory: [String: [AutomationRule]] = [:]
     private var unindexedRules: [AutomationRule] = []
@@ -91,6 +97,7 @@ final class AutomationEngine {
             ManagedDevicePolicy().isEnforced(.disableAutomationWebhooks)
         },
         workspaceTagsResolver: @escaping WorkspaceTagsResolver = { _ in [] },
+        pluginRulesProvider: @escaping PluginRulesProvider = { [] },
         recoverySleeper: @escaping RecoverySleeper = { duration in
             try await ContinuousClock().sleep(for: duration)
         }
@@ -103,6 +110,7 @@ final class AutomationEngine {
         self.webhookRunner = webhookRunner
         self.isWebhookDisabledByPolicy = isWebhookDisabledByPolicy
         self.workspaceTagsResolver = workspaceTagsResolver
+        self.pluginRulesProvider = pluginRulesProvider
         self.recoverySleeper = recoverySleeper
     }
 
@@ -274,7 +282,10 @@ final class AutomationEngine {
     }
 
     private func apply(_ configuration: AutomationConfiguration) {
-        rules = configuration.rules
+        let fileRuleIDs = Set(configuration.rules.map(\.id))
+        let pluginRules = pluginRulesProvider().filter { !fileRuleIDs.contains($0.id) }
+        rules = configuration.rules + pluginRules
+        pluginRuleIDs = Set(pluginRules.map(\.id))
         rebuildRuleIndexes()
         fireDatesByRuleID.removeAll(keepingCapacity: true)
         workspaceTagsCache.removeAll(keepingCapacity: true)
@@ -283,6 +294,7 @@ final class AutomationEngine {
 
     private func clearActiveRules() {
         rules.removeAll(keepingCapacity: true)
+        pluginRuleIDs.removeAll(keepingCapacity: true)
         rulesByEventName.removeAll(keepingCapacity: true)
         rulesByCategory.removeAll(keepingCapacity: true)
         unindexedRules.removeAll(keepingCapacity: true)
@@ -366,7 +378,7 @@ final class AutomationEngine {
     }
 
     func scheduleSetEnabled(id: String, enabled: Bool) -> Bool {
-        guard rules.contains(where: { $0.id == id }) else { return false }
+        guard rules.contains(where: { $0.id == id }), !pluginRuleIDs.contains(id) else { return false }
         enabledUpdateTasks[id]?.task.cancel()
         let requestID = UUID()
         enabledUpdateRequestIDs[id] = requestID

@@ -559958,6 +559958,1009 @@
           }
         }
       }
+    },
+    "cli.plugin.error.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmation required. Run this in a terminal, or pass --yes after reviewing the commands above."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التأكيد مطلوب. شغّل هذا في طرفية، أو مرّر --yes بعد مراجعة الأوامر أعلاه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestätigung erforderlich. Führen Sie dies in einem Terminal aus oder übergeben Sie --yes, nachdem Sie die obigen Befehle geprüft haben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere confirmación. Ejecuta esto en una terminal o pasa --yes después de revisar los comandos anteriores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmation requise. Exécutez ceci dans un terminal, ou passez --yes après avoir vérifié les commandes ci-dessus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認が必要です。ターミナルで実行するか、上のコマンドを確認したうえで --yes を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인이 필요합니다. 터미널에서 실행하거나 위의 명령을 검토한 후 --yes를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要确认。请在终端中运行，或在检查上面的命令后传入 --yes。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要確認。請在終端機中執行，或在檢查上方的指令後傳入 --yes。"
+          }
+        }
+      }
+    },
+    "cli.plugin.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux plugin <command> [args]\n\nCommands:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           Use a local plugin directory (for development)\n  list [--json]\n  enable <name> [--yes]          Review the plugin's commands and activate it\n  disable <name>\n  remove <name>\n  reload                         Ask the running app to reread plugins\n  action invoke <name>.<action>  Run a plugin action in the current workspace\n\nPlugins install to ~/.local/share/cmux/mux-plugins/extension and stay\ninactive until enabled. Changing a plugin's manifest disables it until it\nis enabled again. Plugins run with your user permissions; there is no sandbox."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux plugin <أمر> [وسائط]\n\nالأوامر:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           استخدام مجلد إضافة محلي (للتطوير)\n  list [--json]\n  enable <name> [--yes]          مراجعة أوامر الإضافة وتفعيلها\n  disable <name>\n  remove <name>\n  reload                         مطالبة التطبيق العامل بإعادة قراءة الإضافات\n  action invoke <name>.<action>  تشغيل إجراء إضافة في مساحة العمل الحالية\n\nتُثبَّت الإضافات في ~/.local/share/cmux/mux-plugins/extension وتبقى\nغير نشطة حتى تفعيلها. تغيير ملف بيان الإضافة يعطّلها حتى\nتُفعَّل مجددًا. تعمل الإضافات بصلاحيات المستخدم الخاصة بك؛ لا يوجد عزل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux plugin <Befehl> [Argumente]\n\nBefehle:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           Lokales Plug-in-Verzeichnis verwenden (für die Entwicklung)\n  list [--json]\n  enable <name> [--yes]          Befehle des Plug-ins prüfen und es aktivieren\n  disable <name>\n  remove <name>\n  reload                         Laufende App bitten, Plug-ins neu einzulesen\n  action invoke <name>.<action>  Plug-in-Aktion im aktuellen Workspace ausführen\n\nPlug-ins werden nach ~/.local/share/cmux/mux-plugins/extension installiert und\nbleiben inaktiv, bis sie aktiviert werden. Eine Änderung am Manifest deaktiviert\nein Plug-in, bis es erneut aktiviert wird. Plug-ins laufen mit Ihren Benutzerrechten; es gibt keine Sandbox."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux plugin <comando> [argumentos]\n\nComandos:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           Usar una carpeta de plugin local (para desarrollo)\n  list [--json]\n  enable <name> [--yes]          Revisar los comandos del plugin y activarlo\n  disable <name>\n  remove <name>\n  reload                         Pedir a la app en ejecución que vuelva a leer los plugins\n  action invoke <name>.<action>  Ejecutar una acción de plugin en el espacio de trabajo actual\n\nLos plugins se instalan en ~/.local/share/cmux/mux-plugins/extension y permanecen\ninactivos hasta que se activan. Cambiar el manifiesto de un plugin lo desactiva\nhasta que se vuelva a activar. Los plugins se ejecutan con tus permisos de usuario; no hay sandbox."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux plugin <commande> [arguments]\n\nCommandes :\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           Utiliser un dossier de plug-in local (pour le développement)\n  list [--json]\n  enable <name> [--yes]          Vérifier les commandes du plug-in et l’activer\n  disable <name>\n  remove <name>\n  reload                         Demander à l’app en cours de relire les plug-ins\n  action invoke <name>.<action>  Exécuter une action de plug-in dans l’espace de travail actuel\n\nLes plug-ins s’installent dans ~/.local/share/cmux/mux-plugins/extension et restent\ninactifs jusqu’à leur activation. Modifier le manifeste d’un plug-in le désactive\njusqu’à ce qu’il soit réactivé. Les plug-ins s’exécutent avec vos droits d’utilisateur, sans sandbox."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux plugin <コマンド> [引数]\n\nコマンド:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           ローカルのプラグインディレクトリを使う（開発用）\n  list [--json]\n  enable <name> [--yes]          プラグインのコマンドを確認して有効にする\n  disable <name>\n  remove <name>\n  reload                         実行中のアプリにプラグインを再読み込みさせる\n  action invoke <name>.<action>  現在のワークスペースでプラグインアクションを実行\n\nプラグインは ~/.local/share/cmux/mux-plugins/extension にインストールされ、\n有効にするまで動作しません。マニフェストが変わると、\n再度有効にするまで無効になります。プラグインはユーザー権限で実行され、サンドボックスはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux plugin <명령> [인수]\n\n명령:\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           로컬 플러그인 디렉터리 사용(개발용)\n  list [--json]\n  enable <name> [--yes]          플러그인의 명령을 검토하고 활성화\n  disable <name>\n  remove <name>\n  reload                         실행 중인 앱에 플러그인을 다시 읽도록 요청\n  action invoke <name>.<action>  현재 워크스페이스에서 플러그인 작업 실행\n\n플러그인은 ~/.local/share/cmux/mux-plugins/extension에 설치되며\n활성화하기 전까지 비활성 상태입니다. 플러그인의 매니페스트가 바뀌면\n다시 활성화할 때까지 비활성화됩니다. 플러그인은 사용자 권한으로 실행되며 샌드박스가 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux plugin <命令> [参数]\n\n命令：\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           使用本地插件目录（用于开发）\n  list [--json]\n  enable <name> [--yes]          检查插件的命令并启用它\n  disable <name>\n  remove <name>\n  reload                         让正在运行的 App 重新读取插件\n  action invoke <name>.<action>  在当前工作区运行插件操作\n\n插件会安装到 ~/.local/share/cmux/mux-plugins/extension，\n在启用之前不会生效。更改插件的清单会停用它，\n直到再次启用。插件以你的用户权限运行，没有沙盒。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux plugin <指令> [參數]\n\n指令：\n  install <git-url|owner/repo[/subdir]> [--subdir <path>] [--force] [--yes]\n  link <dir> [--force]           使用本機外掛目錄（用於開發）\n  list [--json]\n  enable <name> [--yes]          檢查外掛的指令並啟用它\n  disable <name>\n  remove <name>\n  reload                         要求執行中的 App 重新讀取外掛\n  action invoke <name>.<action>  在目前的工作區執行外掛動作\n\n外掛會安裝到 ~/.local/share/cmux/mux-plugins/extension，\n在啟用之前不會生效。變更外掛的資訊清單會停用它，\n直到再次啟用。外掛以你的使用者權限執行，沒有沙盒。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الإلغاء."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgebrochen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセルしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已取消。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعطيل %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deaktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ desactivado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ désactivé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を無効にしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 비활성화했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用 %@。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تفعيل %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aktiviert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ activado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ activé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を有効にしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 활성화했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已启用 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已啟用 %@。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed %1$@ at %2$@. It stays inactive until you run: cmux plugin enable %1$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تثبيت %1$@ في %2$@. يبقى غير نشط حتى تشغّل: cmux plugin enable %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wurde unter %2$@ installiert. Es bleibt inaktiv, bis Sie Folgendes ausführen: cmux plugin enable %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ se instaló en %2$@. Permanece inactivo hasta que ejecutes: cmux plugin enable %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ installé dans %2$@. Il reste inactif tant que vous n’exécutez pas : cmux plugin enable %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@ にインストールしました。次を実行するまで無効のままです: cmux plugin enable %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@을(를) %2$@에 설치했습니다. 다음을 실행하기 전까지 비활성 상태로 유지됩니다: cmux plugin enable %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %1$@ 安装到 %2$@。在你运行 cmux plugin enable %1$@ 之前，它不会启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %1$@ 安裝至 %2$@。在你執行 cmux plugin enable %1$@ 之前，它不會啟用。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.linked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linked %1$@ to %2$@. It stays inactive until you run: cmux plugin enable %1$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم ربط %1$@ بـ %2$@. يبقى غير نشط حتى تشغّل: cmux plugin enable %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wurde mit %2$@ verknüpft. Es bleibt inaktiv, bis Sie Folgendes ausführen: cmux plugin enable %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ se vinculó a %2$@. Permanece inactivo hasta que ejecutes: cmux plugin enable %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ lié à %2$@. Il reste inactif tant que vous n’exécutez pas : cmux plugin enable %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を %2$@ にリンクしました。次を実行するまで無効のままです: cmux plugin enable %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@을(를) %2$@에 연결했습니다. 다음을 실행하기 전까지 비활성 상태로 유지됩니다: cmux plugin enable %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %1$@ 链接到 %2$@。在你运行 cmux plugin enable %1$@ 之前，它不会启用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %1$@ 連結至 %2$@。在你執行 cmux plugin enable %1$@ 之前，它不會啟用。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plugins installed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد إضافات مثبتة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Plug-ins installiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay plugins instalados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun plug-in installé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールされているプラグインはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치된 플러그인이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安装任何插件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安裝任何外掛。"
+          }
+        }
+      }
+    },
+    "cli.plugin.output.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ eliminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ supprimé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 제거했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除 %@。"
+          }
+        }
+      }
+    },
+    "cli.plugin.prompt.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable %@? [y/N] "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفعيل %@؟ [y/N] "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aktivieren? [y/N] "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Activar %@? [y/N] "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer %@ ? [y/N] "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を有効にしますか? [y/N] "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 활성화할까요? [y/N] "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要启用 %@ 吗？[y/N] "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要啟用 %@ 嗎？[y/N] "
+          }
+        }
+      }
+    },
+    "cli.plugin.prompt.install": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install %@? [y/N] "
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت %@؟ [y/N] "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ installieren? [y/N] "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Instalar %@? [y/N] "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer %@ ? [y/N] "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をインストールしますか? [y/N] "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 설치할까요? [y/N] "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要安装 %@ 吗？[y/N] "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要安裝 %@ 嗎？[y/N] "
+          }
+        }
+      }
+    },
+    "cli.plugin.review.actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإجراءات:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acciones:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作："
+          }
+        }
+      }
+    },
+    "cli.plugin.review.build": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build command, run once at install:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر البناء، يُشغَّل مرة واحدة عند التثبيت:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build-Befehl, einmal bei der Installation ausgeführt:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de compilación, se ejecuta una vez al instalar:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande de build, exécutée une fois à l’installation :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルドコマンド（インストール時に一度だけ実行）:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빌드 명령, 설치 시 한 번 실행:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "构建命令，安装时运行一次："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建置指令，安裝時執行一次："
+          }
+        }
+      }
+    },
+    "cli.plugin.review.events": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event hooks:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطافات الأحداث:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ereignis-Hooks:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks de eventos:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks d’événement :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントフック:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 훅:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件钩子："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件掛鉤："
+          }
+        }
+      }
+    },
+    "cli.plugin.review.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs these commands with your user permissions (no sandbox):"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ هذه الأوامر بصلاحيات المستخدم الخاصة بك (بدون عزل):"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ führt diese Befehle mit Ihren Benutzerrechten aus (keine Sandbox):"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ejecuta estos comandos con tus permisos de usuario (sin sandbox):"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exécute ces commandes avec vos droits d’utilisateur (sans sandbox) :"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はユーザー権限で次のコマンドを実行します（サンドボックスなし）:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 사용자 권한으로 다음 명령을 실행합니다(샌드박스 없음):"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 会以你的用户权限运行这些命令（没有沙盒）："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 會以你的使用者權限執行這些指令（沒有沙盒）："
+          }
+        }
+      }
+    },
+    "plugin.error.actionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No enabled plugin action named %@. Run cmux plugin list to see installed plugins."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد إجراء إضافة مفعّل باسم %@. شغّل cmux plugin list لعرض الإضافات المثبتة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aktivierte Plug-in-Aktion namens %@. Führen Sie cmux plugin list aus, um installierte Plug-ins anzuzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ninguna acción de plugin activada llamada %@. Ejecuta cmux plugin list para ver los plugins instalados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune action de plug-in activée nommée %@. Exécutez cmux plugin list pour voir les plug-ins installés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ という有効なプラグインアクションはありません。cmux plugin list でインストール済みのプラグインを確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(이)라는 활성화된 플러그인 작업이 없습니다. 설치된 플러그인을 보려면 cmux plugin list를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为 %@ 的已启用插件操作。运行 cmux plugin list 查看已安装的插件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為 %@ 的已啟用外掛動作。執行 cmux plugin list 以查看已安裝的外掛。"
+          }
+        }
+      }
+    },
+    "plugin.error.missingActionID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing plugin action id"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف إجراء الإضافة مفقود"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plug-in-Aktions-ID fehlt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el ID de la acción del plugin"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identifiant d’action de plug-in manquant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラグインアクション ID がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플러그인 작업 ID가 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少插件操作 ID"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少外掛動作 ID"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1,0 +1,24 @@
+# A minimal cmux app plugin. Try it with:
+#   cmux plugin link Examples/cmux-plugin-hello
+#   cmux plugin enable hello
+# then run "Say Hello" from the command palette.
+
+[plugin]
+name = "hello"
+kind = "extension"
+version = "0.1.0"
+description = "Posts a notification from the palette and logs new workspaces"
+platforms = ["macos"]
+
+[[actions]]
+id = "say-hello"
+title = "Say Hello"
+subtitle = "Hello plugin"
+keywords = ["example"]
+argv = ["./bin/say-hello"]
+shortcut = "cmd+ctrl+h"
+
+[[events]]
+event = "workspace.created"
+argv = ["./bin/log-event"]
+timeout_seconds = 10

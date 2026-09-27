@@ -181,7 +181,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
-        case .actionReference(let identifier):
+        case .actionReference(let identifier), .plugin(let identifier):
             try container.encode("builtin", forKey: .type)
             try container.encode(identifier, forKey: .builtin)
         }

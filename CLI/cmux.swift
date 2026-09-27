@@ -5044,6 +5044,20 @@ struct CMUXCLI {
             return
         }
 
+        // Plugin install/link/enable only touch files, so they work while the
+        // app is quit; the app is asked to reload when it is reachable.
+        if command == "plugin", !pluginCommandNeedsSocket(commandArgs) {
+            try runPluginCommand(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                socketPath: explicitSocketPath
+                    ?? (try? CLISocketEnvironment.socketPath(in: processEnv))
+                    ?? CLISocketPathResolver.defaultSocketPath(bundleIdentifier: cliBundleIdentifier, environment: processEnv),
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         // If the argument is a path (not a known command), open a workspace there.
         if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
             try openPath(command)
@@ -5440,6 +5454,8 @@ struct CMUXCLI {
         switch command {
         case "automation":
             try runAutomationCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "plugin":
+            try runPluginActionCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
         case "__sidebar_footer_icon_balance":
             let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
             print(response)
@@ -18284,6 +18300,8 @@ struct CMUXCLI {
             """
         case "automation":
             return CMUXCLI.automationUsage()
+        case "plugin":
+            return CMUXCLI.pluginUsage()
         case "vpn":
             return """
             Usage: cmux vpn <up|down|status|revoke>

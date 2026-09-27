@@ -4423,7 +4423,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         )
                     )
                 }
-                if button.action.inlineWorkspace != nil {
+                if button.action.inlineWorkspace != nil || button.action.isPlugin {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
@@ -14643,6 +14643,15 @@ extension Workspace: BonsplitDelegate {
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
+            return
+        }
+
+        if case .plugin(let registryID) = executable.button.action {
+            CmuxPluginRuntime.shared.invoke(
+                registryID: registryID,
+                workspaceID: id,
+                surfaceID: bonsplitController.selectedTab(inPane: pane).flatMap { panelIdFromSurfaceId($0.id) }
+            )
             return
         }
 

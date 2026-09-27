@@ -1,0 +1,3 @@
+#!/bin/sh
+# Event hooks receive the event as JSON in CMUX_EVENT_JSON.
+printf '%s\n' "$CMUX_EVENT_JSON" >> "$CMUX_PLUGIN_STATE_DIR/events.log"

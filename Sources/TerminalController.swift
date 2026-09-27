@@ -3026,6 +3026,10 @@ class TerminalController {
             return v2Result(id: id, v2AutomationLogs(params: params))
         case "automation.reload":
             return v2Result(id: id, v2AutomationReload())
+        case "plugin.reload":
+            return v2Result(id: id, v2PluginReload())
+        case "plugin.action.invoke":
+            return v2Result(id: id, v2PluginActionInvoke(params: params))
         case "caffeine.status":
             return v2Result(id: id, v2CaffeineStatus())
         case "caffeine.set":

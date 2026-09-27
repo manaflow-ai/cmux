@@ -160,6 +160,7 @@ extension CMUXCLI {
         "paste",
         "paste-buffer",
         "ping",
+        "plugin",
         "pipe-pane",
         "popup",
         "previous-window",

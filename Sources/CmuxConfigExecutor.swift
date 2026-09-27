@@ -76,6 +76,17 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if case .plugin(let registryID) = action.action {
+            let workspace = tabManager.selectedWorkspace
+            guard CmuxPluginRuntime.shared.invoke(
+                registryID: registryID,
+                workspaceID: workspace?.id,
+                surfaceID: workspace?.focusedPanelId
+            ) else { return false }
+            onExecuted?()
+            return true
+        }
+
         if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
             // Inline `type: "workspace"` actions reuse the named-command path via a
             // synthetic definition so trust, restart, confirm, and layout behavior
