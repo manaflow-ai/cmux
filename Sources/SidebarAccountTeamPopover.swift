@@ -119,7 +119,7 @@ struct SidebarAccountMenuButton: View {
         menu.addSidebarFooterItem(
             String(localized: "menu.app.settings", defaultValue: "Settings…"),
             identifier: "SidebarAccountSettingsButton",
-            shortcut: KeyboardShortcutSettings.shortcut(for: .openSettings)
+            shortcut: KeyboardShortcutSettings.menuShortcut(for: .openSettings)
         ) {
             AppDelegate.shared?.openPreferencesWindow(
                 debugSource: "sidebar.account.settings",

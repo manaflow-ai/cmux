@@ -186,7 +186,7 @@ struct SidebarHelpMenuButton: View {
         menu.addSidebarFooterItem(
             String(localized: "menu.app.settings", defaultValue: "Settings…"),
             identifier: "SidebarHelpMenuOptionSettings",
-            shortcut: KeyboardShortcutSettings.shortcut(for: .openSettings)
+            shortcut: KeyboardShortcutSettings.menuShortcut(for: .openSettings)
         ) {
             if let appDelegate = AppDelegate.shared {
                 appDelegate.openPreferencesWindow(debugSource: "sidebarHelpMenu.settings")
@@ -211,7 +211,7 @@ struct SidebarHelpMenuButton: View {
         menu.addSidebarFooterItem(
             String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
             identifier: "SidebarHelpMenuOptionSendFeedback",
-            shortcut: KeyboardShortcutSettings.shortcut(for: .sendFeedback),
+            shortcut: KeyboardShortcutSettings.menuShortcut(for: .sendFeedback),
             handler: onSendFeedback
         )
         addLink(to: menu, String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"), url: Self.githubIssuesURL, identifier: "SidebarHelpMenuOptionGitHubIssues")
