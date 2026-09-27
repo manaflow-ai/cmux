@@ -326,6 +326,35 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         )
     }
 
+    @Test(arguments: [Workspace.CustomTitleSource.auto, .remote])
+    func moveSurfaceToNewWorkspacePreservesInheritedTitleSource(source: Workspace.CustomTitleSource) throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        #expect(sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Agent task", source: source))
+
+        let result = try #require(app.moveSurfaceToNewWorkspace(
+            panelId: movedPanel.id,
+            focus: false,
+            focusWindow: false
+        ))
+        let destinationWorkspace = try #require(manager.tabs.first { $0.id == result.destinationWorkspaceId })
+
+        #expect(destinationWorkspace.customTitle == "Agent task")
+        #expect(destinationWorkspace.customTitleSource == source)
+        #expect(destinationWorkspace.panelCustomTitleSources[movedPanel.id] == source)
+
+        let updated = manager.setCustomTitle(tabId: destinationWorkspace.id, title: "Updated agent task", source: .auto)
+        #expect(updated == (source == .auto))
+        #expect(destinationWorkspace.title == (source == .auto ? "Updated agent task" : "Agent task"))
+    }
+
     @Test("Move surface to new workspace pins explicit caller title")
     func moveSurfaceToNewWorkspacePinsExplicitCallerTitle() throws {
         let app = AppDelegate()
@@ -337,7 +366,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         let sourceWorkspace = try #require(manager.selectedWorkspace)
         let sourcePaneId = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
         let movedPanel = try #require(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
-        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "user@host:~/git/repo")
+        sourceWorkspace.setPanelCustomTitle(panelId: movedPanel.id, title: "Agent task", source: .auto)
 
         let result = try #require(app.moveSurfaceToNewWorkspace(
             panelId: movedPanel.id,
@@ -349,6 +378,8 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         #expect(destinationWorkspace.title == "Deploy logs")
         #expect(destinationWorkspace.customTitle == "Deploy logs")
+        #expect(destinationWorkspace.customTitleSource == .user)
+        #expect(!manager.setCustomTitle(tabId: destinationWorkspace.id, title: "Updated agent task", source: .auto))
 
         destinationWorkspace.applyProcessTitle("✳ Investigate workspace title bug")
         #expect(
