@@ -34,6 +34,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
+    let relaunchGate: UpdateRelaunchGate
 
     init(
         model: UpdateStateModel,
@@ -49,6 +51,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
+        self.relaunchGate = UpdateRelaunchGate(clock: clock, log: log)
         super.init()
     }
 
@@ -169,7 +172,27 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        reply(.install)
+        holdRelaunch(
+            isAutoUpdate: false,
+            relaunch: { reply(.install) },
+            later: { [weak self] in
+                // Sparkle keeps a dismissed ready update and installs it when cmux quits.
+                reply(.dismiss)
+                self?.setState(.idle)
+            }
+        )
+    }
+
+    /// Runs `relaunch` once relaunching would not interrupt a busy agent or a running
+    /// command, or when the user chooses Install Now. See ``UpdateRelaunchGate``.
+    func holdRelaunch(isAutoUpdate: Bool, relaunch: @escaping () -> Void, later: @escaping () -> Void) {
+        relaunchGate.hold(
+            isAutoUpdate: isAutoUpdate,
+            blockers: { [weak self] in self?.actionDelegate?.updaterRelaunchBlockers() ?? .none },
+            publish: { [weak self] state in self?.setState(state) },
+            relaunch: relaunch,
+            later: later
+        )
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
@@ -392,6 +415,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         case .extracting(let extracting):
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
+            if let blockers = installing.relaunchBlockers {
+                return "installing(auto=\(installing.isAutoUpdate), waiting agents=\(blockers.busyAgentCount) commands=\(blockers.runningCommandCount))"
+            }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
     }

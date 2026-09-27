@@ -5990,7 +5990,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     /// Every workspace whose panes are local surface resources, across all main windows.
     func surfaceCatalogWorkspaces() -> [Workspace] {
-        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
+        var managers: [TabManager] = mainWindowContexts.values.map { $0.tabManager }
         if let tabManager, !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
         }
@@ -9108,7 +9108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func closeWorkspaces(forManagedCloudVMID vmID: String) {
         let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !target.isEmpty else { return }
-        var managers = mainWindowContexts.values.map(\.tabManager)
+        var managers = mainWindowContexts.values.map { $0.tabManager }
         if let tabManager, !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
         }
@@ -20208,6 +20208,44 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
+        var seen = Set<ObjectIdentifier>()
+        var managers: [TabManager] = mainWindowContexts.values.map { $0.tabManager }
+        if let tabManager { managers.append(tabManager) }
+        managers.append(contentsOf: mainWindowSessionPersistenceRoutes().map { $0.tabManager })
+        let workspaces = managers
+            .filter { seen.insert(ObjectIdentifier($0)).inserted }
+            .flatMap(\.tabs)
+        return Self.updateRelaunchBlockers(workspaces: workspaces.map { workspace in
+            UpdateRelaunchWorkspaceActivity(
+                agentLifecycles: workspace.agentLifecycleStatesByPanelId,
+                shellActivity: workspace.panelShellActivityStates,
+                isRemote: workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+            )
+        })
+    }
+
+    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
+    /// agent. A local panel running some other foreground command is a running command; panels
+    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
+    /// because their processes live on the remote host.
+    nonisolated static func updateRelaunchBlockers(
+        workspaces: [UpdateRelaunchWorkspaceActivity]
+    ) -> UpdateRelaunchBlockers {
+        var blockers = UpdateRelaunchBlockers.none
+        for workspace in workspaces {
+            for lifecycles in workspace.agentLifecycles.values where lifecycles.values.contains(.running) {
+                blockers.busyAgentCount += 1
+            }
+            guard !workspace.isRemote else { continue }
+            for (panelId, activity) in workspace.shellActivity
+            where activity == .commandRunning && workspace.agentLifecycles[panelId]?.isEmpty ?? true {
+                blockers.runningCommandCount += 1
+            }
+        }
+        return blockers
+    }
+
     func attemptUpdate() {
         attemptUpdate(nil)
     }
@@ -20222,6 +20260,13 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     var updateLogPath: String {
         updateLog.logPath()
     }
+}
+
+/// One workspace's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
+struct UpdateRelaunchWorkspaceActivity: Sendable {
+    var agentLifecycles: [UUID: [String: AgentHibernationLifecycleState]]
+    var shellActivity: [UUID: PanelShellActivityState]
+    var isRemote: Bool
 }
 
 // MARK: - CmuxAppKitSupportUI seam conformance

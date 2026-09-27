@@ -559486,6 +559486,482 @@
           }
         }
       }
+    },
+    "update.readyWaiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Ready"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update bereit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour prête"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث جاهز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización lista"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已就緒"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已就绪"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 준비됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートの準備完了"
+          }
+        }
+      }
+    },
+    "update.installNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt installieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التثبيت الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar ahora"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安装"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 설치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐインストール"
+          }
+        }
+      }
+    },
+    "update.readyWaiting.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installs and relaunches when %lld agent finishes. Agents resume after the relaunch."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Wird installiert und neu gestartet, sobald %lld Agent fertig ist. Agenten werden nach dem Neustart fortgesetzt."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Wird installiert und neu gestartet, sobald %lld Agenten fertig sind. Agenten werden nach dem Neustart fortgesetzt."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld agent a terminé. Les agents reprennent après le redémarrage."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld d’agents ont terminé. Les agents reprennent après le redémarrage."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld agents ont terminé. Les agents reprennent après le redémarrage."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء الوكلاء (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيل واحد (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيلين (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكلاء. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيلًا. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيل. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando termine %lld agente. Los agentes se reanudan tras el reinicio."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando terminen %lld de agentes. Los agentes se reanudan tras el reinicio."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando terminen %lld agentes. Los agentes se reanudan tras el reinicio."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "將在 %lld 個代理完成後安裝並重新啟動。代理會在重新啟動後繼續。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "将在 %lld 个代理完成后安装并重新启动。代理会在重新启动后继续。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "에이전트 %lld개가 끝나면 설치하고 다시 시작합니다. 다시 시작한 후 에이전트가 재개됩니다."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個のエージェントが終了するとインストールして再起動します。エージェントは再起動後に再開されます。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "update.readyWaiting.commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Relaunching will stop %lld running command. Choose Install Now when you're ready."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Relaunching will stop %lld running commands. Choose Install Now when you're ready."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Der Neustart beendet %lld laufenden Befehl. Wähle „Jetzt installieren“, wenn du bereit bist."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Der Neustart beendet %lld laufende Befehle. Wähle „Jetzt installieren“, wenn du bereit bist."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld commande en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld de commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف الأوامر قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمر واحد قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمرين قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أوامر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمرًا قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld comando en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld de comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "重新啟動將停止 %lld 個執行中的命令。準備好後請選擇「立即安裝」。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "重新启动将停止 %lld 个正在运行的命令。准备好后请选择“立即安装”。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "다시 시작하면 실행 중인 명령 %lld개가 중지됩니다. 준비되면 지금 설치를 선택하세요."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "再起動すると実行中の %lld 個のコマンドが停止します。準備ができたら「今すぐインストール」を選択してください。"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

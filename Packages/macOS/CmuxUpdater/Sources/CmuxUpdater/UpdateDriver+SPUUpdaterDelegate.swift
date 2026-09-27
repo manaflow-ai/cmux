@@ -36,14 +36,30 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         model.clearDetectedUpdate()
+        showInstallOnQuitReady(immediateInstall: immediateInstallHandler)
+        return true
+    }
+
+    /// Shows "Restart to Complete Update". Restart Now goes through the relaunch gate, and
+    /// deferring from the gate returns to this state.
+    func showInstallOnQuitReady(immediateInstall: @escaping () -> Void) {
         model.setState(.installing(.init(
             isAutoUpdate: true,
-            retryTerminatingApplication: immediateInstallHandler,
+            retryTerminatingApplication: { [weak self] in
+                guard let self else {
+                    immediateInstall()
+                    return
+                }
+                self.holdRelaunch(
+                    isAutoUpdate: true,
+                    relaunch: immediateInstall,
+                    later: { [weak self] in self?.showInstallOnQuitReady(immediateInstall: immediateInstall) }
+                )
+            },
             dismiss: { [weak self] in
                 self?.model.setState(.idle)
             }
         )))
-        return true
     }
 
     func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
