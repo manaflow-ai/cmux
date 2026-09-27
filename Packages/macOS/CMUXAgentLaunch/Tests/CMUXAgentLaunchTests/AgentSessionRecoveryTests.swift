@@ -145,4 +145,24 @@ struct AgentSessionRecoveryPlannerTests {
         let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: data)
         #expect(command.launcherPrefix == nil)
     }
+
+}
+
+@Suite("Launcher argv survives later captures")
+struct LauncherPrefixPreservationTests {
+    /// A later hook whose ancestor walk missed (sr already gone, or a poorer capture) must not erase
+    /// the launcher argv the session was first captured with.
+    @Test func laterCaptureKeepsTheRecordedLauncherPrefix() {
+        let prefix = ["sr", "claude", "proxy", "--account", "me@example.com"]
+        let first = AgentLaunchCommand(arguments: ["claude"], source: "agent-hook", launcherPrefix: prefix)
+        let later = AgentLaunchCommand(arguments: ["claude", "--model", "opus"], source: "agent-hook")
+        #expect(later.preservingExternalLauncher(from: [first]).launcherPrefix == prefix)
+
+        let own = ["sr", "claude", "proxy", "--account", "other@example.com"]
+        let relaunched = AgentLaunchCommand(arguments: ["claude"], source: "agent-hook", launcherPrefix: own)
+        #expect(relaunched.preservingExternalLauncher(from: [first]).launcherPrefix == own)
+
+        let rejected = AgentLaunchCommand(rejectedOn: .argvUnavailable, source: "rejected")
+        #expect(rejected.preservingExternalLauncher(from: [first]).launcherPrefix == nil)
+    }
 }
