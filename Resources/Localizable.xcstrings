@@ -1,65 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "cli.session.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nVerschiebt eine beendete Claude Code-Sitzung auf eine andere Maschine und setzt sie dort fort.\nBeende zuerst den Agenten: Die Verschiebung wird abgelehnt, solange die Sitzung auf einer Seite läuft.\n\nDie Verschiebung überträgt:\n  - den git-Checkout des cwd: HEAD (auf demselben Branch, wenn das sicher ist) sowie geänderte,\n    gelöschte und nicht ignorierte, nicht verfolgte Dateien; ein Worktree wird hinzugefügt, wenn\n    das Repository am Ziel existiert, der Pfad aber nicht\n  - das Transkript, sein Sitzungsverzeichnis, den Dateiverlauf und das Projektgedächtnis\n    (in beide Richtungen zusammengeführt, das Neueste gewinnt, nichts wird gelöscht)\n\nDanach öffnet sie am Ziel einen Workspace (`cmux ssh` für einen Host, einen lokalen Workspace\nfür `local`), der die Sitzung mit ihrem aufgezeichneten Launcher fortsetzt. Liegt das Home-\nVerzeichnis am Ziel nicht unter demselben absoluten Pfad, werden Pfade darunter umgeschrieben\nund das Projekt erhält einen neuen Slug.\n\nOptionen:\n  --to <destination>      SSH-Ziel (user@host oder ssh_config-Alias) oder local\n  --from <destination>    Wo die Sitzung jetzt ist (Standard: wohin die letzte Verschiebung sie gebracht hat, sonst local)\n  --name <title>          Workspace-Titel (Standard: die ersten 8 Zeichen der ID)\n  --no-code               Den git-Checkout nicht übertragen\n  --port <n>              SSH-Port\n  --identity <path>       SSH-Identitätsdatei\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --no-focus              Workspace öffnen, ohne dorthin zu wechseln\n\nBeispiele:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nDéplace une session Claude Code arrêtée vers une autre machine et la reprend là-bas.\nQuittez d'abord l'agent : le déplacement est refusé tant que la session s'exécute d'un côté ou de l'autre.\n\nLe déplacement transfère :\n  - le checkout git du cwd : HEAD (sur la même branche quand c'est sûr) ainsi que les fichiers\n    modifiés, supprimés et non suivis non ignorés ; un worktree est ajouté quand le dépôt existe\n    sur la destination mais pas le chemin\n  - la transcription, son répertoire de session, l'historique des fichiers et la mémoire du\n    projet (fusionnée dans les deux sens, le plus récent l'emporte, rien n'est supprimé)\n\nIl ouvre ensuite un espace de travail sur la destination (`cmux ssh` pour un hôte, un espace\nlocal pour `local`) qui reprend la session avec son lanceur enregistré. Quand le dossier\npersonnel de destination n'a pas le même chemin absolu, les chemins qu'il contient sont\nconvertis et le projet reçoit un nouveau slug.\n\nOptions :\n  --to <destination>      Destination SSH (user@host ou alias ssh_config), ou local\n  --from <destination>    Où se trouve la session (par défaut : là où l'a mise le dernier déplacement, sinon local)\n  --name <title>          Titre de l'espace de travail (par défaut : les 8 premiers caractères de l'id)\n  --no-code               Ne pas transférer le checkout git\n  --port <n>              Port SSH\n  --identity <path>       Fichier d'identité SSH\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --no-focus              Ouvrir l'espace de travail sans y basculer\n\nExemples :\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nينقل جلسة Claude Code متوقفة إلى جهاز آخر ويستأنفها هناك.\nأغلق الوكيل أولًا: يُرفض النقل ما دامت الجلسة تعمل على أي من الجانبين.\n\nينقل الأمر:\n  - checkout الخاص بـ git في cwd: HEAD (على الفرع نفسه عندما يكون ذلك آمنًا) والملفات المعدّلة\n    والمحذوفة وغير المتتبعة وغير المتجاهلة؛ ويُضاف worktree عندما يوجد المستودع في الوجهة\n    ولا يوجد المسار\n  - نص الجلسة ودليل الجلسة وسجل الملفات ودليل ذاكرة المشروع\n    (مدمج في الاتجاهين، الأحدث يفوز، ولا يُحذف شيء)\n\nثم يفتح مساحة عمل في الوجهة (`cmux ssh` لمضيف، أو مساحة عمل محلية لـ `local`)\nتستأنف الجلسة بالمشغّل المسجّل لها. عندما لا يكون المجلد الرئيسي في الوجهة\nعلى المسار المطلق نفسه، تُحوَّل المسارات داخله\nويُعاد إنشاء slug للمشروع.\n\nالخيارات:\n  --to <destination>      وجهة SSH (user@host أو اسم مستعار من ssh_config)، أو local\n  --from <destination>    مكان الجلسة الآن (الافتراضي: حيث وضعها آخر نقل، وإلا local)\n  --name <title>          عنوان مساحة العمل (الافتراضي: أول 8 أحرف من المعرّف)\n  --no-code               لا تنقل checkout الخاص بـ git\n  --port <n>              منفذ SSH\n  --identity <path>       ملف هوية SSH\n  --ssh-option <opt>      خيار SSH إضافي -o (قابل للتكرار)\n  --no-focus              افتح مساحة العمل دون التبديل إليها\n\nأمثلة:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMueve una sesión detenida de Claude Code a otra máquina y la reanuda allí.\nSal primero del agente: el movimiento se rechaza mientras la sesión se ejecute en cualquiera de los lados.\n\nEl movimiento lleva:\n  - el checkout de git del cwd: HEAD (en la misma rama cuando es seguro) más los archivos\n    modificados, eliminados y sin seguimiento no ignorados; se añade un worktree cuando el\n    repositorio existe en el destino pero la ruta no\n  - la transcripción, su directorio de sesión, el historial de archivos y la memoria del\n    proyecto (combinada en ambos sentidos, gana la más reciente, no se borra nada)\n\nDespués abre un espacio de trabajo en el destino (`cmux ssh` para un host, uno local para\n`local`) que reanuda la sesión con su lanzador registrado. Cuando el home del destino no está\nen la misma ruta absoluta, las rutas bajo él se convierten\ny el proyecto recibe un nuevo slug.\n\nOpciones:\n  --to <destination>      Destino SSH (user@host o alias de ssh_config), o local\n  --from <destination>    Dónde está la sesión ahora (por defecto: donde la dejó el último movimiento, si no local)\n  --name <title>          Título del espacio de trabajo (por defecto: los primeros 8 caracteres del id)\n  --no-code               No llevar el checkout de git\n  --port <n>              Puerto SSH\n  --identity <path>       Archivo de identidad SSH\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --no-focus              Abrir el espacio de trabajo sin cambiar a él\n\nEjemplos:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n將已停止的 Claude Code 工作階段移到另一台機器並在那裡恢復。\n請先結束代理：只要工作階段仍在任一端執行，移動就會被拒絕。\n\n移動會帶上：\n  - cwd 的 git checkout：HEAD（安全時使用同一分支）加上已修改、已刪除\n    和未追蹤且未忽略的檔案；若目的地有儲存庫\n    但沒有該路徑，會新增 worktree\n  - 對話紀錄、其工作階段目錄、檔案歷史與專案記憶目錄\n    （雙向合併，較新者優先，不刪除任何內容）\n\n接著在目的地開啟工作區（主機用 `cmux ssh`，`local` 則開本機工作區），\n以記錄的啟動器恢復工作階段。\n若目的地的主目錄不在相同的絕對路徑，其下的路徑會被對應，\n專案也會重新產生 slug。\n\n選項：\n  --to <destination>      SSH 目的地（user@host 或 ssh_config 別名），或 local\n  --from <destination>    工作階段目前所在位置（預設：上次移動所放的位置，否則為 local）\n  --name <title>          工作區標題（預設：ID 的前 8 個字元）\n  --no-code               不帶上 git checkout\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH 身分檔案\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --no-focus              開啟工作區但不切換過去\n\n範例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n将已停止的 Claude Code 会话移到另一台机器并在那里恢复。\n请先退出代理：只要会话仍在任一端运行，移动就会被拒绝。\n\n移动会带上：\n  - cwd 的 git 检出：HEAD（安全时使用同一分支）以及已修改、已删除\n    和未跟踪且未忽略的文件；若目标上有仓库\n    但没有该路径，会添加 worktree\n  - 会话记录、其会话目录、文件历史和项目记忆目录\n    （双向合并，较新者优先，不删除任何内容）\n\n随后在目标上打开工作区（主机用 `cmux ssh`，`local` 则打开本地工作区），\n用记录的启动器恢复会话。\n若目标的主目录不在相同的绝对路径，其下的路径会被映射，\n项目也会重新生成 slug。\n\n选项：\n  --to <destination>      SSH 目标（user@host 或 ssh_config 别名），或 local\n  --from <destination>    会话当前所在位置（默认：上次移动放置的位置，否则为 local）\n  --name <title>          工作区标题（默认：ID 的前 8 个字符）\n  --no-code               不带上 git 检出\n  --port <n>              SSH 端口\n  --identity <path>       SSH 身份文件\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --no-focus              打开工作区但不切换过去\n\n示例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n중지된 Claude Code 세션을 다른 머신으로 옮기고 그곳에서 재개합니다.\n먼저 에이전트를 종료하세요. 어느 쪽에서든 세션이 실행 중이면 이동이 거부됩니다.\n\n이동하는 항목:\n  - cwd의 git 체크아웃: HEAD(안전하면 같은 브랜치)와 수정, 삭제,\n    무시되지 않은 추적 안 된 파일. 대상에 저장소는 있지만\n    경로가 없으면 worktree를 추가합니다\n  - 트랜스크립트, 세션 디렉터리, 파일 기록, 프로젝트 메모리 디렉터리\n    (양방향 병합, 최신 우선, 삭제 없음)\n\n그런 다음 대상에서 작업 공간(호스트는 `cmux ssh`, `local`은 로컬 작업 공간)을 열고\n기록된 런처로 세션을 재개합니다.\n대상의 홈이 같은 절대 경로에 있지 않으면 홈 아래 경로를 변환하고\n프로젝트 slug를 다시 만듭니다.\n\n옵션:\n  --to <destination>      SSH 대상(user@host 또는 ssh_config 별칭) 또는 local\n  --from <destination>    세션의 현재 위치(기본값: 마지막 이동으로 옮긴 곳, 없으면 local)\n  --name <title>          작업 공간 제목(기본값: ID의 처음 8자)\n  --no-code               git 체크아웃을 옮기지 않음\n  --port <n>              SSH 포트\n  --identity <path>       SSH ID 파일\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --no-focus              작업 공간으로 전환하지 않고 열기\n\n예시:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n停止した Claude Code セッションを別のマシンへ移動し、そこで再開します。\n先にエージェントを終了してください。どちらかでセッションが実行中の間は移動を拒否します。\n\n移動する内容:\n  - cwd の git チェックアウト: HEAD (安全なら同じブランチ) と、変更・削除されたファイル、\n    無視されていない未追跡ファイル。移動先にリポジトリはあるが\n    パスがない場合は worktree を追加します\n  - トランスクリプト、セッションディレクトリ、ファイル履歴、プロジェクトのメモリディレクトリ\n    (双方向にマージ、新しいほうを優先、削除はしません)\n\nその後、移動先でワークスペース (ホストなら `cmux ssh`、`local` ならローカルのワークスペース) を\n開き、記録されたランチャーでセッションを再開します。\n移動先のホームが同じ絶対パスにない場合は、ホーム配下のパスを変換し、\nプロジェクトの slug を作り直します。\n\nオプション:\n  --to <destination>      SSH 接続先 (user@host または ssh_config のエイリアス)、または local\n  --from <destination>    セッションの現在の場所 (既定: 前回の移動先、なければ local)\n  --name <title>          ワークスペースのタイトル (既定: ID の先頭 8 文字)\n  --no-code               git チェックアウトを移動しない\n  --port <n>              SSH ポート\n  --identity <path>       SSH の ID ファイル\n  --ssh-option <opt>      追加の SSH -o オプション (繰り返し可)\n  --no-focus              ワークスペースに切り替えずに開く\n\n例:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
-          }
-        }
-      }
-    },
     "settings.automation.rules.createFailed.title": {
       "extractionState": "manual",
       "localizations": {
@@ -347718,65 +347659,6 @@
         }
       }
     },
-    "settings.notifications.sound.preview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preview Sound"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ton anhören"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écouter le son"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "معاينة الصوت"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escuchar sonido"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "試聽音效"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "试听声音"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소리 미리 듣기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サウンドをプレビュー"
-          }
-        }
-      }
-    },
     "settings.notifications.sound.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -557903,6 +557785,1072 @@
         }
       }
     },
+    "update.readyWaiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Ready"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update bereit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour prête"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث جاهز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización lista"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已就緒"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已就绪"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 준비됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートの準備完了"
+          }
+        }
+      }
+    },
+    "update.installNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Now"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt installieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer maintenant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التثبيت الآن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar ahora"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安裝"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安装"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 설치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐインストール"
+          }
+        }
+      }
+    },
+    "update.readyWaiting.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installs and relaunches when %lld agent finishes. Agents resume after the relaunch."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installs and relaunches when %lld agents finish. Agents resume after the relaunch."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Wird installiert und neu gestartet, sobald %lld Agent fertig ist. Agenten werden nach dem Neustart fortgesetzt."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Wird installiert und neu gestartet, sobald %lld Agenten fertig sind. Agenten werden nach dem Neustart fortgesetzt."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld agent a terminé. Les agents reprennent après le redémarrage."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld d’agents ont terminé. Les agents reprennent après le redémarrage."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "S’installe et redémarre quand %lld agents ont terminé. Les agents reprennent après le redémarrage."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء الوكلاء (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيل واحد (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء وكيلين (%lld). تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكلاء. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيلًا. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "يتم التثبيت وإعادة التشغيل عند انتهاء %lld وكيل. تستأنف الوكلاء بعد إعادة التشغيل."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando termine %lld agente. Los agentes se reanudan tras el reinicio."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando terminen %lld de agentes. Los agentes se reanudan tras el reinicio."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Se instala y reinicia cuando terminen %lld agentes. Los agentes se reanudan tras el reinicio."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "將在 %lld 個代理完成後安裝並重新啟動。代理會在重新啟動後繼續。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "将在 %lld 个代理完成后安装并重新启动。代理会在重新启动后继续。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "에이전트 %lld개가 끝나면 설치하고 다시 시작합니다. 다시 시작한 후 에이전트가 재개됩니다."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個のエージェントが終了するとインストールして再起動します。エージェントは再起動後に再開されます。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "update.readyWaiting.commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Relaunching will stop %lld running command. Choose Install Now when you're ready."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Relaunching will stop %lld running commands. Choose Install Now when you're ready."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Der Neustart beendet %lld laufenden Befehl. Wähle „Jetzt installieren“, wenn du bereit bist."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Der Neustart beendet %lld laufende Befehle. Wähle „Jetzt installieren“, wenn du bereit bist."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld commande en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld de commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Le redémarrage arrêtera %lld commandes en cours. Choisissez Installer maintenant quand vous êtes prêt."
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف الأوامر قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمر واحد قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف أمرين قيد التشغيل (%lld). اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أوامر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمرًا قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "ستؤدي إعادة التشغيل إلى إيقاف %lld أمر قيد التشغيل. اختر التثبيت الآن عندما تكون جاهزًا."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld comando en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld de comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "El reinicio detendrá %lld comandos en ejecución. Elige Instalar ahora cuando estés listo."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "重新啟動將停止 %lld 個執行中的命令。準備好後請選擇「立即安裝」。"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "重新启动将停止 %lld 个正在运行的命令。准备好后请选择“立即安装”。"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "다시 시작하면 실행 중인 명령 %lld개가 중지됩니다. 준비되면 지금 설치를 선택하세요."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "再起動すると実行中の %lld 個のコマンドが停止します。準備ができたら「今すぐインストール」を選択してください。"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "browser.omnibar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address and search bar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adress- und Suchleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’adresse et de recherche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط العنوان والبحث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de direcciones y búsqueda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網址與搜尋列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址和搜索栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주소 및 검색 막대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスと検索バー"
+          }
+        }
+      }
+    },
+    "projectPanel.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Project"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt neu laden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger le projet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل المشروع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recargar proyecto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入專案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载项目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 다시 불러오기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを再読み込み"
+          }
+        }
+      }
+    },
+    "projectPanel.reloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload returned errors: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le rechargement a renvoyé des erreurs : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعادت إعادة التحميل أخطاء: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La recarga devolvió errores: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入時發生錯誤：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载时出现错误：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 불러오기 중 오류 발생: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みでエラーが発生しました: %@"
+          }
+        }
+      }
+    },
+    "projectPanel.dismissReloadErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss Errors"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer les erreurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل الأخطاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar errores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉錯誤"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭错误"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーを閉じる"
+          }
+        }
+      }
+    },
+    "projectPanel.scheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schéma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخطط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스킴"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキーム"
+          }
+        }
+      }
+    },
+    "projectPanel.configuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguration"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكوين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成"
+          }
+        }
+      }
+    },
+    "projectPanel.loadingFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird geladen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 불러오는 중"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を読み込み中"
+          }
+        }
+      }
+    },
+    "projectPanel.failedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗: %@"
+          }
+        }
+      }
+    },
+    "cli.session.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nVerschiebt eine beendete Claude Code-Sitzung auf eine andere Maschine und setzt sie dort fort.\nBeende zuerst den Agenten: Die Verschiebung wird abgelehnt, solange die Sitzung auf einer Seite läuft.\n\nDie Verschiebung überträgt:\n  - den git-Checkout des cwd: HEAD (auf demselben Branch, wenn das sicher ist) sowie geänderte,\n    gelöschte und nicht ignorierte, nicht verfolgte Dateien; ein Worktree wird hinzugefügt, wenn\n    das Repository am Ziel existiert, der Pfad aber nicht\n  - das Transkript, sein Sitzungsverzeichnis, den Dateiverlauf und das Projektgedächtnis\n    (in beide Richtungen zusammengeführt, das Neueste gewinnt, nichts wird gelöscht)\n\nDanach öffnet sie am Ziel einen Workspace (`cmux ssh` für einen Host, einen lokalen Workspace\nfür `local`), der die Sitzung mit ihrem aufgezeichneten Launcher fortsetzt. Liegt das Home-\nVerzeichnis am Ziel nicht unter demselben absoluten Pfad, werden Pfade darunter umgeschrieben\nund das Projekt erhält einen neuen Slug.\n\nOptionen:\n  --to <destination>      SSH-Ziel (user@host oder ssh_config-Alias) oder local\n  --from <destination>    Wo die Sitzung jetzt ist (Standard: wohin die letzte Verschiebung sie gebracht hat, sonst local)\n  --name <title>          Workspace-Titel (Standard: die ersten 8 Zeichen der ID)\n  --no-code               Den git-Checkout nicht übertragen\n  --port <n>              SSH-Port\n  --identity <path>       SSH-Identitätsdatei\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --no-focus              Workspace öffnen, ohne dorthin zu wechseln\n\nBeispiele:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nDéplace une session Claude Code arrêtée vers une autre machine et la reprend là-bas.\nQuittez d'abord l'agent : le déplacement est refusé tant que la session s'exécute d'un côté ou de l'autre.\n\nLe déplacement transfère :\n  - le checkout git du cwd : HEAD (sur la même branche quand c'est sûr) ainsi que les fichiers\n    modifiés, supprimés et non suivis non ignorés ; un worktree est ajouté quand le dépôt existe\n    sur la destination mais pas le chemin\n  - la transcription, son répertoire de session, l'historique des fichiers et la mémoire du\n    projet (fusionnée dans les deux sens, le plus récent l'emporte, rien n'est supprimé)\n\nIl ouvre ensuite un espace de travail sur la destination (`cmux ssh` pour un hôte, un espace\nlocal pour `local`) qui reprend la session avec son lanceur enregistré. Quand le dossier\npersonnel de destination n'a pas le même chemin absolu, les chemins qu'il contient sont\nconvertis et le projet reçoit un nouveau slug.\n\nOptions :\n  --to <destination>      Destination SSH (user@host ou alias ssh_config), ou local\n  --from <destination>    Où se trouve la session (par défaut : là où l'a mise le dernier déplacement, sinon local)\n  --name <title>          Titre de l'espace de travail (par défaut : les 8 premiers caractères de l'id)\n  --no-code               Ne pas transférer le checkout git\n  --port <n>              Port SSH\n  --identity <path>       Fichier d'identité SSH\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --no-focus              Ouvrir l'espace de travail sans y basculer\n\nExemples :\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nينقل جلسة Claude Code متوقفة إلى جهاز آخر ويستأنفها هناك.\nأغلق الوكيل أولًا: يُرفض النقل ما دامت الجلسة تعمل على أي من الجانبين.\n\nينقل الأمر:\n  - checkout الخاص بـ git في cwd: HEAD (على الفرع نفسه عندما يكون ذلك آمنًا) والملفات المعدّلة\n    والمحذوفة وغير المتتبعة وغير المتجاهلة؛ ويُضاف worktree عندما يوجد المستودع في الوجهة\n    ولا يوجد المسار\n  - نص الجلسة ودليل الجلسة وسجل الملفات ودليل ذاكرة المشروع\n    (مدمج في الاتجاهين، الأحدث يفوز، ولا يُحذف شيء)\n\nثم يفتح مساحة عمل في الوجهة (`cmux ssh` لمضيف، أو مساحة عمل محلية لـ `local`)\nتستأنف الجلسة بالمشغّل المسجّل لها. عندما لا يكون المجلد الرئيسي في الوجهة\nعلى المسار المطلق نفسه، تُحوَّل المسارات داخله\nويُعاد إنشاء slug للمشروع.\n\nالخيارات:\n  --to <destination>      وجهة SSH (user@host أو اسم مستعار من ssh_config)، أو local\n  --from <destination>    مكان الجلسة الآن (الافتراضي: حيث وضعها آخر نقل، وإلا local)\n  --name <title>          عنوان مساحة العمل (الافتراضي: أول 8 أحرف من المعرّف)\n  --no-code               لا تنقل checkout الخاص بـ git\n  --port <n>              منفذ SSH\n  --identity <path>       ملف هوية SSH\n  --ssh-option <opt>      خيار SSH إضافي -o (قابل للتكرار)\n  --no-focus              افتح مساحة العمل دون التبديل إليها\n\nأمثلة:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMueve una sesión detenida de Claude Code a otra máquina y la reanuda allí.\nSal primero del agente: el movimiento se rechaza mientras la sesión se ejecute en cualquiera de los lados.\n\nEl movimiento lleva:\n  - el checkout de git del cwd: HEAD (en la misma rama cuando es seguro) más los archivos\n    modificados, eliminados y sin seguimiento no ignorados; se añade un worktree cuando el\n    repositorio existe en el destino pero la ruta no\n  - la transcripción, su directorio de sesión, el historial de archivos y la memoria del\n    proyecto (combinada en ambos sentidos, gana la más reciente, no se borra nada)\n\nDespués abre un espacio de trabajo en el destino (`cmux ssh` para un host, uno local para\n`local`) que reanuda la sesión con su lanzador registrado. Cuando el home del destino no está\nen la misma ruta absoluta, las rutas bajo él se convierten\ny el proyecto recibe un nuevo slug.\n\nOpciones:\n  --to <destination>      Destino SSH (user@host o alias de ssh_config), o local\n  --from <destination>    Dónde está la sesión ahora (por defecto: donde la dejó el último movimiento, si no local)\n  --name <title>          Título del espacio de trabajo (por defecto: los primeros 8 caracteres del id)\n  --no-code               No llevar el checkout de git\n  --port <n>              Puerto SSH\n  --identity <path>       Archivo de identidad SSH\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --no-focus              Abrir el espacio de trabajo sin cambiar a él\n\nEjemplos:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n將已停止的 Claude Code 工作階段移到另一台機器並在那裡恢復。\n請先結束代理：只要工作階段仍在任一端執行，移動就會被拒絕。\n\n移動會帶上：\n  - cwd 的 git checkout：HEAD（安全時使用同一分支）加上已修改、已刪除\n    和未追蹤且未忽略的檔案；若目的地有儲存庫\n    但沒有該路徑，會新增 worktree\n  - 對話紀錄、其工作階段目錄、檔案歷史與專案記憶目錄\n    （雙向合併，較新者優先，不刪除任何內容）\n\n接著在目的地開啟工作區（主機用 `cmux ssh`，`local` 則開本機工作區），\n以記錄的啟動器恢復工作階段。\n若目的地的主目錄不在相同的絕對路徑，其下的路徑會被對應，\n專案也會重新產生 slug。\n\n選項：\n  --to <destination>      SSH 目的地（user@host 或 ssh_config 別名），或 local\n  --from <destination>    工作階段目前所在位置（預設：上次移動所放的位置，否則為 local）\n  --name <title>          工作區標題（預設：ID 的前 8 個字元）\n  --no-code               不帶上 git checkout\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH 身分檔案\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --no-focus              開啟工作區但不切換過去\n\n範例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n将已停止的 Claude Code 会话移到另一台机器并在那里恢复。\n请先退出代理：只要会话仍在任一端运行，移动就会被拒绝。\n\n移动会带上：\n  - cwd 的 git 检出：HEAD（安全时使用同一分支）以及已修改、已删除\n    和未跟踪且未忽略的文件；若目标上有仓库\n    但没有该路径，会添加 worktree\n  - 会话记录、其会话目录、文件历史和项目记忆目录\n    （双向合并，较新者优先，不删除任何内容）\n\n随后在目标上打开工作区（主机用 `cmux ssh`，`local` 则打开本地工作区），\n用记录的启动器恢复会话。\n若目标的主目录不在相同的绝对路径，其下的路径会被映射，\n项目也会重新生成 slug。\n\n选项：\n  --to <destination>      SSH 目标（user@host 或 ssh_config 别名），或 local\n  --from <destination>    会话当前所在位置（默认：上次移动放置的位置，否则为 local）\n  --name <title>          工作区标题（默认：ID 的前 8 个字符）\n  --no-code               不带上 git 检出\n  --port <n>              SSH 端口\n  --identity <path>       SSH 身份文件\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --no-focus              打开工作区但不切换过去\n\n示例：\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n중지된 Claude Code 세션을 다른 머신으로 옮기고 그곳에서 재개합니다.\n먼저 에이전트를 종료하세요. 어느 쪽에서든 세션이 실행 중이면 이동이 거부됩니다.\n\n이동하는 항목:\n  - cwd의 git 체크아웃: HEAD(안전하면 같은 브랜치)와 수정, 삭제,\n    무시되지 않은 추적 안 된 파일. 대상에 저장소는 있지만\n    경로가 없으면 worktree를 추가합니다\n  - 트랜스크립트, 세션 디렉터리, 파일 기록, 프로젝트 메모리 디렉터리\n    (양방향 병합, 최신 우선, 삭제 없음)\n\n그런 다음 대상에서 작업 공간(호스트는 `cmux ssh`, `local`은 로컬 작업 공간)을 열고\n기록된 런처로 세션을 재개합니다.\n대상의 홈이 같은 절대 경로에 있지 않으면 홈 아래 경로를 변환하고\n프로젝트 slug를 다시 만듭니다.\n\n옵션:\n  --to <destination>      SSH 대상(user@host 또는 ssh_config 별칭) 또는 local\n  --from <destination>    세션의 현재 위치(기본값: 마지막 이동으로 옮긴 곳, 없으면 local)\n  --name <title>          작업 공간 제목(기본값: ID의 처음 8자)\n  --no-code               git 체크아웃을 옮기지 않음\n  --port <n>              SSH 포트\n  --identity <path>       SSH ID 파일\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --no-focus              작업 공간으로 전환하지 않고 열기\n\n예시:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux session move <session-id> --to <ssh-destination|local> [options]\n\n停止した Claude Code セッションを別のマシンへ移動し、そこで再開します。\n先にエージェントを終了してください。どちらかでセッションが実行中の間は移動を拒否します。\n\n移動する内容:\n  - cwd の git チェックアウト: HEAD (安全なら同じブランチ) と、変更・削除されたファイル、\n    無視されていない未追跡ファイル。移動先にリポジトリはあるが\n    パスがない場合は worktree を追加します\n  - トランスクリプト、セッションディレクトリ、ファイル履歴、プロジェクトのメモリディレクトリ\n    (双方向にマージ、新しいほうを優先、削除はしません)\n\nその後、移動先でワークスペース (ホストなら `cmux ssh`、`local` ならローカルのワークスペース) を\n開き、記録されたランチャーでセッションを再開します。\n移動先のホームが同じ絶対パスにない場合は、ホーム配下のパスを変換し、\nプロジェクトの slug を作り直します。\n\nオプション:\n  --to <destination>      SSH 接続先 (user@host または ssh_config のエイリアス)、または local\n  --from <destination>    セッションの現在の場所 (既定: 前回の移動先、なければ local)\n  --name <title>          ワークスペースのタイトル (既定: ID の先頭 8 文字)\n  --no-code               git チェックアウトを移動しない\n  --port <n>              SSH ポート\n  --identity <path>       SSH の ID ファイル\n  --ssh-option <opt>      追加の SSH -o オプション (繰り返し可)\n  --no-focus              ワークスペースに切り替えずに開く\n\n例:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+          }
+        }
+      }
+    },
+    "settings.notifications.sound.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Sound"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton anhören"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écouter le son"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة الصوت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escuchar sonido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試聽音效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试听声音"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소리 미리 듣기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サウンドをプレビュー"
+          }
+        }
+      }
+    },
     "cli.session.error.unknownSubcommand": {
       "extractionState": "manual",
       "localizations": {
@@ -559728,478 +560676,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "session move：正在目的地新增 worktree %@"
-          }
-        }
-      }
-    },
-    "browser.omnibar.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Address and search bar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adress- und Suchleiste"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barre d’adresse et de recherche"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "شريط العنوان والبحث"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra de direcciones y búsqueda"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "網址與搜尋列"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "地址和搜索栏"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "주소 및 검색 막대"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アドレスと検索バー"
-          }
-        }
-      }
-    },
-    "projectPanel.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload Project"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Projekt neu laden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recharger le projet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة تحميل المشروع"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recargar proyecto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入專案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载项目"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로젝트 다시 불러오기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロジェクトを再読み込み"
-          }
-        }
-      }
-    },
-    "projectPanel.reloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload returned errors: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beim Neuladen sind Fehler aufgetreten: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le rechargement a renvoyé des erreurs : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أعادت إعادة التحميل أخطاء: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La recarga devolvió errores: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新載入時發生錯誤：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新加载时出现错误：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 불러오기 중 오류 발생: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込みでエラーが発生しました: %@"
-          }
-        }
-      }
-    },
-    "projectPanel.dismissReloadErrors": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss Errors"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehler ausblenden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ignorer les erreurs"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجاهل الأخطاء"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Descartar errores"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉錯誤"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭错误"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오류 닫기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーを閉じる"
-          }
-        }
-      }
-    },
-    "projectPanel.scheme": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scheme"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schema"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schéma"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المخطط"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esquema"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "方案"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스킴"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スキーム"
-          }
-        }
-      }
-    },
-    "projectPanel.configuration": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Konfiguration"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration de build"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التكوين"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "組態"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구성"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "構成"
-          }
-        }
-      }
-    },
-    "projectPanel.loadingFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ wird geladen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement de %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ تحميل %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 불러오는 중"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ を読み込み中"
-          }
-        }
-      }
-    },
-    "projectPanel.failedFormat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed: %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fehlgeschlagen: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فشل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失败：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실패: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗: %@"
           }
         }
       }
