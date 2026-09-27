@@ -1717,6 +1717,129 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerCloseDontAskAgainTests: XCTestCase {
+    private var defaults: UserDefaults!
+
+    private func makeManager() -> TabManager {
+        let suiteName = "TabManagerCloseDontAskAgainTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        self.defaults = defaults
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            closeTabWarningDefaults: defaults
+        )
+        while manager.tabs.count < 3 {
+            _ = manager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        return manager
+    }
+
+    private func markRunningProcess(_ workspace: Workspace) {
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a focused terminal panel")
+            return
+        }
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+    }
+
+    func testTickingDontAskAgainOnWorkspacePromptTurnsOffWorkspaceWarning() {
+        let manager = makeManager()
+        let first = manager.tabs[0]
+        let second = manager.tabs[1]
+        markRunningProcess(first)
+        markRunningProcess(second)
+
+        var promptCount = 0
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return true
+        }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(first))
+        XCTAssertEqual(offered, [.workspace])
+        XCTAssertFalse(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
+
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
+        XCTAssertEqual(promptCount, 1, "The second close should not ask")
+    }
+
+    func testUntickedDontAskAgainKeepsWarningOn() {
+        let manager = makeManager()
+        let workspace = manager.tabs[1]
+        markRunningProcess(workspace)
+
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { _ in false }
+
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
+    }
+
+    func testTickingDontAskAgainOnTabPromptTurnsOffTabWarning() {
+        let manager = makeManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected selected workspace and focused terminal panel")
+            return
+        }
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertEqual(offered, [.tab])
+        XCTAssertFalse(AppCatalogSection().warnBeforeClosingTab.value(in: defaults))
+        XCTAssertTrue(AppCatalogSection().warnBeforeClosingWorkspace.value(in: defaults))
+        XCTAssertNotNil(workspace.panels[panelId], "Cancel still keeps the tab open")
+    }
+
+    func testPinnedWorkspacePromptNeverOffersDontAskAgain() {
+        let manager = makeManager()
+        let workspace = manager.tabs[1]
+        let unpinned = manager.tabs[2]
+        manager.setPinned(workspace, pinned: true)
+
+        var promptCount = 0
+        var offerCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+        manager.confirmCloseDontAskAgainHandler = { _ in
+            offerCount += 1
+            return true
+        }
+
+        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
+        // The in-flight guard releases on the next main-queue turn.
+        drainMainQueue()
+        manager.closeWorkspacesWithConfirmation([unpinned.id, workspace.id], allowPinned: true)
+
+        XCTAssertEqual(promptCount, 2)
+        XCTAssertEqual(offerCount, 0)
+        XCTAssertEqual(manager.tabs.count, 3, "Both prompts were cancelled")
+    }
+}
+
+@MainActor
 final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
     func testCloseCurrentTabSpamWithConfirmationEnabledPromptsOnceAndClosesOneWorkspace() {
         let manager = TabManager()

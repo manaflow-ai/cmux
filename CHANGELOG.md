@@ -69,6 +69,7 @@ All notable changes to cmux are documented here.
 - iOS (beta): Version 1.0.6 shows a one-time notice with the minimum Mac versions it needs, then opens the Mac pairing guide ([#14112](https://github.com/manaflow-ai/cmux/pull/14112)) -- thanks @azooz2003-bit!
 - iOS (beta): Settings > Reset > Erase All Data on This Device signs out and returns the app to a fresh-install state ([#14140](https://github.com/manaflow-ai/cmux/pull/14140))
 - Settings > App > Warn Before Closing Workspace (`app.warnBeforeClosingWorkspace`, on by default) turns off the "Close workspace?" prompts; pinned workspaces still ask ([#14979](https://github.com/manaflow-ai/cmux/pull/14979))
+- Close confirmation dialogs for tabs, panes and workspaces have a "Don’t ask again" checkbox that turns off the warning behind that dialog; "Close pinned workspace?" still always asks ([#15052](https://github.com/manaflow-ai/cmux/pull/15052))
 
 ### Changed
 - Each Settings toggle and picker row shows one fixed subtitle instead of text that changes with the selected value, and localized Settings titles and Feed, Dock, and Cloud Machines labels use corrected wording ([#14883](https://github.com/manaflow-ai/cmux/pull/14883)) -- thanks @agoodkind!
