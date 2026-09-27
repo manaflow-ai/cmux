@@ -111,7 +111,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(
             command.substituting(filePath: "/tmp/diagram with 'quote'.excalidraw"),
-            "preview 'before''/tmp/diagram with '\\''quote'.excalidraw''-after'"
+            "preview 'before-''/tmp/diagram with '\\''quote'\\''.excalidraw''-after'"
         )
     }
 
