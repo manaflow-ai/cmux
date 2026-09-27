@@ -284,7 +284,7 @@ public struct TerminalSection: View {
                     localized: "settings.terminal.adaptiveDefaultTheme",
                     defaultValue: "Adapt Default Theme to Appearance"
                 ),
-                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when the Ghostty config is empty.")
+                subtitle: String(localized: "settings.terminal.adaptiveDefaultTheme.subtitle", defaultValue: "Matches terminal colors to the light or dark appearance when no Ghostty theme or colors are set.")
             ) {
                 Toggle(
                     "",
@@ -422,7 +422,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.reflowHardWrapOnCopy"),
                 String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copying text joins lines that wrapped at the terminal edge.")
+                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Copying text also joins line breaks a program printed at the full terminal width and drops a short continuation indent. Soft-wrapped lines always copy as one line.")
             ) {
                 Toggle("", isOn: Binding(get: { reflowHardWrapOnCopy.current }, set: { reflowHardWrapOnCopy.set($0) }))
                     .labelsHidden()
@@ -433,7 +433,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.textEditingGestures"),
                 String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
-                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive these as editing keys.")
+                subtitle: String(localized: "settings.terminal.textEditingGestures.subtitle", defaultValue: "Pressing Command or Option with an arrow key or Delete moves or deletes by line or word. Full-screen terminal apps receive the rewritten keys too, so turn this off for apps that need the original keys.")
             ) {
                 Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
                     .labelsHidden()
@@ -444,9 +444,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                subtitle: passwordInputIndicator.current
-                    ? String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh.")
-                    : String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOff", defaultValue: "No badge is shown when a program reads a password with echo off.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
                     .labelsHidden()
@@ -457,9 +455,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputDots"),
                 String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                subtitle: passwordInputDots.current
-                    ? String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters.")
-                    : String(localized: "settings.terminal.showPasswordInputDots.subtitleOff", defaultValue: "The badge shows only a lock, without counting typed characters.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
                     .labelsHidden()
@@ -482,7 +478,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

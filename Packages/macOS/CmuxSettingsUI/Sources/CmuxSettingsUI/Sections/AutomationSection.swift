@@ -279,7 +279,7 @@ public struct AutomationSection: View {
                 )
                 SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
             }
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Off turns control off. cmux processes only accepts processes started in cmux terminals. Automation mode also accepts other apps running as this Mac user. Password mode requires a password. Full open access accepts any local process without a password and is unsafe."))
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "“Off” turns control off. “cmux processes only” accepts only processes started in cmux terminals. “Automation mode” also accepts other apps running as this Mac user. “Password mode” requires a password. “Full open access” accepts any local process without a password and is unsafe."))
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(
