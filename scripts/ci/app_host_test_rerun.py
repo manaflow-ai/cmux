@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import plistlib
 import os
 import re
 import subprocess
@@ -442,6 +443,32 @@ def locate_c_targets(names: list[str], roots: list[Path], dump: Callable[[Path],
     return found
 
 
+def binary_framework_search_paths(roots: list[Path], arch: str | None) -> list[str]:
+    """Use resolved macOS XCFramework slices when archived runtime copies lack modules."""
+    if roots and not arch:
+        raise ValueError("binary framework selection requires the product architecture")
+    paths = set()
+    for root in roots:
+        if not root.is_dir():
+            raise ValueError(f"resolved binary artifact directory is missing: {root}")
+        for manifest in sorted(root.glob("**/*.xcframework/Info.plist")):
+            with manifest.open("rb") as stream:
+                libraries = plistlib.load(stream).get("AvailableLibraries", [])
+            for library in libraries:
+                if (library.get("SupportedPlatform") != "macos"
+                        or library.get("SupportedPlatformVariant")
+                        or arch not in library.get("SupportedArchitectures", [])):
+                    continue
+                relative = Path(library["LibraryIdentifier"]) / library["LibraryPath"]
+                if relative.suffix != ".framework":
+                    continue
+                framework = (manifest.parent / relative).resolve()
+                if not framework.is_relative_to(manifest.parent.resolve()) or not framework.is_dir():
+                    raise ValueError(f"invalid binary framework slice: {framework}")
+                paths.add(str(framework.parent))
+    return sorted(paths)
+
+
 def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package) -> None:
     project = Path(args.project)
     derived = Path(args.derived_data)
@@ -467,7 +494,12 @@ def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package
     project.write_text(text)
     quote = lambda value: '"' + value.replace('"', '\\"') + '"' if re.search(r"\s", value) else value
     settings = {
-        "FRAMEWORK_SEARCH_PATHS": ["$(inherited)", "$(BUILT_PRODUCTS_DIR)/PackageFrameworks"],
+        "FRAMEWORK_SEARCH_PATHS": [
+            "$(inherited)", "$(BUILT_PRODUCTS_DIR)/PackageFrameworks",
+            *binary_framework_search_paths(
+                [Path(root) for root in getattr(args, "xcframework_root", [])], getattr(args, "arch", None)
+            ),
+        ],
         "OTHER_LDFLAGS": ["$(inherited)", *ldflags],
         "OTHER_SWIFT_FLAGS": ["$(inherited)", *swift_flags],
     }
@@ -630,6 +662,8 @@ def main(argv: list[str] | None = None) -> int:
     detach_parser.add_argument("--xcconfig", required=True)
     detach_parser.add_argument("--target", default=TEST_TARGET)
     detach_parser.add_argument("--package-root", action="append", default=[])
+    detach_parser.add_argument("--xcframework-root", action="append", default=[])
+    detach_parser.add_argument("--arch", help="Architecture recorded by the adopted product")
     prune_parser = commands.add_parser("prune")
     prune_parser.add_argument("--project", required=True)
     prune_parser.add_argument("--test-root", required=True)

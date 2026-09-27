@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import plistlib
+import shlex
 import re
 import subprocess
 import sys
@@ -439,6 +441,54 @@ class DetachTests(unittest.TestCase):
             self.assertIn(f"-I{debug / 'include'}", xcconfig)
             self.assertIn("-framework Pkg_1_PackageProduct", xcconfig)
             self.assertIn(f'"{host / "MacOS" / "Host App.debug.dylib"}"', xcconfig)
+
+    def test_detach_imports_only_matching_resolved_binary_framework_slices(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rerun products ") as directory:
+            root = Path(directory)
+            debug = root / "Build" / "Products" / "Debug"
+            (debug / "PackageFrameworks" / "Pkg_1_PackageProduct.framework").mkdir(parents=True)
+            host = debug / "Host App.app" / "Contents"
+            (host / "PlugIns" / "cmuxTests.xctest").mkdir(parents=True)
+            # Runtime copies can survive while Xcode removes importable build products.
+            (host / "Frameworks" / "Sparkle.framework").mkdir(parents=True)
+            artifacts = root / "resolved artifacts"
+            expected = []
+            excluded = []
+            for name in ("Sparkle", "Iroh"):
+                xcframework = artifacts / name / f"{name}.xcframework"
+                libraries = []
+                for identifier, platform, architectures, variant in (
+                    ("macos-universal", "macos", ["arm64", "x86_64"], None),
+                    ("macos-intel", "macos", ["x86_64"], None),
+                    ("ios-arm64", "ios", ["arm64"], None),
+                    ("ios-catalyst", "ios", ["arm64"], "maccatalyst"),
+                ):
+                    framework = xcframework / identifier / f"{name}.framework"
+                    (framework / "Modules").mkdir(parents=True)
+                    (framework / "Modules" / "module.modulemap").write_text(f"framework module {name} {{}}")
+                    library = dict(LibraryIdentifier=identifier, LibraryPath=f"{name}.framework",
+                                   SupportedPlatform=platform, SupportedArchitectures=architectures)
+                    if variant:
+                        library["SupportedPlatformVariant"] = variant
+                    libraries.append(library)
+                    (expected if identifier == "macos-universal" else excluded).append(framework.parent)
+                (xcframework / "Info.plist").write_bytes(plistlib.dumps(dict(AvailableLibraries=libraries)))
+            project = root / "project.pbxproj"
+            project.write_text(PROJECT)
+            config = root / "detached.xcconfig"
+            args = argparse.Namespace(
+                project=str(project), derived_data=str(root), xcconfig=str(config), target="cmuxTests",
+                package_root=[], xcframework_root=[str(artifacts)], arch="arm64",
+            )
+            with unittest.mock.patch("sys.stdout"):
+                rerun.detach(args)
+            settings = dict(line.split(" = ", 1) for line in config.read_text().splitlines())
+            search_paths = shlex.split(settings["FRAMEWORK_SEARCH_PATHS"])
+            for directory in expected:
+                self.assertIn(str(directory), search_paths)
+            for directory in excluded:
+                self.assertNotIn(str(directory), search_paths)
+            self.assertNotIn(str(host / "Frameworks"), search_paths)
 
     def test_umbrella_header_wins_over_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
