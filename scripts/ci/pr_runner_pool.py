@@ -358,12 +358,19 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# A re-run of failed jobs keeps attempt 1's outputs, and every runs-on sends attempt 2 and later to
-# retry_runner (Blacksmith), whoever started it: the rescue after a refusal, the failure attribution's
-# machine re-run, or a person. So a retry never lands on the mini that refused or failed it. Only the
-# light tier, which a full re-run's picker may claim, stays the rescue's:
-# a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
+# Re-runs are routed by cause. github-actions[bot] re-runs a run only after a host fault on a mini: the
+# rescue after a refusal or a stuck queue (owned_pool_rescue.py), the failure attribution when every failed
+# job is a machine failure (classify_failures.py). Every runs-on sends such a re-run to retry_runner
+# (Blacksmith), so it never lands on the mini that refused or failed it. Anyone else's re-run follows a
+# code or test failure, so it goes back to the owned pool: a re-run of failed jobs keeps attempt 1's
+# outputs and takes the owned label, and a full re-run picks here like attempt 1 (without queueing).
+# The light tier, which the rescue's full re-run may claim, stays the rescue's.
 RESCUE_ACTOR = "github-actions[bot]"
+
+
+def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
+    """A re-run started after a host fault on a mini (see RESCUE_ACTOR): it goes to Blacksmith."""
+    return run_attempt > 1 and (triggering_actor or "").strip() == RESCUE_ACTOR
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
 # 0: main takes the minis like a pull request. Its run holds 9 root runners
@@ -1732,14 +1739,15 @@ def choose(
             return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
     retry = run_attempt > 1
     if retry:
-        light = (not fork and run_attempt == LIGHT_RETRY_ATTEMPT and (light_retry or "").strip() == "1"
-                 and (triggering_actor or "").strip() == RESCUE_ACTOR)
-        # A retry exists to get off a queue, so it does not queue (rounds 0):
-        # the light tier only with its peak free now, Blacksmith rolling over
-        # at a full pool, and the rescue's short budget.
+        host_fault = host_fault_retry(run_attempt, triggering_actor)
+        light = (not fork and host_fault and run_attempt == LIGHT_RETRY_ATTEMPT
+                 and (light_retry or "").strip() == "1")
+        # A retry does not queue (rounds 0): the owned pools only with its peak
+        # free now, Blacksmith rolling over at a full pool. After a host fault
+        # it takes no owned pool, bar the light tier the rescue may claim.
         limits = dataclasses.replace(limits, queue_rounds=0, order=tuple(
             label for label in limits.order
-            if not persistent(label) or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
+            if not persistent(label) or not host_fault or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
         if not limits.order:
             return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     live = live_owned is not None and not fork
@@ -1847,15 +1855,17 @@ def routed_run(run: Mapping[str, Any]) -> bool:
 
 
 def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
-    """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
-    and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
+    """A same-repository pull request run (or main's dispatch) can take an owned pool, except on a host-fault
+    re-run (host_fault_retry()), and then only attempt 2 while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
     Attempt 2 then may hold the light tier; with the variable off it is not looked up,
     so no request is spent on it. The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
     """
-    if int(run.get("run_attempt") or 1) > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
+    attempt = int(run.get("run_attempt") or 1)
+    actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if host_fault_retry(attempt, actor) and attempt > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base

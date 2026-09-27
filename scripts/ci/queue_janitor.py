@@ -441,15 +441,20 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     rescue's full re-run picks again and may take the light tier
     (pr_runner_pool.LIGHT_RETRY_ATTEMPT), publishing its own marker. A re-run
     of failed jobs publishes none, so with the variable off attempt 2 costs
-    no listing. Later attempts never hold one. Its other macOS jobs say nothing:
+    no listing. A pull request run's re-run someone other than
+    github-actions[bot] started follows a code failure and picks like attempt
+    1 (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
+    bot's later attempts never hold one. Its other macOS jobs say nothing:
     swift-package-tests usually runs on a Blacksmith pool beside a run on an
     owned one (only a run that builds no Release helper places it there).
     """
-    if (run.get("run_attempt") or 1) > (2 if light_retry else 1):
+    path = str(run.get("path") or "")
+    code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
+                  and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
+    if (run.get("run_attempt") or 1) > (2 if light_retry else 1) and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")
