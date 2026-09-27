@@ -472,10 +472,15 @@ struct CloseTabConfirmationPolicyTests {
         #expect(!store.warnsBeforeClosingTabXButton)
         #expect(!store.warnsBeforeClosingWorkspace)
         #expect(defaults.object(forKey: "warnBeforeClosingWorkspace") as? Bool == false)
+        #expect(store.warnsBeforeClosingWindow)
 
         store.disableWarnings([.tab])
         #expect(!store.warnsBeforeClosingTab)
         #expect(defaults.object(forKey: "warnBeforeClosingTabShortcut") as? Bool == false)
+
+        store.disableWarnings([.window])
+        #expect(!store.warnsBeforeClosingWindow)
+        #expect(defaults.object(forKey: "warnBeforeClosingWindow") as? Bool == false)
     }
 
     @Test func liveStoreReadsTogglesFromDefaults() {

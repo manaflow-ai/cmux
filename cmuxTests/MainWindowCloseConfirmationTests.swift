@@ -22,6 +22,7 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
 #if DEBUG
         appDelegate?.mainWindowShouldCloseObserverForTesting = nil
 #endif
+        appDelegate?.debugCloseMainWindowDontAskAgainHandler = nil
         appDelegate?.debugCloseMainWindowConfirmationHandler = { _ in true }
         for windowId in createdWindowIds {
             if let window = window(withId: windowId) {
@@ -127,6 +128,45 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         XCTAssertEqual(prompts, 0)
         XCTAssertEqual(requests.values.count, 1)
         XCTAssertEqual(requests.values.first?.confirmed, false)
+    }
+
+    func testTickingDontAskAgainTurnsOffWindowWarning() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let targetWindow = try makeMainWindow(appDelegate)
+        try setShellActivity(.commandRunning, appDelegate)
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey
+        let original = defaults.object(forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
+        var prompts = 0
+        var offered: [CloseWarningKinds] = []
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in
+            prompts += 1
+            return false
+        }
+        appDelegate.debugCloseMainWindowDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return true
+        }
+
+        // Cancel with the box ticked: the window stays, the warning turns off.
+        appDelegate.closeWindowWithConfirmation(targetWindow)
+        XCTAssertEqual(prompts, 1)
+        XCTAssertEqual(offered, [.window])
+        XCTAssertFalse(AppCatalogSection().warnBeforeClosingWindow.value(in: defaults))
+        XCTAssertTrue(targetWindow.isVisible)
+
+        let requests = recordShouldCloseRequests(appDelegate)
+        appDelegate.closeWindowWithConfirmation(targetWindow)
+        XCTAssertEqual(prompts, 1, "The next Close Window should not ask")
+        XCTAssertEqual(requests.values.count, 1)
     }
 
     func testUnconfirmedWindowCloseStillReachesShouldCloseUnconfirmed() throws {
