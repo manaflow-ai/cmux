@@ -297,29 +297,43 @@ class Cmux:
 # Settings -------------------------------------------------------------------
 
 
-def parse_jsonc(text):
-    """Parse cmux.json, which cmux reads as JSONC: comments and trailing commas."""
+def scan_jsonc(text, keep):
+    """Rebuild text outside strings with keep(text, i) -> (kept, next_i); strings pass through."""
     out, i, n = [], 0, len(text)
     while i < n:
-        c = text[i]
-        if c == '"':
+        if text[i] == '"':
             j = i + 1
             while j < n and text[j] != '"':
                 j += 2 if text[j] == "\\" else 1
             out.append(text[i:j + 1])
             i = j + 1
-        elif text.startswith("//", i):
-            end = text.find("\n", i)
-            i = n if end < 0 else end
-        elif text.startswith("/*", i):
-            end = text.find("*/", i + 2)
-            i = n if end < 0 else end + 2
-        elif c == "," and re.match(r"\s*[}\]]", text[i + 1:]):
-            i += 1  # trailing comma
         else:
-            out.append(c)
-            i += 1
-    stripped = "".join(out)
+            kept, i = keep(text, i)
+            out.append(kept)
+    return "".join(out)
+
+
+def drop_comment(text, i):
+    if text.startswith("//", i):
+        end = text.find("\n", i)
+        return "", len(text) if end < 0 else end
+    if text.startswith("/*", i):
+        end = text.find("*/", i + 2)
+        return "", len(text) if end < 0 else end + 2
+    return text[i], i + 1
+
+
+def drop_trailing_comma(text, i):
+    if text[i] == "," and re.match(r"\s*[}\]]", text[i + 1:]):
+        return "", i + 1
+    return text[i], i + 1
+
+
+def parse_jsonc(text):
+    """Parse cmux.json the way cmux's JSONCParser does: a BOM, comments, then
+    trailing commas (so a comma before a commented-out last entry goes too)."""
+    text = text.lstrip("\ufeff")
+    stripped = scan_jsonc(scan_jsonc(text, drop_comment), drop_trailing_comma)
     try:
         return json.loads(stripped) if stripped.strip() else {}
     except ValueError as error:
@@ -334,6 +348,16 @@ def deep_merge(base, overlay):
         else:
             merged[key] = value
     return merged
+
+
+def write_atomically(path, data):
+    """Replace path in one rename, so an interrupted write never leaves it truncated."""
+    temp = path + ".release-media"
+    with open(temp, "wb") as handle:
+        handle.write(data)
+    if os.path.exists(path):
+        shutil.copymode(path, temp)
+    os.replace(temp, path)
 
 
 class SettingsGuard:
@@ -352,13 +376,12 @@ class SettingsGuard:
     def apply(self, overlay):
         current = {}
         if os.path.exists(CMUX_JSON):
-            with open(CMUX_JSON) as handle:
+            with open(CMUX_JSON, encoding="utf-8") as handle:
                 current = parse_jsonc(handle.read())
         os.makedirs(os.path.dirname(CMUX_JSON), exist_ok=True)
-        with open(CMUX_JSON, "w") as handle:
-            json.dump(deep_merge(current, overlay), handle, indent=2)
-            handle.write("\n")
+        merged = json.dumps(deep_merge(current, overlay), indent=2) + "\n"
         self.touched = True
+        write_atomically(CMUX_JSON, merged.encode())
 
     def restore(self):
         if not self.touched:
@@ -366,8 +389,7 @@ class SettingsGuard:
         if self.original is None:
             os.unlink(CMUX_JSON)
         else:
-            with open(CMUX_JSON, "wb") as handle:
-                handle.write(self.original)
+            write_atomically(CMUX_JSON, self.original)
         self.touched = False
 
 

@@ -177,6 +177,9 @@ class HostAgentTests(unittest.TestCase):
         text = '// cmux template\n{\n  "a": "x // kept, }", /* note */\n  "b": [1, 2,],\n}\n'
         self.assertEqual(host_agent.parse_jsonc(text), {"a": "x // kept, }", "b": [1, 2]})
         self.assertEqual(host_agent.parse_jsonc("// only a comment\n"), {})
+        # cmux's own template: a trailing comma before commented-out entries.
+        template = '\ufeff{\n  "schemaVersion": 1,\n  // "app": {\n  //   "appearance": "system"\n  // }\n}\n'
+        self.assertEqual(host_agent.parse_jsonc(template), {"schemaVersion": 1})
         with self.assertRaises(host_agent.AgentError):
             host_agent.parse_jsonc("{ nope }")
 
