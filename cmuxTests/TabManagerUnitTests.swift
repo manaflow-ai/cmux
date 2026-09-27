@@ -1732,10 +1732,13 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
 
         manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
         XCTAssertEqual(promptCount, 1)
+        // confirmClose releases its in-flight guard on the next main-queue turn.
+        drainMainQueue()
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
         manager.closeWorkspacesWithConfirmation(manager.tabs.map(\.id), allowPinned: true)
         XCTAssertEqual(promptCount, 2, "Closing every workspace is a window close, so the workspace setting alone does not skip it")
+        drainMainQueue()
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
         manager.closeTabWarningDefaults.set(true, forKey: AppCatalogSection().warnBeforeClosingWorkspace.userDefaultsKey)
