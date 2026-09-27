@@ -467,7 +467,7 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
                 subtitle: passwordInputIndicator.current
-                    ? String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh.")
+                    ? String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not.")
                     : String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOff", defaultValue: "No badge is shown when a program reads a password with echo off.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
@@ -480,7 +480,7 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.showPasswordInputDots"),
                 String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
                 subtitle: passwordInputDots.current
-                    ? String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters.")
+                    ? String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters. Pasted text is not counted.")
                     : String(localized: "settings.terminal.showPasswordInputDots.subtitleOff", defaultValue: "The badge shows only a lock, without counting typed characters.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))

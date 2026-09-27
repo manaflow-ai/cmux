@@ -189,7 +189,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh."),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitleOn", defaultValue: "A lock badge appears in the terminal corner while a program reads a password with echo off, such as sudo or ssh. Only local prompts are detected: ssh's own password prompt counts, but sudo inside an ssh session does not."),
                 paths: ["terminal.showPasswordInputIndicator"],
                 synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
             ),
@@ -197,7 +197,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-dots",
                 title: String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters."),
+                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitleOn", defaultValue: "The badge shows one dot per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
