@@ -399,8 +399,9 @@ jobs:
           submodules: false
           lfs: false
 
-      # Data only. The full history (without blobs, which the merge fetches
-      # on demand) supplies the base branch and the merge base.
+      # Data only. The full history supplies the base branch and merge base.
+      # Keep complete blobs here: a partial clone can fail later when git
+      # fetches a promised blob during the merge (actions/checkout#2306).
       - name: Check out the pull request head as data
         if: steps.pr.outputs.head_sha != ''
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -409,7 +410,6 @@ jobs:
           ref: ${{ steps.pr.outputs.head_sha }}
           path: candidate
           fetch-depth: 0
-          filter: blob:none
           persist-credentials: false
           submodules: false
           lfs: false
