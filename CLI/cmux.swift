@@ -7948,7 +7948,6 @@ struct CMUXCLI {
                 client: client,
                 windowOverride: windowId
             )
-
         case "sidebar":
             try runSidebarCommand(
                 commandArgs: commandArgs,
@@ -7956,7 +7955,6 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 windowOverride: windowId
             )
-
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -36636,7 +36634,9 @@ export default CMUXSessionRestore;
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-            let stopTerminationReason = firstString(in: input.rawObject, keys: ["terminationReason", "reason", "type", "kind"])
+            let stopTerminationReason = input.rawObject.flatMap {
+                firstString(in: $0, keys: ["terminationReason", "reason", "type", "kind"])
+            }
             let sameTurnNeedsInput = Self.stopPreservesNeedsInput(
                 mapped: mapped,
                 inputTurnID: input.turnId,
