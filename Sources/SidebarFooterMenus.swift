@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Native menus for the sidebar footer's account and Help buttons.
+/// The native menu behind the sidebar footer's one menu button.
 ///
-/// Both buttons stay plain `Button`s in `SidebarFooterIconButtonStyle`, so they
-/// keep the footer's hover treatment and AppKit-rendered symbols (a SwiftUI
+/// The button stays a plain `Button` in `SidebarFooterIconButtonStyle`, so it
+/// keeps the footer's hover treatment and AppKit-rendered symbols (a SwiftUI
 /// `Menu` label cannot host either; see `VaultSessionViewMenuPresenter`).
-/// Pressing one pops a real `NSMenu`, which brings row highlight, arrow-key and
+/// Pressing it pops a real `NSMenu`, which brings row highlight, arrow-key and
 /// type-select navigation, press-drag-release selection, right-aligned
 /// shortcut glyphs, VoiceOver menu semantics, and exclusivity with every other
 /// menu and popover without any footer-specific bookkeeping.
@@ -95,119 +95,81 @@ extension NSMenu {
 
 // MARK: - Help
 
-/// The footer's `?` button. Help is grouped the way Mac Help menus are:
-/// learning first, then app actions, then feedback and community, with the
-/// Pro upsell last so it never sits between a person and the help they came
-/// for.
-struct SidebarHelpMenuButton: View {
+/// The help, app and feedback items of the footer menu, shared by every state
+/// of `SidebarFooterMenuButton` (signed in, signed out, account button off).
+/// Frequent actions stay at the top level; the reading and community links sit
+/// in one Help submenu so the menu stays short.
+@MainActor
+enum SidebarHelpMenuItems {
     private static let docsURL = URL(string: "https://cmux.com/docs")
     private static let changelogURL = URL(string: "https://cmux.com/docs/changelog")
     private static let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private static let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private static let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
-    private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
-#if DEBUG
-    @AppStorage(SidebarFooterHelpIconDebugSettings.sizeKey)
-    private var debugIconSize = SidebarFooterHelpIconDebugSettings.defaultSize
-    @AppStorage(SidebarFooterHelpIconDebugSettings.weightKey)
-    private var debugIconWeight = SidebarFooterHelpIconDebugSettings.defaultWeight.rawValue
-#endif
-    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
 
-    let onSendFeedback: () -> Void
-
-    @State private var menuAnchor = SidebarFooterMenuAnchor()
-    /// The keyboard shortcut cheat sheet, anchored to this button.
-    @State private var isShortcutsPopoverPresented = false
-    private var whatsNewCenter: WhatsNewCenter { .shared }
-
-    private var iconSize: CGFloat {
-#if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.helpIconSize
-#endif
-    }
-
-    private var iconWeight: Font.Weight {
-#if DEBUG
-        SidebarFooterHelpIconDebugWeight(rawValue: debugIconWeight)?.fontWeight
-            ?? SidebarFooterCircularIconStyle.standard.weight
-#else
-        SidebarFooterCircularIconStyle.standard.weight
-#endif
-    }
-
-    var body: some View {
-        Button {
-            menuAnchor.popUp(makeMenu())
-        } label: {
-            SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
-                .frame(width: buttonSize, height: buttonSize, alignment: .center)
-                .overlay(alignment: .topTrailing) {
-                    // Quiet What's New: a static dot, no motion, cleared once opened.
-                    if whatsNewCenter.hasUnseenHighlights {
-                        SidebarWhatsNewDot()
-                            .offset(x: -3, y: 3)
-                    }
-                }
-        }
-        .buttonStyle(SidebarFooterIconButtonStyle())
-        .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
-        .popover(isPresented: $isShortcutsPopoverPresented, arrowEdge: .top) {
-            AllShortcutsPopover()
-        }
-        .accessibilityElement(children: .ignore)
-        .safeHelp(helpTitle)
-        .accessibilityLabel(helpTitle)
-        .accessibilityIdentifier("SidebarHelpMenuButton")
-    }
-
-    private func makeMenu() -> NSMenu {
-        let menu = NSMenu(title: helpTitle)
-        menu.autoenablesItems = false
-
-        let whatsNew = menu.addSidebarFooterItem(
-            String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
-            identifier: "SidebarHelpMenuOptionWhatsNew"
-        ) {
-            WhatsNewCenter.shared.presentOnDemand(source: "sidebarHelpMenu")
-        }
-        if whatsNewCenter.hasUnseenHighlights {
-            whatsNew.badge = NSMenuItemBadge(string: String(
-                localized: "sidebar.help.whatsNew.badge",
-                defaultValue: "New"
-            ))
-        }
-        menu.addSidebarFooterItem(
-            String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
-            identifier: "SidebarHelpMenuOptionWelcome"
-        ) {
-            AppDelegate.shared?.openWelcomeWorkspace()
-        }
-        menu.addSidebarFooterItem(
-            String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
-            identifier: "SidebarHelpMenuOptionKeyboardShortcuts"
-        ) {
-            isShortcutsPopoverPresented = true
-        }
-        addLink(to: menu, String(localized: "about.docs", defaultValue: "Docs"), url: Self.docsURL, identifier: "SidebarHelpMenuOptionDocs")
-        addLink(to: menu, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: Self.changelogURL, identifier: "SidebarHelpMenuOptionChangelog")
-
-        menu.addSidebarFooterSeparator()
+    /// Settings, Keyboard Shortcuts, What's New.
+    static func addApp(to menu: NSMenu, showKeyboardShortcuts: @escaping () -> Void) {
         menu.addSidebarFooterItem(
             String(localized: "menu.app.settings", defaultValue: "Settings…"),
             identifier: "SidebarHelpMenuOptionSettings",
             shortcut: KeyboardShortcutSettings.menuShortcut(for: .openSettings)
         ) {
             if let appDelegate = AppDelegate.shared {
-                appDelegate.openPreferencesWindow(debugSource: "sidebarHelpMenu.settings")
+                appDelegate.openPreferencesWindow(debugSource: "sidebarFooterMenu.settings")
             } else {
                 AppDelegate.presentPreferencesWindow()
             }
         }
+        menu.addSidebarFooterItem(
+            String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
+            identifier: "SidebarHelpMenuOptionKeyboardShortcuts",
+            handler: showKeyboardShortcuts
+        )
+        let whatsNew = menu.addSidebarFooterItem(
+            String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
+            identifier: "SidebarHelpMenuOptionWhatsNew"
+        ) {
+            WhatsNewCenter.shared.presentOnDemand(source: "sidebarFooterMenu")
+        }
+        if WhatsNewCenter.shared.hasUnseenHighlights {
+            whatsNew.badge = NSMenuItemBadge(string: String(
+                localized: "sidebar.help.whatsNew.badge",
+                defaultValue: "New"
+            ))
+        }
+    }
+
+    /// Send Feedback, then the Help submenu of docs and community links.
+    static func addHelp(to menu: NSMenu, onSendFeedback: @escaping () -> Void) {
+        menu.addSidebarFooterItem(
+            String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
+            identifier: "SidebarHelpMenuOptionSendFeedback",
+            shortcut: KeyboardShortcutSettings.menuShortcut(for: .sendFeedback),
+            handler: onSendFeedback
+        )
+        let title = String(localized: "sidebar.help.button", defaultValue: "Help")
+        let help = NSMenu(title: title)
+        help.autoenablesItems = false
+        help.addSidebarFooterItem(
+            String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
+            identifier: "SidebarHelpMenuOptionWelcome"
+        ) {
+            AppDelegate.shared?.openWelcomeWorkspace()
+        }
+        addLink(to: help, String(localized: "about.docs", defaultValue: "Docs"), url: docsURL, identifier: "SidebarHelpMenuOptionDocs")
+        addLink(to: help, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: changelogURL, identifier: "SidebarHelpMenuOptionChangelog")
+        help.addSidebarFooterSeparator()
+        addLink(to: help, String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"), url: githubIssuesURL, identifier: "SidebarHelpMenuOptionGitHubIssues")
+        addLink(to: help, String(localized: "sidebar.help.discord", defaultValue: "Discord"), url: discordURL, identifier: "SidebarHelpMenuOptionDiscord")
+        addLink(to: help, String(localized: "about.github", defaultValue: "GitHub"), url: githubURL, identifier: "SidebarHelpMenuOptionGitHub")
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.identifier = NSUserInterfaceItemIdentifier("SidebarHelpMenuOptionHelp")
+        item.submenu = help
+        menu.addItem(item)
+    }
+
+    /// Import Browser Data, Check for Updates.
+    static func addMaintenance(to menu: NSMenu, browserDataImportCoordinator: BrowserDataImportCoordinator?) {
         menu.addSidebarFooterItem(
             String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
             identifier: "SidebarHelpMenuOptionImportBrowserData"
@@ -220,31 +182,9 @@ struct SidebarHelpMenuButton: View {
         ) {
             AppDelegate.shared?.checkForUpdates(nil)
         }
-
-        menu.addSidebarFooterSeparator()
-        menu.addSidebarFooterItem(
-            String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
-            identifier: "SidebarHelpMenuOptionSendFeedback",
-            shortcut: KeyboardShortcutSettings.menuShortcut(for: .sendFeedback),
-            handler: onSendFeedback
-        )
-        addLink(to: menu, String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"), url: Self.githubIssuesURL, identifier: "SidebarHelpMenuOptionGitHubIssues")
-        addLink(to: menu, String(localized: "sidebar.help.discord", defaultValue: "Discord"), url: Self.discordURL, identifier: "SidebarHelpMenuOptionDiscord")
-        addLink(to: menu, String(localized: "about.github", defaultValue: "GitHub"), url: Self.githubURL, identifier: "SidebarHelpMenuOptionGitHub")
-
-        if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-            menu.addSidebarFooterSeparator()
-            menu.addSidebarFooterItem(
-                String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                identifier: "SidebarHelpMenuOptionUpgrade"
-            ) {
-                ProUpgradePresenter.present(source: .sidebarHelpMenu)
-            }
-        }
-        return menu
     }
 
-    private func addLink(to menu: NSMenu, _ title: String, url: URL?, identifier: String) {
+    private static func addLink(to menu: NSMenu, _ title: String, url: URL?, identifier: String) {
         guard let url else { return }
         let item = menu.addSidebarFooterItem(title, identifier: identifier) {
             NSWorkspace.shared.open(url)

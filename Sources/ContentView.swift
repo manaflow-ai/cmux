@@ -15398,9 +15398,9 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         // The footer never asks the sidebar for width. As it narrows, the
-        // update pill shrinks to its icon first, so the account chip keeps its
-        // name as long as possible; then the name truncates, then the chip
-        // drops to avatar and chevron. Anything still too wide is clipped at
+        // update pill shrinks to its icon first, so the menu button keeps its
+        // name as long as possible; then the name truncates, then the button
+        // drops to icon and chevron. Anything still too wide is clipped at
         // the trailing edge instead of widening or shifting the sidebar.
         ViewThatFits(in: .horizontal) {
             row(showsAccountName: true, compactUpdate: false)
@@ -15411,22 +15411,17 @@ struct SidebarFooterButtons: View {
         .clipped()
     }
 
-    /// The account chip takes the free width on the left; the icon buttons
-    /// and pills keep fixed slots to its right.
+    /// The footer menu button takes the free width on the left; the other
+    /// controls keep fixed slots to its right.
     private func row(showsAccountName: Bool, compactUpdate: Bool) -> some View {
         HStack(spacing: 4) {
-            if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                SidebarAccountMenuButton(showsName: showsAccountName)
+            if shows(.account) || shows(.help) {
+                SidebarFooterMenuButton(onSendFeedback: onSendFeedback, showsName: showsAccountName)
+            } else {
+                Spacer(minLength: 0)
             }
-            if shows(.mobileConnect) || shows(.help) {
-                HStack(spacing: 0) {
-                    if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-                        SidebarMobileConnectButton()
-                    }
-                    if shows(.help) {
-                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
-                    }
-                }
+            if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                SidebarMobileConnectButton()
             }
             // The badge is an upgrade prompt, so Pro accounts don't get it.
             if shows(.upgrade), AppDelegate.shared?.auth?.accountFlow.isProActive != true {

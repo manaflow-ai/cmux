@@ -10,17 +10,27 @@ enum SidebarAccountChipMetrics {
     static let chevronPointSize: CGFloat = 11
 }
 
-/// The sidebar account chip for account-level actions. Signed out,
-/// a click starts sign-in; signed in, it opens a native account menu (see
-/// `SidebarFooterMenuAnchor` for why the footer uses `NSMenu`).
-struct SidebarAccountMenuButton: View {
+/// The sidebar footer's one menu button, like the account row in Claude and
+/// ChatGPT desktop: a full-width chip whose native menu holds the account,
+/// app settings, help and feedback. There is no separate Help button.
+///
+/// Signed in it shows the avatar and name; signed out, a person icon and
+/// "Account", with Sign In… first in the menu; with the account button flag
+/// off, a ? icon and "Help". The chevron at the trailing edge marks where the
+/// target ends.
+struct SidebarFooterMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
-    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
-    private let title = String(localized: "settings.section.account", defaultValue: "Account")
-    private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    /// False when the footer is too narrow for the name: avatar and chevron.
+    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
+    let onSendFeedback: () -> Void
+    /// False when the footer is too narrow for the label: icon and chevron.
     var showsName = true
     @State private var menuAnchor = SidebarFooterMenuAnchor()
+    /// The keyboard shortcut cheat sheet, anchored to this button.
+    @State private var isShortcutsPopoverPresented = false
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
+    private var showsAccount: Bool { CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled }
+    private let accountTitle = String(localized: "settings.section.account", defaultValue: "Account")
+    private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
@@ -65,63 +75,41 @@ struct SidebarAccountMenuButton: View {
     }
 
     var body: some View {
-        let identity = accountFlow?.currentIdentity
-        let isSignedIn = identity != nil
-        let buttonTitle = isSignedIn ? title : signInTitle
-        let profile = presentation(
-            isSignedIn: isSignedIn,
-            hasProfilePicture: identity?.avatarURL != nil
-        )
+        let identity = showsAccount ? accountFlow?.currentIdentity : nil
+        let label = identity.map(chipName(for:)) ?? (showsAccount ? accountTitle : helpTitle)
+        let buttonTitle = showsAccount ? accountTitle : helpTitle
         Button {
-            if let identity {
-                menuAnchor.popUp(makeMenu(
-                    avatarURL: identity.avatarURL,
-                    displayName: identity.displayName,
-                    email: identity.email
-                ))
-            } else {
-                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
-                    tabManager: tabManager,
-                    debugSource: "sidebar.account"
-                )
-            }
+            menuAnchor.popUp(makeMenu(identity: identity))
         } label: {
-            // The chip fills the footer's free width and all of it is the
-            // target, like the account row in Claude and ChatGPT desktop. The
-            // chevron at the trailing edge marks where the target ends and says
-            // it opens a menu. When the footer is too narrow for the name,
-            // `SidebarFooterButtons` drops to avatar and chevron. Signed out it
-            // reads "Sign In…" with no chevron.
             HStack(spacing: 5) {
-                SidebarAccountAvatar(
-                    avatarURL: identity?.avatarURL,
-                    displayName: identity?.displayName ?? "",
-                    email: identity?.email ?? "",
-                    isSignedIn: profile.showsProfilePicture,
-                    size: profile.showsProfilePicture ? SidebarAccountChipMetrics.avatarSize : profile.size
-                )
-                .frame(width: SidebarAccountChipMetrics.avatarSize, height: SidebarAccountChipMetrics.avatarSize)
-                if showsName || identity == nil {
-                    Text(chipName(for: identity) ?? signInTitle)
+                icon(identity: identity)
+                    .frame(width: SidebarAccountChipMetrics.avatarSize, height: SidebarAccountChipMetrics.avatarSize)
+                    .overlay(alignment: .topTrailing) {
+                        // Quiet What's New: a static dot, no motion, cleared once opened.
+                        if WhatsNewCenter.shared.hasUnseenHighlights {
+                            SidebarWhatsNewDot()
+                                .offset(x: 2, y: -2)
+                        }
+                    }
+                if showsName {
+                    Text(label)
                         .cmuxFont(size: 12, weight: .medium)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         // Ideal width is a floor, not the whole name, so the
                         // footer keeps the name (truncated) down to a short
-                        // stub before it falls back to avatar and chevron.
+                        // stub before it falls back to icon and chevron.
                         .frame(idealWidth: SidebarAccountChipMetrics.minNameWidth, maxWidth: .infinity, alignment: .leading)
                 } else {
                     Spacer(minLength: 0)
                 }
-                if identity != nil {
-                    CmuxSystemSymbolImage(
-                        systemName: "chevron.up.chevron.down",
-                        pointSize: SidebarAccountChipMetrics.chevronPointSize,
-                        weight: .medium,
-                        tint: Color(nsColor: .secondaryLabelColor)
-                    )
-                }
+                CmuxSystemSymbolImage(
+                    systemName: "chevron.up.chevron.down",
+                    pointSize: SidebarAccountChipMetrics.chevronPointSize,
+                    weight: .medium,
+                    tint: Color(nsColor: .secondaryLabelColor)
+                )
             }
             .padding(.leading, 2)
             .padding(.trailing, 6)
@@ -129,66 +117,108 @@ struct SidebarAccountMenuButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
-        .disabled(accountFlow?.isWorkingOnAuth == true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
+        .popover(isPresented: $isShortcutsPopoverPresented, arrowEdge: .top) {
+            AllShortcutsPopover()
+        }
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
-        .accessibilityValue(chipName(for: identity) ?? "")
+        .accessibilityValue(identity.map(chipName(for:)) ?? "")
         .accessibilityIdentifier("SidebarAccountMenuButton")
     }
 
-    private func chipName(for identity: AccountIdentity?) -> String? {
-        guard let identity else { return nil }
-        return identity.displayName.isEmpty ? identity.email : identity.displayName
+    @ViewBuilder
+    private func icon(identity: AccountIdentity?) -> some View {
+        if showsAccount {
+            let profile = presentation(isSignedIn: identity != nil, hasProfilePicture: identity?.avatarURL != nil)
+            SidebarAccountAvatar(
+                avatarURL: identity?.avatarURL,
+                displayName: identity?.displayName ?? "",
+                email: identity?.email ?? "",
+                isSignedIn: profile.showsProfilePicture,
+                size: profile.showsProfilePicture ? SidebarAccountChipMetrics.avatarSize : profile.size
+            )
+        } else {
+            SidebarFooterHelpIcon(pointSize: SidebarFooterButtonMetrics.helpIconSize, weight: SidebarFooterCircularIconStyle.standard.weight)
+        }
     }
 
-    /// Who you are, then what you can do with the account, then Sign Out
-    /// last and apart so it is never the item under a hurried click.
-    private func makeMenu(avatarURL: URL?, displayName: String, email: String) -> NSMenu {
+    private func chipName(for identity: AccountIdentity) -> String {
+        identity.displayName.isEmpty ? identity.email : identity.displayName
+    }
+
+    /// Who you are (or Sign In…), then the app, then help and feedback, then
+    /// upkeep, then the upsell, with Sign Out last and apart so it is never
+    /// the item under a hurried click.
+    private func makeMenu(identity: AccountIdentity?) -> NSMenu {
         let flow = accountFlow
-        let menu = NSMenu(title: title)
+        let menu = NSMenu(title: showsAccount ? accountTitle : helpTitle)
         menu.autoenablesItems = false
 
-        let header = NSMenuItem()
-        header.isEnabled = false
-        let headerView = NSHostingView(rootView: SidebarAccountMenuHeader(
-            avatarURL: avatarURL,
-            displayName: displayName,
-            email: email,
-            isPro: flow?.isProActive == true
-        ))
-        headerView.frame.size = headerView.fittingSize
-        headerView.autoresizingMask = [.width]
-        header.view = headerView
-        menu.addItem(header)
-        menu.addSidebarFooterSeparator()
-
-        menu.addSidebarFooterItem(
-            String(localized: "menu.app.settings", defaultValue: "Settings…"),
-            identifier: "SidebarAccountSettingsButton",
-            shortcut: KeyboardShortcutSettings.menuShortcut(for: .openSettings)
-        ) {
-            AppDelegate.shared?.openPreferencesWindow(
-                debugSource: "sidebar.account.settings",
-                navigationTarget: .account
-            )
+        if showsAccount {
+            if let identity {
+                let header = NSMenuItem()
+                header.isEnabled = false
+                let headerView = NSHostingView(rootView: SidebarAccountMenuHeader(
+                    avatarURL: identity.avatarURL,
+                    displayName: identity.displayName,
+                    email: identity.email,
+                    isPro: flow?.isProActive == true
+                ))
+                headerView.frame.size = headerView.fittingSize
+                headerView.autoresizingMask = [.width]
+                header.view = headerView
+                menu.addItem(header)
+            } else {
+                let tabManager = tabManager
+                let signIn = menu.addSidebarFooterItem(
+                    String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
+                    identifier: "SidebarAccountSignInButton"
+                ) {
+                    _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                        tabManager: tabManager,
+                        debugSource: "sidebar.account"
+                    )
+                }
+                signIn.isEnabled = flow?.isWorkingOnAuth != true
+            }
+            menu.addSidebarFooterSeparator()
         }
-        if flow?.isProUpgradeAvailable == true {
+
+        SidebarHelpMenuItems.addApp(to: menu) {
+            isShortcutsPopoverPresented = true
+        }
+        menu.addSidebarFooterSeparator()
+        SidebarHelpMenuItems.addHelp(to: menu, onSendFeedback: onSendFeedback)
+        menu.addSidebarFooterSeparator()
+        SidebarHelpMenuItems.addMaintenance(to: menu, browserDataImportCoordinator: browserDataImportCoordinator)
+
+        let offersUpgrade = identity != nil
+            ? flow?.isProUpgradeAvailable == true
+            : CmuxFeatureFlags.shared.isProUpgradeUIEnabled && flow?.isProActive != true
+        if offersUpgrade {
+            menu.addSidebarFooterSeparator()
             menu.addSidebarFooterItem(
                 String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                identifier: "SidebarAccountUpgradeButton"
+                identifier: "SidebarHelpMenuOptionUpgrade"
             ) {
-                flow?.openProUpgrade(source: .sidebarAccountMenu)
+                if let flow, identity != nil {
+                    flow.openProUpgrade(source: .sidebarAccountMenu)
+                } else {
+                    ProUpgradePresenter.present(source: .sidebarHelpMenu)
+                }
             }
         }
 
-        menu.addSidebarFooterSeparator()
-        menu.addSidebarFooterItem(
-            String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
-            identifier: "SidebarAccountSignOutButton"
-        ) {
-            Task { await flow?.signOut() }
+        if identity != nil {
+            menu.addSidebarFooterSeparator()
+            menu.addSidebarFooterItem(
+                String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
+                identifier: "SidebarAccountSignOutButton"
+            ) {
+                Task { await flow?.signOut() }
+            }
         }
         return menu
     }

@@ -228,10 +228,12 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
     private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
         let sidebar = app.otherElements["Sidebar"]
+        // Help lives in the footer's one menu button (account chip, or "Help"
+        // while the account button flag is off).
         return [
-            app.buttons["SidebarHelpMenuButton"],
+            app.buttons["SidebarAccountMenuButton"],
             app.buttons["Help"],
-            sidebar.buttons["SidebarHelpMenuButton"],
+            sidebar.buttons["SidebarAccountMenuButton"],
             sidebar.buttons["Help"],
             app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Help")).firstMatch,
         ]
@@ -242,7 +244,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         identifier: String,
         title: String
     ) -> [XCUIElement] {
-        // The sidebar Help button opens a native NSMenu.
+        // The footer menu button opens a native NSMenu.
         [
             app.menuItems[identifier],
             app.menuItems[title],
@@ -355,7 +357,7 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
 
         XCTAssertTrue(
             sidebarHelpPollUntil(timeout: 3.0) {
-                !app.buttons["SidebarHelpMenuButton"].exists && !app.buttons["Help"].exists
+                !app.buttons["SidebarAccountMenuButton"].exists && !app.buttons["Help"].exists
             }
         )
 
