@@ -750,6 +750,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(push.index('[[ -z "$token" && "$AUTO" == true ]]'), push.index('token="$ACTIONS_TOKEN"'))
         self.assertIn("skipped-no-app-token", push)
 
+    def test_merge_is_vouched_for_before_the_branch_moves(self) -> None:
+        """The finish job vouches for its merge before the branch moves.
+
+        cla.yml exempts a merge commit whose newest CLA_MERGE_CONTEXT status
+        is a success from github-actions[bot], so the status is posted with
+        the Actions token, after the commit reaches a scratch ref (a status
+        needs the commit here) and before the push that starts the CLA run.
+        """
+        finish = self.workflow["jobs"]["finish"]
+        self.assertEqual(finish["permissions"]["statuses"], "write")
+        push = next(step for step in finish["steps"] if step.get("id") == "push")["run"]
+        scratch = push.index('"$MERGED_SHA:$scratch"')
+        status = push.index('GH_TOKEN="$ACTIONS_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$MERGED_SHA"')
+        branch = push.index('"$MERGED_SHA:refs/heads/$HEAD_REF"')
+        self.assertLess(scratch, status)
+        self.assertLess(status, branch)
+        self.assertIn('scratch="refs/catch-up/pr-$PR_NUMBER"', push)
+        self.assertIn('":$scratch"', push)
+        cla = yaml.safe_load((WORKFLOW.parent / "cla.yml").read_text(encoding="utf-8"))
+        step = cla["jobs"]["CLAAssistant"]["steps"][0]
+        self.assertEqual(step["with"]["trusted-merge-status-context"], self.workflow["env"]["CLA_MERGE_CONTEXT"])
+        self.assertEqual(step["with"]["trusted-merge-status-creator-ids"], "41898282")
+        self.assertEqual(cla["jobs"]["CLAAssistant"]["permissions"]["statuses"], "read")
+
     def test_finish_validates_the_matrix_handoff(self) -> None:
         # ReadResultTests runs this command against crafted artifacts.
         read = next(step for step in self.workflow["jobs"]["finish"]["steps"] if step.get("id") == "merge")

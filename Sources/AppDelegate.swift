@@ -6065,7 +6065,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func postCommandPaletteRequest(
         kind: CommandPaletteRequestKind,
         preferredWindow: NSWindow?,
-        source: String
+        source: String,
+        userInfo: [AnyHashable: Any]? = nil
     ) {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         if let targetWindow,
@@ -6076,7 +6077,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if markPending {
             markCommandPaletteOpenRequested(for: targetWindow)
         }
-        NotificationCenter.default.post(name: Notification.Name(kind.notificationName), object: targetWindow)
+        NotificationCenter.default.post(
+            name: Notification.Name(kind.notificationName),
+            object: targetWindow,
+            userInfo: userInfo
+        )
 #if DEBUG
         cmuxDebugLog(
             "shortcut.palette.request source=\(source) " +
@@ -6107,6 +6112,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             kind: .renameTab,
             preferredWindow: preferredWindow,
             source: source
+        )
+    }
+
+    /// Opens the palette rename editor for one explicit object. Context menus
+    /// use this when the object has no inline rename, so every rename edits in
+    /// the same place instead of an app-modal alert.
+    func requestCommandPaletteRename(
+        _ target: CommandPaletteRenameTarget,
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRename"
+    ) {
+        postCommandPaletteRequest(
+            kind: .rename,
+            preferredWindow: preferredWindow,
+            source: source,
+            userInfo: target.userInfo
         )
     }
 
@@ -14498,35 +14519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func promptRenameSelectedWorkspace() -> Bool {
-        guard let tabManager,
-              let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-            NSSound.beep()
-            return false
-        }
-
-        let alert = NSAlert()
-        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: mainWindowContainingWorkspace(tab.id)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return true }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-        return true
-    }
     /// Dispatches configured shortcuts using the event window’s focus and chord state.
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
