@@ -65,7 +65,10 @@ public enum CmuxSettingValue: Sendable, Hashable {
     }
 
     /// The Foundation representation `JSONSerialization` accepts. Integral
-    /// numbers become integers so `2` round-trips as `2`, not `2.0`.
+    /// numbers become integers so `2` round-trips as `2`, not `2.0`. Other
+    /// numbers become an `NSDecimalNumber` built from Swift's shortest
+    /// round-trip text, because `JSONSerialization` prints a `Double` with 17
+    /// significant digits and would write `1.4` as `1.3999999999999999`.
     public var jsonObject: Any {
         switch self {
         case .null:
@@ -76,7 +79,8 @@ public enum CmuxSettingValue: Sendable, Hashable {
             if value.rounded() == value, abs(value) < 9_007_199_254_740_992 {
                 return NSNumber(value: Int64(value))
             }
-            return NSNumber(value: value)
+            let decimal = NSDecimalNumber(string: "\(value)", locale: Locale(identifier: "en_US_POSIX"))
+            return decimal == NSDecimalNumber.notANumber ? NSNumber(value: value) : decimal
         case .string(let value):
             return value
         case .array(let values):

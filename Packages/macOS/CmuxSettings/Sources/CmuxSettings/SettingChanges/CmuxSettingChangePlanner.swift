@@ -98,7 +98,12 @@ struct CmuxSettingChangePlanner {
                 // replace the whole section, comments included.
                 try appendLeafEdits(of: child, prefix: components, into: &edits)
             } else {
-                edits.append(Edit(path: try settingPath(components), value: value))
+                // Re-encode through CmuxSettingValue so a preset's 1.4 is
+                // written as 1.4, the same as a `set` or `cycle` value.
+                edits.append(Edit(
+                    path: try settingPath(components),
+                    value: CmuxSettingValue(jsonObject: value)?.jsonObject ?? value
+                ))
             }
         }
     }

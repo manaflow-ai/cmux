@@ -156,6 +156,33 @@ struct CmuxSettingChangeTests {
         #expect(CmuxSettingChangeError.keyContainsDot("x").errorDescription?.contains("\".\"") == true)
     }
 
+    @Test("fractional numbers are written the way they were typed")
+    func fractionalNumbersKeepTheirShortForm() async throws {
+        let file = try fixture("""
+        {
+          "settingPresets": { "fast": { "terminal": { "scrollSpeed": 1.8 } } }
+        }
+
+        """)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+
+        _ = try await store.apply(.set(path: "terminal.scrollSpeed", value: .number(1.4)))
+        var text = try String(contentsOf: file, encoding: .utf8)
+        #expect(text.contains("1.4"))
+        #expect(!text.contains("1.399"))
+
+        _ = try await store.apply(.preset(name: "fast"))
+        text = try String(contentsOf: file, encoding: .utf8)
+        #expect(!text.contains("1.800"))
+        #expect(!text.contains("1.799"))
+        #expect((try value("terminal.scrollSpeed", in: file) as? NSNumber)?.doubleValue == 1.8)
+
+        #expect(CmuxSettingValue.number(1.4).jsonText == "1.4")
+        #expect(CmuxSettingValue.number(-0.25).jsonText == "-0.25")
+        #expect(CmuxSettingValue.number(2).jsonText == "2")
+    }
+
     @Test("each change describes itself as the equivalent cmux config command")
     func commandLineDescriptions() {
         #expect(CmuxSettingChange.set(path: "terminal.scrollSpeed", value: .number(1.4)).commandLineDescription
