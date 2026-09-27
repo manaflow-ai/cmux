@@ -281,6 +281,9 @@ class ClassifyTests(unittest.TestCase):
         # test-e2e.yml's action fails both steps when a selector does not resolve.
         self.assertEqual(MODULE.classify(failed, steps(["Run selected tests", "Resolve selectors against the built tests"])), "absent")
         self.assertEqual(MODULE.classify({"status": "completed", "conclusion": "cancelled"}, steps([])), "error")
+        # The Mac failed the test step before any test started: not a reproduction.
+        machine = lambda: "Failed to initialize for UI testing: Timed out while enabling automation mode.\n"  # noqa: E731
+        self.assertEqual(MODULE.classify(failed, steps(["Run selected tests"]), machine), "error")
 
     def test_a_hung_gh_call_reads_as_a_pending_run(self):
         from unittest import mock

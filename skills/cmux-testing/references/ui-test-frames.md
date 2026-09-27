@@ -29,6 +29,7 @@ Under `$TMPDIR/cmux-e2e-frames/<run>/<Class>/<method>/`:
 | `sheet-N.png` | 3x4 grid of the steps in time order, 1920 px wide. Open these first. |
 | `frames/NNN-step.png` | XCUITest's screenshot for one step, 960 px wide. |
 | `frames/NNN-<name>.png` | A named capture the test attached. |
+| `frames/NNN-video.png` | Frames sampled at 2 fps from XCTest's screen recording, which some hosts attach to a failing test instead of step screenshots. |
 | `steps.mp4` | The frames at 2 fps, for a person to scrub. |
 
 `--json` prints the same summary for scripts.
