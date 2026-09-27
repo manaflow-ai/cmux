@@ -193,6 +193,19 @@ runs:
       shell: bash
       run: python3 scripts/ci/preflight-e2e-screen-capture.py
 
+    # A console session that cannot activate apps fails every UI test after
+    # a one-minute wait each, as "Failed to activate application". Probe it
+    # before the tests, repair what the probe can, and otherwise fail here in
+    # seconds with the runner's state. The script is the tested revision's,
+    # which may predate it.
+    - name: Verify the runner can activate apps
+      if: ${{ inputs.target == 'cmuxUITests' }}
+      shell: bash
+      run: |
+        if [ -f scripts/ci/preflight-e2e-gui-activation.py ]; then
+          python3 scripts/ci/preflight-e2e-gui-activation.py
+        fi
+
     - name: Setup Bun
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:
@@ -511,6 +524,12 @@ runs:
         EXIT_CODE=$?
         set -e
         OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
+        if [ "$EXIT_CODE" -ne 0 ] && grep -q "Failed to activate application" /tmp/xcodebuild-e2e.log; then
+          echo "::error::The runner stopped letting apps come to the front during the tests (Failed to activate application). This is the runner, not the test; re-run to take another runner."
+          if [ -f scripts/ci/preflight-e2e-gui-activation.py ]; then
+            python3 scripts/ci/preflight-e2e-gui-activation.py --diagnose || true
+          fi
+        fi
 
         # Save summary for the issue
         SUMMARY=$(echo "$OUTPUT" | grep -E "(Test Suite|Executed|FAIL|PASS)" | tail -20)
