@@ -71,7 +71,8 @@ final class ScrollbackTestTerminal {
 
     func close() {
         surface.hostedView.removeFromSuperview()
-        surface.teardownHostedSurfaceForTesting()
+        // Manual-mirror IO: no shell and no TTY, so nothing to kill first.
+        surface.teardownSurface()
         continuation.finish()
         window.orderOut(nil)
         window.close()
