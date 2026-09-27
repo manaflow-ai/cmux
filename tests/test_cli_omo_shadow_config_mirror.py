@@ -91,6 +91,23 @@ def check_user_config_is_mirrored(cli_path: str, failures: list[str]) -> None:
                 failures.append(f"shadow {owned} was replaced by a link to the user's file")
 
 
+def check_user_plugins_load_beside_the_session_plugin(cli_path: str, failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-omo-plugins-") as td:
+        root = Path(td)
+        user_dir = make_user_config(root)
+        (user_dir / "plugins").mkdir()
+        (user_dir / "plugins" / "notify.js").write_text("export const Notify = async () => ({})\n", encoding="utf-8")
+        run = run_omo(cli_path, root)
+        shadow_plugins = root / ".cmuxterm" / "omo-config" / "plugins"
+        if not (shadow_plugins / "cmux-session.js").exists():
+            failures.append(f"cmux session plugin missing from the shadow dir; exit={run.returncode} stderr={run.stderr.strip()}")
+        if not (shadow_plugins / "notify.js").exists():
+            failures.append("the user's plugins/notify.js is not visible from the shadow config dir")
+        # The session plugin is cmux's; it must not leak into the user's own config.
+        if (user_dir / "plugins" / "cmux-session.js").exists():
+            failures.append("cmux wrote its session plugin into the user's plugins dir")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -100,6 +117,7 @@ def main() -> int:
 
     failures: list[str] = []
     check_user_config_is_mirrored(cli_path, failures)
+    check_user_plugins_load_beside_the_session_plugin(cli_path, failures)
 
     if failures:
         for failure in failures:
