@@ -5582,6 +5582,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private var windowArrivalCallbackTask: Task<Void, Never>?
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
         private var hasPendingGeometryNotification = false
@@ -5655,6 +5656,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         deinit {
+            windowArrivalCallbackTask?.cancel()
             hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
@@ -6439,7 +6441,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
             }
             window?.invalidateCursorRects(for: self)
-            onDidMoveToWindow?()
+            scheduleWindowArrivalCallbackIfNeeded()
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
@@ -6450,10 +6452,26 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.viewDidMoveToSuperview()
             scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToSuperview")
+            scheduleWindowArrivalCallbackIfNeeded()
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
+        }
+
+        /// Reparenting an already-mounted SwiftUI host can deliver the
+        /// superview callback before AppKit updates the nested host's window.
+        /// Coalesce both lifecycle signals and retry on the next main-actor turn,
+        /// once the final window and geometry are observable.
+        private func scheduleWindowArrivalCallbackIfNeeded() {
+            guard window != nil, onDidMoveToWindow != nil,
+                  windowArrivalCallbackTask == nil else { return }
+            windowArrivalCallbackTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.windowArrivalCallbackTask = nil
+                guard self.window != nil else { return }
+                self.onDidMoveToWindow?()
+            }
         }
 
         override func layout() {
