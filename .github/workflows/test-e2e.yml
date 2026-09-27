@@ -1258,6 +1258,31 @@ jobs:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
 
+      # On an owned Mac the tests share its one console session with every
+      # other GUI job, so they need glaeda's gui token. This job runs only when
+      # build could not get it, so asking at job start meant waiting glaeda's
+      # 240 s for the same busy token and then being refused. glaeda's hook
+      # gives this job none at job start (class gui-step); the token is taken
+      # here, after the product download and before the tests' restore takes
+      # the producer's canonical root (the order every GUI job takes them in),
+      # and held to the end of the job. An older hook gave the token at job
+      # start, so take-gui returns 0 at once; one without take-gui exits 2.
+      # Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 900 || status=$?
+          case "$status" in
+            0|2) ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the E2E tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
       # The steps come from this workflow's revision, not the tested one, which
       # may predate them.
       - name: Checkout the E2E test steps
