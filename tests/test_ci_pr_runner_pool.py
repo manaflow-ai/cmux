@@ -1987,7 +1987,7 @@ class WarmAffinity(unittest.TestCase):
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
                 owned_warm="1", state=None, attempt="1", pr_number="", running=None, rounds="", distance="0",
-                changes=None):
+                changes=None, extra=None):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh["warm"] = warm(2) if state is None else state
@@ -2010,11 +2010,60 @@ class WarmAffinity(unittest.TestCase):
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                    "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm,
-                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds, "OWNED_WARM_DISTANCE": distance}
+                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds, "OWNED_WARM_DISTANCE": distance,
+                   **(extra or {})}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
         return values
+
+    def test_side_lanes_take_the_light_side_runners_when_enough_are_idle(self):
+        light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
+        slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
+        lanes = {"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true"}
+        std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
+        values = self.outputs(std + idle, slots=slots, extra=lanes)
+        self.assertEqual((values["runner"], values["side_runner"]), (MINI, light_side))
+        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+            self.assertIn(key, values["owned_jobs"])
+        # The std pool holds only admission: the side lanes are not its machines.
+        self.assertEqual(values["jobs"], "1")
+        # One light side runner idle for two lanes, none, or no light side count: the std side label as before.
+        one = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side, busy=True)]
+        for runners, count in ((std + one, slots), (std, slots),
+                               (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
+            values = self.outputs(runners, slots=count, extra=lanes)
+            self.assertEqual((values["runner"], values["side_runner"]), (MINI, SIDE_MINI), runners)
+            self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # A retry attempt keeps its own route.
+        self.assertNotEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["side_runner"], light_side)
+
+    def test_light_side_lanes_on_the_light_pick_count_in_its_peak(self):
+        # The janitor takes the side lanes off the marker's peak for the root share, so the peak holds them.
+        light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
+        slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root),
+                live_runner(24, LIGHT, light_root)]
+        values = self.outputs(idle, slots=slots, extra={"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+                                                        "POOL_ORDER": LIGHT})
+        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
+
+    def test_side_lanes_alone_on_the_light_side_runners_hold_no_std_machine(self):
+        # Nothing left for std once the side lanes take the light side runners: a full std still takes the run.
+        light_side = pool.side_label(LIGHT)
+        slots = '{"std": 3, "root-std": 1, "light": 4, "root-light": 2}'
+        busy = [live_runner(1, MINI, ROOT_MINI, busy=True), live_runner(2, MINI, SIDE_MINI, busy=True),
+                live_runner(3, MINI, SIDE_MINI, busy=True)]
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side)]
+        values = self.outputs(busy + idle, slots=slots, rounds="0",
+                              extra={"RUN_MACOS": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+                                     "POOL_ORDER": f"{MINI},{SMALL}"})
+        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (MINI, light_side, "0"))
+        self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # A 0-machine marker reserves nothing.
+        artifact = {"name": "macos-pool-persistent-7-1-0p2-" + MINI}
+        self.assertEqual(pool.run_marker([artifact], {"id": 7, "run_attempt": 1}), (MINI, 0))
 
     def test_main_names_the_warm_runner_for_admission(self):
         own = "glaeda-runner-cmux2-glaeda"
