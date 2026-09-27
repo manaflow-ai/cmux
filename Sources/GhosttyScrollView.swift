@@ -42,8 +42,26 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     private var markers: [TerminalPromptScrollMarker] = []
     private var geometry: NotificationScrollRestoreGeometry?
+    private var observesAccentColor = false
 
     override var isOpaque: Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !observesAccentColor else { return }
+        observesAccentColor = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(accentColorDidChange),
+            name: CmuxAccentColor.didChangeNotification,
+            object: nil
+        )
+    }
+
+    /// Markers draw with the resolved accent, so repaint when it changes.
+    @objc private func accentColorDidChange() {
+        needsDisplay = true
+    }
 
     func update(
         markers: [TerminalPromptScrollMarker],

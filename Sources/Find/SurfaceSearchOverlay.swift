@@ -17,6 +17,10 @@ private extension NSView {
     }
 }
 
+/// Hosting root for the terminal find bar: the overlay plus the cmux accent
+/// environment, since it mounts outside any window root.
+typealias SurfaceSearchOverlayRoot = ModifiedContent<SurfaceSearchOverlay, CmuxAccentColorEnvironmentModifier>
+
 struct SurfaceSearchOverlay: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     let tabId: UUID

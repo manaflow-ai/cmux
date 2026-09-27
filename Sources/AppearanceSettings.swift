@@ -365,7 +365,6 @@ final class AppearanceSettingsUserDefaultsObserver {
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @State private var systemAppearanceGeneration = 0
-    @State private var accentColor = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
     let rawValue: String?
 
     func body(content: Content) -> some View {
@@ -375,10 +374,24 @@ private struct AppearanceColorSchemeModifier: ViewModifier {
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
-            .environment(\.cmuxAccentColor, accentColor)
+            .cmuxAccentColorEnvironment()
             .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
                 systemAppearanceGeneration &+= 1
             }
+    }
+}
+
+/// Injects the resolved cmux accent (``EnvironmentValues/cmuxAccentColor``)
+/// for a SwiftUI root and keeps it current from the app delegate's
+/// ``CmuxAccentColorObserver``. Window roots get it through
+/// `cmuxAppearanceColorScheme`; hosting views mounted outside a window root
+/// (search overlays, titlebar accessories, popovers) apply it directly.
+struct CmuxAccentColorEnvironmentModifier: ViewModifier {
+    @State private var accentColor = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.cmuxAccentColor, accentColor)
             .onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
                 if let observer = notification.object as? CmuxAccentColorObserver {
                     accentColor = observer.current
@@ -388,6 +401,10 @@ private struct AppearanceColorSchemeModifier: ViewModifier {
 }
 
 extension View {
+    func cmuxAccentColorEnvironment() -> ModifiedContent<Self, CmuxAccentColorEnvironmentModifier> {
+        modifier(CmuxAccentColorEnvironmentModifier())
+    }
+
     func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
         modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
     }

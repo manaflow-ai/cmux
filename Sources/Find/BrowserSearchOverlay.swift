@@ -3,6 +3,10 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
+/// Hosting root for the browser find bar: the overlay plus the cmux accent
+/// environment, since it mounts outside any window root.
+typealias BrowserSearchOverlayRoot = ModifiedContent<BrowserSearchOverlay, CmuxAccentColorEnvironmentModifier>
+
 struct BrowserSearchOverlay: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     let panelId: UUID
