@@ -276,6 +276,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             NotificationCenter.default.addObserver(
                 forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: repaint
             ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: repaint
+            ),
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main, using: repaint
+            ),
         ]
         workspaceSelectionChromeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
@@ -481,7 +487,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
         SidebarRowPalette(
             model: model,
-            isSelectionEmphasized: window.map { $0.isKeyWindow || $0.isMainWindow } ?? true,
+            isSelectionEmphasized: NSApp.isActive && (window.map { $0.isKeyWindow || $0.isMainWindow } ?? true),
             increasesSelectionContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         )
     }
