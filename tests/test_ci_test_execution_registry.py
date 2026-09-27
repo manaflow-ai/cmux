@@ -441,15 +441,17 @@ class LaneRunnerTests(unittest.TestCase):
                 self.assertIn("1 failed", output)
 
     def test_a_hung_test_is_killed_and_reported(self) -> None:
-        names = ["test_par_hang", "test_par_ok"]
+        # Neither process waits for a peer; only the deliberate hang reaches
+        # the timeout, regardless of which process the scheduler starts first.
+        names = ["test_hang", "test_ok"]
         registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
         code, log, output = self.run_lane(
-            registry, names, "--lane", "lane-a", "--jobs", "2", "--timeout", "1", peers=2
+            registry, names, "--lane", "lane-a", "--jobs", "2", "--timeout", "1", peers=0
         )
         self.assertEqual(code, 1)
         self.assertIn("killed after 1s timeout", output)
-        self.assertIn("FAILED: tests/test_par_hang.py (exit 124)", output)
-        self.assertIn("output from test_par_ok", output)
+        self.assertIn("FAILED: tests/test_hang.py (exit 124)", output)
+        self.assertIn("output from test_ok", output)
 
     def test_serial_parses_as_a_toml_boolean(self) -> None:
         entries = runner.load_registry.__globals__["parse_registry"](

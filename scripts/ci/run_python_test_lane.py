@@ -76,15 +76,21 @@ def run_one(path: str, env: dict[str, str], log_path: Path, timeout: float) -> R
     started = time.monotonic()
     try:
         with log_path.open("wb") as log:
-            process = subprocess.Popen(
-                [sys.executable, str(ROOT / path)],
-                cwd=ROOT,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, str(ROOT / path)],
+                    cwd=ROOT,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                return Result(
+                    path, 1, time.monotonic() - started,
+                    f"run_python_test_lane: could not start test process: {error}\n",
+                )
             try:
                 returncode = process.wait(timeout=timeout)
                 note = ""
