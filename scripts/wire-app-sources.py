@@ -196,32 +196,57 @@ def owning_group(project: Project, rel: str) -> Group:
     return max(candidates, key=lambda group: (holds_sibling(group), group.depth))
 
 
+def fresh_id(text: str, seed: str) -> str:
+    """A path-derived id, re-salted if the project already uses it."""
+    candidate, salt = object_id(seed), 0
+    while re.search(r"\b" + candidate + r"\b", text):
+        salt += 1
+        candidate = object_id(f"{seed}#{salt}")
+    return candidate
+
+
 def wire(text: str, rel: str) -> str:
+    """Adds whatever `rel` is missing: a file reference in its group, a build
+    file, and membership in the app Sources phase. A surviving reference or
+    orphaned build file (often only the phase line was lost) is reused."""
     project = parse(text)
     if rel in project.wired_paths:
         return text
     name = posixpath.basename(rel)
-    group = owning_group(project, rel)
-    group_path = posixpath.relpath(rel, group.directory)
-    ref_id = object_id("fileref:" + rel)
-    build_id = object_id("buildfile:" + rel)
+    insertions = []
 
-    # Insert from the end of the file backwards so earlier offsets stay valid.
-    insertions = [
-        (project.app_phase_span[1], f"\t\t\t\t{build_id} /* {name} in Sources */,\n", True),
-        (group.children_span[1], f"\t\t\t\t{ref_id} /* {name} */,\n", True),
+    ref_id = next((ref for ref, path in project.ref_paths.items() if path == rel), None)
+    if ref_id is None:
+        group = owning_group(project, rel)
+        ref_id = fresh_id(text, "fileref:" + rel)
+        insertions += [
+            (group.children_span[1], f"\t\t\t\t{ref_id} /* {name} */,\n", True),
+            (
+                text.index("/* Begin PBXFileReference section */\n") + len("/* Begin PBXFileReference section */\n"),
+                f'\t\t{ref_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; '
+                f'path = {quoted(posixpath.relpath(rel, group.directory))}; sourceTree = "<group>"; }};\n',
+                False,
+            ),
+        ]
+
+    in_some_phase = set(re.findall(r"^\t+([0-9A-Za-z]+) /\* [^\n]*? in Sources \*/,$", text, re.M))
+    build_id = next(
         (
-            text.index("/* Begin PBXFileReference section */\n") + len("/* Begin PBXFileReference section */\n"),
-            f'\t\t{ref_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; '
-            f'path = {quoted(group_path)}; sourceTree = "<group>"; }};\n',
-            False,
+            match.group("id")
+            for match in BUILD_FILE.finditer(text)
+            if match.group("ref") == ref_id and match.group("id") not in in_some_phase
         ),
-        (
+        None,
+    )
+    if build_id is None:
+        build_id = fresh_id(text, "buildfile:" + rel)
+        insertions.append((
             text.index("/* Begin PBXBuildFile section */\n") + len("/* Begin PBXBuildFile section */\n"),
             f"\t\t{build_id} /* {name} in Sources */ = {{isa = PBXBuildFile; fileRef = {ref_id} /* {name} */; }};\n",
             False,
-        ),
-    ]
+        ))
+    insertions.append((project.app_phase_span[1], f"\t\t\t\t{build_id} /* {name} in Sources */,\n", True))
+
     for offset, line, before_closing in sorted(insertions, key=lambda item: item[0], reverse=True):
         if before_closing:
             # The span ends right before the closing `\t\t\t);`; keep the
@@ -255,9 +280,23 @@ def main(argv: list[str] | None = None) -> int:
         changed = True
         print(f"wired: {rel}", flush=True)
     if changed:
-        pbxproj.write_text(text)
         # The pre-commit hook and check-pbxproj.sh require normalized output.
-        subprocess.run([sys.executable, str(args.root / "scripts/normalize-pbxproj.py"), str(pbxproj)], check=True)
+        # Normalize a copy (it also validates object ids) and only then
+        # replace the project, so a failure never leaves a broken file.
+        staged = pbxproj.with_name("project.pbxproj.wiring")
+        staged.write_text(text)
+        result = subprocess.run(
+            [sys.executable, str(args.root / "scripts/normalize-pbxproj.py"), str(staged)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            staged.unlink(missing_ok=True)
+            sys.stderr.write(result.stdout + result.stderr)
+            print("wire-app-sources: normalizing failed; project.pbxproj left unchanged", file=sys.stderr)
+            return 1
+        staged.replace(pbxproj)
+        print(f"normalized: {pbxproj}", flush=True)
     return 0
 
 
