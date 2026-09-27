@@ -8,8 +8,13 @@ struct Backport<Content> {
 extension View {
     var backport: Backport<Self> { Backport(content: self) }
 
-    func safeHelp(_ text: String) -> AnyView {
-        AnyView(self.help(text))
+    @ViewBuilder
+    func safeHelp(_ text: String) -> some View {
+        if text.isEmpty {
+            self
+        } else {
+            self.help(text)
+        }
     }
 }
 
