@@ -94,7 +94,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
             searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
             String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Adds checklist items and a status menu to workspaces.")
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Show a checklist and status menu on each workspace.")
         ) {
             Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
                 .labelsHidden()
@@ -163,7 +163,7 @@ public struct BetaFeaturesSection: View {
             String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
             subtitle: cloudMachinesManagedByPolicy
                 ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Shows Cloud Machines in the right sidebar, command palette, and new workspace menu.")
+                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Show Cloud Machines in the right sidebar, command palette, and new workspace menu.")
         ) {
             Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
                 CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)

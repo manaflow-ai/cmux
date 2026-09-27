@@ -432,7 +432,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.reflowHardWrapOnCopy"),
                 String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Joins wrapped lines in copied text.")
+                subtitle: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Join wrapped lines when copying text.")
             ) {
                 Toggle("", isOn: Binding(get: { reflowHardWrapOnCopy.current }, set: { reflowHardWrapOnCopy.set($0) }))
                     .labelsHidden()
@@ -467,7 +467,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputIndicator"),
                 String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge during password prompts.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge when a program asks for a password.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputIndicator.current }, set: { passwordInputIndicator.set($0) }))
                     .labelsHidden()
@@ -478,7 +478,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.showPasswordInputDots"),
                 String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows a dot for each typed character.")
+                subtitle: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Show a dot for each character typed in a password.")
             ) {
                 Toggle("", isOn: Binding(get: { passwordInputDots.current }, set: { passwordInputDots.set($0) }))
                     .labelsHidden()
@@ -501,7 +501,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agents to free memory.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernate idle background agents when too many are open.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

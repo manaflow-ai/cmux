@@ -186,7 +186,7 @@ public struct AppSection: View {
     private var globalFontMagnificationSubtitle: String {
         String(
             localized: "settings.app.globalFontMagnification.subtitle",
-            defaultValue: "Scales all text in cmux."
+            defaultValue: "Scale all text in cmux."
         )
     }
 

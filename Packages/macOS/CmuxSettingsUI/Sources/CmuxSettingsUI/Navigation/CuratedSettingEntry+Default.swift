@@ -175,7 +175,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "reflow-hard-wrap-on-copy",
                 title: String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
-                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Joins wrapped lines in copied text."),
+                detailText: String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitle", defaultValue: "Join wrapped lines when copying text."),
                 paths: ["terminal.reflowHardWrapOnCopy"],
                 synonyms: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"
             ),
@@ -191,7 +191,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
-                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge during password prompts."),
+                detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Show a lock badge when a program asks for a password."),
                 paths: ["terminal.showPasswordInputIndicator"],
                 synonyms: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"
             ),
@@ -199,7 +199,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "password-input-dots",
                 title: String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"),
-                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows a dot for each typed character."),
+                detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Show a dot for each character typed in a password."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
             ),
@@ -376,7 +376,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "cloudMachines",
                 title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Shows Cloud Machines in the right sidebar, command palette, and new workspace menu."),
+                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Show Cloud Machines in the right sidebar, command palette, and new workspace menu."),
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
@@ -387,7 +387,7 @@ extension Array where Element == CuratedSettingEntry {
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
                 title: String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Adds checklist items and a status menu to workspaces."),
+                detailText: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Show a checklist and status menu on each workspace."),
                 paths: ["sidebar.beta.workspaceTodos.controls.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todo-controls", defaultValue: "sidebar.beta.workspaceTodos.controls.enabled workspace todo todos task status checklist add item controls beta")
             ),

@@ -551257,55 +551257,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lets supported agents see and control apps on this Mac."
+            "value": "Let supported agents see and control apps on this Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unterstützte Agenten können Apps auf diesem Mac sehen und steuern."
+            "value": "Lass unterstützte Agenten Apps auf diesem Mac sehen und steuern."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents pris en charge peuvent voir et contrôler les apps de ce Mac."
+            "value": "Permettez aux agents compatibles de voir et de contrôler les apps de ce Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكن للوكلاء المدعومين رؤية التطبيقات على جهاز Mac هذا والتحكم فيها."
+            "value": "اسمح للوكلاء المدعومين برؤية التطبيقات على جهاز Mac هذا والتحكم فيها."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes compatibles pueden ver y controlar apps en este Mac."
+            "value": "Permite que los agentes compatibles vean y controlen las apps de este Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "允許支援的代理程式查看及操作此 Mac 上的 App。"
+            "value": "讓支援的代理程式查看和控制這部 Mac 上的 App。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许受支持的代理查看并控制这台 Mac 上的 App。"
+            "value": "让受支持的代理查看和控制这台 Mac 上的 App。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지원되는 에이전트가 이 Mac의 앱을 보고 제어할 수 있게 합니다."
+            "value": "지원되는 에이전트가 이 Mac의 앱을 보고 제어할 수 있도록 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応するエージェントが、この Mac のアプリの画面を見て操作できるようにします。"
+            "value": "対応しているエージェントがこのMac上のアプリを見て操作できるようにします。"
           }
         }
       }
@@ -551552,25 +551552,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scales all text in cmux."
+            "value": "Scale all text in cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ändert die Größe des gesamten Texts in cmux."
+            "value": "Ändere die Größe des gesamten Texts in cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifie la taille de tout le texte de cmux."
+            "value": "Modifiez la taille de tout le texte de cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يغيّر حجم جميع النصوص في cmux."
+            "value": "غيّر حجم جميع النصوص في cmux."
           }
         },
         "es": {
@@ -553145,25 +553145,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Cloud Machines in the right sidebar, command palette, and new workspace menu."
+            "value": "Show Cloud Machines in the right sidebar, command palette, and new workspace menu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt Cloud-Maschinen in der rechten Seitenleiste, in der Befehlspalette und im Menü für neue Arbeitsbereiche an."
+            "value": "Zeige Cloud-Maschinen in der rechten Seitenleiste, in der Befehlspalette und im Menü für neue Arbeitsbereiche an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche les machines cloud dans la barre latérale droite, la palette de commandes et le menu de nouvel espace de travail."
+            "value": "Affichez les machines cloud dans la barre latérale droite, la palette de commandes et le menu de nouvel espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض الأجهزة السحابية في الشريط الجانبي الأيمن ولوحة الأوامر وقائمة مساحة العمل الجديدة."
+            "value": "اعرض الأجهزة السحابية في الشريط الجانبي الأيمن ولوحة الأوامر وقائمة مساحة العمل الجديدة."
           }
         },
         "es": {
@@ -553499,55 +553499,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds checklist items and a status menu to workspaces."
+            "value": "Show a checklist and status menu on each workspace."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt Arbeitsbereichen Checklisten-Einträge und ein Statusmenü hinzu."
+            "value": "Zeige in jedem Arbeitsbereich eine Checkliste und ein Statusmenü an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoute des éléments de liste de contrôle et un menu d’état aux espaces de travail."
+            "value": "Affichez une liste de contrôle et un menu d’état dans chaque espace de travail."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيف عناصر قائمة تحقق وقائمة حالة إلى مساحات العمل."
+            "value": "اعرض قائمة تحقق وقائمة حالة في كل مساحة عمل."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade elementos de lista de verificación y un menú de estado a los espacios de trabajo."
+            "value": "Muestra una lista de verificación y un menú de estado en cada espacio de trabajo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在工作區中加入檢查清單項目和狀態選單。"
+            "value": "在每個工作區顯示檢查清單和狀態選單。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "为工作区添加清单项和状态菜单。"
+            "value": "在每个工作区显示清单和状态菜单。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간에 체크리스트 항목과 상태 메뉴를 추가합니다."
+            "value": "각 작업 공간에 체크리스트와 상태 메뉴를 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースにチェックリスト項目とステータスメニューを追加します。"
+            "value": "各ワークスペースにチェックリストとステータスメニューを表示します。"
           }
         }
       }
@@ -554384,55 +554384,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hibernates idle background agents to free memory."
+            "value": "Hibernate idle background agents when too many are open."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versetzt inaktive Agenten im Hintergrund in den Ruhezustand, um Arbeitsspeicher freizugeben."
+            "value": "Versetze inaktive Agenten im Hintergrund in den Ruhezustand, wenn zu viele geöffnet sind."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Met en hibernation les agents inactifs en arrière-plan pour libérer de la mémoire."
+            "value": "Mettez en hibernation les agents inactifs en arrière-plan lorsque trop d’agents sont ouverts."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُدخل الوكلاء الخاملين في الخلفية في السبات لتحرير الذاكرة."
+            "value": "أدخِل الوكلاء الخاملين في الخلفية في السبات عند فتح عدد كبير جدًا منهم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pone en hibernación los agentes inactivos en segundo plano para liberar memoria."
+            "value": "Pon en hibernación los agentes inactivos en segundo plano cuando haya demasiados abiertos."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "讓閒置的背景代理程式進入休眠，以釋放記憶體。"
+            "value": "開啟太多代理程式時，讓閒置的背景代理程式進入休眠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "让空闲的后台代理进入休眠，以释放内存。"
+            "value": "打开的代理过多时，让空闲的后台代理进入休眠。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "유휴 상태인 백그라운드 에이전트를 최대 절전 모드로 전환하여 메모리를 확보합니다."
+            "value": "열려 있는 에이전트가 너무 많으면 유휴 상태인 백그라운드 에이전트를 최대 절전 모드로 전환합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アイドル状態のバックグラウンドエージェントを休止させて、メモリを解放します。"
+            "value": "開いているエージェントが多すぎるときに、アイドル状態のバックグラウンドエージェントを休止させます。"
           }
         }
       }
@@ -554502,55 +554502,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Joins wrapped lines in copied text."
+            "value": "Join wrapped lines when copying text."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt umbrochene Zeilen in kopiertem Text zusammen."
+            "value": "Füge umbrochene Zeilen beim Kopieren von Text zusammen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réunit les lignes coupées dans le texte copié."
+            "value": "Réunissez les lignes coupées lors de la copie de texte."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يدمج الأسطر الملتفّة في النص المنسوخ."
+            "value": "ادمج الأسطر الملتفّة عند نسخ النص."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une las líneas cortadas en el texto copiado."
+            "value": "Une las líneas cortadas al copiar texto."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將複製文字中自動換行的行合併回一行。"
+            "value": "複製文字時，將自動換行的行合併回一行。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将复制文本中自动换行的行合并回一行。"
+            "value": "复制文本时，将自动换行的行合并回一行。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "복사한 텍스트에서 줄바꿈된 줄을 한 줄로 합칩니다."
+            "value": "텍스트를 복사할 때 줄바꿈된 줄을 한 줄로 합칩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コピーしたテキスト内の折り返された行をつなげます。"
+            "value": "テキストをコピーするときに、折り返された行をつなげます。"
           }
         }
       }
@@ -555564,55 +555564,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a lock badge during password prompts."
+            "value": "Show a lock badge when a program asks for a password."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt bei Passwortabfragen ein Schloss-Symbol an."
+            "value": "Zeige ein Schloss-Symbol an, wenn ein Programm nach einem Passwort fragt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un badge de cadenas lors des demandes de mot de passe."
+            "value": "Affichez un badge de cadenas lorsqu’un programme demande un mot de passe."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض شارة قفل عند طلب كلمة مرور."
+            "value": "اعرض شارة قفل عندما يطلب برنامج كلمة مرور."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra una insignia de candado cuando se solicita una contraseña."
+            "value": "Muestra una insignia de candado cuando un programa pide una contraseña."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在提示輸入密碼時顯示鎖頭標記。"
+            "value": "程式要求輸入密碼時顯示鎖頭標記。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在提示输入密码时显示锁形标记。"
+            "value": "程序要求输入密码时显示锁形标记。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "비밀번호를 요청할 때 자물쇠 배지를 표시합니다."
+            "value": "프로그램이 비밀번호를 요청하면 자물쇠 배지를 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パスワードの入力を求められたときに鍵のバッジを表示します。"
+            "value": "プログラムがパスワードを求めたときに鍵のバッジを表示します。"
           }
         }
       }
@@ -555623,55 +555623,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows a dot for each typed character."
+            "value": "Show a dot for each character typed in a password."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt für jedes eingegebene Zeichen einen Punkt an."
+            "value": "Zeige für jedes in ein Passwort eingegebene Zeichen einen Punkt an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche un point pour chaque caractère saisi."
+            "value": "Affichez un point pour chaque caractère saisi dans un mot de passe."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض نقطة لكل حرف مكتوب."
+            "value": "اعرض نقطة لكل حرف يُكتب في كلمة المرور."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra un punto por cada carácter escrito."
+            "value": "Muestra un punto por cada carácter escrito en una contraseña."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每輸入一個字元就顯示一個圓點。"
+            "value": "輸入密碼時，每輸入一個字元就顯示一個圓點。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每输入一个字符就显示一个圆点。"
+            "value": "输入密码时，每输入一个字符就显示一个圆点。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "입력한 문자마다 점을 하나씩 표시합니다."
+            "value": "비밀번호에 입력한 문자마다 점을 하나씩 표시합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "入力した文字ごとにドットを 1 つ表示します。"
+            "value": "パスワードに入力した文字ごとにドットを 1 つ表示します。"
           }
         }
       }
