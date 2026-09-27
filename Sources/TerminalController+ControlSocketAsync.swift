@@ -98,12 +98,14 @@ extension TerminalController {
                             action: action
                         )
                     }
-                    if authorizedRequest.method == "surface.sync_codex_native_title" {
+                    if authorizedRequest.method == "surface.sync_codex_native_title"
+                        || authorizedRequest.method == "surface.sync_grok_native_title" {
                         return await self.v2MainAsync {
                             self.v2Result(
                                 id: authorizedRequest.id?.foundationObject,
-                                self.v2SurfaceSyncCodexNativeTitle(
-                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                self.v2SurfaceSyncNativeTitle(
+                                    params: authorizedRequest.params.mapValues(\.foundationObject),
+                                    prefersNativeTitle: authorizedRequest.method == "surface.sync_grok_native_title"
                                 )
                             )
                         }

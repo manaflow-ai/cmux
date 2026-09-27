@@ -186,6 +186,7 @@ extension TerminalController {
             "workspace.rename",
             "workspace.set_auto_title",
             "surface.sync_codex_native_title",
+            "surface.sync_grok_native_title",
             "workspace.group.list",
             "workspace.group.create",
             "workspace.group.ungroup",
