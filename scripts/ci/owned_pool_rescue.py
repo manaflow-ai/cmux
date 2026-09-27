@@ -802,7 +802,7 @@ def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
     if target.side:
-        if following <= LAST_OWNED_ATTEMPT:
+        if following <= LAST_OWNED_ATTEMPT and not target.nightly:
             return f"attempt {following} takes the std minis' side label (CI_SIDE_LANE_RUNNER)"
         return f"attempt {following} takes the side lane's Blacksmith default"
     if following <= LAST_OWNED_ATTEMPT:

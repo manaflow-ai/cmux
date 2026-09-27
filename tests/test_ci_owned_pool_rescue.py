@@ -1597,7 +1597,9 @@ class Workflow(unittest.TestCase):
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
-                     "(contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
+                     "(github.event.workflow_run.path != '.github/workflows/nightly.yml' && "
+                     "github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && "
+                     "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
                      "github.event.workflow_run.event) && "
                      "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
                      "startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || "
