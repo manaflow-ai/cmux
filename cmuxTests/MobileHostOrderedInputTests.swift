@@ -200,11 +200,13 @@ struct MobileHostOrderedInputTests {
         await gate.waitUntilFirstInputStarts()
         // Both spellings identify the same UUID. The second write must wait
         // behind the first even though the wire strings differ.
-        for _ in 0..<100 {
-            #expect(!(await gate.secondInputStarted()))
-            if await gate.secondInputStarted() { break }
+        let deadline = ContinuousClock.now + .seconds(1)
+        var secondInputStarted = await gate.secondInputStarted()
+        while !secondInputStarted, ContinuousClock.now < deadline {
             await Task.yield()
+            secondInputStarted = await gate.secondInputStarted()
         }
+        #expect(!secondInputStarted)
         await gate.releaseFirstInput()
         _ = await transport.waitForResponseCount(2)
         await connection.close(reason: "test complete")
