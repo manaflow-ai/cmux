@@ -138,6 +138,18 @@ final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @uncheck
 // MARK: - Bounded, nonblocking POSIX socket helpers
 
 extension RemoteTmuxSocksProxyStreamClient {
+    // These are wire-level constants from RFC 1928. `CmuxCloud.SocksV5Client`
+    // intentionally exposes its validators but keeps its implementation
+    // constants internal, so the app-side stream opener owns the small request
+    // framing surface it needs.
+    private static let socksVersion: UInt8 = 0x05
+    private static let methodSelectionLength = 2
+    private static let replyHeaderLength = 4
+    private static let commandConnect: UInt8 = 0x01
+    private static let addressTypeIPv4: UInt8 = 0x01
+    private static let addressTypeDomain: UInt8 = 0x03
+    private static let addressTypeIPv6: UInt8 = 0x04
+
     private static func remainingMilliseconds(until deadline: DispatchTime) -> Int32 {
         let now = DispatchTime.now()
         guard deadline > now else { return 0 }
@@ -211,13 +223,13 @@ extension RemoteTmuxSocksProxyStreamClient {
         deadline: DispatchTime
     ) throws {
         try writeAll(fd: fd, bytes: SocksV5Client.greeting, deadline: deadline)
-        let methodSelection = try readExact(fd: fd, count: SocksV5Client.methodSelectionLength, deadline: deadline)
+        let methodSelection = try readExact(fd: fd, count: methodSelectionLength, deadline: deadline)
         try SocksV5Client.checkMethodSelection(methodSelection)
 
         let request = try connectRequest(host: targetHost, port: targetPort)
         try writeAll(fd: fd, bytes: request, deadline: deadline)
 
-        let header = try readExact(fd: fd, count: SocksV5Client.replyHeaderLength, deadline: deadline)
+        let header = try readExact(fd: fd, count: replyHeaderLength, deadline: deadline)
         let trailerLength: Int
         if let fixed = try SocksV5Client.replyTrailerLength(header: header) {
             trailerLength = fixed
@@ -237,19 +249,19 @@ extension RemoteTmuxSocksProxyStreamClient {
         guard (1...65_535).contains(port) else {
             throw RemoteTmuxError.launchFailed("browser proxy SOCKS request has an invalid port: \(host):\(port)")
         }
-        var request: [UInt8] = [SocksV5Client.version, SocksV5Client.commandConnect, 0x00]
+        var request: [UInt8] = [socksVersion, commandConnect, 0x00]
         if let ipv4 = IPv4Address(host) {
-            request.append(SocksV5Client.addressTypeIPv4)
+            request.append(addressTypeIPv4)
             request.append(contentsOf: ipv4.rawValue)
         } else if let ipv6 = IPv6Address(host) {
-            request.append(SocksV5Client.addressTypeIPv6)
+            request.append(addressTypeIPv6)
             request.append(contentsOf: ipv6.rawValue)
         } else {
             let nameBytes = Array(host.utf8)
             guard !nameBytes.isEmpty, nameBytes.count <= 255 else {
                 throw RemoteTmuxError.launchFailed("browser proxy SOCKS request host is invalid: \(host)")
             }
-            request.append(SocksV5Client.addressTypeDomain)
+            request.append(addressTypeDomain)
             request.append(UInt8(nameBytes.count))
             request.append(contentsOf: nameBytes)
         }
