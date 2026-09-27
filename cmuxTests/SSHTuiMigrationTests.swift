@@ -147,27 +147,57 @@ struct SSHTuiMigrationTests {
 
         let restored = try #require(legacy.workspaceConfiguration())
         #expect(restored.routesThroughSSHTui)
-        #expect(restored.restoredSSHSession == nil)
+        #expect(restored.restoredSSHSession == legacy)
         #expect(restored.destination == "fixture-host")
         #expect(restored.terminalProfile.tmuxSessionName == "cc-fixture")
         #expect(restored.terminalStartupCommand == nil)
         #expect(restored.relayPort == nil)
         #expect(restored.preserveAfterTerminalExit)
+        // The command can return a created path even after a dead child; retain
+        // the legacy descriptor until a future explicit liveness acknowledgment.
         let tmux = try #require(WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "cc-fixture"))
-        #expect(SSHTuiConnection(configuration: restored).shellCommand == tmux.remoteCommandArguments)
+        #expect(SSHTuiConnection(configuration: restored).shellCommand.suffix(3) == ["attach-session", "-t", "=cc-fixture"])
 
-        // The next save records cmux-tui ownership, so later restores take the native path.
+        // Keep the durable legacy descriptor across saves until a real process
+        // liveness acknowledgment exists; this avoids claiming a dead attach.
         let resaved = try #require(restored.sessionSnapshot())
-        #expect(resaved.sshSessionOwner == "cmux-tui")
-        #expect(resaved.relayPort == nil)
-        #expect(resaved.persistentDaemonSlot == nil)
+        #expect(resaved.sshSessionOwner == nil)
+        #expect(resaved.relayPort == 52206)
+        #expect(resaved.persistentDaemonSlot == "ssh-410b76b4-e7ea-4db1-8394-9d06bfc19b5c")
         #expect(resaved.terminalProfile == tmux)
-        let roundTripped = try JSONDecoder().decode(
-            SessionRemoteWorkspaceSnapshot.self, from: JSONEncoder().encode(resaved)
-        )
-        let native = try #require(roundTripped.tuiSSHConfiguration(agentSocketPath: nil))
-        #expect(SSHTuiConnection(configuration: native).id == SSHTuiConnection(configuration: restored).id)
-        #expect(native.terminalProfile == tmux)
+    }
+
+    @Test("Legacy tmux restore uses existing-session attach and preserves ownership until success")
+    func legacyTmuxRestoreRequiresExistingSession() throws {
+        let json = Data("""
+        {"destination": "fixture-host", "persistentDaemonSlot": "legacy-slot",
+         "preserveAfterTerminalExit": true, "relayPort": 52206,
+         "terminalProfile": {"kind": "tmux", "tmuxSessionName": "cc-fixture"},
+         "terminalTransport": "ssh", "transport": "ssh"}
+        """.utf8)
+        let legacy = try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: json)
+        let restored = try #require(legacy.workspaceConfiguration())
+        let tmux = try #require(WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "cc-fixture"))
+        #expect(restored.restoredSSHSession == legacy)
+        let connection = SSHTuiConnection(configuration: restored)
+        #expect(connection.shellCommand.suffix(3) == ["attach-session", "-t", "=cc-fixture"])
+
+        // A failed attach must keep the legacy descriptor, rather than claiming
+        // cmux-tui ownership before the remote session was proven.
+        let failed = try #require(restored.sessionSnapshot())
+        #expect(failed.sshSessionOwner == nil)
+        #expect(failed.persistentDaemonSlot == "legacy-slot")
+        #expect(failed.relayPort == 52206)
+        let roundTripped = try #require(try JSONDecoder().decode(
+            SessionRemoteWorkspaceSnapshot.self, from: JSONEncoder().encode(failed)
+        ).workspaceConfiguration())
+        #expect(roundTripped.restoredSSHSession == failed)
+        #expect(SSHTuiConnection(configuration: roundTripped).shellCommand.suffix(3) == ["attach-session", "-t", "=cc-fixture"])
+
+        let fresh = WorkspaceRemoteConfiguration(terminalProfile: tmux, destination: "fixture-host", port: nil,
+            identityFile: nil, sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
+        #expect(SSHTuiConnection(configuration: fresh).shellCommand == tmux.remoteCommandArguments)
     }
 
     // Covers the two attach helpers: the title attach enqueues as a rename before
