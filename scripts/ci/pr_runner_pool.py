@@ -1367,7 +1367,8 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
                      if label in roots else None)
         rooms[label] = Pick(label, "owned", room, root_room, limit, whole if best and queue_rounds else None)
     reserve = max(0, reserve)
-    fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
+    # A run with no owned job left (its side lanes on the light side runners) needs no room.
+    fits = [label for label, room in rooms.items() if room.room >= jobs + reserve
             and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs + reserve)]
     if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
         # A pool with a root runner free first, when the run needs one.
@@ -1522,12 +1523,12 @@ def decide(
             if chosen.root_room > root_now:
                 root += f" and {chosen.root_room - root_now} queue places"
             root += f", it needs {root_jobs}"
-        whole = chosen.room >= max(1, jobs) and (chosen.root_room is None or chosen.root_room >= root_jobs)
+        whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
         if whole:
-            why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
+            why = f"first pool in order with headroom ({machines}, this run needs {jobs}{root}{kept}){replay}"
         else:
-            why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
+            why = (f"owned pool with the most room ({machines}, this run needs {jobs}{root}): "
                    f"the jobs that fit run there, the rest on the retry runner{replay}")
     elif chosen.how == "wait":
         why = f"least expected wait ({chosen.blacksmith_wait:g} min, from the jobs queued and running now){replay}"
@@ -1560,7 +1561,7 @@ def decide(
         note += f"; its {shards} app-host shards take {shard}, which has more room for them"
     if not persistent(label):
         return Choice(label, xcode(label) or "", why + note, retry, 0, shard)
-    budget = max(0, min(chosen.room, max(1, jobs)))
+    budget = max(0, min(chosen.room, jobs))
     if chosen.root_room is not None:
         return Choice(label, xcode(label) or "", why + note, retry, budget, shard_runner=shard,
                       root_runner=root_label(label), root_budget=max(0, chosen.root_room))
@@ -1826,7 +1827,7 @@ def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, i
         match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
         if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
                 and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
-            return match["pool"], min(max(1, int(match["jobs"])), MAX_RUN_JOBS)
+            return match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
     return None
 
 
@@ -2244,6 +2245,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     side = side_runner(choice, owned_slots)
     if light_side and persistent(choice.runner):
         owned_jobs, side = owned_jobs + side_lanes, light_side
+        if choice.runner == pool_label(light_side):
+            # The light pool's own pick: its side lanes are its machines too, and the janitor
+            # (marker_peaks()) takes them off the marker's peak for the root share.
+            held += len(side_lanes)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
                    owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
