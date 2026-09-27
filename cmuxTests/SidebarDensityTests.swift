@@ -131,11 +131,12 @@ final class SidebarDensityTests: XCTestCase {
             let showPorts = try XCTUnwrap(
                 CommandPaletteSettingsToggleCommands.descriptor(commandId: "palette.toggleSetting.showPortsInSidebar")
             )
-            defaults.set(SidebarDensity.quiet.rawValue, forKey: sidebar.density.userDefaultsKey)
-            // A value that does not decode as a Bool is not an explicit choice.
+            // A value that does not decode as a Bool is not an explicit choice,
+            // so under the full density both readers fall back to showing ports
+            // (a raw `bool(forKey:)` read would say false).
             defaults.set("sometimes", forKey: sidebar.showPorts.userDefaultsKey)
-            XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsPorts)
-            XCTAssertFalse(showPorts.isOn(defaults))
+            XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsPorts)
+            XCTAssertTrue(showPorts.isOn(defaults))
         }
     }
 
