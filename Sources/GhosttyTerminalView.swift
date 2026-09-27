@@ -3348,8 +3348,15 @@ class GhosttyApp {
             guard mode == GHOSTTY_SECURE_INPUT_ON || mode == GHOSTTY_SECURE_INPUT_OFF else { return false }
             let echoDisabled = mode == GHOSTTY_SECURE_INPUT_ON
             let terminalSurface = surfaceView.terminalSurface
+            // The model outlives its runtime (hibernation, stale-runtime
+            // release), so also pin the runtime the action came from. An
+            // action queued by a released runtime must not re-show the badge
+            // that terminalSurfaceRuntimeDidRelease() cleared.
+            let sourceRuntimeSurface = target.target.surface
             DispatchQueue.main.async {
-                guard surfaceView.terminalSurface === terminalSurface else { return }
+                guard surfaceView.terminalSurface === terminalSurface,
+                      let sourceRuntimeSurface,
+                      terminalSurface?.surface == sourceRuntimeSurface else { return }
                 terminalSurface?.hostedView.setPasswordInputActive(echoDisabled)
             }
             return true
