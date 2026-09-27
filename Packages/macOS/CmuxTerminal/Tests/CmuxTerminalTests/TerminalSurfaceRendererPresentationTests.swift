@@ -1,7 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
-import GhosttyRuntimeTestStubs
+import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
