@@ -225,7 +225,7 @@ struct FileExplorerStoreTests {
 
         store.setExcludePatterns(["Sources/Generated.swift"])
         try await waitFor("excluded file selection reconciled") {
-            sourceNode.children?.map(\.path) == ["\(sourcePath)/Keep.swift"] &&
+            store.rootNodes.first { $0.path == sourcePath }?.children?.map(\.path) == ["\(sourcePath)/Keep.swift"] &&
                 store.selectedPath == sourcePath && store.selectedPaths == [sourcePath]
         }
 
