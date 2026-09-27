@@ -3318,22 +3318,29 @@ jobs:
           # runner at startup. Retry exactly once only for the known signal
           # 5/6 crash immediately after build and before test output, matching
           # the package loop below.
-          test_status=0
-          output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
-          printf '%s\n' "$output"
-          if [ "$test_status" -ne 0 ] \
-            && grep -Fq 'Build complete!' <<<"$output" \
-            && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
-            && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
-            echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
+          # Output streams live through the hang watchdog, which fails a run
+          # whose tests stop making progress (see the package loop below).
+          log="$(mktemp -t bonsplit-test.XXXXXX)"
+          run_swift_test() {
             test_status=0
-            output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
-            printf '%s\n' "$output"
+            python3 scripts/ci/hung_test_watchdog.py \
+              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-120}" \
+              --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+              --sample-seconds 5 --label Bonsplit --log "$log" \
+              -- swift test --package-path vendor/bonsplit < /dev/null || test_status=$?
+          }
+          run_swift_test
+          if [ "$test_status" -ne 0 ] \
+            && grep -Fq 'Build complete!' "$log" \
+            && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
+            && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
+            echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
+            run_swift_test
           fi
           if [ "$test_status" -ne 0 ]; then
             exit "$test_status"
           fi
-          printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
+          python3 scripts/ci/require_swift_test_execution.py --log "$log"
 
       - name: Run Swift package unit tests
         env:
@@ -3366,6 +3373,24 @@ jobs:
           # is present, no test failures are reported, and the only error
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
+          #
+          # Every `swift test` below streams live and into "$log" through the
+          # hang watchdog. Once the build is done, no test starting or
+          # finishing for CMUX_SWIFT_TEST_STALL_SECONDS is a hang: the watchdog
+          # names the unfinished tests, samples the xctest and
+          # swiftpm-testing-helper stacks into the log, kills the tree and
+          # exits 124, which fails the package. The longest single test in
+          # these packages takes under a minute. The total limit is a backstop
+          # for a run that keeps making slow progress.
+          log="$(mktemp -t swift-package-test.XXXXXX)"
+          run_swift_test() {
+            test_status=0
+            python3 scripts/ci/hung_test_watchdog.py \
+              --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-120}" \
+              --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+              --sample-seconds 5 --label "$pkg" --log "$log" \
+              -- swift test "${swift_test_args[@]}" < /dev/null || test_status=$?
+          }
           if grep -qxF CmuxCommandPalette "$selected"; then
             # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
             # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
@@ -3399,22 +3424,20 @@ jobs:
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
-              test_status=0
-              output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
-              printf '%s\n' "$output"
+              run_swift_test
               if [ "$test_status" -ne 0 ]; then
                 if [ "$test_status" -eq 1 ] \
-                  && grep -Eq 'error:.*unexpected binary' <<<"$output" \
-                  && python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin <<<"$output" \
-                  && ! grep -Eq 'with [1-9][0-9]* failures?' <<<"$output" \
-                  && ! grep -Fq 'Exited with unexpected signal code' <<<"$output" \
-                  && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' <<<"$output")"; then
+                  && grep -Eq 'error:.*unexpected binary' "$log" \
+                  && python3 scripts/ci/require_swift_test_execution.py --log "$log" \
+                  && ! grep -Eq 'with [1-9][0-9]* failures?' "$log" \
+                  && ! grep -Fq 'Exited with unexpected signal code' "$log" \
+                  && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' "$log")"; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
                   exit "$test_status"
                 fi
               else
-                printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
+                python3 scripts/ci/require_swift_test_execution.py --log "$log"
               fi
               ;;
             *)
@@ -3423,22 +3446,18 @@ jobs:
               # complete!", zero test output). That is a runner flake, not a
               # test failure: retry exactly once, and only when no test
               # output was emitted.
-              test_status=0
-              output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
-              printf '%s\n' "$output"
+              run_swift_test
               if [ "$test_status" -ne 0 ] \
-                && grep -Fq 'Build complete!' <<<"$output" \
-                && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
-                && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
+                && grep -Fq 'Build complete!' "$log" \
+                && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
+                && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
-                test_status=0
-                output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
-                printf '%s\n' "$output"
+                run_swift_test
               fi
               if [ "$test_status" -ne 0 ]; then
                 exit "$test_status"
               fi
-              printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
+              python3 scripts/ci/require_swift_test_execution.py --log "$log"
               ;;
             esac
             echo "::endgroup::"

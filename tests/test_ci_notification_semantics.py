@@ -119,6 +119,8 @@ else:
             helpers.mkdir(parents=True)
             shutil.copy(ROOT / "scripts/ci/select_package_tests.py", helpers)
             shutil.copy(ROOT / "scripts/ci/require_swift_test_execution.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/hung_test_watchdog.py", helpers)
+            shutil.copy(ROOT / "scripts/ci/ci_process_tree.py", helpers)
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
