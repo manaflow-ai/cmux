@@ -159,7 +159,7 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 ## `sidebar.compactAgentStatus`
 
-Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those rows go away and the workspace shows one small glyph before its title instead. Hover it for the agent, pull request, and branch details.
+Shows every workspace on one line, like the Claude desktop session list: one small colored glyph, then the title. Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"), and by default every one gets its own row under the workspace title, next to the branch and directory line and the pull request rows. With `compactAgentStatus` on, those rows fold into the glyph. Hover it for the agent, pull request, branch, and directory details.
 
 ```json
 {
@@ -173,19 +173,24 @@ The glyph shows the loudest state that applies:
 
 | State | Glyph |
 | --- | --- |
-| An agent needs input or reported an error | red warning triangle |
-| An agent is running | none; the loading spinner (`showAgentActivity`) is the running indicator. With the spinner off, the rows below apply |
-| Open pull request | green pull request glyph |
+| An agent reported an error | red warning triangle |
+| An agent needs input | yellow dot |
+| An agent is running | pulsing gray dot, in place of the loading spinner |
+| An agent is starting (no state reported yet) | hollow ring |
+| Unread notifications | blue dot, in place of the unread count badge |
+| Open pull request with a merge conflict | orange pull request glyph |
+| Open pull request with failing checks | red pull request glyph |
+| Open pull request with passing checks | green pull request glyph |
+| Open pull request, checks unknown | gray pull request glyph |
 | Merged pull request | purple merge glyph |
 | Closed pull request | gray pull request glyph |
-| Branch, no pull request | purple branch glyph |
-| Agent idle | filled gray dot |
-| Agent starting, state unknown, or running with the spinner off | hollow ring |
+| Anything else | gray dot |
 
 - Default: `false`.
 - Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
-- Like the loading spinner, the glyph stays visible when `sidebar.hideAllDetails` is on, so turning on both gives one line per workspace.
-- Pull request and branch state follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
+- The pulse is a Core Animation opacity loop, so it costs no per-frame CPU, and Reduce Motion keeps the dot still.
+- Pull request check and merge-conflict colors need check data the sidebar does not fetch yet; until then an open pull request shows gray.
+- Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 

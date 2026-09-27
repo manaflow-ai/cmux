@@ -111,7 +111,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
-| `sidebar.compactAgentStatus` | boolean | `false` | Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state. |
+| `sidebar.compactAgentStatus` | boolean | `false` | Show each workspace on one line: one colored icon before the title for agent, unread, and pull request state, with the details in its tooltip. |
 | `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
 | `sidebar.beta` | object | — | Experimental sidebar features. |
 | `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |

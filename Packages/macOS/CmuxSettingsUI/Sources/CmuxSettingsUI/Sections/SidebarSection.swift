@@ -533,7 +533,7 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.compactAgentStatus"),
                 String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
-                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state.")
+                subtitle: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show each workspace on one line, with one colored icon before the title for agent, unread, and pull request state. Hover the icon for details.")
             ) {
                 Toggle("", isOn: Binding(get: { compactAgentStatus.current }, set: { compactAgentStatus.set($0) }))
                     .labelsHidden()

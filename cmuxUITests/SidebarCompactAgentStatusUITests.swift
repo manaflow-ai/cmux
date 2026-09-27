@@ -36,6 +36,9 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         ("idle agent", ["set_agent_lifecycle claude_code idle --tab={tab}"]),
         ("starting agent", ["set_agent_lifecycle claude_code unknown --tab={tab}"]),
         ("custom status", ["set_status deploy green --icon=checkmark --tab={tab}"]),
+        // Notified below, once another workspace is selected, so it stays unread.
+        ("unseen", ["let unseen"]),
+        ("plain terminal", []),
     ]
 
     private func runScenario(compact: Bool) {
@@ -52,7 +55,11 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         let commands = scenarios.flatMap { scenario in
             ["new_workspace \(scenario.title)", "select_workspace {last}", "wait 400"]
                 + scenario.commands.map { $0.replacingOccurrences(of: "{tab}", with: "{last}") }
-        }
+        } + [
+            "list_surfaces {unseen}",
+            "notify_target {unseen} {surface} Done|Claude Code|Finished",
+            "wait 400",
+        ]
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         // Plist syntax: the settings decoder accepts only real booleans, and a
@@ -107,6 +114,11 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
                 let glyph = sidebar.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
                 XCTAssertTrue(glyph.waitForExistence(timeout: 5.0), "Expected a compact status glyph labelled \(label)")
+            }
+            // One line per row: branch and PR details live in the tooltip only.
+            for detail in ["feat/sidebar", "feat/done"] {
+                let line = sidebar.staticTexts.matching(NSPredicate(format: "value == %@", detail)).firstMatch
+                XCTAssertFalse(line.exists, "Expected no \(detail) line under the title in compact mode")
             }
         }
         // The custom (non-agent) status keeps its row in both modes.

@@ -558237,55 +558237,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Replace agent status rows with one colored icon before the workspace title that shows agent, pull request, and branch state."
+            "value": "Show each workspace on one line, with one colored icon before the title for agent, unread, and pull request state. Hover the icon for details."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استبدال أسطر حالة الوكيل بأيقونة ملونة واحدة قبل عنوان مساحة العمل تعرض حالة الوكيل وطلب الدمج والفرع."
+            "value": "عرض كل مساحة عمل في سطر واحد، مع أيقونة ملونة واحدة قبل العنوان لحالة الوكيل والعناصر غير المقروءة وطلب السحب. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Status-Zeilen von Agenten durch ein farbiges Symbol vor dem Workspace-Titel ersetzen, das Agenten-, Pull-Request- und Branch-Status zeigt."
+            "value": "Jeden Workspace in einer Zeile anzeigen, mit einem farbigen Symbol vor dem Titel für Agenten-, Ungelesen- und Pull-Request-Status. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reemplazar las filas de estado del agente por un icono de color antes del título del espacio de trabajo que muestra el estado del agente, de la pull request y de la rama."
+            "value": "Mostrar cada espacio de trabajo en una sola línea, con un icono de color antes del título para el estado del agente, lo no leído y la pull request. Pasa el cursor sobre el icono para ver los detalles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remplacer les lignes de statut des agents par une icône colorée avant le titre de l’espace de travail, qui indique l’état de l’agent, de la pull request et de la branche."
+            "value": "Afficher chaque espace de travail sur une seule ligne, avec une icône colorée avant le titre pour l’état de l’agent, des éléments non lus et de la pull request. Survolez l’icône pour voir les détails."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの状態行を、ワークスペースのタイトル前に置く1つの色付きアイコンに置き換え、エージェント、プルリクエスト、ブランチの状態を表示します。"
+            "value": "各ワークスペースを1行で表示し、タイトルの前の色付きアイコン1つでエージェント、未読、プルリクエストの状態を示します。詳細はアイコンにポインタを合わせると表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 상태 행을 워크스페이스 제목 앞의 색상 아이콘 하나로 바꾸어 에이전트, 풀 리퀘스트, 브랜치 상태를 표시합니다."
+            "value": "각 워크스페이스를 한 줄로 표시하고, 제목 앞의 색상 아이콘 하나로 에이전트, 읽지 않음, 풀 리퀘스트 상태를 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用工作区标题前的单个彩色图标替代代理状态行，显示代理、拉取请求和分支状态。"
+            "value": "每个工作区只显示一行，标题前用单个彩色图标表示代理、未读和拉取请求状态。将指针悬停在图标上可查看详细信息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "以工作區標題前的單一彩色圖示取代代理狀態列，顯示代理、拉取請求與分支狀態。"
+            "value": "每個工作區只顯示一行，標題前以單一彩色圖示表示代理、未讀與拉取請求狀態。將游標移到圖示上可查看詳細資訊。"
           }
         }
       }

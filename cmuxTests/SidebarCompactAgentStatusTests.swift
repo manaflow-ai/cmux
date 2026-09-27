@@ -50,97 +50,138 @@ struct SidebarCompactAgentStatusTests {
     // MARK: Resolution
 
     @Test
-    func needsInputOutranksEverything() {
+    func agentErrorIsTheOnlyRedTriangle() {
+        let glyph = Glyph.resolve(.init(
+            agentEntries: [Self.entry("codex", "Error", icon: "exclamationmark.triangle.fill")],
+            lifecycleStates: [.needsInput, .running],
+            hasActiveAgent: true,
+            pullRequests: [Self.openPR]
+        ))
+        #expect(glyph.kind == .error)
+        #expect(glyph.symbolName == "exclamationmark.triangle.fill")
+    }
+
+    @Test
+    func needsInputIsAYellowDotAboveRunningAndPullRequests() {
         let glyph = Glyph.resolve(.init(
             agentEntries: [Self.entry("claude_code", "Needs input", icon: "bell.fill")],
             lifecycleStates: [.running, .needsInput],
-            showsRunningSpinner: true,
+            hasActiveAgent: true,
             pullRequests: [Self.openPR],
             branch: "main"
         ))
-        #expect(glyph?.kind == .attention)
-        #expect(glyph?.symbolName == "exclamationmark.triangle.fill")
+        #expect(glyph.kind == .needsInput)
+        #expect(glyph.symbolName == "circle.fill")
+        #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == .systemYellow)
     }
 
     @Test
-    func agentErrorIconIsAttention() {
-        let glyph = Glyph.resolve(.init(
-            agentEntries: [Self.entry("codex", "Error", icon: "exclamationmark.triangle.fill")],
-            lifecycleStates: [.idle]
-        ))
-        #expect(glyph?.kind == .attention)
-    }
-
-    @Test
-    func runningDefersToTheAnimatedSpinner() {
-        let running = Glyph.Input(lifecycleStates: [.running], showsRunningSpinner: true, branch: "main")
-        #expect(Glyph.resolve(running) == nil)
-
-        var spinnerOff = running
-        spinnerOff.showsRunningSpinner = false
-        #expect(Glyph.resolve(spinnerOff)?.kind == .branch)
-    }
-
-    @Test
-    func pullRequestStateBeatsBranchAndIdle() {
-        for (status, kind) in [
-            (SidebarPullRequestStatus.open, Glyph.Kind.pullRequestOpen),
-            (.merged, .pullRequestMerged),
-            (.closed, .pullRequestClosed),
+    func runningIsAPulsingGrayDotWithOrWithoutALifecycleReport() {
+        for input in [
+            Glyph.Input(lifecycleStates: [.running], pullRequests: [Self.openPR]),
+            Glyph.Input(hasActiveAgent: true, branch: "main"),
         ] {
-            let glyph = Glyph.resolve(.init(
-                lifecycleStates: [.idle],
-                pullRequests: [.init(label: "PR", number: 7, status: status)],
-                branch: "feature"
-            ))
-            #expect(glyph?.kind == kind)
+            let glyph = Glyph.resolve(input)
+            #expect(glyph.kind == .running)
+            #expect(glyph.pulses)
+            #expect(glyph.symbolName == "circle.fill")
+            #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == .gray)
         }
     }
 
     @Test
-    func idleUnknownAndEmptyWorkspaces() {
-        #expect(Glyph.resolve(.init(lifecycleStates: [.idle]))?.kind == .idle)
-        #expect(Glyph.resolve(.init(lifecycleStates: [.idle]))?.symbolName == "circle.fill")
-        #expect(Glyph.resolve(.init(lifecycleStates: [.unknown]))?.kind == .pending)
-        #expect(Glyph.resolve(.init(lifecycleStates: [.unknown]))?.symbolName == "circle")
-        #expect(Glyph.resolve(.init()) == nil)
+    func startingAgentIsAHollowRingAbovePullRequests() {
+        let glyph = Glyph.resolve(.init(lifecycleStates: [.unknown], pullRequests: [Self.openPR]))
+        #expect(glyph.kind == .pending)
+        #expect(glyph.symbolName == "circle")
+        #expect(!glyph.pulses)
     }
 
     @Test
-    func tooltipCarriesEveryDetailOnItsOwnLine() throws {
-        let glyph = try #require(Glyph.resolve(.init(
+    func pullRequestColorsFollowMergeAndChecks() {
+        let cases: [(SidebarPullRequestStatus, Glyph.Checks?, NSColor, String)] = [
+            (.open, .conflict, .systemOrange, "arrow.triangle.pull"),
+            (.open, .passing, .systemGreen, "arrow.triangle.pull"),
+            (.open, .failing, .systemRed, "arrow.triangle.pull"),
+            (.open, nil, .gray, "arrow.triangle.pull"),
+            (.merged, nil, .systemPurple, "arrow.triangle.merge"),
+            (.closed, nil, .gray, "arrow.triangle.pull"),
+        ]
+        for (status, checks, color, symbol) in cases {
+            let glyph = Glyph.resolve(.init(
+                lifecycleStates: [.idle],
+                pullRequests: [.init(label: "PR", number: 7, status: status, checks: checks)],
+                branch: "feature"
+            ))
+            #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == color)
+            #expect(glyph.symbolName == symbol)
+        }
+    }
+
+    @Test
+    func everyCompactRowGetsAGlyphIdleIsAGrayDot() {
+        for input in [Glyph.Input(), Glyph.Input(lifecycleStates: [.idle]), Glyph.Input(branch: "main")] {
+            let glyph = Glyph.resolve(input)
+            #expect(glyph.kind == .idle)
+            #expect(glyph.symbolName == "circle.fill")
+            #expect(!glyph.pulses)
+        }
+    }
+
+    @Test
+    func unreadTurnsSettledRowsBlueButNotActiveOnes() {
+        let settled = [
+            Glyph.resolve(.init(lifecycleStates: [.idle])),
+            Glyph.resolve(.init(pullRequests: [Self.openPR])),
+        ]
+        for glyph in settled {
+            let unseen = glyph.applyingUnread(true)
+            #expect(unseen.kind == .unseen)
+            #expect(unseen.tooltip == glyph.tooltip)
+            #expect(unseen.color(isActive: false, selected: .white, secondary: .gray) == .systemBlue)
+            #expect(glyph.applyingUnread(false) == glyph)
+        }
+        for input in [
+            Glyph.Input(lifecycleStates: [.needsInput]),
+            Glyph.Input(hasActiveAgent: true),
+            Glyph.Input(lifecycleStates: [.unknown]),
+        ] {
+            let glyph = Glyph.resolve(input)
+            #expect(glyph.applyingUnread(true) == glyph)
+        }
+    }
+
+    @Test
+    func tooltipCarriesEveryDetailOnItsOwnLine() {
+        let glyph = Glyph.resolve(.init(
             agentEntries: [Self.entry("claude_code", "Idle", icon: "pause.circle.fill")],
             lifecycleStates: [.idle],
             pullRequests: [Self.openPR],
-            branch: "feat/sidebar"
-        )))
+            branch: "feat/sidebar",
+            directory: "~/Projects/cmux"
+        ))
         let lines = glyph.tooltip.split(separator: "\n").map(String.init)
 
-        #expect(lines.count == 3)
+        #expect(lines.count == 4)
         #expect(lines[0].contains("Claude Code") && lines[0].contains("Idle"))
         #expect(lines[1].contains("PR #12"))
         #expect(lines[2] == "feat/sidebar")
+        #expect(lines[3] == "~/Projects/cmux")
     }
 
     @Test
-    func lifecycleOnlyGlyphsStillNameTheirState() throws {
-        let attention = try #require(Glyph.resolve(.init(lifecycleStates: [.needsInput])))
-        let idle = try #require(Glyph.resolve(.init(lifecycleStates: [.idle], branch: "main")))
+    func lifecycleOnlyGlyphsStillNameTheirState() {
+        let needsInput = Glyph.resolve(.init(lifecycleStates: [.needsInput]))
+        let idle = Glyph.resolve(.init(lifecycleStates: [.idle], branch: "main"))
 
-        #expect(attention.tooltip == "Needs input")
+        #expect(needsInput.tooltip == "Needs input")
         #expect(idle.tooltip.split(separator: "\n").map(String.init) == ["Idle", "main"])
     }
 
     @Test
-    func colorsFollowTheStateAndFlattenWhenSelected() throws {
-        let selected = NSColor.white
-        let secondary = NSColor.gray
-        let open = try #require(Glyph.resolve(.init(pullRequests: [Self.openPR])))
-        let branch = try #require(Glyph.resolve(.init(branch: "main")))
-
-        #expect(open.color(isActive: false, selected: selected, secondary: secondary) == .systemGreen)
-        #expect(branch.color(isActive: false, selected: selected, secondary: secondary) == .systemPurple)
-        #expect(open.color(isActive: true, selected: selected, secondary: secondary) == selected)
+    func selectedRowsFlattenTheColor() {
+        let glyph = Glyph.resolve(.init(lifecycleStates: [.needsInput]))
+        #expect(glyph.color(isActive: true, selected: .white, secondary: .gray) == .white)
     }
 
     @Test
@@ -172,10 +213,10 @@ struct SidebarCompactAgentStatusTests {
     func appKitRowDrawsOneGlyphBeforeTheTitleInsteadOfAStatusRow() throws {
         let needsInput = Self.entry("claude_code", "Needs input", icon: "bell.fill")
         let asRow = SidebarAppKitRowCellTests.makeModel(metadataEntries: [needsInput])
-        let glyph = try #require(Glyph.resolve(.init(
+        let glyph = Glyph.resolve(.init(
             agentEntries: [needsInput],
             lifecycleStates: [.needsInput]
-        )))
+        ))
         let compact = SidebarAppKitRowCellTests.makeModel(compactStatusGlyph: glyph)
 
         let rowCell = SidebarAppKitRowCellTests.configuredCell(model: asRow)
@@ -188,7 +229,7 @@ struct SidebarCompactAgentStatusTests {
 
         let glyphView = try #require(
             SidebarAppKitRowCellTests.descendants(of: compactCell)
-                .compactMap { $0 as? NSImageView }
+                .compactMap { $0 as? SidebarCompactStatusGlyphImageView }
                 .first { !$0.isHidden && $0.toolTip == glyph.tooltip }
         )
         let titleView = try #require(
@@ -197,7 +238,7 @@ struct SidebarCompactAgentStatusTests {
                 .first { !$0.isHidden && $0.stringValue == compact.snapshot.title }
         )
         #expect(glyphView.image != nil)
-        #expect(glyphView.contentTintColor == .systemRed)
+        #expect(glyphView.contentTintColor == .systemYellow)
         #expect(glyphView.frame.maxX <= titleView.frame.minX)
 
         // Reuse: a row without a glyph hides the view again.
@@ -209,5 +250,22 @@ struct SidebarCompactAgentStatusTests {
             contextMenuDidClose: {}
         )
         #expect(glyphView.isHidden)
+    }
+
+    @Test
+    func appKitCompactRowShowsUnreadAsTheBlueGlyphNotACountBadge() throws {
+        var model = SidebarAppKitRowCellTests.makeModel(
+            compactStatusGlyph: Glyph.resolve(.init(lifecycleStates: [.idle]))
+        )
+        model.unreadCount = 3
+        let cell = SidebarAppKitRowCellTests.configuredCell(model: model)
+        cell.frame = NSRect(x: 0, y: 0, width: 280, height: 60)
+        _ = cell.layoutContent(model: model, width: 280, apply: true)
+        let views = SidebarAppKitRowCellTests.descendants(of: cell)
+
+        let glyphView = try #require(views.compactMap { $0 as? SidebarCompactStatusGlyphImageView }.first)
+        #expect(!glyphView.isHidden)
+        #expect(glyphView.contentTintColor == .systemBlue)
+        #expect(views.compactMap { $0 as? SidebarRowUnreadBadgeView }.allSatisfy(\.isHidden))
     }
 }

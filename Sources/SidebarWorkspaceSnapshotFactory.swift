@@ -19,11 +19,17 @@ struct SidebarWorkspaceSnapshotFactory {
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
+        // Compact status keeps every row to one line: the branch/directory
+        // line and the pull request rows fold into the glyph's tooltip. The
+        // visibility itself stays, since it also drives git and PR polling,
+        // which the glyph reads.
+        let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
+        let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
         let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
+            guard showsBranchDirectoryRows,
                   settings.branchDirectory.branchLayout == .inline,
                   settings.showsGitBranch else {
                 return nil
@@ -31,7 +37,7 @@ struct SidebarWorkspaceSnapshotFactory {
             return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
         }()
         let compactDirectoryCandidates: [String] = {
-            guard detailVisibility.showsBranchDirectory,
+            guard showsBranchDirectoryRows,
                   settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
@@ -42,7 +48,7 @@ struct SidebarWorkspaceSnapshotFactory {
             directoryCandidates: compactDirectoryCandidates
         )
         let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
-            guard detailVisibility.showsBranchDirectory,
+            guard showsBranchDirectoryRows,
                   settings.branchDirectory.branchLayout == .vertical else {
                 return []
             }
@@ -50,7 +56,7 @@ struct SidebarWorkspaceSnapshotFactory {
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests else { return [] }
+            guard showsPullRequestRows else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
@@ -85,7 +91,10 @@ struct SidebarWorkspaceSnapshotFactory {
         let compactStatusGlyph = settings.compactsAgentStatus
             ? SidebarCompactStatusGlyph.resolve(compactStatusInput(
                 agentEntries: statusEntries.agent,
-                showsRunningSpinner: activeCodingAgentCount > 0,
+                hasActiveAgent: activeCodingAgentCount > 0,
+                directory: detailVisibility.showsBranchDirectory
+                    ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
+                    : nil,
                 orderedPanelIds: orderedPanelIds
             ))
             : nil
@@ -355,7 +364,8 @@ struct SidebarWorkspaceSnapshotFactory {
     /// Only the branch and PR toggles themselves turn their part off.
     private func compactStatusInput(
         agentEntries: [SidebarStatusEntry],
-        showsRunningSpinner: Bool,
+        hasActiveAgent: Bool,
+        directory: String?,
         orderedPanelIds: [UUID]
     ) -> SidebarCompactStatusGlyph.Input {
         SidebarCompactStatusGlyph.Input(
@@ -363,7 +373,7 @@ struct SidebarWorkspaceSnapshotFactory {
             lifecycleStates: workspace.agentLifecycleStatesByPanelId.values.flatMap { states in
                 states.filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }.values
             },
-            showsRunningSpinner: showsRunningSpinner,
+            hasActiveAgent: hasActiveAgent,
             // Honor the user's branch and PR toggles themselves (not detail
             // visibility), so the glyph still works under Hide All Details.
             pullRequests: settings.details.showPullRequests
@@ -373,7 +383,8 @@ struct SidebarWorkspaceSnapshotFactory {
                 : [],
             branch: settings.showsGitBranch
                 ? workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
-                : nil
+                : nil,
+            directory: directory
         )
     }
 

@@ -1347,7 +1347,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
-          "compactAgentStatus": "Status-Zeilen von Agenten (zum Beispiel „Wird ausgeführt“ oder „Eingabe erforderlich“) durch ein farbiges Symbol vor dem Workspace-Titel ersetzen, das Agenten-, Pull-Request- und Branch-Status zeigt. Andere Statuseinträge behalten ihre eigenen Zeilen.",
+          "compactAgentStatus": "Jeden Workspace in einer Zeile anzeigen: Ein farbiges Symbol vor dem Titel zeigt Agenten-, Ungelesen- und Pull-Request-Status und ersetzt die Status-Zeilen von Agenten (zum Beispiel „Wird ausgeführt“ oder „Eingabe erforderlich“), die Branch- und Verzeichniszeile sowie die Pull-Request-Zeilen, deren Details in den Tooltip des Symbols wandern. Andere Statuseinträge behalten ihre eigenen Zeilen.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },

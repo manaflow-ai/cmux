@@ -4,47 +4,76 @@ import Foundation
 import SwiftUI
 
 /// The single leading glyph a workspace row shows when
-/// `sidebar.compactAgentStatus` is on. Agent hooks report their lifecycle as
-/// keyed status entries (`set_status claude_code Running --icon=bolt.fill`);
-/// by default each one takes a full metadata row under the title. Compact
-/// mode drops those agent-owned rows and folds agent state together with the
-/// workspace's pull request and branch into one glyph, with the details in
-/// its tooltip. Other status entries stay as metadata rows.
+/// `sidebar.compactAgentStatus` is on, modeled on the Claude desktop session
+/// list: every row is one line, glyph then title, with the details in the
+/// glyph's tooltip. Agent hooks report their lifecycle as keyed status
+/// entries (`set_status claude_code Running --icon=bolt.fill`); compact mode
+/// drops those agent-owned rows, the branch/directory line and the pull
+/// request rows, and folds all of it into the glyph. Other status entries
+/// stay as metadata rows.
 ///
 /// Precedence, loudest first:
-/// 1. Needs attention (an agent needs input or reported an error): red
-///    warning triangle.
-/// 2. Running: no glyph; the row's existing loading spinner is the animated
-///    running indicator. With the spinner turned off, resolution falls
-///    through to the cases below.
-/// 3. Pull request: green when open, purple when merged, gray when closed.
-/// 4. Branch without a pull request: purple branch glyph.
-/// 5. Agent idle: filled gray dot.
-/// 6. Any other agent presence (starting, state unknown, or running with the
-///    spinner turned off): hollow ring.
+/// 1. Error (an agent reported a failure): red warning triangle. Only for
+///    something that broke.
+/// 2. Needs input: yellow dot.
+/// 3. Running: pulsing gray dot. It replaces the row's loading spinner.
+/// 4. Starting (agent present, state not reported yet): hollow ring.
+/// 5. Done and unseen (unread notifications): blue dot. Applied by the row,
+///    which owns the unread count; see ``applyingUnread(_:)``.
+/// 6. Pull request: merged purple; open orange on a merge conflict, red when
+///    CI fails, green when CI passes, gray while checks are unknown; closed
+///    gray.
+/// 7. Otherwise: gray dot.
 struct SidebarCompactStatusGlyph: Equatable {
     enum Kind: Equatable {
-        case attention
-        case pullRequestOpen
-        case pullRequestMerged
-        case pullRequestClosed
-        case branch
-        case idle
+        case error
+        case needsInput
+        case running
         case pending
+        case unseen
+        case pullRequest(PullRequestState)
+        case idle
+    }
+
+    enum PullRequestState: Equatable {
+        case open(Checks?)
+        case merged
+        case closed
+    }
+
+    /// CI and mergeability of an open pull request, when known.
+    enum Checks: Equatable {
+        case passing
+        case failing
+        case conflict
     }
 
     let kind: Kind
-    /// One line per fact: agent statuses, pull requests, branch.
+    /// One line per fact: agent statuses, pull requests, branch, directory.
     let tooltip: String
 
     var symbolName: String {
         switch kind {
-        case .attention: return "exclamationmark.triangle.fill"
-        case .pullRequestOpen, .pullRequestClosed: return "arrow.triangle.pull"
-        case .pullRequestMerged: return "arrow.triangle.merge"
-        case .branch: return "arrow.triangle.branch"
-        case .idle: return "circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        case .pullRequest(.merged): return "arrow.triangle.merge"
+        case .pullRequest: return "arrow.triangle.pull"
         case .pending: return "circle"
+        case .needsInput, .running, .unseen, .idle: return "circle.fill"
+        }
+    }
+
+    /// Whether the glyph pulses (the running indicator).
+    var pulses: Bool { kind == .running }
+
+    /// Unread notifications turn a settled row blue; agent activity and
+    /// errors stay louder.
+    func applyingUnread(_ hasUnread: Bool) -> SidebarCompactStatusGlyph {
+        guard hasUnread else { return self }
+        switch kind {
+        case .pullRequest, .idle:
+            return SidebarCompactStatusGlyph(kind: .unseen, tooltip: tooltip)
+        case .error, .needsInput, .running, .pending, .unseen:
+            return self
         }
     }
 
@@ -54,16 +83,18 @@ struct SidebarCompactStatusGlyph: Equatable {
             let label: String
             let number: Int
             let status: SidebarPullRequestStatus
+            var checks: Checks? = nil
         }
 
         /// Agent-owned status entries in display order.
         var agentEntries: [SidebarStatusEntry] = []
         /// Lifecycle states of the workspace's agents (manual loaders excluded).
         var lifecycleStates: [AgentHibernationLifecycleState] = []
-        /// Whether the row already draws the animated loading spinner.
-        var showsRunningSpinner = false
+        /// Whether a coding agent is actively working (the spinner's signal).
+        var hasActiveAgent = false
         var pullRequests: [PullRequest] = []
         var branch: String?
+        var directory: String?
     }
 
     private static let tooltipFormat = String(
@@ -71,27 +102,24 @@ struct SidebarCompactStatusGlyph: Equatable {
         defaultValue: "%1$@: %2$@"
     )
 
-    static func resolve(_ input: Input) -> SidebarCompactStatusGlyph? {
+    static func resolve(_ input: Input) -> SidebarCompactStatusGlyph {
         let kind: Kind
-        if input.lifecycleStates.contains(.needsInput)
-            || input.agentEntries.contains(where: Self.reportsError) {
-            kind = .attention
-        } else if input.showsRunningSpinner, input.lifecycleStates.contains(.running) {
-            return nil
+        if input.agentEntries.contains(where: Self.reportsError) {
+            kind = .error
+        } else if input.lifecycleStates.contains(.needsInput) {
+            kind = .needsInput
+        } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) {
+            kind = .running
+        } else if !input.lifecycleStates.isEmpty, !input.lifecycleStates.contains(.idle) {
+            kind = .pending
         } else if let pullRequest = input.pullRequests.first {
             switch pullRequest.status {
-            case .open: kind = .pullRequestOpen
-            case .merged: kind = .pullRequestMerged
-            case .closed: kind = .pullRequestClosed
+            case .open: kind = .pullRequest(.open(pullRequest.checks))
+            case .merged: kind = .pullRequest(.merged)
+            case .closed: kind = .pullRequest(.closed)
             }
-        } else if input.branch != nil {
-            kind = .branch
-        } else if input.lifecycleStates.contains(.idle) {
-            kind = .idle
-        } else if !input.lifecycleStates.isEmpty || !input.agentEntries.isEmpty {
-            kind = .pending
         } else {
-            return nil
+            kind = .idle
         }
         return SidebarCompactStatusGlyph(kind: kind, tooltip: tooltip(for: input))
     }
@@ -115,6 +143,9 @@ struct SidebarCompactStatusGlyph: Equatable {
         }
         if let branch = input.branch {
             lines.append(branch)
+        }
+        if let directory = input.directory {
+            lines.append(directory)
         }
         return lines.joined(separator: "\n")
     }
@@ -183,33 +214,92 @@ struct SidebarCompactStatusGlyph: Equatable {
     func color(isActive: Bool, selected: NSColor, secondary: NSColor) -> NSColor {
         if isActive { return selected }
         switch kind {
-        case .attention: return .systemRed
-        case .pullRequestOpen: return .systemGreen
-        case .pullRequestMerged, .branch: return .systemPurple
-        case .pullRequestClosed, .idle, .pending: return secondary
+        case .error, .pullRequest(.open(.failing)): return .systemRed
+        case .needsInput: return .systemYellow
+        case .unseen: return .systemBlue
+        case .pullRequest(.open(.conflict)): return .systemOrange
+        case .pullRequest(.open(.passing)): return .systemGreen
+        case .pullRequest(.merged): return .systemPurple
+        case .running, .pending, .idle, .pullRequest(.open(nil)), .pullRequest(.closed): return secondary
         }
     }
 }
 
-/// SwiftUI rendering for the default sidebar list. Takes resolved colors
-/// only; no store access below the lazy-list boundary.
-struct SidebarCompactStatusGlyphView: View {
-    let glyph: SidebarCompactStatusGlyph?
-    let pointSize: CGFloat
-    let isActive: Bool
-    let selectedColor: NSColor
-    let secondaryColor: NSColor
+/// Draws a compact status glyph in both sidebar engines. The running pulse
+/// is a Core Animation opacity loop on the view's own layer, so it costs no
+/// SwiftUI updates or main-thread work per frame (the loading spinner works
+/// the same way). Reduce Motion keeps the dot still.
+final class SidebarCompactStatusGlyphImageView: NSImageView {
+    private static let pulseKey = "cmux.compactStatus.pulse"
+    private var pulses = false
 
-    var body: some View {
-        if let glyph {
-            CmuxSystemSymbolImage(
-                magnified: glyph.symbolName,
-                pointSize: pointSize,
-                weight: .semibold,
-                tint: Color(nsColor: glyph.color(isActive: isActive, selected: selectedColor, secondary: secondaryColor))
-            )
-            .safeHelp(glyph.tooltip)
-            .accessibilityLabel(glyph.tooltip)
+    func configure(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat, color: NSColor) {
+        image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: glyph.symbolName, pointSize: pointSize, weight: .semibold
+        )
+        imageScaling = .scaleNone
+        contentTintColor = color
+        toolTip = glyph.tooltip
+        setAccessibilityLabel(glyph.tooltip)
+        setAccessibilityRole(.image)
+        setPulsing(glyph.pulses)
+    }
+
+    private func setPulsing(_ pulsing: Bool) {
+        pulses = pulsing
+        wantsLayer = true
+        updatePulse()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updatePulse()
+    }
+
+    override var isHidden: Bool {
+        didSet { updatePulse() }
+    }
+
+    private func updatePulse() {
+        guard let layer else { return }
+        let animates = pulses && !isHidden && window != nil
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard animates else {
+            layer.removeAnimation(forKey: Self.pulseKey)
+            return
         }
+        guard layer.animation(forKey: Self.pulseKey) == nil else { return }
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 1.0
+        pulse.toValue = 0.3
+        pulse.duration = 0.9
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(pulse, forKey: Self.pulseKey)
+    }
+}
+
+/// SwiftUI rendering for the default sidebar list. Takes resolved values
+/// only; no store access below the lazy-list boundary.
+struct SidebarCompactStatusGlyphView: NSViewRepresentable {
+    let glyph: SidebarCompactStatusGlyph
+    let pointSize: CGFloat
+    let color: NSColor
+
+    func makeNSView(context: Context) -> SidebarCompactStatusGlyphImageView {
+        SidebarCompactStatusGlyphImageView()
+    }
+
+    func updateNSView(_ view: SidebarCompactStatusGlyphImageView, context: Context) {
+        view.configure(glyph, pointSize: pointSize, color: color)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: SidebarCompactStatusGlyphImageView,
+        context: Context
+    ) -> CGSize? {
+        CGSize(width: pointSize + 4, height: pointSize + 4)
     }
 }

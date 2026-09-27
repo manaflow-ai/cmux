@@ -12,6 +12,9 @@ import Foundation
 ///   returned (`new_workspace`, `new_split`, ...). `wait <ms>` pauses without
 ///   sending anything, e.g. to let a new workspace's terminal panel appear
 ///   before per-panel reports (`set_agent_lifecycle`, `report_git_branch`).
+///   `let <name>` saves the current `{last}` as `{<name>}`, to address that
+///   workspace after others were created. `{surface}` is the surface id the
+///   most recent `list_surfaces` returned (for `notify_target`).
 /// - `CMUX_UI_TEST_SOCKET_COMMANDS_RESULT_PATH`: JSON written when done:
 ///   `{"done": "1", "replies": [...], "failed": "0|1"}`; wait on it before
 ///   asserting on the UI.
@@ -37,7 +40,7 @@ struct UITestSocketCommandScript: Equatable {
         _ handle: (String) -> String,
         sleep: (Int) -> Void = { usleep(useconds_t(max(0, $0)) * 1000) }
     ) -> [String] {
-        var last: String?
+        var values: [String: String] = [:]
         var replies: [String] = []
         for command in commands {
             if let milliseconds = Self.waitMilliseconds(command) {
@@ -45,11 +48,19 @@ struct UITestSocketCommandScript: Equatable {
                 replies.append("OK")
                 continue
             }
-            let line = Self.substitute(command, last: last)
+            if let name = Self.letName(command) {
+                values[name] = values["last"]
+                replies.append(values["last"] == nil ? "ERROR: no {last} to save" : "OK")
+                continue
+            }
+            let line = Self.substitute(command, values: values)
             let reply = handle(line)
             replies.append(reply)
             if line.hasPrefix("new_"), let id = Self.lastUUID(in: reply) {
-                last = id
+                values["last"] = id
+            }
+            if line.hasPrefix("list_surfaces"), let id = Self.lastUUID(in: reply) {
+                values["surface"] = id
             }
         }
         return replies
@@ -61,9 +72,16 @@ struct UITestSocketCommandScript: Equatable {
         return min(value, 10_000)
     }
 
-    static func substitute(_ command: String, last: String?) -> String {
-        guard let last else { return command }
-        return command.replacingOccurrences(of: "{last}", with: last)
+    static func letName(_ command: String) -> String? {
+        let parts = command.split(separator: " ")
+        guard parts.count == 2, parts[0] == "let", !parts[1].contains("{") else { return nil }
+        return String(parts[1])
+    }
+
+    static func substitute(_ command: String, values: [String: String]) -> String {
+        values.reduce(command) { line, value in
+            line.replacingOccurrences(of: "{\(value.key)}", with: value.value)
+        }
     }
 
     static func lastUUID(in reply: String) -> String? {
