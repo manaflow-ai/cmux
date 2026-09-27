@@ -7,9 +7,19 @@ set -euo pipefail
 # This checkout's Release bundle, from its own build settings, so another
 # checkout's Release build is never mistaken for ours.
 own_release_app_path() {
-  xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' \
-    -showBuildSettings 2>/dev/null \
-  | awk -F ' = ' '/^ *BUILT_PRODUCTS_DIR = / && dir == ""{dir=$2} /^ *FULL_PRODUCT_NAME = / && name == ""{name=$2} END{if (dir != "" && name != "") print dir "/" name}'
+  local settings
+  # Keep going on failure so the caller reports it instead of set -e exiting silently.
+  settings="$(xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' \
+    -skipPackageUpdates -showBuildSettings 2>&1)" || {
+    echo "$settings" | tail -5 >&2
+    return 0
+  }
+  # Only the cmux app target's block: the scheme also lists test targets.
+  printf '%s\n' "$settings" | awk -F ' = ' '
+    /^Build settings for action .* and target / { target = $0; sub(/.* and target /, "", target); sub(/:$/, "", target) }
+    target == "cmux" && /^ *BUILT_PRODUCTS_DIR = / && dir == "" { dir = $2 }
+    target == "cmux" && /^ *FULL_PRODUCT_NAME = / && name == "" { name = $2 }
+    END { if (dir != "" && name ~ /\.app$/) print dir "/" name }'
 }
 
 # Every stable-id cmux except this script's own Release build. Other Release
