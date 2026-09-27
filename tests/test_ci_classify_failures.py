@@ -126,7 +126,33 @@ class SignatureTests(unittest.TestCase):
 
     def test_a_lost_runner_is_read_from_its_annotation(self) -> None:
         annotation = "The self-hosted runner: cmux7s-mac-mini-glaeda-4 lost communication with the server."
-        self.assertEqual(self.verdict(annotation), (cf.MACHINE, "runner-lost"))
+        result = cf.classify_text("", [annotation])
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "runner-lost"))
+
+    def test_a_machine_line_in_a_step_that_passed_does_not_count(self) -> None:
+        # A cache save warns about the disk; the job failed on a test.
+        log = textwrap.dedent(f"""\
+            2026-09-27T10:00:00.0Z ##[group]Run swift test
+            2026-09-27T10:00:00.0Z {ESC}[36;1mswift test{ESC}[0m
+            2026-09-27T10:00:00.0Z ##[endgroup]
+            2026-09-27T10:00:01.0Z ✘ Test parsesConfig() recorded an issue at ConfigTests.swift:12:5: Expectation failed
+            2026-09-27T10:00:01.0Z ##[error]Process completed with exit code 1.
+            2026-09-27T10:00:02.0Z ##[group]Run actions/cache/save@v4
+            2026-09-27T10:00:02.0Z with:
+            2026-09-27T10:00:02.0Z   path: .build
+            2026-09-27T10:00:02.0Z ##[endgroup]
+            2026-09-27T10:00:03.0Z Warning: Failed to save: No space left on device
+            """)
+        self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
+
+    def test_a_group_a_step_titles_run_keeps_its_output(self) -> None:
+        log = textwrap.dedent("""\
+            2026-09-27T10:00:00.0Z ##[group]Run agent-chat unit tests
+            2026-09-27T10:00:00.0Z FAIL: test_renders_reply (__main__.ChatTests.test_renders_reply)
+            2026-09-27T10:00:00.0Z ##[endgroup]
+            2026-09-27T10:00:01.0Z ##[error]Process completed with exit code 1.
+            """)
+        self.assertEqual(self.verdict(log), (cf.CODE, "unittest-failure"))
 
     def test_every_signature_has_a_verdict_and_a_reason(self) -> None:
         names = [s.name for s in cf.SIGNATURES]
@@ -148,7 +174,8 @@ class RunTests(unittest.TestCase):
         job(8, "guards / workflow-guard-tests / preflight", step="Validate embedded cmux.json schema generation"),
         job(9, "macos / cli-product-tests", conclusion="success"),
     ]
-    TEXTS = {1: RESTORE_FAILED, 2: HOOK_REFUSED, 3: TEST_FAILED, 4: ADMISSION_DECLINED, 8: "no signature here"}
+    TEXTS = {1: (RESTORE_FAILED, []), 2: (HOOK_REFUSED, []), 3: (TEST_FAILED, []),
+             4: (ADMISSION_DECLINED, []), 8: ("no signature here", [])}
 
     def test_gates_derived_and_cancelled_jobs_are_left_out(self) -> None:
         jobs = cf.classify_jobs(self.JOBS, self.TEXTS)
@@ -165,35 +192,40 @@ class RunTests(unittest.TestCase):
 
 
 class RerunDecisionTests(unittest.TestCase):
-    def report(self, verdicts: list[str], attempt: int = 1) -> dict:
+    def report(self, verdicts: list[str], attempt: int = 1, conclusion: str = "failure") -> dict:
         jobs = [{"name": f"job {i}", "verdict": v} for i, v in enumerate(verdicts)]
-        return {"run_id": 42, "attempt": attempt, "head_sha": "a" * 40, "conclusion": "failure", "jobs": jobs}
+        return {"run_id": 42, "attempt": attempt, "head_sha": "a" * 40, "conclusion": conclusion, "jobs": jobs}
 
     LATEST = {"run_attempt": 1, "status": "completed"}
 
     def test_every_failure_on_the_machine_reruns(self) -> None:
-        rerun, line = cf.rerun_decision(self.report([cf.MACHINE, cf.MACHINE]), {}, self.LATEST)
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE, cf.MACHINE]), self.LATEST)
         self.assertTrue(rerun)
         self.assertIn("attempt 2", line)
 
     def test_one_code_or_unknown_failure_keeps_the_run_red(self) -> None:
         for other in (cf.CODE, cf.UNKNOWN):
-            rerun, line = cf.rerun_decision(self.report([cf.MACHINE, other]), {}, self.LATEST)
+            rerun, line = cf.rerun_decision(self.report([cf.MACHINE, other]), self.LATEST)
             self.assertFalse(rerun)
             self.assertIn("`job 1`", line)
 
-    def test_a_run_is_rerun_at_most_once(self) -> None:
-        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=2), {"reran": [42]},
+    def test_only_attempt_one_is_rerun(self) -> None:
+        # GitHub's own counter bounds the re-runs; nothing a comment says can reset it.
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=2),
                                         {"run_attempt": 2, "status": "completed"})
         self.assertFalse(rerun)
-        self.assertIn("already re-run once", line)
+        self.assertIn("attempt 2", line)
+
+    def test_a_cancelled_run_is_reported_not_rerun(self) -> None:
+        # owned_pool_rescue cancels a stuck run before its own full re-run.
+        self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE], conclusion="cancelled"), self.LATEST)[0])
 
     def test_a_run_someone_else_reran_is_left_alone(self) -> None:
         for latest in ({"run_attempt": 2, "status": "completed"}, {"run_attempt": 1, "status": "in_progress"}):
-            self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE]), {}, latest)[0])
+            self.assertFalse(cf.rerun_decision(self.report([cf.MACHINE]), latest)[0])
 
     def test_gates_alone_do_not_rerun(self) -> None:
-        self.assertFalse(cf.rerun_decision(self.report([]), {}, self.LATEST)[0])
+        self.assertFalse(cf.rerun_decision(self.report([]), self.LATEST)[0])
 
 
 class FakeGitHub:
@@ -220,6 +252,10 @@ class FakeGitHub:
         return {}
 
 
+def bot_comment(body: str, comment_id: int = 99, login: str = cf.BOT) -> dict:
+    return {"id": comment_id, "body": body, "user": {"login": login}}
+
+
 class ActTests(unittest.TestCase):
     RUN = {"id": 42, "head_sha": "a" * 40, "pull_requests": [
         {"number": 7, "base": {"repo": {"url": "https://api.github.com/repos/manaflow-ai/cmux"}}}]}
@@ -233,19 +269,17 @@ class ActTests(unittest.TestCase):
     def act(self, gh: FakeGitHub, report: dict) -> dict:
         return cf.act(gh, cf.Writer(gh, dry_run=False), self.RUN, report)  # type: ignore[arg-type]
 
-    def test_machine_failures_rerun_and_the_comment_remembers_the_run(self) -> None:
+    def test_machine_failures_rerun_and_comment(self) -> None:
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
-        self.assertEqual(gh.calls[0], ("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"))
-        method, path = gh.calls[1]
-        self.assertEqual((method, path), ("POST", "repos/manaflow-ai/cmux/issues/7/comments"))
+        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
+                                    ("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
 
-    def test_the_comment_is_edited_in_place_and_its_ledger_stops_a_second_rerun(self) -> None:
-        body = cf.render_comment(self.report([cf.MACHINE]), {"reran": [42]}, "re-ran")
-        gh = FakeGitHub(comments=[{"id": 99, "body": body}])
-        result = self.act(gh, self.report([cf.MACHINE]))
-        self.assertFalse(result["rerun"])
+    def test_the_bots_comment_is_edited_and_a_lookalike_is_ignored(self) -> None:
+        body = cf.render_comment(self.report([cf.CODE]), "line")
+        gh = FakeGitHub(comments=[bot_comment(body, 5, login="someone"), bot_comment(body)])
+        self.act(gh, self.report([cf.CODE]))
         self.assertEqual(gh.calls, [("PATCH", "repos/manaflow-ai/cmux/issues/comments/99")])
 
     def test_a_stale_head_or_a_closed_pr_gets_nothing(self) -> None:
@@ -258,7 +292,7 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         self.act(gh, green)
         self.assertEqual(gh.calls, [])
-        gh = FakeGitHub(comments=[{"id": 99, "body": cf.MARKER + "\nred"}])
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
         self.act(gh, green)
         self.assertEqual(gh.calls, [("PATCH", "repos/manaflow-ai/cmux/issues/comments/99")])
 
@@ -269,10 +303,8 @@ class ActTests(unittest.TestCase):
 
     def test_log_text_cannot_break_out_of_the_comment(self) -> None:
         report = self.report([cf.MACHINE])
-        report["jobs"][0]["evidence"] = "``` -->\n# injected"
-        body = cf.render_comment(report, {"reran": [1]}, "line")
-        self.assertEqual(cf.comment_data(body), {"reran": [1]})
-        self.assertIn("````", body)
+        report["jobs"][0]["evidence"] = "```\n# injected"
+        self.assertIn("````", cf.render_comment(report, "line"))
 
 
 class WorkflowTests(unittest.TestCase):
@@ -291,6 +323,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ref:", text)
         (only,) = self.workflow["jobs"].values()
         self.assertEqual(only["permissions"]["actions"], "write")
+        self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
         self.assertNotIn("contents", {k for k, v in only["permissions"].items() if v == "write"})
 
     def test_every_gate_job_exists_under_the_name_the_jobs_api_reports(self) -> None:

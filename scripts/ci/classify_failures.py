@@ -19,15 +19,19 @@ Gate jobs (GATE_JOBS: ci-status and the other jobs that only read `needs`)
 fail because another job did, so they are left out, as are cancelled jobs and
 jobs whose log says they stopped for another job (verdict `derived`).
 
-`act` writes the verdicts to the job summary and to one comment on the pull
-request, edited in place, and re-runs the failed jobs when every failed job is
-machine. It does that at most once per run (the comment keeps the run ids it
-re-ran) and only while the run's latest attempt is the one it classified, the
-pull request is open and its head has not moved. owned_pool_rescue.py may
-re-run a refused job first; GitHub refuses a second re-run of a run already in
-progress, and the attempt check catches the rest. A cancelled run counts too:
-queue_janitor.py cancels a run a failed app-host shard has already decided,
-and that shard may have failed for the machine.
+A machine signature counts only where the job failed: in a step that printed
+an `##[error]`, or in a failure annotation. A cache save that warns about the
+disk, or a script that spells a signature it never prints, does not count.
+
+`act` writes the verdicts to the job summary and to one bot comment on the
+pull request, edited in place, and re-runs the failed jobs when every failed
+job is machine. GitHub's attempt counter bounds that: only a failed attempt 1
+is re-run, only while it is still the run's latest attempt, the pull request
+is open and its head has not moved. owned_pool_rescue.py may re-run a refused
+job first; the attempt check then skips, and GitHub refuses a second re-run of
+a run in progress. A cancelled run is reported, never re-run: the rescue
+cancels a stuck run before its own full re-run, and a re-run of failed jobs
+here would pre-empt it.
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ from guard_attribution import (  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
 MARKER = "<!-- cmux-ci-failure-attribution -->"
-DATA_PREFIX = "<!-- cmux-ci-failure-attribution-data "
+BOT = "github-actions[bot]"
 RED = {"failure", "timed_out"}
 # Jobs that only read other jobs' results. Their names as the jobs API reports
 # them; tests/test_ci_classify_failures.py derives each from its workflow.
@@ -64,8 +68,6 @@ GATE_JOBS = frozenset({
     "ci-status", "tests", "CI timing", "linux-preflight", "macOS admission gate",
     "macos / macOS status", "guards / Guard status", "web / Web status",
 })
-# Run ids kept in the comment's ledger of automatic re-runs.
-KEEP_RERUNS = 20
 MAX_EVIDENCE_CHARS = 300
 MAX_RENDERED_JOBS = 20
 
@@ -83,7 +85,7 @@ def sig(name: str, verdict: str, pattern: str, why: str) -> Signature:
 
 
 # First match per verdict is the evidence. A derived match decides the job,
-# then a machine match, then a code match.
+# then a machine match (only in a failed step), then a code match.
 SIGNATURES = (
     sig("admission-declined", DERIVED, r"macOS admission gate declined: ",
         "compile admission stopped because a Linux job failed"),
@@ -113,35 +115,50 @@ SIGNATURES = (
 )
 
 
-def log_lines(text: str) -> list[str]:
-    """Output lines without timestamps, colors, or the step scripts GitHub echoes.
+def log_steps(text: str) -> list[tuple[bool, list[str]]]:
+    """The log's steps as (failed, output lines), without timestamps, colors or echoed scripts.
 
-    A step starts with `##[group]Run <command>` and GitHub prints the script,
-    shell and env inside that group, so a signature spelled in a script (an
-    `echo "::error::..."` branch never taken) must not count.
+    A step starts with `##[group]Run <command>`, and GitHub prints its script
+    (colored), or an action's `with:` inputs, inside that group, so a signature
+    spelled in a script (an `echo "::error::..."` branch never taken) must not
+    count. A group a step prints itself may also be titled "Run ..."; its first
+    line is output, not script, and it stays. A step failed when it printed an
+    `##[error]` line.
     """
-    out: list[str] = []
+    steps: list[tuple[bool, list[str]]] = [(False, [])]
+    raw_lines = text.splitlines()
     in_header = False
-    for raw in text.splitlines():
-        line = ANSI.sub("", TIMESTAMP.sub("", raw.lstrip("﻿")))
+    for index, raw in enumerate(raw_lines):
+        line = ANSI.sub("", TIMESTAMP.sub("", raw.lstrip("\ufeff")))
         if line.startswith("##[group]Run "):
-            in_header = True
-            continue
+            following = raw_lines[index + 1] if index + 1 < len(raw_lines) else ""
+            following_text = TIMESTAMP.sub("", following)
+            if "\x1b[36;1m" in following or following_text.startswith("with:"):
+                steps.append((False, []))
+                in_header = True
+                continue
         if in_header:
             if line.startswith("##[endgroup]"):
                 in_header = False
             continue
-        out.append(line.removeprefix("##[error]"))
-    return out
+        failed, lines = steps[-1]
+        if line.startswith("##[error]"):
+            steps[-1] = (True, lines)
+        lines.append(line.removeprefix("##[error]"))
+    return steps
 
 
-def classify_text(text: str) -> dict:
-    """Verdict, signature and evidence for one job's log and annotations."""
+def classify_text(text: str, annotations: Iterable[str] = ()) -> dict:
+    """Verdict, signature and evidence for one job's log and its failure annotations."""
+    sections = [*log_steps(text), (True, [a for note in annotations for a in str(note).splitlines()])]
     found: dict[str, tuple[Signature, str]] = {}
-    for line in log_lines(text):
-        for signature in SIGNATURES:
-            if signature.verdict not in found and signature.pattern.search(line):
-                found[signature.verdict] = (signature, line.strip())
+    for failed, lines in sections:
+        for line in lines:
+            for signature in SIGNATURES:
+                if signature.verdict == MACHINE and not failed:
+                    continue
+                if signature.verdict not in found and signature.pattern.search(line):
+                    found[signature.verdict] = (signature, line.strip())
     for verdict in (DERIVED, MACHINE, CODE):
         if verdict in found:
             signature, line = found[verdict]
@@ -150,13 +167,13 @@ def classify_text(text: str) -> dict:
     return {"verdict": UNKNOWN, "signature": None, "why": "no known signature in the log", "evidence": ""}
 
 
-def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, str]) -> list[dict]:
-    """Verdicts for the run's failed jobs, gates left out. `texts` holds each job's log and annotations."""
+def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[str]]]) -> list[dict]:
+    """Verdicts for the run's failed jobs, gates left out. `texts` holds each job's log and failure annotations."""
     out = []
     for job in jobs:
         if job.get("conclusion") not in RED or job.get("name") in GATE_JOBS:
             continue
-        result = classify_text(texts.get(int(job["id"]), ""))
+        result = classify_text(*texts.get(int(job["id"]), ("", [])))
         if result["verdict"] == DERIVED:
             continue
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
@@ -175,10 +192,11 @@ def all_machine(jobs: list[dict]) -> bool:
 # ---------------------------------------------------------------- GitHub
 
 
-def run_jobs(gh: GitHub, run_id: int) -> list[dict]:
+def run_jobs(gh: GitHub, run_id: int, attempt: int) -> list[dict]:
+    """The jobs of this attempt, not of a re-run that started since."""
     jobs: list[dict] = []
     for page in range(1, 5):
-        body = gh.get(f"repos/{gh.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}")
+        body = gh.get(f"repos/{gh.repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")
         batch = list((body or {}).get("jobs", []))  # type: ignore[union-attr]
         jobs += batch
         if len(batch) < 100:
@@ -186,26 +204,28 @@ def run_jobs(gh: GitHub, run_id: int) -> list[dict]:
     return jobs
 
 
-def job_text(gh: GitHub, job_id: int) -> str:
-    """The job's log and its annotations (a lost runner leaves only an annotation)."""
-    parts = []
+def job_text(gh: GitHub, job_id: int) -> tuple[str, list[str]]:
+    """The job's log and its failure annotations (a lost runner leaves only an annotation)."""
+    log, notes = "", []
     try:
-        parts.append(str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True)))
+        log = str(gh.request("GET", f"repos/{gh.repo}/actions/jobs/{job_id}/logs", text=True))
     except RuntimeError as error:
         print(f"job {job_id}: no log: {error}", file=sys.stderr)
     try:
         for note in gh.get(f"repos/{gh.repo}/check-runs/{job_id}/annotations?per_page=50") or []:  # type: ignore[union-attr]
-            parts.append(str(note.get("message") or ""))
+            if note.get("annotation_level") == "failure":
+                notes.append(str(note.get("message") or ""))
     except RuntimeError as error:
         print(f"job {job_id}: no annotations: {error}", file=sys.stderr)
-    return "\n".join(parts)
+    return log, notes
 
 
 def classify_run(gh: GitHub, run: Mapping) -> dict:
-    jobs = run_jobs(gh, int(run["id"]))
+    attempt = int(run.get("run_attempt") or 1)
+    jobs = run_jobs(gh, int(run["id"]), attempt)
     red = [j for j in jobs if j.get("conclusion") in RED and j.get("name") not in GATE_JOBS]
     texts = {int(j["id"]): job_text(gh, int(j["id"])) for j in red}
-    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+    return {"run_id": int(run["id"]), "attempt": attempt,
             "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
             "conclusion": run.get("conclusion"), "jobs": classify_jobs(jobs, texts)}
 
@@ -213,18 +233,7 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
 # ---------------------------------------------------------------- the comment
 
 
-def comment_data(body: str) -> dict:
-    start = body.find(DATA_PREFIX)
-    if start < 0:
-        return {}
-    end = body.find(" -->", start)
-    try:
-        return json.loads(body[start + len(DATA_PREFIX):end])
-    except ValueError:
-        return {}
-
-
-def render_comment(report: Mapping, data: Mapping, rerun: str) -> str:
+def render_comment(report: Mapping, rerun: str) -> str:
     sha = (report.get("head_sha") or "")[:10]
     run = f"[run {report['run_id']} attempt {report['attempt']}]({report.get('run_url')})"
     jobs = report["jobs"]
@@ -251,14 +260,13 @@ def render_comment(report: Mapping, data: Mapping, rerun: str) -> str:
         out += ["", rerun]
     out += ["", "Written by `scripts/ci/classify_failures.py` (ci-failure-attribution.yml); signatures are its "
                 "`SIGNATURES` table. A machine verdict is the runner's fault, not this PR's."]
-    blob = json.dumps(dict(data), separators=(",", ":")).replace("-->", "--\\u003e")
-    return "\n".join(out) + "\n" + DATA_PREFIX + blob + " -->\n"
+    return "\n".join(out) + "\n"
 
 
 # ---------------------------------------------------------------- acting
 
 
-def rerun_decision(report: Mapping, data: Mapping, latest: Mapping) -> tuple[bool, str]:
+def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
     """Whether to re-run the failed jobs, and the line that says so."""
     jobs = report["jobs"]
     if not jobs:
@@ -267,16 +275,14 @@ def rerun_decision(report: Mapping, data: Mapping, latest: Mapping) -> tuple[boo
         blockers = [j["name"] for j in jobs if j["verdict"] != MACHINE]
         return False, ("Not re-run automatically: " + ", ".join(f"`{n}`" for n in blockers[:5])
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
-    if report["run_id"] in (data.get("reran") or []):
-        return False, ("Every failure is a machine failure, but this run was already re-run once "
-                       "automatically; re-run it by hand if it should go again.")
+    if report.get("conclusion") != "failure":
+        return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
+    if report["attempt"] != 1:
+        return False, (f"Every failure is a machine failure, but this is attempt {report['attempt']}; "
+                       "only attempt 1 is re-run automatically. Re-run it by hand if it should go again.")
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
         return False, "Every failure is a machine failure; the run has been re-run already."
-    return True, f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1}."
-
-
-def summary_markdown(report: Mapping, line: str) -> str:
-    return render_comment(report, {}, line).split(DATA_PREFIX)[0].replace(MARKER + "\n", "")
+    return True, "Every failure is a machine failure: re-ran the failed jobs as attempt 2 (the checks show its result)."
 
 
 def act(gh: GitHub, writer: Writer, run: Mapping, report: Mapping) -> dict:
@@ -288,26 +294,26 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: Mapping) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     if report.get("conclusion") == "cancelled" and not report["jobs"]:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
-    existing = gh.comments(pr)
+    # Only this workflow's own comment: anyone can post one carrying the marker.
+    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
-    data = comment_data(str(current.get("body") or "")) if current else {}
     rerun, line = False, ""
     if report.get("conclusion") != "success":
-        rerun, line = rerun_decision(report, data, gh.run(int(report["run_id"])))
+        rerun, line = rerun_decision(report, gh.run(int(report["run_id"])))
     if rerun:
         try:
             writer.call("POST", f"repos/{gh.repo}/actions/runs/{report['run_id']}/rerun-failed-jobs", {})
-            data = {**data, "reran": [*(data.get("reran") or []), report["run_id"]][-KEEP_RERUNS:]}
         except RuntimeError as error:
             # GitHub refuses to re-run a run another re-run already started.
             rerun, line = False, f"Every failure is a machine failure; the re-run request failed: {code(error)}"
+    body = render_comment(report, line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(summary_markdown(report, line))
+            handle.write(body.replace(MARKER + "\n", ""))
     # A green run says so only where a failure was reported before.
     if report.get("conclusion") != "success" or current is not None:
-        upsert_comment(writer, gh.repo, pr, MARKER, render_comment(report, data, line), existing)
+        upsert_comment(writer, gh.repo, pr, MARKER, body, existing)
     return {"pr": pr, "rerun": rerun, "line": line}
 
 

@@ -7,8 +7,8 @@ name: CI failure attribution
 #
 #   red or cancelled   each failed job gets a verdict (machine, code, unknown)
 #                      in the job summary and in one comment on the pull
-#                      request, edited in place; when every failed job is
-#                      machine, the failed jobs are re-run, at most once per run
+#                      request, edited in place; when every failed job of a
+#                      failed attempt 1 is machine, the failed jobs are re-run
 #   green              that comment, if any, says it passes now
 #
 # A PR's code never runs here: main's script reads the run's job logs and
@@ -25,9 +25,11 @@ env:
 permissions: {}
 
 concurrency:
-  # A newer run on the same branch replaces an older one's report.
+  # One report at a time per branch, never cancelled halfway (between the
+  # re-run and the comment that says so). A report takes seconds, and one for
+  # a head the pull request has moved past writes nothing.
   group: ci-failure-attribution-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   attribute:
@@ -39,7 +41,6 @@ jobs:
       actions: write
       checks: read
       contents: read
-      issues: write
       pull-requests: write
     steps:
       - name: Checkout main's classifier
