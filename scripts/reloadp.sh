@@ -4,12 +4,12 @@ set -euo pipefail
 # A Release build shares the stable bundle id (com.cmuxterm.app). Launching it
 # while the user's cmux is running would replace that app and drop its live
 # agent sessions, so refuse unless explicitly allowed.
-newest_release_app_path() {
-  find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Release/cmux.app" -print0 2>/dev/null \
-  | xargs -0 /usr/bin/stat -f "%m %N" 2>/dev/null \
-  | sort -nr \
-  | head -n 1 \
-  | cut -d' ' -f2-
+# This checkout's Release bundle, from its own build settings, so another
+# checkout's Release build is never mistaken for ours.
+own_release_app_path() {
+  xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' \
+    -showBuildSettings 2>/dev/null \
+  | awk -F ' = ' '/^ *BUILT_PRODUCTS_DIR = / && dir == ""{dir=$2} /^ *FULL_PRODUCT_NAME = / && name == ""{name=$2} END{if (dir != "" && name != "") print dir "/" name}'
 }
 
 # Every stable-id cmux except this script's own Release build. Other Release
@@ -36,9 +36,13 @@ refuse_if_stable_running() {
   fi
 }
 
-# Fail before the build when possible, then again against the exact bundle
-# this build produced.
-refuse_if_stable_running "$(newest_release_app_path)"
+# Fail before the build, and again right before launching.
+OWN_APP_PATH="$(own_release_app_path)"
+if [[ -z "$OWN_APP_PATH" ]]; then
+  echo "error: could not resolve this checkout's Release app path from xcodebuild -showBuildSettings" >&2
+  exit 1
+fi
+refuse_if_stable_running "$OWN_APP_PATH"
 OPEN_ENV_ARGS=()
 if [[ "${CMUX_ALLOW_REPLACING_RUNNING_CMUX:-}" == "1" ]]; then
   # open(1) does not pass the caller's environment to the app.
@@ -46,9 +50,9 @@ if [[ "${CMUX_ALLOW_REPLACING_RUNNING_CMUX:-}" == "1" ]]; then
 fi
 
 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
-APP_PATH="$(newest_release_app_path)"
-if [[ -z "${APP_PATH}" ]]; then
-  echo "cmux.app not found in DerivedData" >&2
+APP_PATH="$OWN_APP_PATH"
+if [[ ! -d "${APP_PATH}" ]]; then
+  echo "cmux.app not found at ${APP_PATH}" >&2
   exit 1
 fi
 
