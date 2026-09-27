@@ -177,6 +177,43 @@ sys.stdin.read()
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3])
         self.assertEqual(self.cli_launches(), [], 'a queue_full reply must not end the forwarder')
 
+    def test_connect_failure_preserves_unsent_event_for_fallback(self):
+        self.start_forwarder()
+        drain_lock = os.open(self.spool / 'drain.lock', os.O_RDWR)
+        try:
+            # Keep the live forwarder out until the producer has published and
+            # acknowledged the event. Its first connect must then fail.
+            fcntl.lockf(drain_lock, fcntl.LOCK_EX)
+            offline_socket = self.root / 'offline-socket'
+            self.socket_path.rename(offline_socket)
+            self.run_hook('stop', {'session_id': 'spool-test', 'seq': 0})
+            self.assertEqual(len(list(self.spool.glob('*.rec'))), 1)
+            self.assertEqual(self.cli_launches(), [])
+        finally:
+            os.close(drain_lock)
+
+        forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
+        try:
+            deadline = time.monotonic() + 10
+            while True:
+                try:
+                    fcntl.lockf(forwarder_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    self.assertLess(time.monotonic(), deadline, 'forwarder did not exit after connect failure')
+                    time.sleep(0.02)
+            self.assertEqual(len(list(self.spool.glob('*.rec'))), 1,
+                             'a record that was never sent must remain available for fallback')
+        finally:
+            os.close(forwarder_lock)
+
+        offline_socket.rename(self.socket_path)
+        self.run_hook('prompt-submit', {'session_id': 'spool-test', 'seq': 1})
+        enqueued = self.admitted(2)
+        self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1])
+        self.assertEqual(len(self.cli_launches()), 1)
+        self.assertEqual(list(self.spool.glob('*.rec')), [])
+
     def test_forwarder_removes_the_spool_after_the_session_ends(self):
         self.start_forwarder()
         self.run_hook('stop', {'session_id': 'spool-test'})
@@ -213,6 +250,9 @@ sys.stdin.read()
         enqueued = self.admitted(2)
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1])
         self.assertEqual(len(self.cli_launches()), 2)
+        self.assertEqual([p['environment']['CMUX_CLAUDE_PID'] for p in enqueued],
+                         [str(os.getpid()), str(os.getpid())],
+                         'fallback must retain the hook parent PID, not the intermediate zsh PID')
 
 
 if __name__ == '__main__':
