@@ -88,7 +88,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
         description:
           "A lock badge shows while a program such as sudo or ssh reads a password with echo off, so you can tell it is waiting for one.",
         tryIt:
-          "Run `sudo -v`, or turn it off in Settings > Terminal > Password Input Indicator.",
+          "Run `read -s` at a shell prompt, or turn it off in Settings > Terminal > Password Input Indicator.",
       },
     ],
   },
