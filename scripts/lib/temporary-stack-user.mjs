@@ -375,6 +375,13 @@ if (import.meta.main) {
       status: Number.isInteger(error?.status) ? error.status : null,
       statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : null,
       type: typeof error?.type === "string" ? error.type.slice(0, 80) : null,
+      message: typeof error?.message === "string"
+        ? error.message
+          .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "<email>")
+          .replace(/(bearer|token|password|secret)\s*[:=]?\s*[^\s,;]+/giu, "$1=<redacted>")
+          .replace(/[A-Za-z0-9_-]{48,}/gu, "<redacted>")
+          .slice(0, 240)
+        : null,
     };
     process.stderr.write(`error: temporary Stack user operation failed (${JSON.stringify(safeDetails)}); inspect the protected recovery state\n`);
     process.exitCode = 1;
