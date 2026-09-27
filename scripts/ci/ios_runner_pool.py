@@ -40,8 +40,8 @@ variable, so MACOS_RUNNER_IOS keeps meaning what it meant.
 
 Queue rounds. The pool rule is pull request CI's with its
 vars.CI_PR_POOL_QUEUE_ROUNDS (`--queue-rounds`): an owned pool takes the run
-while its jobs start there within that many job lengths and no later than on
-the best Blacksmith pool, and the queue stays within machines x (1 + rounds)
+while its jobs start there within that many job lengths, whatever
+Blacksmith's wait, and the queue stays within machines x (1 + rounds)
 (pr_runner_pool.owned_room()). Without the rounds the picker used the kill
 switch rule, which counts every in-flight run's whole future peak (the
 janitor's `committed`) as taken now: on 2026-09-25 (run 36136190497) that read
@@ -276,7 +276,7 @@ def owned_blocker(*, ios_version: str | None, upload: str | None, called: str | 
 def pool_slots(owned_slots: str | None, pr_xcode_app: str | None) -> dict[str, int]:
     """The owned pools' machines, without root counts: iOS jobs never take a root label."""
     return {label: count for label, count in pr_runner_pool.slots(owned_slots, pr_xcode_app).items()
-            if not label.startswith(pr_runner_pool.ROOT_PREFIX)}
+            if not label.startswith((pr_runner_pool.ROOT_PREFIX, pr_runner_pool.GUI_PREFIX))}
 
 
 def sim_free(load: IOSLoad, capacity: int) -> int:
@@ -375,10 +375,14 @@ def resolve(
         log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
             f"{needed} needed; staying on {default}")
         return ephemeral(default)
+    # Simulator jobs take the first owned pool only, as the live path above
+    # routes them, since SIM_LABEL is on that pool's runners. The replay of
+    # newer runs still spreads over the whole order.
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
-                                        jobs=run_jobs(lane, swift_package))
+                                        jobs=run_jobs(lane, swift_package),
+                                        owned_choices=pr_runner_pool.owned_pools(pr_xcode_app)[:1])
         free = sim_free(load, capacity)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {default}")
