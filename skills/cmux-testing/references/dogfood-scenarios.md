@@ -15,8 +15,9 @@ scripts/run-e2e.sh --scenario dogfood/scenarios/sidebar-and-chrome-tour.json --r
 ```
 
 - `--frames` waits for the run, then writes the screenshots, contact sheets, and
-  text files under `$TMPDIR/cmux-e2e-frames/<run>/DogfoodScenarioUITests/testRunScenario/`
-  ([what you get](ui-test-frames.md#what-you-get)). Open the contact sheets first,
+  text files under `$TMPDIR/cmux-ui-frames/<run>/DogfoodScenarioUITests/testRunScenario/`
+  ([UI test frames](ui-test-frames.md)): each `shot` is a frame, and trees,
+  socket replies and `steps.log` are in `attachments/`. Open the contact sheets first,
   then single frames.
 - The commit must contain `cmuxUITests/DogfoodScenarioUITests.swift` (any commit
   on or after the one that added it).
