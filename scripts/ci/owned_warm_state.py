@@ -10,7 +10,10 @@ admission uploads the `owned-warm-keys` artifact on an owned Mac: the output
 of `owned_build_state.py warm-keys`,
 
     {"runner": "<runner name>", "pool": "glaeda-root-std-xcode-26.6",
-     "keys": ["<sha12>", "pr-<n>", ...]}
+     "keys": ["<sha12>", "pr-<n>", ...],
+     "roots": [{"root": 1, "merged_onto": "<sha40>", "pr": <n>,
+                "pr_app_swift_files": [...], "pr_app_swift_total": <n>,
+                "pr_package_interface": false}, {"root": 2}]}
 
 with the kept build's merge base and pull request first, then the mini's
 other roots', then the local seeds' on a mini with one root
@@ -25,13 +28,23 @@ so the routing App needs only "Self-hosted runners: Read-only".
 
     "warm": {"through": <newest artifact id folded>,
              "runners": {"<runner name>": {"keys": ["<sha12>", ...],
-                                           "at": "<artifact created_at>"}}}
+                                           "at": "<artifact created_at>",
+                                           "roots": [...]}}}
+
+`roots` is every canonical root of the runner's mini with what glaeda's
+job-started hook reads from its stamp (roots()), which warm_distance.py
+distance_route() scores with the hook's near/far/rebuild tiers across minis.
 
 Each sweep starts from the previous snapshot's `warm` and folds only the
 artifacts newer than `through`, oldest first, so a runner's newest admission
 replaces what it kept before. Every artifact costs two requests (its run's
 jobs, unless the janitor listed them already, and its download), and a sweep
 folds at most MAX_NEW. An entry older than MAX_AGE_HOURS is dropped.
+
+The janitor sweeps every 10 to 45 minutes, so pr_runner_pool.py also folds
+the artifacts uploaded since its snapshot live (live_warm()): one listing
+plus two requests each for at most LIVE_MAX_NEW, the newest, under the same
+checks.
 
 The runner is the one the jobs API says ran admission, never the name in the
 artifact, which the pull request's own code wrote: an artifact naming another
@@ -70,7 +83,16 @@ MAX_KEYS = 8
 # ci.yml's display name: admission of any other workflow proves nothing.
 CI_WORKFLOW = "CI"
 # Artifacts folded per sweep, oldest first; the rest wait for the next one.
-MAX_NEW = 12
+MAX_NEW = 30
+# Artifacts the picker folds itself past its snapshot's `through` (live_warm()), the newest first: at most
+# 1 + 2 * LIVE_MAX_NEW requests of the GITHUB_TOKEN's shared hourly budget per pull request run.
+LIVE_MAX_NEW = 4
+# A snapshot younger than this is fresh enough: the picker lists nothing.
+LIVE_MIN_AGE_SECONDS = 120
+# Roots per mini and files per root kept (owned_build_state.py MAX_PATHS caps the stamp's list).
+MAX_ROOTS = 4
+MAX_ROOT_FILES = 400
+MAX_PARKED = 2  # parked pull request builds per root (owned_build_state.py PR_SLOTS)
 MAX_AGE_HOURS = 24
 MAX_JOB_PAGES = 3
 # Previous snapshots read, newest first, for the last one that has `warm`.
@@ -97,6 +119,50 @@ def keys(document: Any) -> list[str]:
         if key and key not in found:
             found.append(key)
     return found[:MAX_KEYS]
+
+
+def stamp_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A root's or parked build's stamp fields (owned_build_state.py ROOT_FIELDS), each checked."""
+    clean: dict[str, Any] = {}
+    onto = str(entry.get("merged_onto") or "").lower()
+    if len(onto) == 40 and warm_key(onto):
+        clean["merged_onto"] = onto
+    pr = entry.get("pr")
+    if isinstance(pr, int) and not isinstance(pr, bool) and 0 < pr < 10**9:
+        clean["pr"] = pr
+    files = entry.get("pr_app_swift_files")
+    if isinstance(files, list):
+        clean["pr_app_swift_files"] = [path for path in files[:MAX_ROOT_FILES]
+                                       if isinstance(path, str) and 0 < len(path) <= 512 and "\0" not in path]
+    total = entry.get("pr_app_swift_total")
+    if isinstance(total, int) and not isinstance(total, bool) and 0 <= total < 10**6:
+        clean["pr_app_swift_total"] = total
+    if entry.get("pr_package_interface") in (True, False, None) and "pr_package_interface" in entry:
+        clean["pr_package_interface"] = entry.get("pr_package_interface")
+    return clean
+
+
+def roots(document: Any) -> list[dict[str, Any]]:
+    """The artifact's valid roots (owned_build_state.py `warm-keys`), at most MAX_ROOTS, fields checked.
+
+    A root's `parked` pull request builds (at most MAX_PARKED, each with a pull request) are kept too."""
+    raw = document.get("roots") if isinstance(document, Mapping) else None
+    found: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for entry in raw if isinstance(raw, list) else []:
+        number = entry.get("root") if isinstance(entry, Mapping) else None
+        if not isinstance(number, int) or isinstance(number, bool) or not 0 < number < 100 or number in seen:
+            continue
+        seen.add(number)
+        clean: dict[str, Any] = {"root": number, **stamp_fields(entry)}
+        parked = entry.get("parked")
+        parked = [stamp_fields(item) for item in parked[:MAX_PARKED] if isinstance(item, Mapping)] \
+            if isinstance(parked, list) else []
+        parked = [item for item in parked if "pr" in item]
+        if parked:
+            clean["parked"] = parked
+        found.append(clean)
+    return sorted(found, key=lambda item: item["root"])[:MAX_ROOTS]
 
 
 def admission_job(jobs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
@@ -131,8 +197,8 @@ def new_artifacts(previous: Mapping[str, Any], artifacts: Sequence[Any]) -> list
     return sorted(fresh, key=lambda artifact: artifact["id"])[:MAX_NEW]
 
 
-def record(document: Any, jobs: Sequence[Mapping[str, Any]]) -> tuple[str, list[str]] | str:
-    """(runner, keys) the artifact proves, or why it proves nothing."""
+def record(document: Any, jobs: Sequence[Mapping[str, Any]]) -> tuple[str, list[str], list[dict[str, Any]]] | str:
+    """(runner, keys, roots) the artifact proves, or why it proves nothing."""
     if not isinstance(document, Mapping):
         return "the warm keys are not a JSON object"
     job = admission_job(jobs)
@@ -141,10 +207,10 @@ def record(document: Any, jobs: Sequence[Mapping[str, Any]]) -> tuple[str, list[
     runner = str(job.get("runner_name"))
     if str(document.get("runner") or "") != runner:
         return f"the keys name runner {document.get('runner')!r}, but admission ran on {runner!r}"
-    return runner, keys(document)
+    return runner, keys(document), roots(document)
 
 
-def fold(previous: Mapping[str, Any], folded: Sequence[tuple[Mapping[str, Any], tuple[str, list[str]] | str]],
+def fold(previous: Mapping[str, Any], folded: Sequence[tuple[Mapping[str, Any], tuple | str]],
          now: dt.datetime) -> dict[str, Any]:
     """`previous` with each (artifact, record) applied in order, entries past MAX_AGE_HOURS dropped."""
     runners: dict[str, Any] = {}
@@ -152,12 +218,17 @@ def fold(previous: Mapping[str, Any], folded: Sequence[tuple[Mapping[str, Any], 
         if isinstance(entry, Mapping) and isinstance(entry.get("keys"), list):
             runners[str(name)] = {"keys": [key for key in entry["keys"] if warm_key(str(key)) == key][:MAX_KEYS],
                                   "at": str(entry.get("at") or "")}
+            kept_roots = roots(entry)
+            if kept_roots:
+                runners[str(name)]["roots"] = kept_roots
     through = through_of(previous)
     for artifact, proved in folded:
         through = max(through, int(artifact["id"]))
         if isinstance(proved, tuple):
-            runner, found = proved
+            runner, found = proved[0], proved[1]
             runners[runner] = {"keys": found, "at": str(artifact.get("created_at") or "")}
+            if len(proved) > 2 and proved[2]:
+                runners[runner]["roots"] = proved[2]
     cutoff = now - dt.timedelta(hours=MAX_AGE_HOURS)
     runners = {name: entry for name, entry in runners.items()
                if entry["keys"] and (parse_time(entry["at"]) or cutoff) > cutoff}
@@ -180,7 +251,7 @@ def sweep(client: Any, jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], n
     except (OSError, ValueError, RuntimeError) as error:
         log(f"owned warm state: listing failed ({type(error).__name__}); keeping the previous state")
         return fold(previous, [], now)
-    folded: list[tuple[Mapping[str, Any], tuple[str, list[str]] | str]] = []
+    folded: list[tuple[Mapping[str, Any], tuple | str]] = []
     for artifact in new_artifacts(previous, listed):
         run_id = int((artifact.get("workflow_run") or {}).get("id") or 0)
         try:
@@ -195,7 +266,7 @@ def sweep(client: Any, jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], n
 
 
 def read(client: Any, artifact: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None,
-         run_id: int) -> tuple[str, list[str]] | str:
+         run_id: int) -> tuple | str:
     """record() for one artifact. Raises Transient when a request fails."""
     try:
         if jobs is None:
@@ -241,3 +312,39 @@ def previous_warm(client: Any) -> Mapping[str, Any]:
         if isinstance(warm, Mapping):
             return warm
     return {}
+
+
+def live_warm(client: Any, warm: Mapping[str, Any], now: dt.datetime, *, generated_at: dt.datetime | None,
+              log: Callable[[str], None] = print) -> dict[str, Any]:
+    """WARM (a snapshot's) with the artifacts uploaded since folded in, for pr_runner_pool.py.
+
+    The janitor folds at most MAX_NEW per sweep and sweeps every 10 to 45
+    minutes, so a snapshot's `warm` misses the builds kept since. This reads
+    the listing (one request) and folds the LIVE_MAX_NEW newest artifacts
+    past `through`, each checked as the janitor checks it (its run's jobs and
+    its download: two requests). An older one left out waits for the janitor,
+    which advances `through` past it. Nothing is listed when the snapshot is
+    under LIVE_MIN_AGE_SECONDS old. Any failure keeps WARM as it is.
+    """
+    if generated_at is not None and (now - generated_at).total_seconds() < LIVE_MIN_AGE_SECONDS:
+        return dict(warm)
+    try:
+        listed = client.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page=100").get("artifacts") or []
+    except (OSError, ValueError, RuntimeError) as error:
+        log(f"owned warm state: live listing failed ({type(error).__name__}); using the snapshot's")
+        return dict(warm)
+    fresh = new_artifacts({"through": through_of(warm)}, listed)
+    newest = sorted(fresh, key=lambda artifact: artifact["id"], reverse=True)[:LIVE_MAX_NEW]
+    folded: list[tuple[Mapping[str, Any], tuple | str]] = []
+    for artifact in sorted(newest, key=lambda artifact: artifact["id"]):
+        run_id = int((artifact.get("workflow_run") or {}).get("id") or 0)
+        try:
+            folded.append((artifact, read(client, artifact, None, run_id)))
+        except Transient as error:
+            log(f"owned warm state: live run {run_id} artifact {artifact['id']}: {error}")
+            break
+    # `through` stays the snapshot's: the janitor still folds the older ones this skipped.
+    result = fold(warm, folded, now)
+    result["through"] = through_of(warm)
+    result["live"] = {"folded": len(folded), "pending": max(0, len(fresh) - len(folded))}
+    return result

@@ -21,14 +21,33 @@ import Testing
         #expect(official.nightlyVersion?.contains("nightly") == true)
     }
 
-    @Test func whatsNewCompatCopyUsesTeamSpecificFloor() {
-        let team = MobileWhatsNewCatalog().macCompatibility(
+    /// The What's New copy on a team build must show that build kind's own
+    /// floor (stable and nightly) from the compat policy, never the App Store
+    /// floor. The expected nightly is derived from the policy's BETA
+    /// requirement rather than hardcoded, so the exact floor values stay
+    /// owned by `MobileMacCompatPolicyTests` and `web/data/mobile-mac-compat.ts`.
+    @Test func whatsNewCompatCopyUsesTeamSpecificFloor() throws {
+        let catalog = MobileWhatsNewCatalog()
+        let team = catalog.macCompatibility(
             policy: .baked,
             iosVersion: "1.0.4",
             buildType: .beta
         )
+        let official = catalog.macCompatibility(
+            policy: .baked,
+            iosVersion: "1.0.4",
+            buildType: .prod
+        )
+        let tier = try #require(MobileMacCompatPolicy.baked.tier(forIOSVersion: "1.0.4"))
+        let beta = try #require(tier.buildKinds[MobileBuildType.beta.token])
+
         #expect(team.stableVersion == "0.64.20")
-        #expect(team.nightlyVersion == "0.64.22-nightly.3345650013202")
+        #expect(team.stableVersion == beta.stableMinVersion.description)
+        let betaNightly = try #require(beta.nightly)
+        #expect(team.nightlyVersion ==
+            "\(betaNightly.minBaseVersion.description)-nightly.\(betaNightly.minBuild)")
+        #expect(team.stableVersion != official.stableVersion)
+        #expect(team.nightlyVersion != official.nightlyVersion)
     }
 
     @Test func whatsNewMacUpdateDetailUsesTheResolvedFloor() {

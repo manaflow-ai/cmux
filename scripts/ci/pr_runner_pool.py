@@ -155,6 +155,16 @@ root runner about half the time (11 of 21 on 2026-09-25, 06:30 to 09:00Z,
 3,300 s of root-runner time) and kept a compile or product consumer off that
 mini's root while it ran; on cmux7s and cmux9s, with one root, it blocked the
 mini's only compile. A pool without a root count keeps the pool label.
+The light pool's side runners come first (light_side_lanes()): on attempt 1
+of a same-repository pull request whose pick is an owned pool, as many side
+lanes as the light side runners idle now take the light side label (the
+`light_side_runner` and `light_side_jobs` outputs), and the picked pool
+places the rest beside admission and what follows it. The light minis sat
+almost idle (about 1% of their runner time over the 7 days to 2026-09-27)
+while side lanes held std side runners, because a run takes one owned pool
+and std, first in the order with the most room, always won. Placing the
+lanes all or nothing kept them off light whenever one of its two side
+runners was busy or offline, and most runs have two side lanes.
 
 Warm affinity: an owned Mac keeps compile admission's DerivedData
 (owned_build_state.py), and the queue janitor's snapshot carries `warm`: for
@@ -181,6 +191,22 @@ writes a runner label at job time, so the routing App needs only
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
 
+Distance routing (`vars.CI_OWNED_WARM_DISTANCE`, on unless '0'): the exact
+keys above miss most warm starts (on 2026-09-26/27 a near kept build sat on
+another, free mini for about a quarter of admissions). With it on, each
+admission artifact also carries its mini's root stamps (`roots`:
+merged_onto, pr and the pull request's own app Swift files), the builds kept
+since the snapshot are folded in live (owned_warm_state.live_warm(), at most
+1 + 2 * LIVE_MAX_NEW requests), and warm_distance.picker_distance_route()
+scores every free root on every mini with glaeda's hook's near/far/rebuild
+tiers (main's diff from each kept merge base, from one blobless shallow
+fetch, plus the kept and this pull request's own files). The root label
+costs the mean of the idle root runners' costs (where GitHub would put it);
+the cheapest runner is pinned when it beats that by ROUTE_MARGIN_SECONDS,
+ties broken by cost, then the less loaded mini, then the name. The
+`admission_route` output carries the candidates, the pick and its predicted
+seconds (warm_distance.route_record()), which admission records.
+
 Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
 std mini has two root runners and a compile takes either free root, so two
 compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
@@ -201,8 +227,9 @@ it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
 persistent pick, so the changed suites a compile admission would run itself
 move to shard 8: glaeda gives admission the compile token, not the gui token. On a pool with a root
 count whose gui label (`glaeda-gui-<class>-xcode-<version>`, one runner per mini) has a count in
-CI_OWNED_POOL_SLOTS, the placed GUI jobs take the `gui_runner` output instead of the root label
-(gui_runner()), so each mini gets at most the one GUI job its gui token allows. A run's owned peak
+CI_OWNED_POOL_SLOTS, the placed gui-token jobs (gui_token_job(): the GUI jobs and cli-product) take
+the `gui_runner` output instead of the root label (gui_runner()), so each mini gets at most the one
+such job its gui token allows. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -225,11 +252,12 @@ selects the newest SDK 26 Xcode on the pool it lands on, and the product
 consumers restate compile admission's empty pin), and only lands on
 ephemeral Blacksmith pools.
 
-A retry attempt (GITHUB_RUN_ATTEMPT above 1) never takes a persistent pool
-either. A job queued on a persistent pool waits for it however long it stays
-busy, so owned_pool_rescue.py cancels such a run and re-runs it, and the
-re-run has to land somewhere with capacity. A rerun after a job failed on an
-owned Mac lands on Blacksmith for the same reason. One exception, off unless
+Re-runs are routed by cause (RESCUE_ACTOR below). github-actions[bot]'s re-run
+follows a host fault (a refusal, a stuck queue, a machine failure) and never
+takes a persistent pool: owned_pool_rescue.py cancels a run stuck on one and
+re-runs it, and that re-run has to land somewhere with capacity. Anyone
+else's re-run of a pull request follows a code failure and picks like
+attempt 1, without queueing. One exception for the bot, off unless
 `vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
 a `light` owned pool, the next fleet tier, when its whole owned peak is free
 there by the same rule as attempt 1, and only when github-actions[bot]
@@ -331,12 +359,19 @@ LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
 # LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
 LIGHT_RETRY_ATTEMPT = 2
 LIGHT_CLASS = "light"
-# Attempt 2 of a re-run of failed jobs keeps attempt 1's outputs, so its owned-eligible jobs go back to the
-# owned pool (pr_root_runner or pr_refused_retry_runner) whoever started it: the rescue after a refusal, or a
-# person or agent re-running a failed job, which the rescue then watches like its own (attempt 3 and later
-# always take Blacksmith). Only the light tier, which a full re-run's picker may claim, stays the rescue's:
-# a person's full re-run must not claim light (or publish its marker) behind the rescue's back.
+# Re-runs are routed by cause. github-actions[bot] re-runs a run only after a host fault on a mini: the
+# rescue after a refusal or a stuck queue (owned_pool_rescue.py), the failure attribution when every failed
+# job is a machine failure (classify_failures.py). Every runs-on sends such a re-run to retry_runner
+# (Blacksmith), so it never lands on the mini that refused or failed it. Anyone else's re-run follows a
+# code or test failure, so it goes back to the owned pool: a re-run of failed jobs keeps attempt 1's
+# outputs and takes the owned label, and a full re-run picks here like attempt 1 (without queueing).
+# The light tier, which the rescue's full re-run may claim, stays the rescue's.
 RESCUE_ACTOR = "github-actions[bot]"
+
+
+def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
+    """A re-run started after a host fault on a mini (see RESCUE_ACTOR): it goes to Blacksmith."""
+    return run_attempt > 1 and (triggering_actor or "").strip() == RESCUE_ACTOR
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
 # 0: main takes the minis like a pull request. Its run holds 9 root runners
@@ -423,7 +458,10 @@ CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
 PAGE_SIZE = 100
 # The marker ci.yml's changes job uploads when it puts a run on an owned pool.
-OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
+# Its name is ...-<jobs>p<placed>-<pool> (queue_janitor.py reads <placed>); the
+# E2E and iOS markers, and older ones, omit p<placed>.
+OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
+                          r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 # The job that runs this picker; once it finishes, a run without a marker is off the owned pools.
 ROUTING_JOB = "changes"
 # The changes job step that is skipped exactly when the pick was not an owned pool.
@@ -473,7 +511,7 @@ def gui_label(label: str) -> str:
 
 
 def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
-    """The label a pick's GUI jobs (gui_job()) take: the pool's gui label, or "" to keep the root label.
+    """The label a pick's gui-token jobs (gui_token_job()) take: the pool's gui label, or "" to keep the root label.
 
     Each mini has one gui token (one console session) but two root runners,
     so on the root label GitHub handed a second GUI job to the mini's other
@@ -503,6 +541,22 @@ def side_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
     if owned_slots.get(choice.runner, 0) <= owned_slots.get(choice.root_runner, 0):
         return ""
     return side_label(choice.runner)
+
+
+def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owned_slots: Mapping[str, int],
+                     pr_xcode_app: str | None) -> tuple[str, tuple[str, ...]]:
+    """The light pool's side label and the side lanes of `plan` its idle side runners take now, one per runner.
+
+    ("", ()) when none is idle, and always while CI_OWNED_POOL_SLOTS gives
+    the light pool no machines beyond its root runners (side_runner()'s
+    rule), so removing that count turns it off.
+    """
+    light = next((label for label in owned_pools(pr_xcode_app) if label.startswith(f"glaeda-{LIGHT_CLASS}-")), "")
+    label = side_label(light)
+    if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
+        return "", ()
+    lanes = plan.side[:max(0, live_owned_free(runners, [label])[label])]
+    return (label, lanes) if lanes else ("", ())
 
 
 def pool_label(label: str) -> str:
@@ -683,6 +737,18 @@ def gui_job(key: str) -> bool:
     return key == "lag" or key.startswith("shard-")
 
 
+def gui_token_job(key: str) -> bool:
+    """A job that holds the mini's one gui token, so it takes the gui label (gui_runner()) where there is one.
+
+    The GUI jobs (gui_job()) and cli-product-tests, which needs no console
+    session but runs XCTest through the runner user's one testmanagerd, which
+    glaeda serializes with the same token (glaeda#1281, class `product`). On
+    the root label it met a mini whose gui token a shard held, waited 240 s
+    and was refused (cmux runs 36314100892 and 36316398822, 2026-09-27).
+    """
+    return gui_job(key) or key == "cli-product"
+
+
 def priority(key: str) -> tuple[int, int]:
     if key == ADMISSION_JOB:
         return 0, 0
@@ -701,9 +767,9 @@ def owned_peak(plan: RunJobs, gui: bool = True) -> int:
 def root_held(plan: RunJobs, keys: Sequence[str], gui_runners: bool = False) -> int:
     """The root runners `keys` hold at peak: admission, then the jobs after it (ROOT_JOBS).
 
-    With `gui_runners` (the pool's GUI jobs take its gui label, gui_runner()),
-    the GUI jobs hold no root runner."""
-    after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_job(key)))
+    With `gui_runners` (the pool's gui-token jobs take its gui label, gui_runner()),
+    those jobs (gui_token_job()) hold no root runner."""
+    after = sum(1 for key in keys if key in plan.after and not (gui_runners and gui_token_job(key)))
     return max(1, after) if ADMISSION_JOB in keys else after
 
 
@@ -865,6 +931,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         return {}, [f"{SLOTS_VARIABLE} is not a JSON object or a whole number"]
     match = XCODE_APP.search(pr_xcode_app or "")
     counted, by_class, problems = {}, {}, []
+    # A full label is more specific than its class, even when its own count is
+    # invalid: that entry is reported, never replaced by the class count.
+    explicit = {str(label) for label in data if persistent(str(label))}
     for label, count in data.items():
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
@@ -879,7 +948,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
             counted[label] = count
         elif OWNED_LABEL.fullmatch(f"glaeda-{label}-xcode-0"):
             if match:
-                by_class[f"glaeda-{label}-xcode-{match.group(1)}"] = count
+                full = f"glaeda-{label}-xcode-{match.group(1)}"
+                if full not in explicit:
+                    by_class[full] = count
             else:
                 problems.append(f"{SLOTS_VARIABLE} entry {label!r} names a class, but {PR_XCODE_VARIABLE} "
                                 "names no Xcode version to pair it with")
@@ -1127,6 +1198,12 @@ def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merge
     return pinned_admission(root, name) if name else ""
 
 
+def distance_routing(env: Mapping[str, str]) -> bool:
+    """Whether admission's pin scores every mini's kept builds by distance (warm_distance.distance_route())
+    rather than exact keys (route_admission()): vars.CI_OWNED_WARM_DISTANCE, on unless '0'."""
+    return (env.get("OWNED_WARM_DISTANCE") or "").strip() != "0"
+
+
 def runner_member(name: str) -> str:
     """The mini a glaeda runner runs on: its name less `-glaeda` or `-glaeda-<K>`, or "" for another name."""
     match = GLAEDA_RUNNER_NAME.fullmatch(name or "")
@@ -1268,7 +1345,9 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0: an owned pool, in
     order, when the jobs it would place there start within `queue_rounds`
     job lengths and within the queue bound (owned_room()), whatever
-    Blacksmith's expected wait (Blacksmith is overflow); else the Blacksmith
+    Blacksmith's expected wait (Blacksmith is overflow), the first one whose
+    machines (and root runners) are free for the run now ahead of the first
+    it would queue on; else the Blacksmith
     pool with the least expected wait (expected_wait()), the earlier in
     order on a tie. `taken` is the
     peak of the runs since the snapshot that took each owned pool, by their
@@ -1316,10 +1395,25 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
                      if label in roots else None)
         rooms[label] = Pick(label, "owned", room, root_room, limit, whole if best and queue_rounds else None)
     reserve = max(0, reserve)
-    fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
-            and (room.root_room is None or room.root_room >= root_jobs + reserve)]
+    # A run with no owned job left (its side lanes on the light side runners) needs no room.
+    fits = [label for label, room in rooms.items() if room.room >= jobs + reserve
+            and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs + reserve)]
+    if queue_rounds:
+        # An owned pool the run starts on now beats an earlier one it would
+        # queue on: with the rounds, std always fits by its queue places, so
+        # light sat idle while runs queued behind std's busy root runners.
+        def idle(counts: Mapping[str, int], added_jobs: int, label: str) -> int:
+            return counts["capacity"] - counts["running"] - counts["queued"] - taken_now.get(label, 0) - added_jobs
+
+        now = [label for label in fits
+               if idle(load[label], added[label] * REPLAYED_RUN_JOBS, label) >= jobs + reserve
+               and (label not in roots or root_jobs <= 0
+                    or idle(roots[label], added[label], label) >= root_jobs + reserve)]
+        fits = now or fits
     if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
-        fits = [max(rooms, key=lambda label: rooms[label].room)]
+        # A pool with a root runner free first, when the run needs one.
+        fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
+                                              or rooms[label].root_room >= 1, rooms[label].room))]
     for label in usable:
         if label in fits:
             return rooms[label]
@@ -1426,9 +1520,13 @@ def decide(
     queue_rounds = limits.queue_rounds
     for _ in range(max(0, ephemeral_since) if ephemeral else 0):
         added[pick(load, added, ephemeral, limits.max_queued, jobs=1, queue_rounds=queue_rounds).label] += 1
+    # With a root count, a replayed run needs one root runner (its admission), as a
+    # real run does: pick() prefers the pool it starts on now, and std's idle side
+    # runners alone would charge it to std while the run itself took light.
     for _ in range(max(0, routed_since)):
-        added[pick(load, added, usable, limits.max_queued, jobs=1, queue_rounds=queue_rounds,
-                   taken=taken, taken_now=held, compared_jobs=REPLAYED_RUN_JOBS).label] += 1
+        added[pick(load, added, usable, limits.max_queued, jobs=1, roots=roots, root_jobs=1,
+                   queue_rounds=queue_rounds, taken=taken, taken_now=held,
+                   compared_jobs=REPLAYED_RUN_JOBS).label] += 1
     if reserve:
         # Main's full suite with a reserve (CI_OWNED_MAIN_RESERVE) takes an
         # owned pool only while its peak and the reserve are free now: no
@@ -1462,19 +1560,24 @@ def decide(
             machines += f" and {places} queue places within {chosen.limit:g} min"
         if chosen.blacksmith_wait is not None:
             machines += f" (Blacksmith's expected wait {chosen.blacksmith_wait:g} min)"
-        root = ""
+        root, root_now = "", None
         if chosen.root_room is not None:
             root_now = max(0, idle(roots[label], added[label]))
             root = f"; {root_now} of {roots[label]['capacity']} root runners free"
             if chosen.root_room > root_now:
                 root += f" and {chosen.root_room - root_now} queue places"
             root += f", it needs {root_jobs}"
-        whole = chosen.room >= max(1, jobs) and (chosen.root_room is None or chosen.root_room >= root_jobs)
+        whole = chosen.room >= jobs and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
-        if whole:
-            why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
+        earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]
+        starts_now = free_now >= jobs and (root_now is None or root_jobs <= 0 or root_now >= root_jobs)
+        if whole and earlier and queue_rounds and starts_now:
+            why = (f"first owned pool free for this run now ({machines}, this run needs {jobs}{root}; "
+                   f"{', '.join(earlier)} not free now){replay}")
+        elif whole:
+            why = f"first pool in order with headroom ({machines}, this run needs {jobs}{root}{kept}){replay}"
         else:
-            why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
+            why = (f"owned pool with the most room ({machines}, this run needs {jobs}{root}): "
                    f"the jobs that fit run there, the rest on the retry runner{replay}")
     elif chosen.how == "wait":
         why = f"least expected wait ({chosen.blacksmith_wait:g} min, from the jobs queued and running now){replay}"
@@ -1507,7 +1610,7 @@ def decide(
         note += f"; its {shards} app-host shards take {shard}, which has more room for them"
     if not persistent(label):
         return Choice(label, xcode(label) or "", why + note, retry, 0, shard)
-    budget = max(0, min(chosen.room, max(1, jobs)))
+    budget = max(0, min(chosen.room, jobs))
     if chosen.root_room is not None:
         return Choice(label, xcode(label) or "", why + note, retry, budget, shard_runner=shard,
                       root_runner=root_label(label), root_budget=max(0, chosen.root_room))
@@ -1637,14 +1740,15 @@ def choose(
             return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
     retry = run_attempt > 1
     if retry:
-        light = (not fork and run_attempt == LIGHT_RETRY_ATTEMPT and (light_retry or "").strip() == "1"
-                 and (triggering_actor or "").strip() == RESCUE_ACTOR)
-        # A retry exists to get off a queue, so it does not queue (rounds 0):
-        # the light tier only with its peak free now, Blacksmith rolling over
-        # at a full pool, and the rescue's short budget.
+        host_fault = host_fault_retry(run_attempt, triggering_actor)
+        light = (not fork and host_fault and run_attempt == LIGHT_RETRY_ATTEMPT
+                 and (light_retry or "").strip() == "1")
+        # A retry does not queue (rounds 0): the owned pools only with its peak
+        # free now, Blacksmith rolling over at a full pool. After a host fault
+        # it takes no owned pool, bar the light tier the rescue may claim.
         limits = dataclasses.replace(limits, queue_rounds=0, order=tuple(
             label for label in limits.order
-            if not persistent(label) or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
+            if not persistent(label) or not host_fault or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
         if not limits.order:
             return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     live = live_owned is not None and not fork
@@ -1752,29 +1856,37 @@ def routed_run(run: Mapping[str, Any]) -> bool:
 
 
 def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
-    """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
-    and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
+    """A same-repository pull request run (or main's dispatch) can take an owned pool, except on a host-fault
+    re-run (host_fault_retry()), and then only attempt 2 while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
-    Attempt 2 then may hold the light tier, or a refused job's retry
-    (pr_refused_retry_runner); with the variable off it is not looked up,
+    Attempt 2 then may hold the light tier; with the variable off it is not looked up,
     so no request is spent on it. The same rule as
     queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
     upload any marker, so its markers are never read.
     """
-    if int(run.get("run_attempt") or 1) > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
+    attempt = int(run.get("run_attempt") or 1)
+    actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    code_retry = run.get("event") == "pull_request" and not host_fault_retry(attempt, actor)
+    if attempt > (LIGHT_RETRY_ATTEMPT if light_retry else 1) and not code_retry:
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
 
 
 def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, int] | None:
-    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None."""
+    """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None.
+
+    The newest marker up to the run's attempt: a re-run of failed jobs does not re-run the picker, so it
+    holds the pool of the attempt that last picked (a person's re-run goes back to it).
+    """
+    best: tuple[int, str, int] | None = None
     for artifact in artifacts:
         match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
         if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
-                and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
-            return match["pool"], min(max(1, int(match["jobs"])), MAX_RUN_JOBS)
-    return None
+                and int(match["attempt"]) <= int(run.get("run_attempt") or 1) and persistent(match["pool"])
+                and (best is None or int(match["attempt"]) > best[0])):
+            best = int(match["attempt"]), match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
+    return (best[1], best[2]) if best else None
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:
@@ -1985,7 +2097,8 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "",
+            light_side: str = "", light_lanes: Sequence[str] = ()) -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -1995,8 +2108,11 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
                      f"and a re-run of failed jobs, goes to: `{choice.retry_runner}`")
     if choice.root_runner:
         lines.append(f"- Root jobs among them ({ROOT_JOBS}) take `{choice.root_runner}`")
+    if light_lanes:
+        lines.append(f"- Side lanes on the light minis: {', '.join(light_lanes)} take `{light_side}`")
     if side:
-        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
+        lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`"
+                     + (" unless on the light minis" if light_lanes else ""))
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
         lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
@@ -2086,6 +2202,19 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
             live_owned = online = live_runners = None
+    # As many side lanes as the light minis' side runners idle now (light_side_lanes()) take them: the pool
+    # picked below then holds admission, what follows it and the other side lanes.
+    light_side, side_lanes = "", ()
+    if live_runners is not None and attempt in ("", "1") and event == "pull_request" and env.get("HEAD_REPO") == repo:
+        light_side, side_lanes = light_side_lanes(
+            plan, live_runners, slots(env.get("OWNED_SLOTS"), env.get(PR_XCODE_VARIABLE)), env.get(PR_XCODE_VARIABLE))
+    if side_lanes:
+        plan = dataclasses.replace(plan, side=tuple(key for key in plan.side if key not in side_lanes))
+        jobs = owned_peak(plan, gui)
+        light = pool_label(light_side)
+        if live_owned is not None and light in live_owned:
+            # The side runners just claimed carry the light pool label too: no longer free for this pick.
+            live_owned = {**live_owned, light: max(0, live_owned[light] - len(side_lanes))}
     choice, snapshot = choose(
         event=event,
         ref=ref,
@@ -2136,6 +2265,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
     # ci-macos.yml reads both outputs on attempt 1 only.
     admission_runner = ""
+    admission_route = ""
     admission_warm: list[list[str]] = []
     # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
     # turns affinity off.
@@ -2152,18 +2282,44 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import warm_distance  # noqa: PLC0415
             try:
-                admission_runner, route = warm_distance.picker_route(
-                    live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
-                    pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
-                    queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
-                    warm_key=warm_key, runner_label=runner_label)
+                if distance_routing(env):
+                    # Every mini's kept builds by the hook's near/far/rebuild distance, with the
+                    # builds kept since the snapshot folded in live (owned_warm_state.live_warm()).
+                    import owned_warm_state  # noqa: PLC0415
+                    warm = snapshot.get("warm") if isinstance(snapshot.get("warm"), Mapping) else {}
+                    if token and repo and not args.snapshot:
+                        warm = owned_warm_state.live_warm(
+                            client(), warm, now, generated_at=parse_time(str(snapshot.get("generated_at") or "")))
+                    admission_runner, route = warm_distance.picker_distance_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot={**snapshot, "warm": warm}, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label, member=runner_member)
+                    route["live"] = warm.get("live")
+                else:
+                    admission_runner, route = warm_distance.picker_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label)
                 print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
+                admission_route = json.dumps(warm_distance.route_record(route), separators=(",", ":"),
+                                             sort_keys=True)
             except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
-                admission_runner = ""
+                admission_runner = admission_route = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     side = side_runner(choice, owned_slots)
+    if not (side_lanes and persistent(choice.runner)):
+        light_side, side_lanes = "", ()
+    else:
+        owned_jobs = owned_jobs + side_lanes
+        if choice.runner == pool_label(light_side):
+            # The light pool's own pick: its side lanes are its machines too, and the janitor
+            # (marker_peaks()) takes them off the marker's peak for the root share.
+            held += len(side_lanes)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side,
+                   light_side=light_side, light_lanes=side_lanes)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -2173,16 +2329,21 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
+                         # The owned jobs placed, which may exceed the machines
+                         # held: the jobs after admission reuse its machine.
+                         f"placed={len(owned_jobs)}\n"
                          f"shard_runner={choice.shard_runner}\n"
-                         # Attempt 2 of an owned job the fleet refused tries it
-                         # once more: a re-run of failed jobs reuses these outputs.
-                         f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
                          # What the root jobs in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"root_runner={choice.root_runner}\n"
                          # What the side lanes in owned_jobs take instead of
-                         # the pool label, on attempt 1 and on that attempt 2.
+                         # the pool label, on attempt 1.
                          f"side_runner={side}\n"
+                         # The side lanes in owned_jobs that take light_side_runner
+                         # instead of side_runner (light_side_lanes()), delimited
+                         # like owned_jobs, or "".
+                         f"light_side_runner={light_side}\n"
+                         f"light_side_jobs={' ' + ' '.join(side_lanes) + ' ' if side_lanes else ''}\n"
                          # What the GUI jobs (app-host shards, tests-build-and-lag)
                          # take instead of the root label: one runner per mini
                          # carries it (gui_runner()), or "".
@@ -2191,6 +2352,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # and the static label of the runner warm for this
                          # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
+                         # The picker's costs behind it (warm_distance.route_record()), JSON or "":
+                         # admission records them for ci-dash's Estimates view.
+                         f"admission_route={admission_route}\n"
                          # JSON tiers of the names of the root runners warm for
                          # this run's merge base, then its pull request, or ""
                          # (admission_placement.py).

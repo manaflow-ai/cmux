@@ -1,6 +1,7 @@
 import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import CryptoKit
 import Foundation
 
@@ -13,6 +14,16 @@ public struct SSHTuiConnection: Sendable {
     }
 
     public let configuration: WorkspaceRemoteConfiguration
+
+    /// Coding agents whose cmux-tui hooks the host installs on each attach, so
+    /// their state reaches the sidebar. Not part of the link identity.
+    public var agentHookProviders: [String] = []
+
+    /// The providers whose Settings > Integrations hook toggle is on.
+    public static func agentHookProviders(defaults: UserDefaults) -> [String] {
+        let settings = AgentIntegrationSettingsStore(defaults: defaults)
+        return (settings.claudeCodeHooksEnabled ? ["claude"] : []) + (settings.codexHooksEnabled ? ["codex"] : [])
+    }
 
     /// Includes the SSH account and configuration so aliases with different routes never share a link.
     public var id: String { "ssh:" + identityDigest }
@@ -50,6 +61,11 @@ public struct SSHTuiConnection: Sendable {
 
     /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
     public var shellCommand: [String] {
+        if let restored = configuration.restoredSSHSession,
+           restored.sshSessionOwner == nil,
+           let sessionName = configuration.terminalProfile.tmuxSessionName {
+            return RemoteTmuxCommandBuilder(arguments: ["attach-session", "-t", "=\(sessionName)"]).remoteCommandArguments
+        }
         if !configuration.terminalProfile.remoteCommandArguments.isEmpty {
             return configuration.terminalProfile.remoteCommandArguments
         }
@@ -77,6 +93,9 @@ public struct SSHTuiConnection: Sendable {
         // this launch (SSHTuiPreflight), and verification stays OpenSSH's.
         for argument in sshArguments { arguments += ["--ssh-arg", argument] }
         arguments += ["--device-name", deviceName]
+        if !agentHookProviders.isEmpty {
+            arguments += ["--agent-hooks", agentHookProviders.joined(separator: ",")]
+        }
         return arguments
     }
 
