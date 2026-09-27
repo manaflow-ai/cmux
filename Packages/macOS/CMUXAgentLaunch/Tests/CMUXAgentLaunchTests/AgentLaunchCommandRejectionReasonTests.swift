@@ -26,6 +26,30 @@ struct AgentLaunchCommandRejectionReasonTests {
         #expect(object["rejectionReason"] as? String == "sanitizerRejectedArgv")
     }
 
+    /// The hand-written decoder has to read every stored field, not only the
+    /// ones that existed when it was written: `externalLauncher` is how resume
+    /// replays an agent through its user-declared launcher, and a decoder that
+    /// skipped it would drop the launcher on the next store rewrite.
+    @Test func decodingKeepsTheExternalLauncher() throws {
+        let stored = """
+        {"arguments": ["claude"], "launcher": "claude", "externalLauncher": "teamclaude"}
+        """
+        let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: Data(stored.utf8))
+        #expect(command.externalLauncher == "teamclaude")
+
+        let rejected = AgentLaunchCommand(
+            rejectedOn: .argvUnavailable,
+            launcher: "claude",
+            externalLauncher: "teamclaude"
+        )
+        let roundTripped = try JSONDecoder().decode(
+            AgentLaunchCommand.self,
+            from: JSONEncoder().encode(rejected)
+        )
+        #expect(roundTripped.externalLauncher == "teamclaude")
+        #expect(roundTripped.rejectionReason == .argvUnavailable)
+    }
+
     /// A ground written by a newer cmux build has to survive an older build
     /// reading the store and writing it back: the store is rewritten in full on
     /// every mutation, so a token that decodes to a fallback is a token this

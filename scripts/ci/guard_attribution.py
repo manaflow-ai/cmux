@@ -482,8 +482,10 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
     steps = sorted(set(steps))
     with tempfile.TemporaryDirectory(prefix="guard-steps-") as temp:
         results = Path(temp) / "results.json"
+        # --keep-going: a probed step that shares a sequential group with an earlier
+        # failing one must still run, or it reads as unknown.
         args = [str(runner_root / "scripts/ci/guards-local.sh"), "--root", str(tree_root), "--results", str(results),
-                "--jobs", "4"]
+                "--jobs", "4", "--keep-going"]
         for step in steps:
             args += ["--step", step]
         # Guard steps get no GitHub token: they never need one.
