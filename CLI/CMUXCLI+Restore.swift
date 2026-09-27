@@ -334,14 +334,19 @@ extension CMUXCLI {
             )
         }
         let legacyCommand = object["legacy_command"] as? String
+        let preparedArguments = object["prepared_arguments"] as? [String]
         let legacyForkCommand = [object["fork_command"], object["legacy_fork_command"]]
             .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+        let hasContinuationArguments = preparedArguments?.isEmpty == false
+            || (verb == .fork && (object["fork_arguments"] as? [String])?.isEmpty == false)
+            || (verb == .fork && (object["prepared_fork_arguments"] as? [String])?.isEmpty == false)
         let launchCommand: AgentLaunchCommand?
         do {
             launchCommand = try restoreLaunchCommand(
                 from: object["launch_command"],
-                verb: verb
+                verb: verb,
+                allowEmptyWhenContinuationArgumentsExist: hasContinuationArguments
             )
         } catch {
             let hasLegacyForkFallback = legacyForkCommand != nil
@@ -394,7 +399,7 @@ extension CMUXCLI {
             workingDirectory: object["working_directory"] as? String,
             environment: object["environment"] as? [String: String] ?? [:],
             launchCommand: launchCommand,
-            preparedArguments: object["prepared_arguments"] as? [String],
+            preparedArguments: preparedArguments,
             preparedArgumentsWorkingDirectory:
                 object["prepared_arguments_working_directory"] as? String,
             forkArguments: forkArguments,
@@ -427,12 +432,19 @@ extension CMUXCLI {
 
     func restoreLaunchCommand(
         from value: Any?,
-        verb: CMUXCLIContinuationVerb = .restore
+        verb: CMUXCLIContinuationVerb = .restore,
+        allowEmptyWhenContinuationArgumentsExist: Bool = false
     ) throws -> AgentLaunchCommand? {
         guard let object = value as? [String: Any] else { return nil }
-        guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
+        guard let arguments = object["arguments"] as? [String] else {
             throw continuationUsageError(.malformedArguments, verb: verb)
         }
+        guard !arguments.isEmpty || allowEmptyWhenContinuationArgumentsExist else {
+            throw continuationUsageError(.malformedArguments, verb: verb)
+        }
+        // An empty rejected capture can still carry replay-safe environment
+        // (for example `CLAUDE_CONFIG_DIR`). Keep that structured metadata while
+        // the planner takes its executable argv from `prepared_arguments`.
         return AgentLaunchCommand(
             launcher: object["launcher"] as? String,
             externalLauncher: object["external_launcher"] as? String,

@@ -144,6 +144,23 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_startup_input_available"] as? Bool == false)
     }
 
+    @Test func testSessionsListFailsClosedForRejectedLaunchCapture() throws {
+        let session = try sessionsListDiagnosticSession(
+            launcher: "codex",
+            executablePath: "/usr/local/bin/codex",
+            arguments: [],
+            environment: ["CODEX_HOME": "/tmp/cmux/rejected-codex-home"],
+            source: "rejected",
+            rejectionReason: "argvDecodeFailed"
+        )
+
+        #expect(session["hook_record_restorable"] as? Bool == false)
+        #expect(session["fork_command_available"] as? Bool == false)
+        #expect(session["fork_supported"] as? Bool == false)
+        #expect(session["fork_unavailable_reason"] as? String == "record_marked_non_restorable")
+        #expect(session["fork_startup_input_available"] as? Bool == false)
+    }
+
     @Test func testSessionsListIgnoresUntrustedLaunchCaptureForStartupInput() throws {
         let hugeCodexHome = "/tmp/" + String(repeating: "codex-home-", count: 100)
         let session = try sessionsListDiagnosticSession(
@@ -244,7 +261,7 @@ extension CMUXCLIErrorOutputRegressionTests {
     func sessionsListDiagnosticSession(
         agent: String = "codex", launcher: String, executablePath: String, arguments: [String],
         environment: [String: String] = [:], workingDirectory: String = "/tmp/cmux/debug", pid: Int? = nil,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil, source: String = "environment", rejectionReason: String? = nil
     ) throws -> [String: Any] {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -253,6 +270,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let sessionId = "019ef275-74e3-7777-9773-9dcb118ed5aa"
+        var launchCommand: [String: Any] = [
+            "launcher": launcher,
+            "executablePath": executablePath,
+            "arguments": arguments,
+            "workingDirectory": workingDirectory,
+            "environment": environment,
+            "source": source,
+        ]
+        if let rejectionReason {
+            launchCommand["rejectionReason"] = rejectionReason
+        }
         var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": "33B0D372-292E-42BF-97B6-E37CCA79AB84",
@@ -260,14 +288,7 @@ extension CMUXCLIErrorOutputRegressionTests {
             "cwd": workingDirectory,
             "startedAt": 1_781_996_800.0,
             "updatedAt": 1_781_996_867.0,
-            "launchCommand": [
-                "launcher": launcher,
-                "executablePath": executablePath,
-                "arguments": arguments,
-                "workingDirectory": workingDirectory,
-                "environment": environment,
-                "source": "environment",
-            ],
+            "launchCommand": launchCommand,
         ]
         if let pid { record["pid"] = pid }
         if let transcriptPath { record["transcriptPath"] = transcriptPath }
