@@ -388,8 +388,25 @@ struct SidebarWorkspaceSnapshotFactory {
                 ? workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).first?.branch
                 : nil,
             directory: directory,
-            iconOverrides: settings.compactStatusIcons
+            iconOverrides: settings.compactStatusIcons,
+            profiles: agentProfileLabels(orderedPanelIds: orderedPanelIds)
         )
+    }
+
+    /// Unique config-profile labels of the workspace's live agents, in panel order.
+    private func agentProfileLabels(orderedPanelIds: [UUID]) -> [String] {
+        guard let index = SharedLiveAgentIndex.shared.index else { return [] }
+        let home = NSHomeDirectory()
+        var labels: [String] = []
+        for panelId in orderedPanelIds {
+            let environment = index.entry(workspaceId: workspace.id, panelId: panelId)?
+                .snapshot.launchCommand?.environment
+            if let label = SidebarAgentProfileLabel.label(environment: environment, homeDirectory: home),
+               !labels.contains(label) {
+                labels.append(label)
+            }
+        }
+        return labels
     }
 
     private func pullRequestDisplays(

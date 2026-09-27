@@ -331,6 +331,53 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
+    func profileLabelsComeFromTheConfigDirectory() {
+        let home = "/Users/me"
+        func label(_ env: [String: String]?) -> String? {
+            SidebarAgentProfileLabel.label(environment: env, homeDirectory: home)
+        }
+
+        #expect(label(nil) == nil)
+        #expect(label([:]) == nil)
+        #expect(label(["CLAUDE_CONFIG_DIR": "/Users/me/.claude"]) == nil)
+        #expect(label(["CODEX_HOME": "~/.codex"]) == nil)
+        #expect(label(["CLAUDE_CONFIG_DIR": "/Users/me/.claude-outlook"]) == "outlook")
+        #expect(label(["CLAUDE_CONFIG_DIR": "~/.claude-work/"]) == "work")
+        #expect(label(["CODEX_HOME": "/Volumes/x/codex-personal"]) == "personal")
+        #expect(
+            label(["CLAUDE_CONFIG_DIR": "/Users/me/.subrouter/codex/claude-proxy/7e6dd05e630d2ac6f783e242"])
+                == SidebarAgentProfileLabel.routedProxyLabel
+        )
+    }
+
+    @Test
+    func indexChangesRefreshOnlyTheWorkspacesTheyName() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let all = [a, b, c]
+        func changed(_ userInfo: [AnyHashable: Any]?) -> [UUID] {
+            SidebarAgentProfileLabel.changedWorkspaceIds(userInfo, allWorkspaceIds: all)
+        }
+
+        #expect(changed(nil) == all)
+        #expect(changed(["panelIdsByWorkspaceId": [b: Set([UUID()])]]) == [b])
+        #expect(changed(["workspaceId": c]) == [c])
+        #expect(changed(["workspaceId": UUID()]).isEmpty)
+    }
+
+    @Test
+    func tooltipListsProfilesAfterAgentStatuses() {
+        let glyph = Glyph.resolve(.init(
+            agentEntries: [Self.entry("claude_code", "Idle", icon: "pause.circle.fill")],
+            lifecycleStates: [.idle],
+            profiles: ["outlook", "proxy"]
+        ))
+        let lines = glyph.tooltip.split(separator: "\n").map(String.init)
+
+        #expect(lines.count == 2)
+        #expect(lines[1].contains("outlook, proxy"))
+    }
+
+    @Test
     func agentDisplayNamesUseBuiltInDefinitions() {
         #expect(Glyph.agentDisplayName(forStatusKey: "claude_code") == "Claude Code")
         #expect(Glyph.agentDisplayName(forStatusKey: "codex") == "Codex")
