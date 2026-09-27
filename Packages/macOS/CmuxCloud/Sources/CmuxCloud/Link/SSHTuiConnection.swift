@@ -61,6 +61,11 @@ public struct SSHTuiConnection: Sendable {
 
     /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
     public var shellCommand: [String] {
+        if let restored = configuration.restoredSSHSession,
+           restored.sshSessionOwner == nil,
+           let sessionName = configuration.terminalProfile.tmuxSessionName {
+            return RemoteTmuxCommandBuilder(arguments: ["attach-session", "-t", "=\(sessionName)"]).remoteCommandArguments
+        }
         if !configuration.terminalProfile.remoteCommandArguments.isEmpty {
             return configuration.terminalProfile.remoteCommandArguments
         }

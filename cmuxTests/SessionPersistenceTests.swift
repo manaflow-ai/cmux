@@ -3371,15 +3371,16 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let workingDirectory = "/remote/cmux/project-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "opencode-session-remote",
-            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
                 executablePath: "/remote/bin/opencode",
                 arguments: ["/remote/bin/opencode"],
-                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                workingDirectory: workingDirectory,
                 environment: ["PATH": "/remote/bin:/usr/bin"],
                 capturedAt: 123,
                 source: "process"
@@ -4556,6 +4557,23 @@ extension SessionPersistenceTests {
             binding.command,
             TerminalStartupWorkingDirectoryPrefix.prefix(
                 "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
+
+    func testAgentHookSurfaceResumeBindingDropsDuplicateKimiWorkingDirectoryOption() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && kimi --resume session --work-dir '/tmp/project' --model kimi-k2",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.prefix(
+                "kimi --resume session --model kimi-k2",
                 workingDirectory: "/tmp/project"
             )
         )

@@ -69,7 +69,7 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
         }
     }
 
-    var color: Color {
+    func color(accent: CmuxAccentColor) -> Color {
         switch self {
         case .bonsplitInactive:
             // Matches Bonsplit tab icon tint for inactive tabs.
@@ -78,7 +78,7 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
             // Matches Bonsplit tab icon tint for active tabs.
             return .primary
         case .accent:
-            return cmuxAccentColor()
+            return accent.color
         case .tertiary:
             // SwiftUI's secondary style follows the resolved cmux color
             // scheme injected by the browser/Dock root. Keep the tertiary
@@ -243,6 +243,7 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     private enum TaskKey: Hashable, Sendable {
         case emptyStateImportBrowserRefresh
         case omnibarSuggestionRefreshConsumer
@@ -1210,7 +1211,7 @@ struct BrowserPanelView: View {
                             controller: panel.designModeController,
                             iconPointSize: devToolsButtonIconSize,
                             hitSize: addressBarButtonSize,
-                            inactiveColor: devToolsColorOption.color,
+                            inactiveColor: devToolsColorOption.color(accent: cmuxAccent),
                             onToggle: { panel.toggleDesignModeFromBrowserChrome(reason: "toolbar") }
                         )
                     }
@@ -1440,9 +1441,9 @@ struct BrowserPanelView: View {
         case .focus:
             return .orange
         case .design:
-            return cmuxAccentColor()
+            return cmuxAccent.color
         case nil:
-            return devToolsColorOption.color
+            return devToolsColorOption.color(accent: cmuxAccent)
         }
     }
 
@@ -1511,7 +1512,7 @@ struct BrowserPanelView: View {
         Button(action: {
             openDevTools()
         }) {
-            CmuxSystemSymbolImage(systemName: devToolsIconOption.rawValue, pointSize: devToolsButtonIconSize, weight: .medium, tint: devToolsColorOption.color)
+            CmuxSystemSymbolImage(systemName: devToolsIconOption.rawValue, pointSize: devToolsButtonIconSize, weight: .medium, tint: devToolsColorOption.color(accent: cmuxAccent))
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
@@ -1525,7 +1526,7 @@ struct BrowserPanelView: View {
         Button(action: {
             isBrowserProfileMenuPresented.toggle()
         }) {
-            CmuxSystemSymbolImage(systemName: "person.crop.circle", pointSize: devToolsButtonIconSize, weight: .medium, tint: devToolsColorOption.color)
+            CmuxSystemSymbolImage(systemName: "person.crop.circle", pointSize: devToolsButtonIconSize, weight: .medium, tint: devToolsColorOption.color(accent: cmuxAccent))
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
@@ -1595,7 +1596,7 @@ struct BrowserPanelView: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .tint(devToolsColorOption.color)
+        .tint(devToolsColorOption.color(accent: cmuxAccent))
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
         .accessibilityIdentifier("BrowserOverflowMenu")
@@ -1606,7 +1607,7 @@ struct BrowserPanelView: View {
         // use the native vertical-ellipsis character for a stable label.
         Text(verbatim: "⋮")
             .font(.system(size: devToolsButtonIconSize + 4, weight: .medium))
-            .foregroundStyle(devToolsColorOption.color)
+            .foregroundStyle(devToolsColorOption.color(accent: cmuxAccent))
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .accessibilityHidden(true)
     }
@@ -1643,12 +1644,12 @@ struct BrowserPanelView: View {
             isBrowserImportHintPopoverPresented.toggle()
         }) {
             HStack(spacing: 4) {
-                CmuxSystemSymbolImage(systemName: "square.and.arrow.down.on.square", pointSize: 10, weight: .medium, tint: devToolsColorOption.color)
+                CmuxSystemSymbolImage(systemName: "square.and.arrow.down.on.square", pointSize: 10, weight: .medium, tint: devToolsColorOption.color(accent: cmuxAccent))
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
                     .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
             }
-            .foregroundStyle(devToolsColorOption.color)
+            .foregroundStyle(devToolsColorOption.color(accent: cmuxAccent))
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
@@ -1758,7 +1759,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserThemeModeIconColor: Color {
-        devToolsColorOption.color
+        devToolsColorOption.color(accent: cmuxAccent)
     }
 
     private var omnibarField: some View {
@@ -1840,7 +1841,7 @@ struct BrowserPanelView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
+                .stroke(addressBarFocused ? cmuxAccent.color : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .background {

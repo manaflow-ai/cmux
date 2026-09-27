@@ -537,6 +537,12 @@
           "default": "system",
           "description": "App appearance mode."
         },
+        "accentColor": {
+          "type": "string",
+          "enum": ["cmux", "system"],
+          "default": "cmux",
+          "description": "Accent for cmux-drawn chrome: the selected workspace, attention ring and pane flash, agent status, pane swap, canvas focus, and scroll markers. \"cmux\" uses cmux blue; \"system\" follows the macOS accent color and updates when it changes. workspaceColors.selectionColor and notifications.paneFlashColor still override their parts. Native controls always use the macOS accent."
+        },
         "appIcon": {
           "type": "string",
           "enum": ["automatic", "light", "dark"],
@@ -678,6 +684,16 @@
           "default": false,
           "descriptionKey": "schemaDescriptions.app.warnBeforeClosingTabXButton",
           "description": "Show a confirmation before closing a tab with the tab close button."
+        },
+        "warnBeforeClosingWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
+        },
+        "warnBeforeClosingWindow": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once."
         },
         "hideTabCloseButton": {
           "type": "boolean",
@@ -1417,6 +1433,11 @@
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "description": "Override the selected workspace background color."
+        },
+        "subtleSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",

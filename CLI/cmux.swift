@@ -20224,6 +20224,7 @@ struct CMUXCLI {
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
+                                     "#4C8DFF" draws as the cmux accent (app.accentColor)
               --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace refs and indexes
