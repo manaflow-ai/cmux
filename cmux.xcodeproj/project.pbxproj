@@ -3473,6 +3473,7 @@
 		B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */; };
 		B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */; };
 		124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000029 /* TerminalImageTransferPlan.swift */; };
+		B8835B000000000000000001 /* TerminalImageTransferPreparationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */; };
 		B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */; };
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
@@ -3535,6 +3536,9 @@
 		6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */; };
+		B8835B000000000000000003 /* TerminalPasteFailureNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */; };
+		B8835B000000000000000005 /* TerminalPasteFailureNoticePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */; };
+		4E96608F6F558E792BE96C3B /* TerminalPasteFailureNoticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */; };
 		B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000002 /* TerminalPastePreparationDestination.swift */; };
 		B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000A /* TerminalPastePreparationFailure.swift */; };
 		B88355000000000000000003 /* TerminalPastePreparationJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000004 /* TerminalPastePreparationJob.swift */; };
@@ -7443,6 +7447,7 @@
 		B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferConcurrencyTests+Timeouts.swift"; sourceTree = "<group>"; };
 		B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferConcurrencyTests.swift; sourceTree = "<group>"; };
 		124770000000000000000029 /* TerminalImageTransferPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferPlan.swift"; sourceTree = SOURCE_ROOT; };
+		B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationOutcome.swift; sourceTree = "<group>"; };
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
@@ -7505,6 +7510,9 @@
 		811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelUnavailableView.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteboardReadRequest.swift; sourceTree = "<group>"; };
+		B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteFailureNotice.swift; sourceTree = "<group>"; };
+		B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteFailureNoticePresenter.swift; sourceTree = "<group>"; };
+		AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalPasteFailureNoticeTests.swift"; sourceTree = "<group>"; };
 		B88355000000000000000002 /* TerminalPastePreparationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationDestination.swift; sourceTree = "<group>"; };
 		B8835700000000000000000A /* TerminalPastePreparationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationFailure.swift; sourceTree = "<group>"; };
 		B88355000000000000000004 /* TerminalPastePreparationJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationJob.swift; sourceTree = "<group>"; };
@@ -9260,6 +9268,9 @@
 				B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */,
 				B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */,
 				B8835700000000000000000A /* TerminalPastePreparationFailure.swift */,
+				B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */,
+				B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */,
+				B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */,
 				B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */,
 				B88357000000000000000012 /* GhosttyApp+RuntimeClipboardRead.swift */,
 				B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */,
@@ -12164,6 +12175,7 @@
 				AA11C5ADC15512A75E032CCA /* TerminalSurfaceTestTeardown.swift */,
 				8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */,
 				A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */,
+				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14924,6 +14936,7 @@
 				C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */,
+				B8835B000000000000000001 /* TerminalImageTransferPreparationOutcome.swift in Sources */,
 				B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */,
 				B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */,
 				B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */,
@@ -14971,6 +14984,8 @@
 				6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */,
+				B8835B000000000000000003 /* TerminalPasteFailureNotice.swift in Sources */,
+				B8835B000000000000000005 /* TerminalPasteFailureNoticePresenter.swift in Sources */,
 				B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */,
 				B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */,
 				B88355000000000000000003 /* TerminalPastePreparationJob.swift in Sources */,
@@ -16654,6 +16669,7 @@
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				4E96608F6F558E792BE96C3B /* TerminalPasteFailureNoticeTests.swift in Sources */,
 				B12715000000000000000001 /* TerminalPastePreparationReapingTests.swift in Sources */,
 				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,
 				C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */,
