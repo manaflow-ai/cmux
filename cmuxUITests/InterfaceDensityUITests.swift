@@ -35,7 +35,7 @@ final class InterfaceDensityUITests: XCTestCase {
         let bell = titlebarButton("titlebarControl.showNotifications", in: app)
         // Minimal mode's clickable layer is an AppKit proxy with its own
         // accessibility frame, so check reveal here, not the drawn width.
-        XCTAssertTrue(waitForHittable(bell), "Hovering the sidebar header reveals its controls.")
+        XCTAssertTrue(revealed(bell, in: app, after: "hovering the sidebar header"), "Hovering the sidebar header reveals its controls.")
         attachScreenshot(of: app, name: "comfortable, minimal mode, pointer over sidebar header")
     }
 
@@ -53,13 +53,13 @@ final class InterfaceDensityUITests: XCTestCase {
         attachScreenshot(of: app, name: "compact, at rest, no unread")
 
         hoverTitlebarRow(in: app)
-        XCTAssertTrue(waitForHittable(bell), "Hovering the titlebar row reveals the compact controls.")
+        XCTAssertTrue(revealed(bell, in: app, after: "hovering the titlebar row"), "Hovering the titlebar row reveals the compact controls.")
         attachScreenshot(of: app, name: "compact, pointer over titlebar")
         XCTAssertEqual(bell.frame.width, 20, accuracy: 0.5, "Compact keeps the 20pt minimum hit target.")
 
         hoverSidebarFooter(in: app)
         let help = sidebarHelpButton(in: app)
-        XCTAssertTrue(waitForHittable(help), "Hovering the sidebar footer reveals its folded actions.")
+        XCTAssertTrue(revealed(help, in: app, after: "hovering the sidebar footer"), "Hovering the sidebar footer reveals its folded actions.")
         attachScreenshot(of: app, name: "compact, pointer over sidebar footer")
     }
 
@@ -195,6 +195,30 @@ final class InterfaceDensityUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return !(element.exists && element.isHittable)
+    }
+
+    /// Waits for a hover to reveal `element`. On a miss it attaches where the
+    /// pointer went and what accessibility reports for the window, so a CI
+    /// failure shows the state the reveal missed, not only the assertion.
+    @MainActor
+    private func revealed(_ element: XCUIElement, in app: XCUIApplication, after action: String) -> Bool {
+        if waitForHittable(element) { return true }
+        let window = app.windows.firstMatch
+        let controls = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "titlebarControl."))
+            .allElementsBoundByIndex
+            .map { "\($0.identifier) frame=\($0.frame) hittable=\($0.isHittable)" }
+        let summary = [
+            "Not revealed after \(action).",
+            "window frame=\(window.frame)",
+            "element exists=\(element.exists) frame=\(element.frame)",
+            "titlebar controls in the tree: \(controls.isEmpty ? "none" : controls.joined(separator: "; "))",
+        ].joined(separator: "\n")
+        let notes = XCTAttachment(string: summary + "\n\n" + window.debugDescription)
+        notes.name = "not revealed after \(action)"
+        notes.lifetime = .keepAlways
+        add(notes)
+        return false
     }
 
     private func waitForFile(atPath path: String, timeout: TimeInterval) -> Bool {
