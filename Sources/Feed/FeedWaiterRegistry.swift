@@ -173,6 +173,23 @@ final class FeedWaiterRegistry: Sendable {
         }
     }
 
+    /// Undecided requests from `event`'s agent session that the Feed accepted
+    /// before `event` on the same-session ingress lane.
+    func acceptedPendingRequests(inSessionOf event: WorkstreamEvent) -> [(requestID: String, event: WorkstreamEvent)] {
+        let session = FeedWorkstreamIdentifier.canonicalizedRawValue(agentID: event.source, rawValue: event.sessionId)
+        return groups.withLock { groups in
+            var pending: [(requestID: String, event: WorkstreamEvent)] = []
+            for (requestID, group) in groups
+            where group.itemID != nil && group.decision == nil && group.terminalResult == nil
+                && !group.cleanupClaimed && group.event.source == event.source
+                && FeedWorkstreamIdentifier.canonicalizedRawValue(
+                    agentID: group.event.source, rawValue: group.event.sessionId) == session {
+                pending.append((requestID: requestID, event: group.event))
+            }
+            return pending
+        }
+    }
+
     func isAwaiting(_ requestID: String) -> Bool {
         groups.withLock { groups in
             guard let group = groups[requestID] else { return false }

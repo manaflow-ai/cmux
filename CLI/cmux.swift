@@ -37661,6 +37661,7 @@ export default CMUXSessionRestore;
             event["transcript_path"] = transcriptPath
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
+        if hookEventName == "PreToolUse" { event["agent_id"] = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) }
         let cursorShellCommand = source == "cursor"
             ? firstString(in: fallbackObject, keys: ["command"]).map {
                 truncate(
@@ -37732,7 +37733,6 @@ export default CMUXSessionRestore;
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
-
         let frame: [String: Any] = [
             "method": "feed.push",
             "params": [

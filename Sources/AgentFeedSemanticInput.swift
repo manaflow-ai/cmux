@@ -33,9 +33,12 @@ struct AgentFeedSemanticInput: Sendable {
             default: kind = mapper.kind(source: event.source, nativeEvent: event.hookEventName.rawValue)
             }
         }
-        let nativeRequest = ["tool_use_id", "tool_call_id", "request_id", "agent_id"]
+        let nativeRequest = ["tool_use_id", "tool_call_id", "request_id"]
             .compactMap { extra[$0] as? String }.first
+        // A subagent's prompts all carry its agent_id, so a request-scoped input
+        // uses its own request ID; agent_id only names child lifecycle events.
         let identity = nativeRequest ?? ((notification != nil || resolvesRequest) ? (requestID ?? event.requestId) : nil)
+            ?? extra["agent_id"] as? String
         if notification == nil, !resolved,
            ![.sessionStarted, .turnStarted, .sessionEnded, .childSpawned, .childCompleted, .childFailed].contains(kind) {
             return nil

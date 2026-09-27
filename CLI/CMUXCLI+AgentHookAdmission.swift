@@ -602,7 +602,7 @@ extension CMUXCLI {
             ),
             maximumLength: 80
         )
-        for key in ["agent_state", "turn_outcome"] {
+        for key in ["agent_state", "turn_outcome", "agent_id"] {
             setBoundedString(
                 key,
                 value: firstString(in: rawObject, keys: [key]),

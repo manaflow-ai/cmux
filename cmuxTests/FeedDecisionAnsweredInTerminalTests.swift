@@ -72,6 +72,71 @@ struct FeedDecisionAnsweredInTerminalTests {
         #expect(scenario.workspace.statusEntries[Self.attentionKey]?.value == FeedCoordinator.needsInputStatusValue)
         #expect(FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
     }
+
+    @Test func siblingToolCallDoesNotRetireAConcurrencySafeToolsPrompt() async throws {
+        // Claude runs concurrency-safe tools side by side, so a Read outside the
+        // project can wait on its prompt while a sibling Read starts.
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "parallel-read-keeps-wait",
+            requestId: "parallel-read-keeps-wait-request",
+            toolName: "Read",
+            toolInputJSON: #"{"file_path":"/etc/hosts"}"#
+        )
+        defer { scenario.tearDown() }
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .preToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Read",
+            toolInputJSON: #"{"file_path":"/tmp/inside.txt"}"#
+        ))
+
+        #expect(scenario.workspace.statusEntries[Self.attentionKey]?.value == FeedCoordinator.needsInputStatusValue)
+        #expect(FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func lateTelemetryFromTheCallThatRaisedThePromptDoesNotRetireIt() async throws {
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "raising-call-keeps-wait",
+            requestId: "raising-call-keeps-wait-request",
+            toolInputJSON: #"{"command":"touch   /tmp/created.txt","description":"Create a file","timeout":5000}"#
+        )
+        defer { scenario.tearDown() }
+
+        // Tool telemetry keeps a compacted, whitespace-collapsed copy of the input.
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .preToolUse,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"touch /tmp/created.txt","description":"Create a file"}"#
+        ))
+
+        #expect(FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
+
+    @Test func turnEndRetiresAConcurrencySafeToolsPrompt() async throws {
+        let scenario = try await PendingClaudePermission.start(
+            sessionId: "turn-end-retires-wait",
+            requestId: "turn-end-retires-wait-request",
+            toolName: "WebFetch",
+            toolInputJSON: #"{"url":"https://example.com"}"#
+        )
+        defer { scenario.tearDown() }
+
+        await scenario.deliverTelemetry(WorkstreamEvent(
+            sessionId: scenario.sessionId,
+            hookEventName: .stop,
+            source: "claude",
+            cwd: "/tmp"
+        ))
+
+        #expect(scenario.workspace.statusEntries[Self.attentionKey] == nil)
+        #expect(!FeedCoordinator.shared.isAwaitingDecision(requestId: scenario.requestId))
+    }
 }
 
 /// A Claude `PermissionRequest` parked in the blocking Feed wait with its
@@ -93,7 +158,12 @@ private final class PendingClaudePermission {
         self.panelId = panelId
     }
 
-    static func start(sessionId: String, requestId: String) async throws -> PendingClaudePermission {
+    static func start(
+        sessionId: String,
+        requestId: String,
+        toolName: String = "Bash",
+        toolInputJSON: String = #"{"command":"touch /tmp/created.txt","description":"Create a file"}"#
+    ) async throws -> PendingClaudePermission {
         FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 20))
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
@@ -107,8 +177,8 @@ private final class PendingClaudePermission {
             hookEventName: .permissionRequest,
             source: "claude",
             cwd: "/tmp",
-            toolName: "Bash",
-            toolInputJSON: #"{"command":"touch /tmp/created.txt"}"#,
+            toolName: toolName,
+            toolInputJSON: toolInputJSON,
             requestId: requestId
         )
         // Surface the overlay the way the socket path does for a live owner,
