@@ -1980,16 +1980,39 @@ final class ClaudeHookSessionStore {
             let existingHasArguments = !(record.launchCommand?.arguments.isEmpty ?? true)
             let incomingHasArguments = !launchCommand.arguments.isEmpty
             let incomingHasEnvironment = !(launchCommand.environment?.isEmpty ?? true)
+            let existingLaunchSource = normalizeOptional(record.launchCommand?.source)?.lowercased()
+            let existingHasArgvlessFallback = !existingHasArguments
+                && record.launchCommand?.isRejectedCapture != true
+                && (record.launchCommand?.rejectionReason == .argvUnavailable
+                    || existingLaunchSource == "environment"
+                    || existingLaunchSource == "default")
+            let incomingSource = normalizeOptional(launchCommand.source)?.lowercased()
+            let incomingRejectedCaptureCanReplaceExisting = incomingSource == "rejected"
+                && (launchCommand.rejectionReason == nil
+                    || launchCommand.rejectionReason == .sanitizerRejectedArgv
+                    || (!existingHasArguments && !existingHasArgvlessFallback))
+            let incomingDefaultCanFillMissingArgv = incomingSource == "default"
+                && !existingHasArguments
+                && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil
+            let incomingEnvironmentCanFillMissingArgv = incomingSource != "rejected"
+                && incomingHasEnvironment
+                && !existingHasArguments
             // Persist an argv-bearing record always. Persist an argv-less, env-only record (the
             // CODEX_HOME / CLAUDE_CONFIG_DIR fallback for a plain agent whose launch argv couldn't be
             // captured) only when we don't already hold an argv-bearing one — so the durable store
             // keeps the non-default home for the fork/resume path without ever downgrading a richer
-            // earlier capture to an env-only stub.
+            // earlier capture to an env-only stub. A legacy source-only rejection and the sanitizer's
+            // explicit rejection retain their historical replacement behavior. A classified rejection
+            // may replace only a truly empty argv-less record, never a richer argv capture or an
+            // existing environment/default fallback that still provides durable restore evidence.
             // Every write path into this store lands here, so the external launcher is carried
             // across in one place: ancestor detection can miss on a later hook once the launcher
             // process has exited, and such a record must not overwrite the wrapper id the session
             // was captured with. #10494
-            if incomingHasArguments || normalizeOptional(launchCommand.source)?.lowercased() == "rejected" || (normalizeOptional(launchCommand.source)?.lowercased() == "default" && !existingHasArguments && normalizeOptional(record.launchCommand?.environment?["CODEX_HOME"]) == nil) || (incomingHasEnvironment && !existingHasArguments) {
+            if incomingHasArguments
+                || incomingRejectedCaptureCanReplaceExisting
+                || incomingDefaultCanFillMissingArgv
+                || incomingEnvironmentCanFillMissingArgv {
                 record.launchCommand = launchCommand.preservingExternalLauncher(
                     from: [record.launchCommand]
                 )
@@ -5112,6 +5135,16 @@ struct CMUXCLI {
         }
         if command == "open" { try runOpenCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
         if command == "diff" { try runDiffCommand(commandArgs: commandArgs, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg, jsonOutput: jsonOutput, idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)); return }
+        if command == "session" {
+            try runSessionCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                windowOverride: windowId
+            )
+            return
+        }
         if command == "restore-session" {
             try runRestoreSession(
                 commandArgs: commandArgs,
@@ -7482,19 +7515,37 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
-            let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
+            let (usesPaste, textArgs) = Self.splitSendPasteFlag(rem2)
+            let rawText = textArgs.dropFirst(textArgs.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
-            let text = unescapeSendText(rawText)
-            var params: [String: Any] = ["text": text]
-            let winId = try normalizeWindowHandle(windowRaw, client: client)
-            if let winId { params["window_id"] = winId }
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
-            if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
-            if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+            if usesPaste {
+                // Same path as `cmux paste`: the text goes out unchanged, so
+                // `\n`-style escapes are not rewritten.
+                try deliverTerminalPaste(
+                    text: rawText,
+                    command: "send",
+                    workspace: wsArg,
+                    surface: sfArg,
+                    windowRaw: windowRaw,
+                    submit: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+            } else {
+                let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                let text = unescapeSendText(rawText)
+                var params: [String: Any] = ["text": text]
+                let winId = try normalizeWindowHandle(windowRaw, client: client)
+                if let winId { params["window_id"] = winId }
+                let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+                if let wsId { params["workspace_id"] = wsId }
+                let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
+                if let sfId { params["surface_id"] = sfId }
+                let payload = try client.sendV2(method: "surface.send_text", params: params)
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+                Self.printSendPasteHintIfNeeded(text)
+            }
 
         case "paste":
             try runPasteCommand(
@@ -18597,6 +18648,7 @@ struct CMUXCLI {
         case "fork":
             return forkSubcommandUsage()
         case "sessions", "session-debug": return sessionsUsage()
+        case "session": return sessionCommandUsage()
         case "feedback":
             return """
             Usage: cmux feedback
@@ -19956,20 +20008,7 @@ struct CMUXCLI {
         case "paste":
             return Self.pasteHelp
         case "send":
-            return """
-            Usage: cmux send [flags] [--] <text>
-
-            Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
-
-            Flags:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
-
-            Example:
-              cmux send "echo hello"
-              cmux send --surface surface:2 "ls -la\\n"
-            """
+            return Self.sendHelp
         case "send-key":
             return """
             Usage: cmux send-key [flags] [--] <key>
@@ -25557,6 +25596,75 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
+    /// Top-level names of the user's OpenCode config dir that are never linked
+    /// into the shadow dir:
+    /// - files cmux writes there itself;
+    /// - dirs OpenCode already scans in the user's real config dir, which would
+    ///   otherwise load twice (every plugin would register its hooks twice);
+    /// - files OpenCode writes into each config dir, which would otherwise be
+    ///   rewritten through the link (its npm install saves package-lock.json).
+    static let omoShadowUnlinkedConfigEntries: Set<String> = [
+        "opencode.json",
+        "opencode.jsonc",
+        "config.json",
+        "node_modules",
+        "package.json",
+        "package-lock.json",
+        "npm-shrinkwrap.json",
+        "bun.lock",
+        "bun.lockb",
+        ".gitignore",
+        "agent",
+        "agents",
+        "command",
+        "commands",
+        "mode",
+        "modes",
+        "plugin",
+        "plugins",
+        "tool",
+        "tools",
+        "skill",
+        "skills",
+        ".DS_Store"
+    ]
+
+    /// Links each entry of the user's OpenCode config dir into the shadow dir,
+    /// skipping `excluded` names. Existing links are repointed; real files
+    /// cmux created in the shadow dir are left alone. Best effort: a failure only
+    /// means that entry is missing under `cmux omo`, as before.
+    private func omoLinkEntries(of userDir: URL, into shadowDir: URL, excluding excluded: Set<String>) {
+        let fm = FileManager.default
+        // Drop links left from earlier runs whose user entry has since been
+        // removed or renamed, so the shadow dir never holds dangling links.
+        let userPrefix = userDir.path + "/"
+        for name in (try? fm.contentsOfDirectory(atPath: shadowDir.path)) ?? [] {
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            guard omoFileType(at: shadowEntry) == .typeSymbolicLink,
+                  let destination = try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path),
+                  destination.hasPrefix(userPrefix),
+                  !fm.fileExists(atPath: destination)
+            else { continue }
+            try? fm.removeItem(at: shadowEntry)
+        }
+        guard let names = try? fm.contentsOfDirectory(atPath: userDir.path) else { return }
+        try? fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
+        for name in names where !excluded.contains(name) {
+            let userEntry = userDir.appendingPathComponent(name)
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            switch omoFileType(at: shadowEntry) {
+            case nil:
+                break
+            case .typeSymbolicLink?:
+                if (try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path)) == userEntry.path { continue }
+                try? fm.removeItem(at: shadowEntry)
+            default:
+                continue
+            }
+            try? fm.createSymbolicLink(at: shadowEntry, withDestinationURL: userEntry)
+        }
+    }
+
     private func omoFileType(at url: URL) -> FileAttributeType? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.type] as? FileAttributeType
@@ -25772,7 +25880,7 @@ struct CMUXCLI {
         }
         config["plugin"] = plugins
 
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try output.write(to: shadowJsonURL, options: .atomic)
 
         // Symlink node_modules from the user's config dir so installed packages resolve
@@ -25790,6 +25898,11 @@ struct CMUXCLI {
         }
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
+
+        // The shadow opencode.json resolves relative refs such as
+        // {file:./prompts/chief.md} against the shadow dir, so expose the files
+        // they name there.
+        omoLinkEntries(of: userDir, into: shadowDir, excluding: Self.omoShadowUnlinkedConfigEntries)
 
         // Copy oh-my-openagent plugin config (jsonc) if the user has one.
         // Keep legacy filenames visible in the shadow dir so existing setups still load.
@@ -25907,7 +26020,7 @@ struct CMUXCLI {
                attrs[.type] as? FileAttributeType == .typeSymbolicLink {
                 try? fm.removeItem(at: omoConfigURL)
             }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
             try output.write(to: omoConfigURL, options: .atomic)
         }
 
@@ -31814,11 +31927,17 @@ struct CMUXCLI {
         // the SAME argv are ordered inside AgentLaunchCaptureArgvVerdict.
         var cmuxCaptureRejectionReason: AgentLaunchCaptureRejectionReason?
         var processFallbackRejectionReason: AgentLaunchCaptureRejectionReason?
+        let rawEnvironmentArguments = env["CMUX_AGENT_LAUNCH_ARGV_B64"]
+        let hasEnvironmentArguments = normalizedHookValue(rawEnvironmentArguments) != nil
         let envArguments = envCaptureIsTrusted
-            ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
+            ? decodeNULSeparatedBase64(rawEnvironmentArguments)
             : nil
-        if !envCaptureIsTrusted, normalizedHookValue(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) != nil {
+        if !envCaptureIsTrusted, hasEnvironmentArguments {
             cmuxCaptureRejectionReason = .launcherDoesNotDescribeKind
+        } else if envCaptureIsTrusted,
+                  hasEnvironmentArguments,
+                  envArguments == nil {
+            cmuxCaptureRejectionReason = .argvDecodeFailed
         }
         var processArguments: [String]?
         // A relayed hook runs on a different host than the agent, so its PID
@@ -31841,6 +31960,11 @@ struct CMUXCLI {
         }
         let arguments = envArguments ?? processArguments
         let launcher = envCaptureIsTrusted ? (envLauncher ?? fallbackKind) : fallbackKind
+        // A PID-only mismatch or shell-wrapper is diagnostic fallback evidence,
+        // not a rejected cmux launch capture: the hook's replay-safe environment
+        // or default verb remains valid. Only a positive cmux capture rejection
+        // quarantines the argv-less record.
+        let hasRejectedCandidate = cmuxCaptureRejectionReason?.isPositiveCaptureRejection == true
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
@@ -31930,21 +32054,24 @@ struct CMUXCLI {
         // keeps the historical nil. This deliberately does NOT cover a captured-but-rejected argv (see
         // the sanitizer guard below), so non-restorable invocations stay non-resumable.
         func environmentOnlyRecord(
-            rejectionReason: AgentLaunchCaptureRejectionReason
+            rejectionReason: AgentLaunchCaptureRejectionReason,
+            hasRejectedCandidate: Bool
         ) -> AgentHookLaunchCommandRecord? {
             guard !environment.isEmpty else {
-                guard fallbackKind == "codex" else { return nil }
+                guard fallbackKind == "codex" || rejectionReason != .argvUnavailable else {
+                    return nil
+                }
                 return argvLessRecord(
                     executablePath: nil,
                     environment: nil,
-                    source: "default",
+                    source: hasRejectedCandidate ? "rejected" : "default",
                     rejectionReason: rejectionReason
                 )
             }
             return argvLessRecord(
                 executablePath: nil,
                 environment: environment,
-                source: "environment",
+                source: hasRejectedCandidate ? "rejected" : "environment",
                 rejectionReason: rejectionReason
             )
         }
@@ -31954,7 +32081,8 @@ struct CMUXCLI {
                 rejectionReason: AgentLaunchCaptureRejectionReason.recorded(
                     cmuxCapture: cmuxCaptureRejectionReason,
                     processFallback: processFallbackRejectionReason
-                )
+                ),
+                hasRejectedCandidate: hasRejectedCandidate
             )
         }
 
@@ -32198,13 +32326,14 @@ struct CMUXCLI {
         ) != .failed
     }
 
-    private func agentSurfaceResumeCommand(
+    func agentSurfaceResumeCommand(
         kind: String,
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
         environment: [String: String]?,
-        observedPermissionMode: String? = nil
+        observedPermissionMode: String? = nil,
+        launcherConfigurationDirectory: String? = nil
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -32243,7 +32372,7 @@ struct CMUXCLI {
         // A cmux-owned route already names its own launcher in argv[0]; only the bare agent argv
         // is wrapped.
         let externalLauncher = routesThroughOwnedLauncher ? nil : launchCommand?.externalLauncher.flatMap { launcherID in
-            externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
+            externalAgentLaunchers(workingDirectory: launcherConfigurationDirectory ?? resumeWorkingDirectory)
                 .resolvedLauncher(id: launcherID, kind: kind)
         }
         return agentSurfaceResumeShellCommand(
@@ -33107,7 +33236,7 @@ export default CMUXSessionRestore;
         var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
         if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) { plugins.append(Self.openCodeSessionPluginConfigSpec) }
         config["plugin"] = plugins
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         if existingData == output { return false }
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         try output.write(to: configURL, options: .atomic)

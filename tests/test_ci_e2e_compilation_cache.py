@@ -229,7 +229,10 @@ exit 97
             checkout = step('Checkout the E2E test steps', job)
             self.assertEqual(checkout['with']['ref'], '${{ github.workflow_sha }}')
             self.assertEqual(checkout['with']['path'], '.e2e-workflow')
-            self.assertEqual(checkout['with']['sparse-checkout'], '.github/actions/e2e-run-tests')
+            self.assertEqual(
+                checkout['with']['sparse-checkout'].split(),
+                ['.github/actions/e2e-run-tests', 'scripts/ci/e2e-frames.py'],
+            )
         # The build job's budget covers compiling and testing.
         self.assertEqual(WORKFLOW['jobs']['build']['timeout-minutes'],
                          '${{ fromJSON(needs.filter.outputs.build_timeout) }}')

@@ -159,5 +159,7 @@ struct NotificationPopoverRow: View, Equatable {
             .frame(width: 20, height: 20)
         }
         .buttonStyle(.plain)
+        .safeHelp(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+        .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
     }
 }

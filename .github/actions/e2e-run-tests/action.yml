@@ -316,8 +316,10 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
         for process in UserNotificationCenter SecurityAgent; do
-          if pkill -x -u "$uid" "$process" 2>/dev/null; then
+          if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
@@ -665,6 +667,32 @@ runs:
         path: ${{ runner.temp }}/cmux-app-host-xcresults/**/*.xcresult
         if-no-files-found: warn
         retention-days: 7
+
+    # One labelled frame per test action, plus the action list in the job
+    # summary. The script comes from this workflow's revision (checked out
+    # into .e2e-workflow beside this action), since the tested one may predate it.
+    - name: Build UI test steps
+      if: ${{ always() && inputs.target == 'cmuxUITests' }}
+      shell: bash
+      run: |
+        script="$GITHUB_WORKSPACE/.e2e-workflow/scripts/ci/e2e-frames.py"
+        results="$RUNNER_TEMP/cmux-app-host-xcresults"
+        if [ ! -f "$script" ] || [ ! -d "$results" ]; then
+          echo "No UI test results or frames script; skipping."
+          exit 0
+        fi
+        python3 "$script" "$results" --out "$RUNNER_TEMP/ui-frames" --summary "$GITHUB_STEP_SUMMARY" || true
+
+    - name: Upload UI test steps
+      # No hashFiles gate: it ignores paths outside the workspace, and
+      # runner.temp is outside it. if-no-files-found covers an empty build.
+      if: ${{ always() && inputs.target == 'cmuxUITests' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ui-frames
+        path: ${{ runner.temp }}/ui-frames
+        if-no-files-found: ignore
+        retention-days: 14
 
     - name: Publish test summary
       if: always()
