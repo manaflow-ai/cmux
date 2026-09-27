@@ -134,9 +134,9 @@ func TestCompactClaudeHookPayloadBoundsLargeEvents(t *testing.T) {
 // TestClaudeArgsWithRelayHooksMergesLauncherSettings checks a launcher --settings file and inline JSON merge with the relay hooks.
 func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	dir := t.TempDir()
-	// `sr claude proxy` prepends its own --settings file.
-	launcherSettings := filepath.Join(dir, "sr-settings.json")
-	if err := os.WriteFile(launcherSettings, []byte(`{"apiKeyHelper":"sr-helper","hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"user-stop"}]}]}}`), 0o600); err != nil {
+	// A launcher prepends its own --settings file.
+	launcherSettings := filepath.Join(dir, "launcher-settings.json")
+	if err := os.WriteFile(launcherSettings, []byte(`{"apiKeyHelper":"launcher-helper","hooks":{"Stop":[{"matcher":"","hooks":[{"type":"command","command":"user-stop"}]}]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	args := []string{"--settings", launcherSettings, "--model", "opus", "--settings={\"theme\":\"dark\"}", "--", "--settings", "literal"}
@@ -162,7 +162,7 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatal(err)
 	}
-	if settings["apiKeyHelper"] != "sr-helper" || settings["theme"] != "dark" {
+	if settings["apiKeyHelper"] != "launcher-helper" || settings["theme"] != "dark" {
 		t.Fatalf("launcher settings lost: %v", settings)
 	}
 	hooks := settings["hooks"].(map[string]any)

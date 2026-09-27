@@ -19,6 +19,9 @@ extension Workspace {
         return visibleStructuredStatusKeys.contains(entry.key)
     }
 
+    /// Structured agent status keys that may show: the newest per panel with a
+    /// registered agent PID, and on relay-backed remote workspaces any entry a
+    /// hook wrote, since a remote agent has no local PID.
     private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
         var statusKeysByPanelId: [UUID: Set<String>] = [:]
         for (key, panelId) in agentPIDPanelIdsByKey

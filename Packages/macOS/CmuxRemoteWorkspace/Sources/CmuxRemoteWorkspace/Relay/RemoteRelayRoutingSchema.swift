@@ -3,6 +3,8 @@ import Foundation
 /// Closed parameter contracts for the methods intentionally exposed to a relay.
 /// Adding a handler parameter does not expose it remotely until it is reviewed here.
 struct RemoteRelayRoutingSchema {
+    /// Returns the reviewed parameter names for a relay method, or `nil` when
+    /// the method is not exposed through the relay.
     func parameters(for method: String) -> Set<String>? {
         let workspace: Set<String> = ["workspace_id"]
         let surface = workspace.union(["surface_id"])
@@ -73,7 +75,16 @@ struct RemoteRelayRoutingSchema {
         return nil
     }
 
+    /// Returns the first parameter outside the method's reviewed contract, or
+    /// `nil` when every key and value shape is allowed. Both relay gates report
+    /// it with their existing "parameter not permitted" denial.
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        // Hook routing comes only from the owner-checked selectors, so a remote
+        // host can report lifecycle state for its own surfaces and cannot pick
+        // a decision hook or carry local replay environment.
+        if method == "agent.hook.enqueue", let key = agentHookContractViolation(in: parameters) {
+            return key
+        }
         // `_cmux_remote_relay_authentication_code` is a retired resume MAC that
         // old remote clients may still send; ingress strips it, so allow it here.
         let provenance: Set<String> = [
