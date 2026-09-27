@@ -30,7 +30,13 @@ func waitUntil(
             recordWaitTimeout(description, timeout: timeout, sourceLocation: sourceLocation)
             return false
         }
-        try? await Task.sleep(for: .milliseconds(1))
+        // A cancelled sleep throws without suspending; stop instead of
+        // spinning on the main actor until the deadline.
+        do {
+            try await Task.sleep(for: .milliseconds(1))
+        } catch {
+            return false
+        }
     }
     return true
 }

@@ -22,7 +22,6 @@ import CmuxGit
         return service
     }
 
-
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied

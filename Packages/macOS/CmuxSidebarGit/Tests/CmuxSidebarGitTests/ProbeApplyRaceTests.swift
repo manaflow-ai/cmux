@@ -22,7 +22,6 @@ import CmuxGit
         return service
     }
 
-
     @Test(.timeLimit(.minutes(1)))
     func remoteTrustWhileProbeInFlightDropsLocalSnapshotApply() async throws {
         let host = RecordingSidebarGitHost()

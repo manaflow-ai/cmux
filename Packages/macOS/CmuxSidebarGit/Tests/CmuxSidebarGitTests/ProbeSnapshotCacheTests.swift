@@ -21,7 +21,6 @@ import CmuxGit
         return service
     }
 
-
     @Test(.timeLimit(.minutes(1)))
     func explicitRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"

@@ -32,7 +32,8 @@ Detectors (all line/regex heuristics, never an AST):
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
 - yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
-  (N a literal or a named bound such as a `maxYields` parameter) that exits on a condition (`break`/`return`) and carries no deadline. N
+  (N a literal or a named bound such as a `maxYields` parameter) that
+  exits on a condition (`break`/`return`) and carries no deadline. N
   yields is however long N reschedules take, so the bound tightens exactly
   when the runner is busy and turns a slow pass into a failure. Loops that
   already check a deadline, drain yields with no condition, or exit only on
@@ -3689,7 +3690,8 @@ def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bo
 
 
 # `for _ in 0..<100 {` / `for _ in 1...256 {` / `for _ in 0..<maxYields {`: a
-# loop bounded only by an iteration count, literal or named. A named loop variable means per-iteration work, not a poll.
+# loop bounded only by an iteration count, literal or named. A named loop
+# variable means per-iteration work, not a poll.
 _YIELD_COUNT_LOOP_HEADER = re.compile(
     r"^\s*for\s+_\s+in\s+\(?\s*\d[\d_]*\s*(?:\.\.<|\.\.\.)\s*(?:\d[\d_]*|[A-Za-z_]\w*)\s*\)?\s*\{"
 )
