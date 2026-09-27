@@ -28,6 +28,13 @@ When we change the fork, update this document and the parent submodule SHA.
   multi-codepoint grapheme.
 - Coverage: seven `Screen: promptInput ...` Zig tests, run by
   `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
+  Hosted [run 36312095021](https://github.com/manaflow-ai/cmux/actions/runs/36312095021)
+  passed 80 tests with this filter at `1015e149c` (74 with the single-test
+  pacer filter, so all seven ran) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-1015e149c871576443ba478e45603dda9ad9eb62-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `eefce058ad801d5da1224f0ef93e139c42d2bbf24d5dcf1b5198f3aa95d2f287`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: everything lives in new functions (`Screen.promptInput`,
   `Screen.promptInputSelection`, `Surface.promptInput`,
   `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
