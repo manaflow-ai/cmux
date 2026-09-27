@@ -700,6 +700,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off."
         },
+        "warnBeforeClosingWindow": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing a window with a running process, or all of a window's workspaces at once."
+        },
         "hideTabCloseButton": {
           "type": "boolean",
           "default": false,

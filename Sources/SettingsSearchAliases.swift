@@ -106,6 +106,10 @@ enum SettingsSearchAliasIndex {
             "settings.search.alias.setting.app.warn-before-closing-workspace",
             defaultValue: "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
         ),
+        "app:warn-before-closing-window": localized(
+            "settings.search.alias.setting.app.warn-before-closing-window",
+            defaultValue: "app.warnBeforeClosingWindow close window confirmation command-control-w cmd-ctrl-w running process"
+        ),
         "app:hide-tab-close-button": localized(
             "settings.search.alias.setting.app.hide-tab-close-button",
             defaultValue: "app.hideTabCloseButton hide close tab x button terminal surface"

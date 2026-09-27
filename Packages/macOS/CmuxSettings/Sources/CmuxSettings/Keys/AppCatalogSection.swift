@@ -213,6 +213,29 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Gates the "Close window?" prompts (the Close Window command, and closing
+    /// every workspace in a window at once).
+    public let warnBeforeClosingWindow = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingWindow",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingWindow",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingWindow",
+                defaultValue: "Warn Before Closing Window"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-window",
+            searchKeywords: ["close", "window", "confirmation", "command-control-w", "cmd-ctrl-w", "running"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingWindow",
+                    keywords: ["warn", "close", "window", "confirmation", "cmd-ctrl-w"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTabXButton",
         defaultValue: false,
