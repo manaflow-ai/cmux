@@ -342,7 +342,7 @@ export class TranscriptTail {
   private offset = -1;
   private pending = "";
   private timer: ReturnType<typeof setInterval> | null = null;
-  private reading = false;
+  private inflight: Promise<void> | null = null;
   private decoder = new TextDecoder();
 
   constructor(
@@ -362,50 +362,53 @@ export class TranscriptTail {
     this.timer = null;
   }
 
-  /** Reads everything appended since the last poll. Exposed for tests. */
-  async poll(): Promise<void> {
-    if (this.reading) return;
-    this.reading = true;
+  /** Reads everything appended since the last poll; joins a read in flight. */
+  poll(): Promise<void> {
+    if (!this.inflight) {
+      this.inflight = this.read().finally(() => {
+        this.inflight = null;
+      });
+    }
+    return this.inflight;
+  }
+
+  private async read(): Promise<void> {
+    const info = await stat(this.path).catch(() => null);
+    if (!info) return;
+    let skipPartialFirstLine = false;
+    if (this.offset < 0) {
+      const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
+      this.offset = Math.max(0, info.size - window);
+      skipPartialFirstLine = this.offset > 0;
+    } else if (info.size < this.offset) {
+      // Truncated or replaced: follow the new file from its start.
+      this.offset = 0;
+      this.pending = "";
+      this.decoder = new TextDecoder();
+    }
+    if (info.size === this.offset) return;
+    const handle = await open(this.path, "r");
     try {
-      const info = await stat(this.path).catch(() => null);
-      if (!info) return;
-      let skipPartialFirstLine = false;
-      if (this.offset < 0) {
-        const window = this.opts.initialWindowBytes ?? TRANSCRIPT_INITIAL_WINDOW_BYTES;
-        this.offset = Math.max(0, info.size - window);
-        skipPartialFirstLine = this.offset > 0;
-      } else if (info.size < this.offset) {
-        // Truncated or replaced: follow the new file from its start.
-        this.offset = 0;
-        this.pending = "";
-        this.decoder = new TextDecoder();
-      }
-      if (info.size === this.offset) return;
-      const handle = await open(this.path, "r");
-      try {
-        const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
-        while (this.offset < info.size) {
-          const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, info.size - this.offset), this.offset);
-          if (bytesRead <= 0) break;
-          this.offset += bytesRead;
-          this.pending += this.decoder.decode(buf.subarray(0, bytesRead), { stream: true });
-          if (skipPartialFirstLine) {
-            const nl = this.pending.indexOf("\n");
-            if (nl < 0) continue;
-            this.pending = this.pending.slice(nl + 1);
-            skipPartialFirstLine = false;
-          }
-          const lastNl = this.pending.lastIndexOf("\n");
-          if (lastNl < 0) continue;
-          const lines = this.pending.slice(0, lastNl).split("\n").filter((l) => l.trim());
-          this.pending = this.pending.slice(lastNl + 1);
-          if (lines.length) this.onLines(lines, info.mtimeMs);
+      const buf = new Uint8Array(TRANSCRIPT_READ_CHUNK);
+      while (this.offset < info.size) {
+        const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, info.size - this.offset), this.offset);
+        if (bytesRead <= 0) break;
+        this.offset += bytesRead;
+        this.pending += this.decoder.decode(buf.subarray(0, bytesRead), { stream: true });
+        if (skipPartialFirstLine) {
+          const nl = this.pending.indexOf("\n");
+          if (nl < 0) continue;
+          this.pending = this.pending.slice(nl + 1);
+          skipPartialFirstLine = false;
         }
-      } finally {
-        await handle.close();
+        const lastNl = this.pending.lastIndexOf("\n");
+        if (lastNl < 0) continue;
+        const lines = this.pending.slice(0, lastNl).split("\n").filter((l) => l.trim());
+        this.pending = this.pending.slice(lastNl + 1);
+        if (lines.length) this.onLines(lines, info.mtimeMs);
       }
     } finally {
-      this.reading = false;
+      await handle.close();
     }
   }
 }
