@@ -62,7 +62,10 @@ struct BrowserInlineHostAttachmentTests {
         }
         let visibleContent = try #require(visibleWindow.contentView)
         visibleContent.addSubview(hosting)
-        visibleWindow.orderFrontRegardless()
+        // A real Canvas window is an active AppKit window. Making this test
+        // window key ensures AppKit delivers the same window-arrival/layout
+        // lifecycle when an already-mounted SwiftUI host is reparented.
+        visibleWindow.makeKeyAndOrderFront(nil)
         visibleContent.layoutSubtreeIfNeeded()
         hosting.layoutSubtreeIfNeeded()
 
