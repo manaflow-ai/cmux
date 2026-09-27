@@ -9,7 +9,7 @@ extension ContentView {
         CommandPaletteCommandContribution(
             commandId: "palette.findWork",
             title: { _ in String(localized: "commandPalette.currentWork.title", defaultValue: "Find Work") },
-            subtitle: { _ in String(localized: "commandPalette.currentWork.subtitle", defaultValue: "Current local and remote work") },
+            subtitle: { _ in String(localized: "commandPalette.currentWork.subtitle", defaultValue: "Current local and Cloud work") },
             keywords: ["current", "work", "find", "agent", "attention", "cloud", "pull request"],
             dismissOnRun: false
         )
