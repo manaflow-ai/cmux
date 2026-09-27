@@ -2678,8 +2678,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
             uiTestSocketSanityCoordinator.scheduleIfNeeded(environment: env)
+            // Read `shared` here, on the main actor; the script runs its
+            // commands off it through the nonisolated line handler.
+            let controller = TerminalController.shared
             UITestSocketCommandScript.runIfRequested(environment: env) {
-                TerminalController.shared.handleSocketLine($0)
+                controller.handleSocketLine($0)
             }
         }
         // Best-effort one-time migration: a value previously stored in the
