@@ -6040,8 +6040,10 @@ def test_package_lane_fleet_step_is_opt_in_and_restates_its_runner() -> None:
             run = step["run"]
             assert "run --class light" in run
             assert "--script scripts/ci/package-test-lane.sh --ref \"$GITHUB_SHA\"" in run
-            for code in ("69)", "75)", "124)"):
+            for code in ("69)", "75)"):
                 assert code in run, code
+            # The lane itself exits 124 for a hung test; don't label it a fleet timeout.
+            assert "124)" not in run
             assert "no automatic fallback" in run
             assert 'exit "$status"' in run
         elif "PACKAGE_TESTS_VIA_STEP != '1'" not in condition:
