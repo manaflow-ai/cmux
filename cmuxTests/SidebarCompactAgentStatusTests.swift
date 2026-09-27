@@ -72,7 +72,8 @@ struct SidebarCompactAgentStatusTests {
         ))
         #expect(glyph.kind == .needsInput)
         #expect(glyph.symbolName == "circle.fill")
-        #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == .systemYellow)
+        #expect(glyph.color(isActive: false, selected: .white, secondary: .gray) == Glyph.needsInputColor)
+        #expect(glyph.sizeScale < 1)
     }
 
     @Test
@@ -128,6 +129,7 @@ struct SidebarCompactAgentStatusTests {
         for (input, kind, symbol) in cases {
             let glyph = Glyph.resolve(input)
             #expect(glyph.kind == kind)
+            #expect(glyph.isDrawn == (kind != .terminal))
             #expect(glyph.symbolName == symbol)
             #expect(glyph.badgeSymbolName == nil)
             #expect(!glyph.pulses)
@@ -162,6 +164,7 @@ struct SidebarCompactAgentStatusTests {
         #expect(icons == ["terminal": "apple.terminal", "pullRequestFailing": "flame.fill", "unseen": "envelope.badge.fill"])
 
         let terminal = Glyph.resolve(.init(iconOverrides: icons))
+        #expect(terminal.isDrawn)
         #expect(terminal.symbolName == "apple.terminal")
         #expect(terminal.defaultSymbolName == "terminal")
         #expect(terminal.applyingUnread(1, latestNotificationText: nil).symbolName == "envelope.badge.fill")
@@ -190,6 +193,7 @@ struct SidebarCompactAgentStatusTests {
             Glyph.resolve(.init(lifecycleStates: [.idle])),
             Glyph.resolve(.init(pullRequests: [Self.openPR])),
         ]
+        #expect(Glyph.resolve(.init()).applyingUnread(1, latestNotificationText: nil).isDrawn)
         for glyph in settled {
             let unseen = glyph.applyingUnread(2, latestNotificationText: "Finished")
             #expect(unseen.kind == .unseen)
@@ -296,7 +300,7 @@ struct SidebarCompactAgentStatusTests {
                 .first { !$0.isHidden && $0.stringValue == compact.snapshot.title }
         )
         #expect(glyphView.image != nil)
-        #expect(glyphView.contentTintColor == .systemYellow)
+        #expect(glyphView.contentTintColor == Glyph.needsInputColor)
         #expect(glyphView.frame.maxX <= titleView.frame.minX)
 
         // Reuse: a row without a glyph hides the view again.

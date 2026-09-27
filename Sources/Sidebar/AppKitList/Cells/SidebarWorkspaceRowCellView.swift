@@ -753,8 +753,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             latestNotificationText: model.latestNotificationText
         )
         compactStatusGlyphView.isPresentationActive = isPresentationActive
-        compactStatusGlyphView.isHidden = glyph == nil
-        guard let glyph else { return }
+        compactStatusGlyphView.isHidden = glyph?.isDrawn != true
+        guard let glyph, glyph.isDrawn else { return }
         compactStatusGlyphView.configure(
             glyph,
             pointSize: model.scaled(11),
@@ -1175,9 +1175,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             x += glyphSize.width + titleRowSpacing
         }
         if !compactStatusGlyphView.isHidden {
-            let side = model.scaled(11) + 4
+            // Sits partly in the row's leading padding, with a tighter gap
+            // to the title, so the glyph does not push the title far right.
+            let side = model.scaled(11)
+            x -= SidebarCompactStatusGlyph.leadingPullIn
             place(compactStatusGlyphView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
-            x += side + titleRowSpacing
+            x += side + SidebarCompactStatusGlyph.titleSpacing
         }
 
         x = cloudImageView.layoutLeadingSidebarWorkspaceAccessory(

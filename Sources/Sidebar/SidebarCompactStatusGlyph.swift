@@ -25,7 +25,8 @@ import SwiftUI
 ///    when CI passes, gray while checks are unknown; closed gray with a minus.
 /// 7. Agent idle (done and seen): gray checkmark.
 /// 8. Branch, no pull request: gray branch.
-/// 9. Otherwise, a plain terminal: gray terminal.
+/// 9. Otherwise, a plain terminal: nothing, so the title starts at the
+///    row's edge (a `terminal` entry in `sidebar.compactStatusIcons` adds one).
 /// Only the three agent states Claude marks with dots (needs input, unseen,
 /// running) are dots; everything settled gets a symbol that says what it is.
 struct SidebarCompactStatusGlyph: Equatable {
@@ -143,6 +144,28 @@ struct SidebarCompactStatusGlyph: Equatable {
         case .pullRequest(.closed): return "minus.circle.fill"
         default: return nil
         }
+    }
+
+    /// How far the glyph sits into the row's leading padding, and its gap to
+    /// the title; both engines use these.
+    static let leadingPullIn: CGFloat = 4
+    static let titleSpacing: CGFloat = 5
+
+    /// Dots draw smaller than symbols so they read as status, not icons.
+    var sizeScale: CGFloat {
+        switch kind {
+        case .needsInput, .running, .unseen: return 0.6
+        default: return 1
+        }
+    }
+
+    /// Needs input: an amber between system yellow and the conflict orange,
+    /// warmer than system yellow, which reads too bright in the sidebar.
+    static let needsInputColor = NSColor(srgbRed: 0.98, green: 0.69, blue: 0.04, alpha: 1)
+
+    /// A plain terminal draws nothing unless an icon is configured for it.
+    var isDrawn: Bool {
+        kind != .terminal || customSymbolName != nil
     }
 
     /// Whether the glyph pulses (the running indicator).
@@ -309,7 +332,7 @@ struct SidebarCompactStatusGlyph: Equatable {
         if isActive { return selected }
         switch kind {
         case .error, .pullRequest(.open(.failing)): return .systemRed
-        case .needsInput: return .systemYellow
+        case .needsInput: return Self.needsInputColor
         case .unseen: return .systemBlue
         case .pullRequest(.open(.conflict)): return .systemOrange
         case .pullRequest(.open(.passing)): return .systemGreen
@@ -358,8 +381,9 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
     }
 
     func configure(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat, color: NSColor) {
-        image = Self.image(symbol: glyph.symbolName, badge: glyph.badgeSymbolName, pointSize: pointSize)
-            ?? Self.image(symbol: glyph.defaultSymbolName, badge: nil, pointSize: pointSize)
+        let size = (pointSize * glyph.sizeScale).rounded()
+        image = Self.image(symbol: glyph.symbolName, badge: glyph.badgeSymbolName, pointSize: size)
+            ?? Self.image(symbol: glyph.defaultSymbolName, badge: nil, pointSize: size)
         contentTintColor = color
         toolTip = glyph.tooltip.isEmpty ? nil : glyph.tooltip
         setAccessibilityElement(!glyph.tooltip.isEmpty)
@@ -489,6 +513,6 @@ struct SidebarCompactStatusGlyphView: NSViewRepresentable {
         nsView: SidebarCompactStatusGlyphImageView,
         context: Context
     ) -> CGSize? {
-        CGSize(width: pointSize + 4, height: pointSize + 4)
+        CGSize(width: pointSize, height: pointSize)
     }
 }

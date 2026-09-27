@@ -16161,8 +16161,11 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
-                if let compactStatusGlyph {
+                if let compactStatusGlyph, compactStatusGlyph.isDrawn {
                     SidebarCompactStatusGlyphView(glyph: compactStatusGlyph, pointSize: scaledFontSize(11), color: compactStatusGlyph.color(isActive: usesInvertedActiveForeground, selected: selectedWorkspaceForegroundNSColor(opacity: 0.95), secondary: usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.8) : .secondaryLabelColor))
+                        // Same geometry as the AppKit row: pulled into the leading padding, tighter gap to the title.
+                        .padding(.leading, -SidebarCompactStatusGlyph.leadingPullIn)
+                        .padding(.trailing, SidebarCompactStatusGlyph.titleSpacing - titleRowSpacing)
                 }
 
                 SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)

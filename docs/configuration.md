@@ -186,7 +186,7 @@ The glyph shows the loudest state that applies:
 | Closed pull request | gray pull request glyph with a minus badge |
 | Agent idle (done, seen) | gray checkmark |
 | Branch, no pull request | gray branch glyph |
-| Plain terminal | gray terminal glyph |
+| Plain terminal | none; the title starts at the row's edge |
 
 Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF Symbol](https://developer.apple.com/sf-symbols/) name. The states are `error`, `needsInput`, `running`, `starting`, `unseen`, `pullRequestOpen`, `pullRequestPassing`, `pullRequestFailing`, `pullRequestConflict`, `pullRequestMerged`, `pullRequestClosed`, `idle`, `branch` and `terminal`. Colors stay the same; a configured symbol replaces the badge too, and a name that does not render falls back to the built-in symbol.
 
