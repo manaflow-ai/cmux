@@ -143,6 +143,14 @@ extension TerminalController {
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?
     ) -> ControlSurfaceRestoreRecord? {
+        // `cmux restore`/`cmux fork` run in the caller's local shell, so a
+        // relay-origin session has no record here; it resumes only through the
+        // remote workspace restore.
+        if RelayAgentResumeContext.isRelayOrigin(
+            source: (binding?.launchCommand ?? target.restorableAgent?.launchCommand)?.source
+        ) {
+            return nil
+        }
         // Structured fields remain untouched; only the explicit legacy fallback
         // receives restore-time provider refreshes that older records depended on.
         let compatibilityBinding = binding.map {

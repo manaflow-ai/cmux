@@ -31935,7 +31935,19 @@ struct CMUXCLI {
         deadline: Date? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
-        guard ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] != "1" else {
+        if ProcessInfo.processInfo.environment[agentHookRelayOriginEnvironmentKey] == "1" {
+            // A relay host never supplies the command, argv, environment, or
+            // launch capture; only the bounded context below reaches here.
+            publishRelayAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                kind: kind,
+                displayName: displayName,
+                sessionId: sessionId,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
             return
         }
         if kind == "hermes-agent" {
@@ -32105,6 +32117,61 @@ struct CMUXCLI {
         )
     }
 
+    /// Publishes the minimal resume binding for a hook replayed from an SSH relay host.
+    ///
+    /// Relay admission lets SessionStart carry only a bounded remote cwd and redacted ancestor
+    /// words. The command is built here from ``AgentResumeArgv`` and the Mac's global
+    /// `agents.launchers`; the launch record is marked relay-origin so only the remote workspace
+    /// restore path types it, into the reconnected remote shell. Events without that context
+    /// (prompt-submit, stop) leave the binding alone.
+    private func publishRelayAgentSurfaceResumeBinding(
+        client: SocketClient,
+        workspaceId: String,
+        surfaceId: String,
+        kind: String,
+        displayName: String,
+        sessionId: String,
+        responseTimeout: TimeInterval?,
+        deadline: Date?
+    ) {
+        guard let context = RelayAgentResumeContext(
+            kind: kind,
+            sessionID: sessionId,
+            environment: ProcessInfo.processInfo.environment
+        ) else { return }
+        let launchCommand = context.launchCommand(
+            externalLauncherID: context.detectedLauncherID(
+                in: externalAgentLaunchers(workingDirectory: nil)
+            ),
+            capturedAt: Date().timeIntervalSince1970
+        )
+        guard let command = agentSurfaceResumeCommand(
+            kind: kind,
+            sessionId: context.sessionID,
+            launchCommand: launchCommand,
+            workingDirectory: context.remoteWorkingDirectory,
+            environment: nil
+        ) else { return }
+        let params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "name": displayName,
+            "kind": kind,
+            "checkpoint_id": context.sessionID,
+            "source": "agent-hook",
+            "command": command,
+            "auto_resume": true,
+            "cwd": context.remoteWorkingDirectory,
+            "launch_command": controlAgentLaunchCommandPayload(launchCommand),
+        ]
+        _ = try? client.sendV2(
+            method: "surface.resume.set",
+            params: params,
+            responseTimeout: responseTimeout,
+            deadline: deadline
+        )
+    }
+
     @discardableResult
     func clearAgentSurfaceResumeBinding(
         client: SocketClient,
@@ -32170,8 +32237,13 @@ struct CMUXCLI {
         let resumeWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
         // A cmux-owned route already names its own launcher in argv[0]; only the bare agent argv
         // is wrapped.
+        // A relayed session's directory is a remote path, so only the Mac's global declarations
+        // apply; probing a same-named Mac path for a project cmux.json would be wrong.
+        let launcherConfigDirectory = RelayAgentResumeContext.isRelayOrigin(source: launchCommand?.source)
+            ? nil
+            : resumeWorkingDirectory
         let externalLauncher = routesThroughOwnedLauncher ? nil : launchCommand?.externalLauncher.flatMap { launcherID in
-            externalAgentLaunchers(workingDirectory: resumeWorkingDirectory)
+            externalAgentLaunchers(workingDirectory: launcherConfigDirectory)
                 .resolvedLauncher(id: launcherID, kind: kind)
         }
         return agentSurfaceResumeShellCommand(

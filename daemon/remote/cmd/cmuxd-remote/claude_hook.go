@@ -106,6 +106,9 @@ func claudeHookEnqueueParams(subcommand string, input []byte, getenv func(string
 	if tty := callerTTY(getenv("CMUX_CLAUDE_PID")); tty != "" {
 		params["caller_tty"] = tty
 	}
+	if subcommand == "session-start" {
+		addClaudeRelayResumeContext(params, input, getenv("CMUX_CLAUDE_PID"), claudeRelayProcessTree)
+	}
 	return params, true
 }
 

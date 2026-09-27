@@ -4,10 +4,12 @@ public import Foundation
 /// the app's queue parameters.
 ///
 /// The relay gates have already scoped `workspace_id` and `surface_id` to the
-/// owner workspace. Those selectors become the only replay environment, and
+/// owner workspace. Those selectors become the replay routing environment, and
 /// host paths are dropped from the payload because the remote host is
 /// untrusted: the Mac replays the event locally and must never open a
-/// same-named path on its own disk.
+/// same-named path on its own disk. The one exception is the SessionStart
+/// resume binding (``resumeBindingEnvironment(from:)``): a bounded remote cwd
+/// that is only ever typed back into the remote shell on restore.
 public struct RemoteRelayAgentHookAdmission: Sendable {
     /// Payload keys that name paths on the remote host.
     static let filesystemPayloadKeys: Set<String> = [
@@ -35,15 +37,17 @@ public struct RemoteRelayAgentHookAdmission: Sendable {
               let payload = parameters["payload"] as? String else {
             return nil
         }
+        var environment = [
+            "CMUX_WORKSPACE_ID": workspaceID,
+            "CMUX_SURFACE_ID": surfaceID,
+        ]
+        environment.merge(resumeBindingEnvironment(from: parameters)) { selector, _ in selector }
         var admitted: [String: Any] = [
             "agent": agent,
             "subcommand": subcommand,
             "payload": portablePayload(payload),
             "relay_backed": true,
-            "environment": [
-                "CMUX_WORKSPACE_ID": workspaceID,
-                "CMUX_SURFACE_ID": surfaceID,
-            ],
+            "environment": environment,
         ]
         let ownerKey = RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey
         admitted[ownerKey] = parameters[ownerKey]
@@ -51,6 +55,37 @@ public struct RemoteRelayAgentHookAdmission: Sendable {
             admitted["caller_tty"] = callerTTY
         }
         return admitted
+    }
+
+    /// Replay environment key for the admitted remote working directory. Must
+    /// match `RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey`.
+    static let remoteWorkingDirectoryEnvironmentKey = "CMUX_AGENT_HOOK_RELAY_REMOTE_CWD"
+    /// Replay environment key for the admitted ancestor words. Must match
+    /// `RelayAgentResumeContext.ancestorExecutablesEnvironmentKey`.
+    static let ancestorExecutablesEnvironmentKey = "CMUX_AGENT_HOOK_RELAY_ANCESTOR_EXECUTABLES"
+
+    /// The minimal resume binding a SessionStart hook may carry: the remote
+    /// session directory and redacted ancestor words for launcher detection.
+    /// The Mac CLI builds the resume command from these on its own; nothing
+    /// here is ever executed or stored as a command.
+    ///
+    /// - Parameter parameters: Relay-admitted request parameters.
+    /// - Returns: Replay environment entries for the admitted fields.
+    func resumeBindingEnvironment(from parameters: [String: Any]) -> [String: String] {
+        guard parameters["subcommand"] as? String == "session-start" else { return [:] }
+        var environment: [String: String] = [:]
+        if let cwd = parameters["remote_cwd"] as? String,
+           RemoteRelayRoutingSchema.isAdmissibleRelayRemoteWorkingDirectory(cwd) {
+            environment[Self.remoteWorkingDirectoryEnvironmentKey] = cwd
+        }
+        if let raw = parameters["ancestor_executables"],
+           let ancestors = RemoteRelayRoutingSchema.admissibleRelayAncestorExecutables(raw),
+           !ancestors.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: ancestors, options: [.withoutEscapingSlashes]),
+           let json = String(data: data, encoding: .utf8) {
+            environment[Self.ancestorExecutablesEnvironmentKey] = json
+        }
+        return environment
     }
 
     /// Re-encodes a JSON object payload without remote host paths.

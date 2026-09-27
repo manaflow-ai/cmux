@@ -38,7 +38,10 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "agent.hook.enqueue":
-            return surface.union(["agent", "subcommand", "payload", "relay_backed", "caller_tty"])
+            return surface.union([
+                "agent", "subcommand", "payload", "relay_backed", "caller_tty",
+                "remote_cwd", "ancestor_executables",
+            ])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
@@ -70,7 +73,63 @@ struct RemoteRelayRoutingSchema {
                   callerTTY.utf8.count <= Self.maximumRelayAgentHookCallerTTYBytes,
                   !callerTTY.contains("\0") else { return "caller_tty" }
         }
+        // The resume binding fields ride only on SessionStart, where the Mac
+        // publishes the binding. They name data, never a command: the Mac
+        // builds the resume argv itself.
+        for key in ["remote_cwd", "ancestor_executables"] where parameters[key] != nil {
+            guard subcommand == "session-start" else { return key }
+        }
+        if let rawCwd = parameters["remote_cwd"] {
+            guard let cwd = rawCwd as? String,
+                  Self.isAdmissibleRelayRemoteWorkingDirectory(cwd) else { return "remote_cwd" }
+        }
+        if let rawAncestors = parameters["ancestor_executables"] {
+            guard Self.admissibleRelayAncestorExecutables(rawAncestors) != nil else {
+                return "ancestor_executables"
+            }
+        }
         return nil
+    }
+
+    // Mirrors `RelayAgentResumeContext` in CMUXAgentLaunch, which the CLI
+    // re-checks after admission; this package does not depend on it.
+    static let maximumRelayRemoteWorkingDirectoryBytes = 1_024
+    static let maximumRelayAncestors = 8
+    static let maximumRelayAncestorWords = 6
+    static let maximumRelayAncestorWordBytes = 128
+    static let maximumRelayAncestorBytes = 2_048
+
+    /// An absolute remote path within bounds and free of control characters.
+    static func isAdmissibleRelayRemoteWorkingDirectory(_ value: String) -> Bool {
+        value.hasPrefix("/") && value.utf8.count <= maximumRelayRemoteWorkingDirectoryBytes
+            && !containsControlCharacter(value)
+    }
+
+    /// Ancestor argv words within the relay bounds: at most 8 ancestors of 1 to 6
+    /// words, 128 bytes per word, 2 KiB in total, no control characters.
+    static func admissibleRelayAncestorExecutables(_ value: Any) -> [[String]]? {
+        guard let ancestors = value as? [Any], ancestors.count <= maximumRelayAncestors else { return nil }
+        var total = 0
+        var result: [[String]] = []
+        for ancestor in ancestors {
+            guard let words = ancestor as? [Any], !words.isEmpty,
+                  words.count <= maximumRelayAncestorWords else { return nil }
+            var admitted: [String] = []
+            for word in words {
+                guard let text = word as? String,
+                      text.utf8.count <= maximumRelayAncestorWordBytes,
+                      !containsControlCharacter(text) else { return nil }
+                total += text.utf8.count
+                admitted.append(text)
+            }
+            result.append(admitted)
+        }
+        return total <= maximumRelayAncestorBytes ? result : nil
+    }
+
+    /// Whether `value` holds a C0 control character or DEL.
+    private static func containsControlCharacter(_ value: String) -> Bool {
+        value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
     }
 
     func unsupportedKey(in parameters: [String: Any], method: String) -> String? {

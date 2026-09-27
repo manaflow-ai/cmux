@@ -35,11 +35,16 @@ struct AgentHookDeliveryEvent: Sendable {
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
         "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
         "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
+        // Relay SessionStart resume binding; read only under relay origin.
+        RelayAgentResumeContext.ancestorExecutablesEnvironmentKey,
+        RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey,
     ]
 
     private static let optionalLaunchEnvironmentKeys: Set<String> = [
         "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
         "CMUX_AGENT_LAUNCH_EXECUTABLE", "CMUX_AGENT_LAUNCH_KIND",
+        RelayAgentResumeContext.ancestorExecutablesEnvironmentKey,
+        RelayAgentResumeContext.remoteWorkingDirectoryEnvironmentKey,
     ]
 
     let agent: String
