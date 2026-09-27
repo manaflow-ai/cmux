@@ -2959,6 +2959,16 @@ jobs:
             -only-testing:cmuxCLITests
           scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxCLITests"
 
+      - name: Run CLI product Python regressions
+        run: |
+          env \
+            "HOME=$CMUX_CLI_TESTS_HOME" \
+            "CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
+            "XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
+            "SSH_AUTH_SOCK=" \
+            "CMUX_CLI_BIN=$CMUX_CLI_PATH" \
+            python3 scripts/ci/run_python_test_lane.py --lane macos-cli-product
+
       - name: Upload CLI product test log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
