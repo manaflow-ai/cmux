@@ -74,7 +74,8 @@ extension CMUXCLI {
         agent: String,
         client: SocketClient,
         socketPassword: String? = nil,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        resolvesProcessRoute: Bool = true
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
@@ -99,7 +100,9 @@ extension CMUXCLI {
         guard client.isRelayBacked else {
             let routeWasAlreadySnapshotted =
                 environment[Self.agentHookRouteSnapshotEnvironmentKey] == "1"
-            if let processID = environment[pidEnvironmentKey].flatMap(Int.init),
+            // An exited agent's PID may already belong to another process.
+            if resolvesProcessRoute,
+               let processID = environment[pidEnvironmentKey].flatMap(Int.init),
                let binding = admittedAgentHookRoute(
                    processID: processID,
                    client: client,
@@ -299,20 +302,24 @@ extension CMUXCLI {
     /// Admits one immutable hook event to the app-owned queue.
     ///
     /// `processEnvironment` is the hook process's environment: this process's
-    /// own for a CLI hook, or the values a spool record captured.
+    /// own for a CLI hook, or the values a spool record captured. Pass
+    /// `resolvesProcessRoute: false` once the agent has exited, so its PID is
+    /// not resolved to whatever process now holds it.
     func admitQueuedAgentHook(
         agent: String,
         subcommand: String,
         rawPayload: String,
         processEnvironment: [String: String],
         client: SocketClient,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        resolvesProcessRoute: Bool = true
     ) throws {
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
-            processEnvironment: processEnvironment
+            processEnvironment: processEnvironment,
+            resolvesProcessRoute: resolvesProcessRoute
         )
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(

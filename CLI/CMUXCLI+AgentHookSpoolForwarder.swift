@@ -33,8 +33,13 @@ extension CMUXCLI {
             }
             withExtendedLifetime(drainLock) {
                 _ = admitPublishedAgentHookRecords(in: spool) { record in
+                    // Everything in a retired spool was published before the
+                    // agent exited, and is drained after it.
                     try admitAgentHookSpoolRecord(
-                        record, agentExited: false, client: client, socketPassword: socketPassword
+                        record,
+                        agentExited: spool.url == live.retiredLocation.url,
+                        client: client,
+                        socketPassword: socketPassword
                     )
                 }
             }
@@ -204,7 +209,8 @@ extension CMUXCLI {
             rawPayload: String(data: record.payload, encoding: .utf8) ?? "{}",
             processEnvironment: environment,
             client: client,
-            socketPassword: socketPassword
+            socketPassword: socketPassword,
+            resolvesProcessRoute: !agentExited
         )
     }
 }
