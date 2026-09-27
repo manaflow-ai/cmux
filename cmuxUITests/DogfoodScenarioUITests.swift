@@ -61,6 +61,11 @@ final class DogfoodScenarioUITests: XCTestCase {
             "-AppleLocale", scenario.locale ?? "en_US",
             "-NSAppSleepDisabled", "YES",
         ] + scenario.launchArguments
+        // The environment overrides beat the settings file and defaults; on
+        // the first live tour the launch argument alone left the socket off.
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
