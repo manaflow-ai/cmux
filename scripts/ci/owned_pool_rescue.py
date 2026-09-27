@@ -53,21 +53,11 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
-A refused job goes back to the fleet once before Blacksmith: attempt 2 of a
-re-run of failed jobs may take the owned pool again (the job's runs-on reads
-`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first, where the
-job can run on an owned Mac). GitHub delivers no `requested` event for a
-re-run (run 36059281883's attempt 2 started no rescue), so the watch that
-re-ran the failed jobs goes on to watch attempt 2 itself, for owned jobs
-only, and stops at the first look that lists no job on an owned label. A job
-queued past the budget on attempt 2 gets the run cancelled if it is still
-going, and one refused there waits for the run to finish (as on attempt 1);
-either way its failed and cancelled jobs are re-run once more, keeping the
-jobs that passed; attempt 3 and later always take retry_runner on
-Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
-Attempt 2 of a re-run of failed jobs needs no marker: `changes` is not
-re-run, so the watch follows any job on an owned label and stops when none
-appears.
+A refused job never goes back to the fleet: every runs-on sends a job's
+attempt 2 and later to retry_runner (Blacksmith), so the re-run of failed
+jobs cannot land on the mini that refused it, and one re-run is all a refusal
+costs. (Before 2026-09-27, attempt 2 tried the owned pool once more and could
+be refused again, by the same mini.) So the watch ends with that re-run.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -111,15 +101,13 @@ workflow_dispatch, whose code is this repository's own branch; see
 TRUSTED_SIDE_EVENTS), their small macOS jobs take vars.CI_LIGHT_LANE_RUNNER
 (the light minis' side label) or vars.CI_SIDE_LANE_RUNNER (the std minis'),
 both glaeda-side-* labels that only the minis' non-root runners carry. Attempt
-2 takes CI_SIDE_LANE_RUNNER, and attempt 3 and later the job's Blacksmith
-default. So the first job on an owned label marks the run as on a persistent
+2 and later take the job's Blacksmith default. So the first job on an owned label marks the run as on a persistent
 pool (a job behind a Linux gate appears once the gate ends), and the watch
 stops once every owned job has been accepted, which a side lane's few short
 jobs reach in minutes. A refused side-lane job gets the run's failed jobs
 re-run; a stuck one gets the run cancelled and its failed and cancelled jobs
 re-run, keeping the jobs that had already finished. That re-run (attempt 2)
-is on the std side label, so the watch follows it like any re-run of failed
-jobs, and a job stuck or refused there goes to Blacksmith on attempt 3. A
+takes the lane's Blacksmith default, so the watch ends there. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
 a pull request has no head to move, like a dispatch.
@@ -223,8 +211,7 @@ DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREEN
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLOW_PATH)
 # Side-lane workflows: no picker job. Their small macOS jobs take
 # vars.CI_LIGHT_LANE_RUNNER or vars.CI_SIDE_LANE_RUNNER (glaeda-side-* labels)
-# on attempt 1 of a trusted run, CI_SIDE_LANE_RUNNER on attempt 2, and their
-# Blacksmith default from attempt 3 on.
+# on attempt 1 of a trusted run, and their Blacksmith default from attempt 2 on.
 # nightly.yml: no picker job either. build-nightly-app takes the trusted owned
 # pool (vars.CI_SEED_TRUSTED_POOL) on attempt 1 of a push or schedule run on
 # main, and Blacksmith on every later attempt.
@@ -309,8 +296,9 @@ RERUN_MARGIN_SECONDS = 60
 # costs far less than a refusal's rescue round trip and a Blacksmith re-run
 # (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
 REFUSAL_SECONDS = 360
-# The last attempt that may run on an owned pool: a refused job's one retry
-# on the fleet (see the module docstring).
+# The last attempt that may run on an owned pool: a stuck run's full re-run
+# on the light tier (CI_OWNED_LIGHT_RETRY). A re-run of failed jobs never
+# takes one (see the module docstring).
 LAST_OWNED_ATTEMPT = 2
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
@@ -802,12 +790,7 @@ def next_attempt(target: Target) -> str:
     """Where a re-run of failed jobs goes next."""
     following = target.attempt + 1
     if target.side:
-        if following <= LAST_OWNED_ATTEMPT and not target.nightly:
-            return f"attempt {following} takes the std minis' side label (CI_SIDE_LANE_RUNNER)"
         return f"attempt {following} takes the side lane's Blacksmith default"
-    if following <= LAST_OWNED_ATTEMPT:
-        return (f"attempt {following} takes the owned pool once more where its jobs may "
-                "(pr_refused_retry_runner), else retry_runner")
     return f"attempt {following} takes retry_runner on Blacksmith"
 
 
@@ -1064,16 +1047,13 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused")
         log(result)
-        # A side lane's attempt 2 takes the std side label, so it is followed like
-        # any re-run of failed jobs; attempt 3 is on Blacksmith. A nightly
-        # build's attempt 2 is on Blacksmith already.
+        # A re-run of failed jobs runs every job on Blacksmith (retry_runner, or
+        # a side lane's default), so there is nothing to follow. Only a stuck
+        # run's full re-run may take the light tier (CI_OWNED_LIGHT_RETRY),
+        # and that one is watched here.
         if target.nightly or not (result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
             return "done"
-        # The re-run may take the owned pool once more: a refused job's
-        # re-run reuses the owned label, and a stuck run's full re-run may
-        # take the light tier (CI_OWNED_LIGHT_RETRY). Watch it here. A
-        # full re-run without the variable never holds an owned machine.
-        if not failed_only and not light_retry:
+        if failed_only or not light_retry:
             return "done"
         target = dataclasses.replace(target, attempt=target.attempt + 1, full_rerun=not failed_only, late=False)
         # The followed attempt gets its own watch: a late rescue of attempt 1
