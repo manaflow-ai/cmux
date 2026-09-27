@@ -279,7 +279,7 @@ def sweep_discarded(store: Path) -> None:
 # anything else reads the kept state. glaeda's hook reads the parked stamp when it ranks roots, and
 # `warm-keys` publishes it (`parked`) for pr_runner_pool.py's distance routing. A root keeps at most
 # PR_SLOTS parked builds, each for PR_SLOT_HOURS, and parks none while the volume has less than
-# MIN_FREE_GIB free, above glaeda-idle-warm's floor (136 GiB), so parking never stops idle warming.
+# MIN_FREE_GIB free, so parked builds never crowd the mini's disk.
 PR_BUILDS = "pr-builds"
 PR_SLOTS = 2
 PR_SLOT_HOURS = 6

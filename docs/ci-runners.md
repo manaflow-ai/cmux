@@ -317,7 +317,7 @@ seconds go to admission's record (`route.picker`) through the
 
 When `keep` replaces another pull request's build, it parks that build in
 `pr-builds/pr-<n>` beside the root's store (a rename; at most 2 per root, for
-6 h, and only with 140 GiB free, above glaeda-idle-warm's floor). Admission's
+6 h, and only with 140 GiB free). Admission's
 `check` for that pull request (`CMUX_OWNED_PR`) swaps it back in,
 glaeda's hook ranks the root by it, and `roots` publishes it as `parked`, so
 distance routing sends a re-push to the mini holding its own build. That

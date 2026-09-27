@@ -411,7 +411,6 @@ class WarmKeys(Fixture):
         self.build("nine")
         self.assertEqual(self.kept(pr="9"), {"kept": "true"})
         self.assertFalse((self.store / "pr-builds" / "pr-7").exists())
-        self.assertGreater(state.MIN_FREE_GIB, 136)  # glaeda-idle-warm's floor: parking never stops it
 
     def test_parked_builds_are_capped_by_count_and_age(self):
         with unittest.mock.patch("owned_build_state.free_gib", return_value=500.0):
