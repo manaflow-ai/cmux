@@ -45,8 +45,12 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 }
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
-    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+    func testLightModeSolidFillUsesSaturatedSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .light,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .solidFill
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -57,8 +61,12 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+    func testDarkModeSolidFillUsesSaturatedSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .solidFill
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -99,9 +107,106 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+    func testSubtleRailSelectionIsAHairlineTintWithLabelColoredText() {
+        for (scheme, expectedWhite) in [(ColorScheme.light, CGFloat(0)), (.dark, 1)] {
+            let fill = CmuxSelectionFill.resolve(
+                colorScheme: scheme,
+                isEmphasized: true,
+                increaseContrast: false
+            )
+            XCTAssertLessThanOrEqual(fill.color.alphaComponent, 0.3)
+            XCTAssertNotNil(fill.edgeColor)
+            XCTAssertGreaterThan(fill.edgeColor?.alphaComponent ?? 0, fill.color.alphaComponent)
+
+            let style = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: nil,
+                subtleSelection: true,
+                isEmphasized: true,
+                increaseContrast: false
+            )
+            XCTAssertEqual(style.color, fill.color)
+            XCTAssertEqual(style.edgeColor, fill.edgeColor)
+
+            guard let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+                on: sidebarSelectedWorkspaceBackgroundNSColor(
+                    for: scheme,
+                    sidebarSelectionColorHex: nil,
+                    subtleSelection: true
+                ),
+                opacity: 1
+            ).usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(foreground.redComponent, expectedWhite, accuracy: 0.001)
+        }
+    }
+
+    func testSelectionStaysSolidUnlessSubtleSelectionIsEnabled() {
+        XCTAssertFalse(SettingCatalog().workspaceColors.subtleSelection.defaultValue)
+        for scheme in [ColorScheme.light, .dark] {
+            let solid = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: nil
+            )
+            XCTAssertEqual(solid.color?.hexString(), cmuxAccentNSColor(for: scheme).hexString())
+            XCTAssertEqual(solid.opacity, 1.0, accuracy: 0.001)
+            XCTAssertNil(solid.edgeColor)
+
+            let configured = sidebarWorkspaceRowBackgroundStyle(
+                activeTabIndicatorStyle: .leftRail,
+                isActive: true,
+                isMultiSelected: false,
+                customColorHex: nil,
+                colorScheme: scheme,
+                sidebarSelectionColorHex: "#123456",
+                subtleSelection: true
+            )
+            XCTAssertEqual(configured.color?.hexString(), "#123456")
+            XCTAssertNil(configured.edgeColor)
+        }
+    }
+
+    func testInactiveWindowSelectionIsNeutralAndIncreaseContrastIsStronger() {
+        for scheme in [ColorScheme.light, .dark] {
+            let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: false)
+            let inactive = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: false, increaseContrast: false)
+            let keyContrast = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: true)
+            let multi = CmuxSelectionFill.resolve(
+                colorScheme: scheme,
+                isEmphasized: true,
+                increaseContrast: false,
+                isSecondary: true
+            )
+
+            XCTAssertLessThan(inactive.color.alphaComponent, key.color.alphaComponent)
+            XCTAssertGreaterThan(keyContrast.color.alphaComponent, key.color.alphaComponent)
+            XCTAssertGreaterThan(keyContrast.edgeColor?.alphaComponent ?? 0, key.edgeColor?.alphaComponent ?? 1)
+            XCTAssertLessThan(multi.color.alphaComponent, key.color.alphaComponent)
+            guard let neutral = inactive.color.usingColorSpace(.sRGB) else {
+                XCTFail("Expected sRGB-convertible color")
+                return
+            }
+            XCTAssertEqual(neutral.redComponent, neutral.blueComponent, accuracy: 0.02)
+        }
+    }
+
+    func testSolidFillSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
         guard let color = sidebarSelectedWorkspaceForegroundNSColor(
-            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            on: sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .light,
+                sidebarSelectionColorHex: nil,
+                activeTabIndicatorStyle: .solidFill
+            ),
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
@@ -144,14 +249,18 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .light,
+                sidebarSelectionColorHex: nil,
+                activeTabIndicatorStyle: .solidFill
+            ).hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
     }
 
     @MainActor
-    func testLeftRailKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
+    func testSubtleLeftRailSelectionIgnoresActiveCustomWorkspaceColor() {
         let manager = TabManager()
         guard let workspace = manager.tabs.first else {
             XCTFail("Expected TabManager to initialise with a workspace")
@@ -175,12 +284,15 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             isMultiSelected: false,
             customColorHex: workspace.customColor,
             colorScheme: .light,
-            sidebarSelectionColorHex: nil
+            sidebarSelectionColorHex: nil,
+            subtleSelection: true,
+            isEmphasized: true,
+            increaseContrast: false
         )
 
         XCTAssertEqual(
-            background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            background.color,
+            CmuxSelectionFill.resolve(colorScheme: .light, isEmphasized: true, increaseContrast: false).color
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
