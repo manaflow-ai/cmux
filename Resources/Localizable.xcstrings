@@ -230984,31 +230984,31 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kodex"
+            "value": "Codex"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrit"
+            "value": "Codex"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الدستور الغذائي"
+            "value": "Codex"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Códice"
+            "value": "Codex"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "法典"
+            "value": "Codex"
           }
         },
         "zh-Hans": {
@@ -231020,7 +231020,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사본"
+            "value": "Codex"
           }
         }
       }
@@ -231285,25 +231285,25 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Code Ouvert"
+            "value": "OpenCode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كود مفتوح"
+            "value": "OpenCode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "código abierto"
+            "value": "OpenCode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開放程式碼"
+            "value": "OpenCode"
           }
         },
         "zh-Hans": {
@@ -231315,7 +231315,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오픈코드"
+            "value": "OpenCode"
           }
         }
       }
