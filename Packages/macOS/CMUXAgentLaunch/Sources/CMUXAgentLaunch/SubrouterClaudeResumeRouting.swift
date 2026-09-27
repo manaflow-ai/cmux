@@ -212,7 +212,9 @@ public struct SubrouterClaudeResumeRouting: Sendable, Equatable {
                 account = [option]
                 index += 1
             } else {
-                index += 1
+                // sr reads its own options only up to the first other
+                // argument; everything after that is literal Claude input.
+                break
             }
         }
         guard !account.isEmpty else { return nil }

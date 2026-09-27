@@ -165,8 +165,9 @@ struct SubrouterClaudeRestoreRoutingTests {
         let request = resumeRequest(
             environment: routedLaunchEnvironment(baseURL: localPoolBaseURL, marker: marker, launchBoundMarker: marker),
             launcherPrefix: [
-                "/gone/bin/sr", "claude", "proxy", "--settings", "/tmp/unreadable.json",
-                "--account=me@example.com", "-p", "hello", "--resume", "other", "--",
+                "/gone/bin/sr", "claude", "proxy", "--account=me@example.com",
+                "--settings", "/tmp/unreadable.json", "-p", "hello", "--resume", "other", "--",
+                "--account", "someone-else@example.com",
             ]
         )
 
@@ -189,6 +190,8 @@ struct SubrouterClaudeRestoreRoutingTests {
             ["sr", "claude", "proxy", "--continue"],
             ["sr", "codex", "proxy"],
             ["sr", "claude", "proxy", "--account"],
+            // Past sr's own options, `--account` is Claude input, not a pin.
+            ["sr", "claude", "proxy", "hello", "--account", "me@example.com"],
         ]
     )
     func unusableLauncherArgvFallsBackToMarker(launcher: [String]) throws {
