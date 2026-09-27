@@ -3,6 +3,8 @@ import Testing
 
 @testable import CmuxTerminal
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Rejected HTML pasteboard fallback", .serialized)
 struct PasteboardRejectedHTMLFallbackTests {
     @Test("image with rejected HTML preserves advertised plain text")

@@ -43,6 +43,7 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
+        "terminal.confirmUnsafePaste",
         "terminal.textEditingGestures",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",

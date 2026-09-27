@@ -264,6 +264,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.reflowHardWrapOnCopy.id
         ),
         .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
+        ),
+        .init(
             jsonKey: "showPasswordInputIndicator",
             defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
             invalidPath: terminal.showPasswordInputIndicator.id

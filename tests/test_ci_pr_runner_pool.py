@@ -1408,6 +1408,42 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(owned_choice(jammed, queue_rounds="").runner, LARGE)
         self.assertEqual(owned_choice(jammed, queue_rounds="2").runner, MINI)
 
+    def test_a_pool_the_run_starts_on_now_beats_an_earlier_one_it_queues_on(self):
+        # Run 36318303703 (2026-09-27): std fit only by its root queue places
+        # (0 of 17 root runners free) while light sat idle, so light never ran.
+        def counts(capacity, running):
+            return {"capacity": capacity, "running": running, "queued": 0}
+        load = {MINI: counts(42, 37), LIGHT: counts(4, 0)}
+        roots = {MINI: counts(19, 19), LIGHT: counts(2, 0)}
+        added = {MINI: 0, LIGHT: 0}
+
+        def picked(**kwargs):
+            return pool.pick(load, added, [MINI, LIGHT], 0, jobs=3, roots=roots, root_jobs=1, **kwargs)
+
+        self.assertEqual((picked(queue_rounds=2).label, picked(queue_rounds=2).how), (LIGHT, "owned"))
+        # Both idle: the order decides, std first.
+        roots[MINI] = counts(19, 0)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+        # Light's root runners busy too: std's queue, as before.
+        roots[MINI], roots[LIGHT] = counts(19, 19), counts(2, 2)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+
+    def test_a_replayed_run_takes_light_as_the_run_itself_did(self):
+        # The replay needs a root runner too: std's idle side runners alone
+        # would charge a newer run to std while it took light, and the next
+        # run would pile onto light behind it.
+        snap = fleet(busy=37)
+        snap["pools"][ROOT_MINI] = {"queued": 0, "running": 19}
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        snap["pools"]["glaeda-root-light-xcode-26.6"] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 42, ROOT_MINI: 19, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2})
+        first = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2")
+        self.assertEqual(first.runner, LIGHT)
+        self.assertIn("first owned pool free for this run now", first.reason)
+        self.assertIn(f"{MINI} not free now", first.reason)
+        second = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2", routed=1)
+        self.assertEqual(second.runner, MINI)
+
     def test_nothing_is_reserved_so_a_later_run_takes_idle_machines(self):
         # Run A took 3 of 11 minis for a full suite that peaks at 11; its shards
         # do not exist yet. Run B finds 8 idle minis and takes them: A's shards
@@ -1802,7 +1838,10 @@ class RootRunners(unittest.TestCase):
                              claude_wrapper=None, cli="true", remote_daemon=None)
         keys = ("admission", *plan.after)
         self.assertEqual(pool.root_held(plan, keys), len(plan.after))
-        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1, "only cli-product holds a root after admission")
+        self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1,
+                         "every job after admission, cli-product too, takes a gui runner")
+        self.assertEqual(pool.root_held(plan, ("admission", "cli-product"), gui_runners=True), 1)
+        self.assertEqual(pool.root_held(plan, ("cli-product",), gui_runners=True), 0)
         # Three root runners free: on the root label three shards fit (admission hands its runner on); with gui runners every job does.
         root_only, _ = pool.place(plan, 20, root_budget=3)
         with_gui, _ = pool.place(plan, 20, root_budget=3, gui_runners=True)
@@ -1951,7 +1990,7 @@ class WarmAffinity(unittest.TestCase):
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
                 owned_warm="1", state=None, attempt="1", pr_number="", running=None, rounds="", distance="0",
-                changes=None):
+                changes=None, extra=None):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh["warm"] = warm(2) if state is None else state
@@ -1974,11 +2013,60 @@ class WarmAffinity(unittest.TestCase):
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                    "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm,
-                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds, "OWNED_WARM_DISTANCE": distance}
+                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds, "OWNED_WARM_DISTANCE": distance,
+                   **(extra or {})}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
         return values
+
+    def test_side_lanes_take_the_light_side_runners_when_enough_are_idle(self):
+        light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
+        slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
+        lanes = {"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true"}
+        std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
+        values = self.outputs(std + idle, slots=slots, extra=lanes)
+        self.assertEqual((values["runner"], values["side_runner"]), (MINI, light_side))
+        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+            self.assertIn(key, values["owned_jobs"])
+        # The std pool holds only admission: the side lanes are not its machines.
+        self.assertEqual(values["jobs"], "1")
+        # One light side runner idle for two lanes, none, or no light side count: the std side label as before.
+        one = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side, busy=True)]
+        for runners, count in ((std + one, slots), (std, slots),
+                               (std + idle, '{"std": 40, "root-std": 10, "light": 2, "root-light": 2}')):
+            values = self.outputs(runners, slots=count, extra=lanes)
+            self.assertEqual((values["runner"], values["side_runner"]), (MINI, SIDE_MINI), runners)
+            self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # A retry attempt keeps its own route.
+        self.assertNotEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["side_runner"], light_side)
+
+    def test_light_side_lanes_on_the_light_pick_count_in_its_peak(self):
+        # The janitor takes the side lanes off the marker's peak for the root share, so the peak holds them.
+        light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
+        slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root),
+                live_runner(24, LIGHT, light_root)]
+        values = self.outputs(idle, slots=slots, extra={"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+                                                        "POOL_ORDER": LIGHT})
+        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
+
+    def test_side_lanes_alone_on_the_light_side_runners_hold_no_std_machine(self):
+        # Nothing left for std once the side lanes take the light side runners: a full std still takes the run.
+        light_side = pool.side_label(LIGHT)
+        slots = '{"std": 3, "root-std": 1, "light": 4, "root-light": 2}'
+        busy = [live_runner(1, MINI, ROOT_MINI, busy=True), live_runner(2, MINI, SIDE_MINI, busy=True),
+                live_runner(3, MINI, SIDE_MINI, busy=True)]
+        idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side)]
+        values = self.outputs(busy + idle, slots=slots, rounds="0",
+                              extra={"RUN_MACOS": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+                                     "POOL_ORDER": f"{MINI},{SMALL}"})
+        self.assertEqual((values["runner"], values["side_runner"], values["jobs"]), (MINI, light_side, "0"))
+        self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        # A 0-machine marker reserves nothing.
+        artifact = {"name": "macos-pool-persistent-7-1-0p2-" + MINI}
+        self.assertEqual(pool.run_marker([artifact], {"id": 7, "run_attempt": 1}), (MINI, 0))
 
     def test_main_names_the_warm_runner_for_admission(self):
         own = "glaeda-runner-cmux2-glaeda"
@@ -2790,6 +2878,14 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13,
                                    queue_rounds="0")[0].persistent)
 
+    def test_simulator_runs_never_take_the_light_pool(self):
+        # Light minis carry no glaeda-ios-sim: an idle light pool does not beat
+        # std's queue for a run whose jobs need a simulator.
+        snap = sim_fleet(busy=40)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2")
+        self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+
     def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
         snap = self.incident_snapshot()
         # Enough newer runs replayed onto the std pool fill its queue bound: Blacksmith, the lane's default.
@@ -3110,10 +3206,15 @@ class E2EQueueRounds(unittest.TestCase):
             self.assertFalse(pool.persistent(choice.runner), rounds)
             self.assertIn("every pool is full", choice.reason)
         # With 2 rounds the run joins an owned root queue that starts it within 20 minutes.
-        choice = self.choice("2", 13)
-        self.assertTrue(pool.persistent(choice.runner))
-        self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
-        self.assertIn("queue places", choice.reason)
+        # The replay places each newer run as it picked, root runner included:
+        # 13 of them leave no owned root room, 3 leave light's root queue.
+        for since, runner in ((2, MINI), (3, self.LIGHT)):
+            choice = self.choice("2", since)
+            self.assertEqual(choice.runner, runner, since)
+            self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
+            self.assertIn("queue places", choice.reason)
+            self.assertNotIn("free for this run now", choice.reason)
+        self.assertFalse(pool.persistent(self.choice("2", 13).runner))
 
     def test_with_no_owned_room_the_blacksmith_pick_is_the_headroom_rules(self):
         # The rounds decide only whether an owned pool takes the run.

@@ -219,6 +219,10 @@ def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
         "tests/test_cli_socket_operation_deadline.py",
         "tests/test_cli_config_doctor.py",
         "tests/test_cli_glaeda_execution.py",
+        "tests/test_claude_hook_spool.py",
+        "tests/claude_teams_test_utils.py",
+        "scripts/ci/run_python_test_lane.py",
+        "scripts/ci/test_execution_registry.py",
         "tests/fixtures/glaeda-external-request.json",
         "tests/fixtures/glaeda-external-result.json",
         "scripts/generate-cmux-config-schema.py",
@@ -4590,10 +4594,11 @@ PRODUCT_RUNNER_KEYS = {
 def product_runner_output(key: str) -> str:
     # The app-host shards may also take pr_shard_runner: another Blacksmith
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
-    # They are GUI jobs, so they take pr_gui_runner before the root label:
+    # Both consumers hold the mini's gui token (pr_runner_pool.gui_token_job()),
+    # so they take pr_gui_runner before the root label:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
-    gui = "inputs.pr_gui_runner || " if "shard-" in key else ""
+    gui = "inputs.pr_gui_runner || "
     return ("${{ github.run_attempt == 2 && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& (" + gui + "inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "

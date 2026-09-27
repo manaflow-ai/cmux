@@ -79,7 +79,8 @@ def run_package_step(workflow: str, package: str, attempts: list[tuple[str, int]
         (root / "Packages/macOS" / package).mkdir(parents=True)
         (root / "vendor/bonsplit").mkdir(parents=True)
         (root / "scripts/ci").mkdir(parents=True)
-        shutil.copyfile(ROOT / "scripts/ci/require_swift_test_execution.py", root / "scripts/ci/require_swift_test_execution.py")
+        for helper in ("require_swift_test_execution.py", "hung_test_watchdog.py", "ci_process_tree.py"):
+            shutil.copyfile(ROOT / "scripts/ci" / helper, root / "scripts/ci" / helper)
         selected = root / "selected"
         selected.write_text(package + "\n")
         fixture = root / "attempts.json"
