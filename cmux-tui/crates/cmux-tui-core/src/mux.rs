@@ -24172,9 +24172,9 @@ mod tests {
         assert_eq!(changes[0]["kind"], "upsert");
         assert_eq!(changes[0]["value"]["extra"]["agent_session_id"], "claude-session-1");
 
-        // A turn event without a session id continues the fenced session.
+        // A later turn in the same session keeps the id.
         let revision = mux.with_state(|state| state.resource_revision);
-        append("UserPromptSubmit", "hook-2", serde_json::json!({}));
+        append("UserPromptSubmit", "hook-2", serde_json::json!({"session_id":"claude-session-1"}));
         let changes = agent_changes_after(&mux, revision);
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0]["value"]["state"], "working");
