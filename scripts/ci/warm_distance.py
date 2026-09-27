@@ -4,6 +4,8 @@
     warm_distance.py admission STORE            append this admission's line, print its summary
     warm_distance.py fit DATA.jsonl... [--out MODEL] [--rows]
     warm_distance.py evaluate DATA.jsonl... [--model MODEL]
+    warm_distance.py refit DATA.jsonl... [--model MODEL] [--out MODEL] [--days 14]
+    warm_distance.py backtest DATA.jsonl... [--model MODEL] [--every-hours 24] [--days 14]
     warm_distance.py collect HOST...            every mini's admissions.jsonl, over SSH, to stdout
 
 An owned mini keeps compile admission's DerivedData (owned_build_state.py),
@@ -49,8 +51,14 @@ logs) and fits tiers, each a p50/p90 compile time:
 It also fits the start classes the picker can see before the job starts
 (start_classes: a kept build of the same merge base, of the same pull
 request, or anything else, by the pull request's own tier) and job lengths
-per glaeda job class (job_seconds) for the picker's wait estimate. The model
-is scripts/ci/warm-distance-model.json; refit with
+per glaeda job class (job_seconds) for the picker's wait estimate, and each
+tier's p50 per start kind (tiers_by_start, with counts): a near compile from
+a kept build costs about 90 s, one from a seed about 155 s. predict() uses a
+start's cell once it has MIN_START_ROWS compiles, else the tier, and so does
+glaeda's hook for a root's kept build. `refit` refits only the tiers and
+cells from recent admissions, `backtest` replays them in time order, and
+warm_model_refit.py runs both daily and proposes a drifted model as a pull
+request. The model is scripts/ci/warm-distance-model.json; refit all of it with
 
     python3 scripts/ci/warm_distance.py collect cmux14 cmux8s-mac-mini ... > data.jsonl
     python3 scripts/ci/warm_distance.py fit data.jsonl --out scripts/ci/warm-distance-model.json
@@ -60,7 +68,9 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import fcntl
+import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -91,6 +101,8 @@ INTERFACE_LINE = re.compile(
 # xcodebuild escapes the space after "Compiling" ("Compiling\\ A.swift /abs/A.swift (in target 'cmux' ...)").
 SWIFT_COMPILE = re.compile(r"^SwiftCompile \S+ \S+ Compiling\\? (.*?) \(in target '([^']*)'")
 TIERS = ("near", "far", "rebuild")
+# A (tier, start kind) cell of tiers_by_start predicts once it has this many compiles; glaeda's hook uses the same.
+MIN_START_ROWS = 5
 # Paths kept per record: enough for any near start, bounded for a far one.
 MAX_PATHS = 400
 
@@ -142,12 +154,30 @@ def load_model(path: Path | str | None = None) -> dict[str, Any]:
     return model if isinstance(model, dict) else {}
 
 
-def predict(feature: Mapping[str, Any], model: Mapping[str, Any]) -> tuple[str, float | None]:
-    """(tier, predicted compile seconds) for these distance features; None without a model."""
+def seconds_of(entry: Any) -> float | None:
+    """A fitted entry's p50, when it is a positive finite number."""
+    value = entry.get("p50") if isinstance(entry, Mapping) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        return None
+    return float(value)
+
+
+def tier_seconds(name: str, start: str | None, model: Mapping[str, Any]) -> float | None:
+    """The predicted compile of tier NAME from a START kind ('kept', 'seed', ...): the (tier, start) cell's
+    p50 once it has MIN_START_ROWS rows, else the tier's p50 (models before tiers_by_start have only that)."""
+    if start:
+        cells = (model.get("tiers_by_start") or {}).get(name)
+        entry = cells.get(start) if isinstance(cells, Mapping) else None
+        count = entry.get("n") if isinstance(entry, Mapping) else None
+        if isinstance(count, int) and count >= MIN_START_ROWS and seconds_of(entry) is not None:
+            return seconds_of(entry)
+    return seconds_of((model.get("tiers") or {}).get(name))
+
+
+def predict(feature: Mapping[str, Any], model: Mapping[str, Any], start: str | None = None) -> tuple[str, float | None]:
+    """(tier, predicted compile seconds) for these distance features from a START kind; None without a model."""
     name = tier(feature, model)
-    entry = (model.get("tiers") or {}).get(name) or {}
-    seconds = entry.get("p50")
-    return name, float(seconds) if isinstance(seconds, (int, float)) else None
+    return name, tier_seconds(name, start, model)
 
 
 def start_class_seconds(start: str, job_tier: str, model: Mapping[str, Any]) -> float | None:
@@ -373,7 +403,7 @@ def admission(store: Path, env: Mapping[str, str], workspace: Path, now: Callabl
     with contextlib.suppress(OSError, ValueError):
         metrics = json.loads(Path(env.get("METRICS") or "/nonexistent").read_text())
     compiled = env.get("COMPILE_OUTCOME") == "success"
-    predicted = predict(distance, model) if distance else (None, None)
+    predicted = predict(distance, model, start["kind"]) if distance else (None, None)
     record = {
         "schema": "cmux-warm-admission/v1",
         "at": now().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -584,7 +614,25 @@ def cell(values: Sequence[float], rebuilt: Sequence[bool] = ()) -> dict[str, Any
     return entry
 
 
+def from_dash(row: Mapping[str, Any]) -> dict[str, Any]:
+    """An admission line as ci-dash keeps it (cmuxterm-hq build-fleet/ci-dash, `estimates.jsonl`: the probe's
+    cut of this file's record, no paths) in this file's schema. Its hot files are only a count: the tier
+    they gave under the model it was recorded with."""
+    distance = None
+    if row.get("files") is not None:
+        distance = {"app_swift_files": row.get("files"), "package_swift_files": row.get("pkg"),
+                    "package_interface": row.get("iface"), "hot_files": ["(recorded)"] * int(row.get("hot") or 0)}
+    compiled = row.get("outcome") in (None, "success")
+    return {"schema": "cmux-warm-admission/v1", "at": row.get("at"), "run_id": row.get("run_id"),
+            "run_attempt": row.get("run_attempt"), "job": row.get("job"), "runner": row.get("runner"),
+            "root": row.get("root"), "pr": row.get("pr"), "start": {"kind": row.get("start") or "cold"},
+            "distance": distance, "tier": row.get("tier"), "predicted_seconds": row.get("pred"),
+            "compile_seconds": row.get("compile") if compiled else None, "compile_outcome": row.get("outcome"),
+            "app_rebuilt": row.get("rebuilt"), "model_fitted_at": row.get("fitted")}
+
+
 def read_rows(paths: Sequence[str]) -> list[dict[str, Any]]:
+    """Admission lines from files of this schema or ci-dash's (from_dash())."""
     rows = []
     for path in paths:
         with open(path) as handle:
@@ -592,7 +640,7 @@ def read_rows(paths: Sequence[str]) -> list[dict[str, Any]]:
                 with contextlib.suppress(ValueError):
                     row = json.loads(line)
                     if isinstance(row, dict):
-                        rows.append(row)
+                        rows.append(from_dash(row) if "compile" in row and "compile_seconds" not in row else row)
     return rows
 
 
@@ -713,6 +761,38 @@ def start_classes(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any],
     return classes
 
 
+def start_kind(row: Mapping[str, Any]) -> str:
+    """What the compile started from: 'kept' (this mini's kept build), 'seed', 'unknown' or 'cold'."""
+    return str((row.get("start") or {}).get("kind") or "cold")
+
+
+def row_tier(row: Mapping[str, Any], model: Mapping[str, Any]) -> str:
+    """The row's tier under MODEL's near threshold and hot files (not the list it was recorded under)."""
+    return tier(with_hot(row["distance"], model), model)
+
+
+def tier_cells(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> dict[str, Any]:
+    """The tiers (p50/p90 compile), tiers_by_start (the same per start kind, with counts; predict() uses a
+    cell from MIN_START_ROWS) and the misclassified share of usable ROWS, tiered by MODEL. p50s, so a few
+    hung or cache-missing compiles move nothing."""
+    by_tier: dict[str, list[Mapping[str, Any]]] = {name: [] for name in TIERS}
+    for row in rows:
+        by_tier[row_tier(row, model)].append(row)
+    tiers, by_start = {}, {}
+    for name, members in by_tier.items():
+        tiers[name] = cell([row["compile_seconds"] for row in members], [row["app_rebuilt"] for row in members])
+        kinds: dict[str, list[Mapping[str, Any]]] = {}
+        for row in members:
+            kinds.setdefault(start_kind(row), []).append(row)
+        by_start[name] = {kind: cell([row["compile_seconds"] for row in picked], [row["app_rebuilt"] for row in picked])
+                          for kind, picked in sorted(kinds.items())}
+    # A tier "misclassifies" an admission when it says rebuild and none happened, or the reverse.
+    wrong = sum(1 for name, members in by_tier.items() for row in members
+                if bool(row["app_rebuilt"]) != (name == "rebuild"))
+    return {"tiers": tiers, "tiers_by_start": by_start,
+            "misclassified": {"rows": wrong, "share": round(wrong / len(rows), 3) if rows else None}}
+
+
 def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[Mapping[str, Any]] = (),
         near: int = NEAR_APP_SWIFT_FILES, hot_floor: Sequence[str] = DEFAULT_HOT_FILES,
         repo: Path | None = None) -> dict[str, Any]:
@@ -720,19 +800,7 @@ def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[M
     hot = learn_hot_files(rows, hot_floor)
     model: dict[str, Any] = {"version": 1, "fitted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "rows": len(rows),
                              "near_app_swift_files": near, "hot_files": hot, "app_rebuild_units": APP_REBUILD_UNITS}
-    by_tier: dict[str, list[Mapping[str, Any]]] = {name: [] for name in TIERS}
-    for row in rows:
-        distance = dict(row["distance"])
-        distance["hot_files"] = sorted(set(distance.get("paths") or distance.get("hot_files") or []) & set(hot))
-        by_tier[tier(distance, model)].append(row)
-    tiers = {}
-    for name, members in by_tier.items():
-        tiers[name] = cell([row["compile_seconds"] for row in members], [row["app_rebuilt"] for row in members])
-    model["tiers"] = tiers
-    # A tier "misclassifies" an admission when it says rebuild and none happened, or the reverse.
-    wrong = sum(1 for name, members in by_tier.items() for row in members
-                if bool(row["app_rebuilt"]) != (name == "rebuild"))
-    model["misclassified"] = {"rows": wrong, "share": round(wrong / len(rows), 3) if rows else None}
+    model.update(tier_cells(rows, model))
     model["start_classes"] = start_classes(rows, model, repo)
     lengths: dict[str, list[float]] = {}
     for job in jobs:
@@ -740,6 +808,156 @@ def fit(rows: Sequence[Mapping[str, Any]], *, now: dt.datetime, jobs: Sequence[M
             lengths.setdefault(str(job["job"]), []).append(float(job["seconds"]))
     model["job_seconds"] = {name: cell(values) for name, values in sorted(lengths.items()) if len(values) >= 5}
     return model
+
+
+# Self-calibration --------------------------------------------------------------------------------------------
+#
+# `refit` is `fit` for the part of the model that drifts: the tier and (tier, start kind) p50s, refit from the
+# recent admissions under the committed model's near threshold and hot files. Everything else (hot files,
+# start_classes, job_seconds) needs the git history or glaeda's job log and stays as committed. It reports
+# drift: a p50 at least DRIFT_MIN_ROWS rows back that moved more than DRIFT_SHARE from what the committed model
+# predicts for it; scripts/ci/warm_model_refit.py opens a pull request only then.
+
+REFIT_DAYS = 14
+DRIFT_SHARE = 0.2
+DRIFT_MIN_ROWS = 20
+# A compile outside this range is a broken record, not a slow or fast build.
+PLAUSIBLE_SECONDS = (5.0, 7200.0)
+
+
+def dedupe(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Each admission once (a root's old log, the rotated copy and the collect of two aliases may repeat it),
+    oldest first; rows without a time go last."""
+    seen: dict[tuple, dict[str, Any]] = {}
+    for row in rows:
+        key = (row.get("runner"), row.get("run_id"), row.get("run_attempt"), row.get("job"), row.get("at"))
+        seen.setdefault(key, dict(row))
+    far = dt.datetime.max.replace(tzinfo=dt.timezone.utc)
+    return sorted(seen.values(), key=lambda row: parse_at(row) or far)
+
+
+def calibration_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    low, high = PLAUSIBLE_SECONDS
+    return [row for row in dedupe(rows) if usable(row) and parse_at(row) and low <= row["compile_seconds"] <= high]
+
+
+def refit(rows: Iterable[Mapping[str, Any]], model: Mapping[str, Any], *, now: dt.datetime,
+          days: float | None = REFIT_DAYS) -> dict[str, Any]:
+    """MODEL with its tiers and tiers_by_start refit from ROWS of the last DAYS. A tier with fewer than
+    MIN_START_ROWS rows keeps the committed entry."""
+    recent = calibration_rows(rows)
+    if days is not None:
+        recent = [row for row in recent if parse_at(row) >= now - dt.timedelta(days=days)]
+    fitted = tier_cells(recent, model)
+    new = dict(model)
+    new["tiers"] = {name: (entry if entry["n"] >= MIN_START_ROWS or name not in (model.get("tiers") or {})
+                           else model["tiers"][name])
+                    for name, entry in fitted["tiers"].items()}
+    new["tiers_by_start"] = fitted["tiers_by_start"]
+    new["misclassified"] = fitted["misclassified"]
+    new["rows"] = len(recent)
+    new["fitted_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    new["calibrated"] = {"days": days, "rows": len(recent),
+                         "from": recent[0]["at"] if recent else None, "to": recent[-1]["at"] if recent else None}
+    return new
+
+
+def drift(old: Mapping[str, Any], new: Mapping[str, Any], *, share: float = DRIFT_SHARE,
+          min_rows: int = DRIFT_MIN_ROWS) -> list[dict[str, Any]]:
+    """The p50s of NEW (a tier, or a tier from a start kind) with MIN_ROWS rows that moved more than SHARE
+    from what OLD predicts for the same compiles."""
+    moved = []
+    for name in TIERS:
+        places: list[tuple[str | None, Any]] = [(None, (new.get("tiers") or {}).get(name))]
+        places += sorted(((new.get("tiers_by_start") or {}).get(name) or {}).items())
+        for start, entry in places:
+            after, count = seconds_of(entry), (entry or {}).get("n") or 0
+            before = tier_seconds(name, start, old)
+            if after is None or before is None or count < min_rows:
+                continue
+            change = after / before - 1
+            if abs(change) > share:
+                moved.append({"tier": name, "start": start, "n": count, "before": round(before, 1),
+                              "after": round(after, 1), "change": round(change, 3)})
+    return moved
+
+
+def errors(pairs: Sequence[tuple[float, float]]) -> dict[str, Any]:
+    """[(predicted, actual)] -> n, median absolute error, bias (median actual - predicted) and the share
+    within 25% of the prediction."""
+    if not pairs:
+        return {"n": 0}
+    return {"n": len(pairs), "mae": round(statistics.median(abs(a - p) for p, a in pairs), 1),
+            "bias": round(statistics.median(a - p for p, a in pairs), 1),
+            "within25": round(sum(1 for p, a in pairs if abs(a - p) <= 0.25 * p) / len(pairs), 3)}
+
+
+def backtest(rows: Iterable[Mapping[str, Any]], model: Mapping[str, Any], *,
+             every: dt.timedelta | None = None, days: float | None = REFIT_DAYS) -> list[dict[str, Any]]:
+    """Time-ordered replay: each usable admission's compile as MODEL predicts it (tier p50s only, as
+    committed) and as a self-calibrated model would have: refit() from the admissions before it (EVERY:
+    only those before the last refit, one every EVERY from midnight UTC), its cell once MIN_START_ROWS.
+    Each result: tier, start, actual, model, calibrated."""
+    ordered = calibration_rows(rows)
+    static = {key: value for key, value in model.items() if key != "tiers_by_start"}
+    out, cache = [], {}
+    for index, row in enumerate(ordered):
+        at = parse_at(row)
+        if every:
+            midnight = at.replace(hour=0, minute=0, second=0, microsecond=0)
+            cut = midnight + every * ((at - midnight) // every)
+        else:
+            cut = at
+        if cut not in cache:
+            earlier = [other for other in ordered[:index] if parse_at(other) < cut]
+            cache[cut] = refit(earlier, static, now=cut, days=days)
+        name = row_tier(row, static)
+        out.append({"tier": name, "start": start_kind(row), "actual": row["compile_seconds"],
+                    "model": tier_seconds(name, None, static),
+                    "calibrated": tier_seconds(name, start_kind(row), cache[cut])})
+    return out
+
+
+def backtest_table(results: Sequence[Mapping[str, Any]], label: str = "self-calibrated") -> str:
+    lines = [f"| compiles | n | model MAE s | model bias s | model within 25% | {label} MAE s | bias s | within 25% |",
+             "|---|---|---|---|---|---|---|---|"]
+    groups: list[tuple[str, list[Mapping[str, Any]]]] = [("all", list(results))]
+    groups += [(f"tier {name}", [r for r in results if r["tier"] == name]) for name in TIERS]
+    groups += [(f"start {kind}", [r for r in results if r["start"] == kind])
+               for kind in sorted({r["start"] for r in results})]
+    groups += [(f"{name} from {kind}", [r for r in results if r["tier"] == name and r["start"] == kind])
+               for name in TIERS for kind in sorted({r["start"] for r in results})]
+    for title, members in groups:
+        if not members:
+            continue
+        before = errors([(r["model"], r["actual"]) for r in members if r["model"]])
+        after = errors([(r["calibrated"], r["actual"]) for r in members if r["calibrated"]])
+        lines.append(f"| {title} | {len(members)} | {before.get('mae')} | {before.get('bias')} | "
+                     f"{pct(before.get('within25'))} | {after.get('mae')} | {after.get('bias')} | {pct(after.get('within25'))} |")
+    return "\n".join(lines)
+
+
+def pct(share: float | None) -> str:
+    return "" if share is None else f"{round(100 * share)}%"
+
+
+def drift_table(moved: Sequence[Mapping[str, Any]]) -> str:
+    lines = ["| tier | start | n | committed s | refit s | change |", "|---|---|---|---|---|---|"]
+    lines += [f"| {m['tier']} | {m['start'] or 'any'} | {m['n']} | {m['before']} | {m['after']} | "
+              f"{m['change']:+.0%} |" for m in moved]
+    return "\n".join(lines)
+
+
+def cells_table(model: Mapping[str, Any]) -> str:
+    lines = ["| tier | start | n | p50 s | p90 s | app rebuilt |", "|---|---|---|---|---|---|"]
+    for name in TIERS:
+        entry = (model.get("tiers") or {}).get(name) or {}
+        lines.append(f"| {name} | any | {entry.get('n')} | {entry.get('p50')} | {entry.get('p90')} | {entry.get('rebuilt')} |")
+        for kind, cell_entry in sorted(((model.get("tiers_by_start") or {}).get(name) or {}).items()):
+            used = "" if (cell_entry.get("n") or 0) >= MIN_START_ROWS else " (tier used)"
+            lines.append(f"| {name} | {kind}{used} | {cell_entry.get('n')} | {cell_entry.get('p50')} | "
+                         f"{cell_entry.get('p90')} | {cell_entry.get('rebuilt')} |")
+    return "\n".join(lines)
 
 
 def table(model: Mapping[str, Any]) -> str:
@@ -782,19 +1000,34 @@ def evaluate(rows: Sequence[Mapping[str, Any]], model: Mapping[str, Any]) -> str
     return "\n".join(lines)
 
 
-def collect(hosts: Sequence[str]) -> int:
+def collect(hosts: Sequence[str], out: Any = None) -> int:
+    """Every HOST's admission logs (root 1's, its rotated copy, and any root's own), over SSH, to OUT."""
+    out = out or sys.stdout
     for host in hosts:
         try:
-            out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-                                  f"cat /Users/Shared/cmux-build-fleet/ci/{LOG_NAME}.1 "
-                                  f"/Users/Shared/cmux-build-fleet/ci/{LOG_NAME} "
-                                  f"/Users/Shared/cmux-build-fleet/ci/cmux-ci-*/{LOG_NAME} 2>/dev/null; true"],
+            text = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+                                  # find, not a glob: the minis' login shell is zsh, whose unmatched glob
+                                  # (no cmux-ci-*/ log) failed the whole command and read nothing.
+                                  "find /Users/Shared/cmux-build-fleet/ci -maxdepth 2 -type f "
+                                  f"\\( -name {LOG_NAME} -o -name {LOG_NAME}.1 \\) -exec cat {{}} + 2>/dev/null; true"],
                                  capture_output=True, text=True, timeout=120).stdout
         except (OSError, subprocess.SubprocessError) as error:
             print(f"{host}: {error}", file=sys.stderr)
             continue
-        sys.stdout.write(out)
+        out.write(text)
     return 0
+
+
+def collect_rows(hosts: Sequence[str]) -> list[dict[str, Any]]:
+    buffer = io.StringIO()
+    collect(hosts, buffer)
+    rows = []
+    for line in buffer.getvalue().splitlines():
+        with contextlib.suppress(ValueError):
+            row = json.loads(line)
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
 
 
 def main(argv: Sequence[str]) -> int:
@@ -826,6 +1059,25 @@ def main(argv: Sequence[str]) -> int:
         print(table(model))
         if out:
             Path(out).write_text(json.dumps(model, indent=2, sort_keys=True) + "\n")
+        return 0
+    if len(argv) >= 3 and argv[1] in ("refit", "backtest"):
+        args = list(argv[2:])
+        option = lambda name: args.pop(args.index(name) + 1) if name in args and args.index(name) + 1 < len(args) else None  # noqa: E731
+        out, model_path, days, every = option("--out"), option("--model"), option("--days"), option("--every-hours")
+        args = [arg for arg in args if arg not in ("--out", "--model", "--days", "--every-hours")]
+        model, rows = load_model(model_path), read_rows(args)
+        days_value = float(days) if days else REFIT_DAYS
+        if argv[1] == "backtest":
+            step = dt.timedelta(hours=float(every)) if every else None
+            print(backtest_table(backtest(rows, model, every=step, days=days_value)))
+            return 0
+        new = refit(rows, model, now=now(), days=days_value)
+        moved = drift(model, new)
+        print(cells_table(new))
+        print("")
+        print(drift_table(moved) if moved else "No drift: every p50 is within 20% of the committed model's.")
+        if out:
+            Path(out).write_text(json.dumps(new, indent=2, sort_keys=True) + "\n")
         return 0
     if len(argv) >= 3 and argv[1] == "collect":
         return collect(argv[2:])

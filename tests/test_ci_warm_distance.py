@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 import owned_build_state as state  # noqa: E402
 import warm_distance as wd  # noqa: E402
+import warm_model_refit as refit_job  # noqa: E402
 import git_fixture_env  # noqa: E402,F401  (disables git auto maintenance)
 
 NOW = dt.datetime(2026, 9, 26, 3, 0, tzinfo=dt.timezone.utc)
@@ -197,7 +198,8 @@ class Admission(unittest.TestCase):
                    "OWNED_ADOPT_HIT": "true", "KEPT": "true", "COMPILE_OUTCOME": "success", "METRICS": str(metrics),
                    "BUILD_LOGS": str(logs), "RUNNER_NAME": "cmux14-glaeda-1", "GITHUB_RUN_ID": "1",
                    "ADMISSION_RUNNER": json.dumps([ROOT_LABEL, label("cmux14-glaeda-1")])}
-            with unittest.mock.patch.object(wd, "load_model", return_value=MODEL):
+            model = {**MODEL, "tiers_by_start": {"rebuild": {"kept": {"n": 5, "p50": 350.0}}}}
+            with unittest.mock.patch.object(wd, "load_model", return_value=model):
                 record = wd.admission(store, env, repo, lambda: NOW)
             line = json.loads((store / wd.LOG_NAME).read_text().splitlines()[-1])
             self.assertEqual(line, json.loads(json.dumps(record)))
@@ -206,7 +208,8 @@ class Admission(unittest.TestCase):
             self.assertEqual((distance["app_swift_files"], distance["package_swift_files"]), (2, 1))
             self.assertIs(distance["package_interface"], True)
             self.assertEqual((distance["same_base"], distance["same_pr"]), (True, False))
-            self.assertEqual((record["tier"], record["predicted_seconds"]), ("rebuild", 400.0))
+            # A kept start costs the (rebuild, kept) cell, not the tier.
+            self.assertEqual((record["tier"], record["predicted_seconds"]), ("rebuild", 350.0))
             self.assertEqual((record["swift_units_total"], record["app_rebuilt"], record["compile_seconds"]),
                              (1200, True, 401.5))
             self.assertEqual(record["own"]["app_swift_files"], 2)
@@ -290,11 +293,11 @@ class Routing(unittest.TestCase):
 
 
 def row(files: int, seconds: float, rebuilt: bool, *, package: bool = False, paths=(), at="2026-09-25T13:00:00Z",
-        **extra) -> dict:
+        kept: bool = False, **extra) -> dict:
     distance = {"app_swift_files": files, "package_swift_files": 1 if package else 0, "package_interface": package,
                 "hot_files": [], "paths": list(paths)}
     return {"distance": distance, "compile_seconds": seconds, "app_rebuilt": rebuilt, "at": at,
-            "start": {"kind": "seed"}, "own": {"app_swift_files": files, "package_swift_files": 0,
+            "start": {"kind": "kept" if kept else "seed"}, "own": {"app_swift_files": files, "package_swift_files": 0,
                                                "package_interface": False, "hot_files": []}, **extra}
 
 
@@ -319,12 +322,168 @@ class Fit(unittest.TestCase):
         self.assertIn("| near | 6 |", wd.table(model))
         self.assertIn("| near |", wd.evaluate(rows, model))
 
+    def test_tiers_by_start_count_every_cell_and_ignore_outliers(self):
+        rows = [row(2, 100 + i, False, kept=True) for i in range(6)] + [row(2, 3000, False, kept=True)]
+        rows += [row(2, 220 + i, False) for i in range(3)]
+        model = wd.fit(rows, now=NOW)
+        cells = model["tiers_by_start"]["near"]
+        self.assertEqual((cells["kept"]["n"], cells["seed"]["n"]), (7, 3))
+        # A hung 3,000 s compile moves the p50 by one rank, not the estimate.
+        self.assertEqual(cells["kept"]["p50"], 103)
+        self.assertEqual(cells["seed"]["p50"], 221)
+        self.assertEqual(model["tiers"]["near"]["n"], 10)
+        self.assertIn("near", wd.cells_table(model))
+
+    def test_predict_uses_a_cell_from_five_rows_and_the_tier_below(self):
+        model = {"tiers": {"near": {"p50": 140.0}, "far": {"p50": 270.0}, "rebuild": {"p50": 400.0}},
+                 "tiers_by_start": {"near": {"kept": {"n": 5, "p50": 95.0}, "seed": {"n": 4, "p50": 230.0},
+                                             "unknown": {"n": 9, "p50": -1}, "cold": {"n": 9, "p50": True}}}}
+        near = {"app_swift_files": 1}
+        self.assertEqual(wd.predict(near, model, "kept"), ("near", 95.0))
+        self.assertEqual(wd.predict(near, model, "seed"), ("near", 140.0))  # sparse: the tier
+        self.assertEqual(wd.predict(near, model, "unknown"), ("near", 140.0))  # not a duration
+        self.assertEqual(wd.predict(near, model, "cold"), ("near", 140.0))
+        self.assertEqual(wd.predict(near, model), ("near", 140.0))
+        self.assertEqual(wd.predict({"app_swift_files": 9}, model, "kept"), ("far", 270.0))  # no far cells
+        # A model from before tiers_by_start predicts as it did.
+        self.assertEqual(wd.predict(near, MODEL, "kept"), ("near", 140.0))
+        self.assertEqual(wd.predict(near, {}, "kept"), ("near", None))
+
+
     def test_the_committed_model_reads(self):
         model = wd.load_model()
         self.assertEqual(set(model["tiers"]), set(wd.TIERS))
         for name in ("base", "pr", "none"):
             self.assertIn(name, model["start_classes"])
         self.assertIsNotNone(wd.predict({"app_swift_files": 1}, model)[1])
+        self.assertLessEqual(wd.predict({"app_swift_files": 1}, model, "kept")[1], wd.predict({"app_swift_files": 1}, model)[1])
+        for cells in model["tiers_by_start"].values():
+            for entry in cells.values():
+                self.assertGreater(entry["n"], 0)
+
+
+class Refit(unittest.TestCase):
+    def rows(self):
+        at = lambda i: (NOW - dt.timedelta(hours=100 - i)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+        rows = [row(1, 90 + i % 5, False, kept=True, at=at(i), run_id=str(i)) for i in range(0, 60, 2)]
+        rows += [row(1, 230 + i % 5, False, at=at(i), run_id=str(i)) for i in range(1, 60, 2)]
+        return rows
+
+    def test_refit_moves_the_drifting_parts_only(self):
+        rows = self.rows() + [row(1, 99999, False, at="2026-09-25T00:00:00Z")]  # implausible
+        rows += [dict(rows[0])]  # the same admission read twice
+        old = {**MODEL, "tiers": {**MODEL["tiers"], "far": {"p50": 270.0, "n": 40}}}
+        new = wd.refit(rows, old, now=NOW)
+        self.assertEqual(new["rows"], 60)
+        self.assertEqual(new["tiers_by_start"]["near"]["kept"]["n"], 30)
+        self.assertEqual(new["tiers_by_start"]["near"]["kept"]["p50"], 92)
+        self.assertEqual(new["tiers"]["far"], {"p50": 270.0, "n": 40})  # no far rows: kept as committed
+        for key in ("hot_files", "start_classes", "job_seconds", "near_app_swift_files"):
+            self.assertEqual(new[key], old[key])
+        self.assertEqual(wd.predict({"app_swift_files": 1}, new, "kept")[1], 92)
+        # Only the window counts.
+        self.assertEqual(wd.refit(rows, old, now=NOW, days=1)["rows"], 0)
+
+    def test_drift_needs_twenty_rows_and_a_fifth(self):
+        new = wd.refit(self.rows(), MODEL, now=NOW)
+        moved = {(m["tier"], m["start"]): m for m in wd.drift(MODEL, new)}
+        self.assertEqual(set(moved), {("near", None), ("near", "kept"), ("near", "seed")})
+        self.assertEqual(moved[("near", "kept")]["before"], 140.0)
+        self.assertLess(moved[("near", "kept")]["change"], -0.2)
+        self.assertEqual(wd.drift(new, new), [])
+        few = self.rows()[:9] + self.rows()[30:39]  # 18 near compiles, 9 a cell
+        self.assertEqual(wd.drift(MODEL, wd.refit(few, MODEL, now=NOW)), [])
+        self.assertIn("| near | kept |", wd.drift_table(list(moved.values())))
+
+    def test_backtest_replays_in_time_order(self):
+        results = wd.backtest(list(reversed(self.rows())), MODEL)
+        kept = [r for r in results if r["start"] == "kept"]
+        self.assertTrue(all(r["model"] == 140.0 for r in results))
+        # The committed tier until five earlier near compiles, then the refit tier, then the kept cell.
+        self.assertEqual([r["calibrated"] for r in kept[:3]], [140.0] * 3)
+        self.assertNotIn(kept[4]["calibrated"], (140.0, 92))
+        self.assertEqual(kept[5]["calibrated"], 92)
+        daily = wd.backtest(self.rows(), MODEL, every=dt.timedelta(hours=24))
+        first_day = [r for r, source in zip(daily, self.rows()) if source["at"] < "2026-09-22T00"]
+        self.assertTrue(first_day and all(r["calibrated"] == 140.0 for r in first_day))
+        table = wd.backtest_table(results)
+        self.assertIn("| near from kept | 30 |", table)
+        self.assertEqual(wd.errors([(100.0, 120.0), (100.0, 90.0), (100.0, 200.0)]),
+                         {"n": 3, "mae": 20.0, "bias": 20.0, "within25": 0.667})
+
+    def test_ci_dash_lines_read_as_admissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "estimates.jsonl"
+            path.write_text("\n".join(json.dumps(line) for line in [
+                {"at": "2026-09-26T01:00:00Z", "runner": "r", "run_id": 1, "start": "kept", "files": 2, "pkg": 0,
+                 "iface": False, "hot": 1, "compile": 300.0, "rebuilt": True, "outcome": "success", "tier": "rebuild"},
+                {"at": "2026-09-26T02:00:00Z", "start": "seed", "files": 1, "pkg": 0, "iface": False, "hot": 0,
+                 "compile": 50.0, "rebuilt": False, "outcome": "failure"}]) + "\nnot json\n")
+            first, failed = wd.read_rows([str(path)])
+        self.assertTrue(wd.usable(first))
+        self.assertEqual((wd.row_tier(first, MODEL), wd.start_kind(first)), ("rebuild", "kept"))  # its hot count
+        self.assertFalse(wd.usable(failed))
+
+    def test_collect_reads_every_log_without_a_glob(self):
+        with unittest.mock.patch.object(wd.subprocess, "run") as run:
+            run.return_value.stdout = json.dumps({"at": "x"}) + "\n"
+            self.assertEqual(wd.collect_rows(["cmux14"]), [{"at": "x"}])
+        command = run.call_args[0][0][-1]
+        self.assertTrue(command.startswith("find /Users/Shared/cmux-build-fleet/ci -maxdepth 2"))
+        self.assertNotIn("*", command)
+
+
+class RefitJob(unittest.TestCase):
+    def run_job(self, rows, *extra):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        data, out = Path(tmp.name) / "rows.jsonl", Path(tmp.name) / "out"
+        data.write_text("".join(json.dumps(line) + "\n" for line in rows))
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(refit_job.main(["--rows", str(data), "--out", str(out), "--days", "3650", *extra]), 0)
+        return out
+
+    def test_no_drift_writes_only_the_status(self):
+        model = wd.load_model()
+        cell = model["tiers_by_start"]["rebuild"]["kept"]["p50"]
+        at = lambda i: f"2026-09-26T{i % 24:02d}:{i % 60:02d}:00Z"  # noqa: E731
+        rows = [{**row(1, cell, True, package=True, kept=True, at=at(i), run_id=str(i))} for i in range(25)]
+        out = self.run_job(rows)
+        self.assertEqual(sorted(path.name for path in out.iterdir()), ["status.json"])
+        self.assertEqual(json.loads((out / "status.json").read_text())["drift"], [])
+
+    def test_drift_writes_a_patch_and_summary_and_touches_only_its_branch(self):
+        rows = [row(1, 20.0 + i % 3, False, kept=True, at=f"2026-09-26T{i % 24:02d}:{i:02d}:00Z", run_id=str(i))
+                for i in range(40)]
+        out = self.run_job(rows)
+        status = json.loads((out / "status.json").read_text())
+        self.assertIn({"tier": "near", "start": "kept"}, [{k: m[k] for k in ("tier", "start")} for m in status["drift"]])
+        self.assertIsNone(status["pull_request"])
+        self.assertTrue((out / "refit.patch").read_text().startswith(f"--- a/{refit_job.MODEL_FILE}"))
+        self.assertIn("### Replay", (out / "summary.md").read_text())
+        subprocess.run(["git", "-C", str(ROOT), "apply", "--check", str(out / "refit.patch")], check=True)
+        calls = []
+
+        def call(token, method, path, body=None):
+            calls.append((method, path, body))
+            if path.endswith("/git/ref/heads/ci/warm-model-refit"):
+                return {"object": {"sha": "old"}}
+            if "/contents/" in path and method == "GET":
+                return {"sha": "blob"}
+            if "/pulls?" in path:
+                return []
+            return {"html_url": "https://github.com/manaflow-ai/cmux/pull/1"}
+
+        with unittest.mock.patch.object(refit_job, "call", side_effect=call):
+            url = refit_job.open_pull_request("t", "a" * 40, "{}\n", "body")
+        self.assertEqual(url, "https://github.com/manaflow-ai/cmux/pull/1")
+        writes = [(method, path, body) for method, path, body in calls if method != "GET"]
+        self.assertEqual(writes[0][:2], ("PATCH", "/repos/manaflow-ai/cmux/git/refs/heads/ci/warm-model-refit"))
+        self.assertEqual(writes[1][2]["branch"], "ci/warm-model-refit")
+        self.assertEqual(writes[2][2]["base"], "main")
+        self.assertFalse(any("heads/main" in path for _, path, _ in calls))
+        with unittest.mock.patch.object(refit_job, "REFIT_BRANCH", "main"), self.assertRaises(RuntimeError):
+            refit_job.open_pull_request("t", "a" * 40, "{}", "body")
 
 
 if __name__ == "__main__":
