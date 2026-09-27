@@ -93,6 +93,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
@@ -499,6 +500,7 @@ extension Array where Element == CuratedSettingEntry {
                 ].joined(separator: " ")
             ),
             .init(section: .keyboardShortcuts, id: "modifier-hold-hints", title: String(localized: "settings.shortcuts.showModifierHoldHints", defaultValue: "Show Shortcut Hints While Holding Modifier Keys"), synonyms: "Show Shortcut Hints While Holding Modifier Keys shortcuts.showModifierHoldHints shortcut hints hotkey hints command cmd modifier hold chips badges"),
+            .init(section: .keyboardShortcuts, id: "base-keymap", title: String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"), synonyms: "Base Keymap preset keybindings iterm iterm2 terminal app terminal.app tmux prefix ctrl-b coming from switch shortcuts macos conflicts"),
             .init(section: .keyboardShortcuts, id: "shortcut-chords", title: String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), synonyms: "Shortcut Chords tmux prefix ctrl-b control-b multi key sequence chord cmux json"),
             .init(section: .keyboardShortcuts, id: "reset-defaults", title: String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), synonyms: "Reset Default Shortcuts reset restore default defaults built in builtin shortcuts hotkeys keybindings commands"),
 
@@ -523,7 +525,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ]
+        ] + terminalGhosttyOptionEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {

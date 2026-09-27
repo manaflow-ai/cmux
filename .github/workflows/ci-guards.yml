@@ -295,6 +295,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 scripts/generate-cmux-config-schema.py --check
 
+      - name: Validate embedded cmux.json schema round trip
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_config_schema_embed.py
+
       - name: Set up Bun for guard tests
         if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

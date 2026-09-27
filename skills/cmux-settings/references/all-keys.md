@@ -39,6 +39,7 @@ General app preferences from Settings > App.
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
+| `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 
 ## terminal

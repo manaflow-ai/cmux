@@ -53,11 +53,14 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
-A refused job never goes back to the fleet: every runs-on sends a job's
-attempt 2 and later to retry_runner (Blacksmith), so the re-run of failed
-jobs cannot land on the mini that refused it, and one re-run is all a refusal
-costs. (Before 2026-09-27, attempt 2 tried the owned pool once more and could
-be refused again, by the same mini.) So the watch ends with that re-run.
+A refused job never goes back to the fleet: this rescue re-runs as
+github-actions[bot], and every runs-on sends the bot's re-run to retry_runner
+(Blacksmith), so it cannot land on the mini that refused it, and one re-run
+is all a refusal costs. So the watch ends with that re-run. A person's re-run
+of a pull request (a code failure) goes back to the minis on any attempt with
+no marker of its own; the sweeper finds it among the in-progress CI runs
+(person_reruns()) and watches it like attempt 1, and a job stuck or refused
+there gets the bot's re-run onto Blacksmith.
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -66,7 +69,12 @@ is no head to re-check, and its build and test jobs are not a split that can
 break: from attempt 2 on both take the runner job's retry_label, a macOS 26
 Blacksmith pool on the same Xcode build. So a stuck or refused E2E job gets
 its failed and cancelled jobs re-run, keeping a build that passed, and the
-follow-on watch of attempt 2 finds no owned job and stops. When the build
+follow-on watch of attempt 2 finds no owned job and stops. A UI run's
+retry_label stays on its owned pool, since Blacksmith cannot run UI tests
+(e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
+no attempt past 2 is watched, so it still never loops. A queued UI run
+moved that way only rejoins the same owned queue, costing its place in it;
+the watch stays for the refusals, which a re-run does clear. When the build
 itself did not succeed, every job is re-run instead, so the `sibling` job
 looks again for another run compiling the same revision
 (e2e_build_unfinished). A stuck E2E run
@@ -296,10 +304,21 @@ RERUN_MARGIN_SECONDS = 60
 # costs far less than a refusal's rescue round trip and a Blacksmith re-run
 # (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
 REFUSAL_SECONDS = 360
-# The last attempt that may run on an owned pool: a stuck run's full re-run
-# on the light tier (CI_OWNED_LIGHT_RETRY). A re-run of failed jobs never
-# takes one (see the module docstring).
+# The last attempt of the bot's own re-runs that may run on an owned pool: a
+# stuck run's full re-run on the light tier (CI_OWNED_LIGHT_RETRY). A person's
+# re-run of a pull request (a code failure: pr_runner_pool.host_fault_retry())
+# goes back to the minis on any attempt and is watched whatever its attempt
+# (person_rerun()); the rescue's re-run of it is the bot's, on Blacksmith.
 LAST_OWNED_ATTEMPT = 2
+RESCUE_ACTOR = "github-actions[bot]"
+
+
+def person_rerun(run: Mapping[str, Any]) -> bool:
+    """A re-run of a pull request's CI run someone other than github-actions[bot] started: its owned jobs go
+    back to the minis, so it is watched like attempt 1."""
+    return (int(run.get("run_attempt") or 0) > 1 and run.get("path") == CI_WORKFLOW_PATH
+            and run.get("event") == "pull_request"
+            and str((run.get("triggering_actor") or {}).get("login") or "") != RESCUE_ACTOR)
 # The runner's own steps, which run before glaeda's hook decides.
 SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 MAX_JOB_PAGES = 3
@@ -497,18 +516,46 @@ class GitHub:
     remaining = ""  # the token's requests left this hour, from the last response
     limit = ""  # and its hourly limit
 
-    def marked_runs(self, name: str, count: int) -> list[tuple[int, dt.datetime | None]]:
-        """Runs with an artifact named `name`, newest first, with when each was uploaded (sweep())."""
-        data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}")
+    def marked_runs(self, name: str, count: int, oldest: dt.datetime | None = None, pages: int = 1,
+                    log: Callable[[str], None] = lambda message: None) -> list[tuple[int, dt.datetime | None]]:
+        """Runs with an artifact named `name`, by artifact id, newest first, with when each was uploaded (sweep()).
+
+        Reads up to `pages` pages of `count`, stopping at a short page or at
+        one whose last marker is older than `oldest` by MARKER_ORDER_SKEW:
+        the listing is ordered by id, which trails upload time by up to that
+        much. A page that cannot be read ends the listing with what came
+        before it, unless it is the first.
+        """
         found = []
-        for item in (data or {}).get("artifacts") or []:
-            run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
-            if run_id:
-                found.append((run_id, parse_time(item.get("created_at"))))
+        for page in range(1, pages + 1):
+            try:
+                data = self.request("GET", f"/actions/artifacts?name={name}&per_page={count}&page={page}")
+            except READ_ERRORS:
+                if page == 1:
+                    raise
+                log(f"could not read page {page} of the {name} markers; using the first {page - 1}")
+                return found
+            items = (data or {}).get("artifacts") or []
+            for item in items:
+                run_id = int(((item or {}).get("workflow_run") or {}).get("id") or 0)
+                if run_id:
+                    found.append((run_id, parse_time(item.get("created_at"))))
+            last = parse_time(items[-1].get("created_at")) if items else None
+            if len(items) < count or oldest is None or last is None or last < oldest - MARKER_ORDER_SKEW:
+                return found
+        if oldest is not None:
+            log(f"read {pages} pages of {name} markers without reaching {oldest:%H:%M}; older ones wait for a later tick")
         return found
 
     def run(self, run_id: int) -> Mapping[str, Any]:
         return self.request("GET", f"/actions/runs/{run_id}")
+
+    def person_reruns(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of in-progress CI runs a person re-ran (person_rerun()): a re-run of failed jobs
+        uploads no marker."""
+        data = self.request("GET", f"/actions/workflows/ci.yml/runs?status=in_progress&per_page={count}")
+        return [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                if isinstance(run, Mapping) and run.get("id") and person_rerun(run)]
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
@@ -1087,9 +1134,17 @@ SWEEP_SECONDS = 5 * 60 * 60
 # finished (a refusal) during a handover is still inside it, so the next
 # sweeper re-runs it.
 SWEEP_MAX_AGE_SECONDS = E2E_WATCH_LIMIT_SECONDS
-# A marker listing covers this many runs, newest first: about two hours of
-# owned placements on 2026-09-25.
+# A marker listing page covers this many runs, newest first by artifact id.
+# One page held about two hours of owned placements on 2026-09-25 but only one
+# on 2026-09-27 (87 an hour), and an artifact's id trails its upload time by
+# up to 78 minutes (measured over 400 markers that day): six markers uploaded
+# 11:51 to 12:15 took ids among markers an hour older, never reached page
+# one, and two of their runs failed unrescued. So the sweeper pages back until
+# a page ends MARKER_ORDER_SKEW past SWEEP_MAX_AGE_SECONDS, at most
+# SWEEP_LISTING_PAGES.
 SWEEP_LISTING = 100
+SWEEP_LISTING_PAGES = 5
+MARKER_ORDER_SKEW = dt.timedelta(minutes=90)
 
 
 class Stopping(Aborted):
@@ -1110,7 +1165,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     (a stuck run's re-run under CI_OWNED_LIGHT_RETRY).
     """
     attempt = int(run.get("run_attempt") or 0)
-    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT:
+    if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not person_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
         if run.get("conclusion") != "failure":
@@ -1138,6 +1193,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     lock = threading.Lock()
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
+    rerun_seen: set[tuple[int, int]] = set()  # person re-runs, once per attempt (person_reruns())
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
@@ -1175,6 +1231,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             seen.discard(run_id)  # the next tick tries again
             log(f"[run {run_id}] could not read the run ({error})")
             return
+        rerun_seen.add((run_id, int(run.get("run_attempt") or 0)))
         full_rerun = False
         if light_retry and int(run.get("run_attempt") or 0) > 1:
             # A full re-run ran the picker again; a re-run of failed jobs kept attempt 1's.
@@ -1199,7 +1256,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         # The picker's marker first: a run with both is watched the ordinary way.
         for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
             try:
-                marked = client.marked_runs(name, SWEEP_LISTING)
+                marked = client.marked_runs(name, SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES, log=log)
             except READ_ERRORS as error:
                 log(f"could not list {name} markers ({error}); next tick")
                 continue
@@ -1207,6 +1264,15 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
+        # A person's re-run of failed jobs goes back to the minis with no marker of its own; one listing a tick.
+        try:
+            reruns = client.person_reruns(SWEEP_LISTING)
+        except READ_ERRORS as error:
+            log(f"could not list re-runs ({error}); next tick")
+            reruns = []
+        for run_id, attempt in reruns:
+            if (run_id, attempt) not in rerun_seen:
+                adopt(run_id, False)
         threads = [thread for thread in threads if thread.is_alive()]
         log(f"tick: {len(threads)} run(s) watched, {client.remaining or '?'} of "
             f"{client.limit or '?'} API requests left this hour")

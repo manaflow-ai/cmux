@@ -55,6 +55,8 @@ CHECK_INPUTS = {
                       "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
     "test-wiring-sync": ("scripts/sync-test-wiring", "scripts/sync_test_wiring.py", "scripts/lint-pbxproj-test-wiring.sh",
                          "scripts/normalize-pbxproj.py", "tests/fixtures/pbxproj-test-wiring/*"),
+    "wire-app-sources": ("scripts/wire-app-sources.py", "cmux.xcodeproj/project.pbxproj", "Sources/**/*.swift"),
+    "ui-lab": ("scripts/ui-lab/**", "tests/test_ui_lab.py"),
     "launch-policy": (
         "scripts/claude-launch-environment-policy.json",
         "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",

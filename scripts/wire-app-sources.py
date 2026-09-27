@@ -265,7 +265,24 @@ def main(argv: list[str] | None = None) -> int:
 
     pbxproj = args.root / PBXPROJ
     text = pbxproj.read_text()
-    targets = args.paths or unwired_sources(args.root, text)
+    if args.paths:
+        targets = []
+        sources_root = (args.root / "Sources").resolve()
+        for raw in args.paths:
+            path = (args.root / raw).resolve()
+            try:
+                rel = path.relative_to(args.root).as_posix()
+                path.relative_to(sources_root)
+            except ValueError:
+                parser.error(f"path must resolve under Sources/: {raw}")
+            if path.suffix != ".swift" or not path.is_file():
+                parser.error(f"path must be an existing .swift file: {raw}")
+            targets.append(rel)
+        if args.check:
+            wired = parse(text).wired_paths
+            targets = [rel for rel in targets if rel not in wired]
+    else:
+        targets = unwired_sources(args.root, text)
     if args.check:
         for rel in targets:
             print(f"unwired: {rel}", flush=True)
