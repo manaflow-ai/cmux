@@ -243,18 +243,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     }
 
     func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += settingsLaunchArguments
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
-        // Activate like the other Settings tests: a window left behind a
-        // background launch has no hit point for the scroll below.
-        launchAndActivate(app)
-        let window = app.windows[Self.settingsWindowIdentifier]
-        XCTAssertTrue(
-            poll(timeout: 8.0) { window.exists },
-            "Settings window did not open"
-        )
+        // Open Settings after launch activation, like the other tests: a
+        // window opened at launch ends up behind the main window, and its
+        // controls have no hit point.
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
         navigate(window, to: "Mobile")
 
         let forwarding = toggle(
