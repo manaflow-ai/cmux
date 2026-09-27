@@ -138,7 +138,8 @@ extension SettingsWindowRoot {
                 catalog: catalog,
                 errorLog: runtime.errorLog,
                 hostActions: hostActions,
-                defaultShortcutResolver: runtime.shortcutDefaultResolver
+                defaultShortcutResolver: runtime.shortcutDefaultResolver,
+                keymapProposals: runtime.keymapProposals
             )
         }
 

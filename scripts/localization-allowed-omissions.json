@@ -2491,6 +2491,18 @@
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "shortcut.keymap.preset.iterm2": {
+    "class": "brand",
+    "source": "iTerm2"
+  },
+  "shortcut.keymap.preset.terminal": {
+    "class": "brand",
+    "source": "Terminal.app"
+  },
+  "shortcut.keymap.summary.change": {
+    "class": "format",
+    "source": "%1$@: %2$@ → %3$@"
+  },
   "shortcut.recorder.pendingChord": {
     "class": "format",
     "source": "%@ …"
