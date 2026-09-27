@@ -1433,6 +1433,29 @@ final class WindowBrowserHostViewTests: XCTestCase {
         return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
     }
 
+    /// Leaves a hover event for another window as `NSApp.currentEvent`, the
+    /// state earlier suites leave behind when a real mouseEntered for one of
+    /// their windows was the last event AppKit dequeued.
+    private func leaveStaleHoverEventAsCurrentEvent(for window: NSWindow) {
+        guard let staleHover = NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            trackingNumber: 0,
+            userData: nil
+        ) else {
+            XCTFail("Failed to create a mouseEntered event")
+            return
+        }
+        NSApp.postEvent(staleHover, atStart: true)
+        _ = NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default, dequeue: true)
+        XCTAssertEqual(NSApp.currentEvent?.type, .mouseEntered)
+    }
+
     func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
         // The reported regression (#3193) was that the original window kept
         // working but later-created windows did not. Set up two windows and
@@ -1458,6 +1481,15 @@ final class WindowBrowserHostViewTests: XCTestCase {
               let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
             return
         }
+
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 64, y: 64, width: 200, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.orderOut(nil) }
+        leaveStaleHoverEventAsCurrentEvent(for: otherWindow)
 
         XCTAssertNil(
             firstFixture.host.hitTest(firstFixture.pointInHost),
