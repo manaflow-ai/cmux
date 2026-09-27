@@ -1995,7 +1995,7 @@ class WarmAffinity(unittest.TestCase):
                 unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
                 unittest.mock.patch.object(warm_distance, "load_model", return_value=ROUTE_MODEL), \
                 unittest.mock.patch.object(pool.GitHub, "get", return_value={"artifacts": []}), \
-                unittest.mock.patch.object(warm_distance, "fetch_bases"), \
+                unittest.mock.patch.object(warm_distance, "fetch_bases", return_value={}), \
                 unittest.mock.patch.object(warm_distance, "main_changes",
                                            side_effect=lambda _, old, new: (changes or {}).get(old)), \
                 unittest.mock.patch("sys.stdout", io.StringIO()):
