@@ -94,16 +94,28 @@ public struct SessionSnapshotFileLocation: Sendable, Equatable {
         return directory.appendingPathComponent("\(baseName).schema-v\(schemaVersion).json", isDirectory: false)
     }
 
-    func fileURL(bundleIdentifier: String?, suffix: String) -> URL {
+    /// `<appSupport>/cmux/`, the folder holding every install's snapshot
+    /// files and the shared `session-history/` archive.
+    public var cmuxDirectoryURL: URL {
+        appSupportDirectory.appendingPathComponent("cmux", isDirectory: true)
+    }
+
+    /// The file-name-safe form of `bundleIdentifier` used in snapshot and
+    /// history file names; nil or blank falls back to
+    /// ``stableBundleIdentifier``.
+    static func safeBundleIdentifier(_ bundleIdentifier: String?) -> String {
         let trimmed = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let bundleId = trimmed.isEmpty ? stableBundleIdentifier : bundleIdentifier!
-        let safeBundleId = bundleId.replacingOccurrences(
+        return bundleId.replacingOccurrences(
             of: "[^A-Za-z0-9._-]",
             with: "_",
             options: .regularExpression
         )
-        return appSupportDirectory
-            .appendingPathComponent("cmux", isDirectory: true)
+    }
+
+    func fileURL(bundleIdentifier: String?, suffix: String) -> URL {
+        let safeBundleId = Self.safeBundleIdentifier(bundleIdentifier)
+        return cmuxDirectoryURL
             .appendingPathComponent("session-\(safeBundleId)\(suffix).json", isDirectory: false)
     }
 }

@@ -104,6 +104,7 @@ Environment:
 | `new-window` | Create a new window. |
 | `focus-window` | Focus a window by handle. |
 | `close-window` | Close a window by handle. |
+| `resize-window` | Resize a window by handle, keeping its top-left corner fixed; prints the resulting frame size. With no `--width`/`--height`, reads the size without changing it. Does not steal focus. |
 | `window displays` | List connected displays (name, index, main flag). |
 | `window display <name\|index>` | Move the instance's window(s) onto a display by name (exact, substring) or index, preserving size. Does not steal focus. With `--window`, targets that window; otherwise moves all main windows. `--list` aliases `window displays`. |
 | `window default-display [<name>\|--clear]` | Set, show (no arg), or clear (`--clear`) the shared, cross-tag default display that DEBUG dev builds open new windows on, stored in `~/.config/cmux/cmux.json` under `app.devWindowDisplay`. No running app required; applied at window creation. Also settable in Debug > Debug Windows > Dev Window Display. |
@@ -156,6 +157,7 @@ Environment:
 | `read-screen` | Read terminal text from a surface. `--selection` is a text-only compatibility alias for `read-selection`. |
 | `send` | Send text to a terminal surface. |
 | `send-key` | Send one key to a terminal surface. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
@@ -525,8 +527,8 @@ tmux compatibility commands:
 | `set-hook` | Manage tmux-compat hook definitions. |
 | `popup` | Placeholder, currently unsupported. |
 | `bind-key`, `unbind-key`, `copy-mode` | Placeholders, currently unsupported. |
-| `set-buffer` | Set a tmux-compat buffer. |
-| `paste-buffer` | Paste a tmux-compat buffer. |
+| `set-buffer` | Set a tmux-compat buffer to the given text exactly; reads stdin when no text (or `-`) is given. |
+| `paste-buffer` | Paste a tmux-compat buffer. `--bracketed` sends it through the Cmd+V paste path (`terminal.paste`, local socket only) instead of keystrokes. |
 | `list-buffers` | List tmux-compat buffers. |
 | `respawn-pane` | Send a restart command to a surface. |
 | `display-message` | Print or display a message. |
@@ -873,6 +875,7 @@ the expected text without connecting to a cmux socket.
 - `cmux new-window --help` -> `Usage: cmux new-window`
 - `cmux focus-window --help` -> `Usage: cmux focus-window --window <id|ref|index>`
 - `cmux close-window --help` -> `Usage: cmux close-window --window <id|ref|index>`
+- `cmux resize-window --help` -> `Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]`
 - `cmux move-workspace-to-window --help` -> `Usage: cmux move-workspace-to-window`
 - `cmux move-surface --help` -> `Usage: cmux move-surface`
 - `cmux split-off --help` -> `Usage: cmux split-off`
@@ -947,6 +950,7 @@ the expected text without connecting to a cmux socket.
 - `cmux read-screen --help` -> `Usage: cmux read-screen`
 - `cmux send --help` -> `Usage: cmux send`
 - `cmux send-key --help` -> `Usage: cmux send-key`
+- `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
 - `cmux notify --help` -> `Usage: cmux notify`

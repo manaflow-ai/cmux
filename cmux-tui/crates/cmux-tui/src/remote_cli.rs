@@ -136,6 +136,7 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--ssh-binary",
         "--remote-binary",
         "--remote-state-dir",
+        "--agent-hooks",
         "--wireguard-config",
         "--wireguard-hub",
         "--ssh-arg",
@@ -231,6 +232,8 @@ struct ConnectFlags {
     remote_binary: String,
     remote_state_dir: Option<String>,
     ssh_args: Vec<String>,
+    /// Coding-agent providers whose hooks the SSH host installs on attach.
+    agent_hooks: Vec<String>,
     auto_install: bool,
     upgrade: bool,
     forward_workspace: Option<String>,
@@ -470,6 +473,9 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.remote_state_dir = Some(value("--remote-state-dir")?);
             }
             "--ssh-arg" => flags.ssh_args.push(value("--ssh-arg")?),
+            "--agent-hooks" => {
+                flags.agent_hooks.extend(agent_hook_providers(&value("--agent-hooks")?));
+            }
             "--no-install" => flags.auto_install = false,
             "--upgrade" => flags.upgrade = true,
             "--workspace-root" => flags.forward_workspace = Some(value("--workspace-root")?),
@@ -678,6 +684,7 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         remote_state_dir: flags.remote_state_dir.clone(),
         extra_args: flags.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: flags.agent_hooks.clone(),
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
     let providers = Arc::new(client_provider_registry(
@@ -1247,6 +1254,7 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
         remote_state_dir: None,
         extra_args: options.ssh_args.clone(),
         maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+        agent_hooks: Vec::new(),
     })?;
     Ok(())
 }
@@ -2135,8 +2143,37 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     let mux_socket = flag_value(args, "--mux-socket").map(PathBuf::from);
     let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
     let link = flag_value(args, "--link-socket").map(PathBuf::from).unwrap_or(default_link);
+    if let Some(providers) = flag_value(args, "--agent-hooks") {
+        install_agent_hooks(agent_hook_providers(&providers));
+    }
     ensure_daemon(&session, state_dir.as_deref(), &session_state, &link, mux_socket.as_deref())?;
     tokio_runtime()?.block_on(proxy_stdio(&link))
+}
+
+/// `--agent-hooks claude,codex` names providers; empty items are dropped.
+fn agent_hook_providers(value: &str) -> Vec<String> {
+    value.split(',').map(str::trim).filter(|item| !item.is_empty()).map(str::to_owned).collect()
+}
+
+/// Installs the named providers' hooks for this host user before a client
+/// attaches. The install is idempotent and never blocks the link: hooks are
+/// inert outside cmux-tui terminals, and a failure only costs agent status.
+fn install_agent_hooks(providers: Vec<String>) {
+    if providers.is_empty() {
+        return;
+    }
+    let plan = crate::agent_hook_install::Plan {
+        action: crate::agent_hook_install::Action::Install,
+        providers,
+    };
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        crate::client_log::stderr_log!(
+            "remote",
+            "cmux-tui: agent hook install failed: {}",
+            result.value["errors"]
+        );
+    }
 }
 
 struct RemoteStopArgs {
@@ -2838,6 +2875,15 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+    }
+
+    #[test]
+    fn agent_hooks_flag_collects_providers() {
+        let args = ["host", "--agent-hooks", "claude, codex,", "--agent-hooks", "gemini"]
+            .map(str::to_string);
+        assert_eq!(direct_ssh_flags(&args).unwrap().agent_hooks, ["claude", "codex", "gemini"]);
+        let plain = ["host"].map(str::to_string);
+        assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
     }
 
     #[test]

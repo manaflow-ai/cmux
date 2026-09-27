@@ -189,6 +189,7 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
             byteTee.dropSurface(surfaceID: id)
@@ -315,6 +316,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        paneHost.terminalSurfaceRuntimeDidRelease()
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -410,6 +412,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        paneHost.terminalSurfaceRuntimeDidRelease()
         activePortalHostLease = nil
         portalHostAuthority = nil
         clearPortalHostVacancyRetries()

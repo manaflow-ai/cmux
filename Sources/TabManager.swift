@@ -1389,7 +1389,12 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             var welcomeDelivery: WelcomeBannerDelivery?
             var resolvedInitialTerminalEnvironment = initialTerminalEnvironment
+            // An explicit command runs via `shell -lc`, which never loads cmux's
+            // interactive shell integration, so it could not print the banner.
+            let hasInitialTerminalCommand = !(initialTerminalCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
             if autoWelcomeIfNeeded && select && initialSurface == .terminal
+                && !hasInitialTerminalCommand
                 && !UserDefaults.standard.bool(forKey: AccountCatalogSection().welcomeShown.userDefaultsKey) {
                 let launch = WelcomeBannerDelivery.prepareLaunch(welcomeBannerDeliveryResolver())
                 welcomeDelivery = launch.delivery
@@ -6364,6 +6369,7 @@ extension TabManager {
 
         hasher.combine(true)
         hashOptionalString(launchCommand.launcher, into: &hasher)
+        hashOptionalString(launchCommand.externalLauncher, into: &hasher)
         hashOptionalString(launchCommand.executablePath, into: &hasher)
         hasher.combine(launchCommand.arguments)
         hashOptionalString(launchCommand.workingDirectory, into: &hasher)

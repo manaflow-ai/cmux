@@ -28,6 +28,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private let bundleIdentifier: String?
     private let appSupportDirectory: URL?
     private let decoderUserInfo: [CodingUserInfoKey: Bool]
+    private let historyLimit: Int
     // Justification: FileManager is documented thread-safe ("the methods of
     // the shared FileManager object can be called from multiple threads
     // safely") but Foundation does not mark it Sendable.
@@ -46,13 +47,18 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
     ///   - decoderUserInfo: Trust or migration flags applied only while decoding snapshots.
+    ///   - historyLimit: How many archived snapshots to keep in the rotated
+    ///     history directory (the richest one is always kept on top of the
+    ///     newest ones; see ``SessionSnapshotHistoryEntry``).
     public init(
         schemaVersion: Int,
         bundleIdentifier: String?,
         appSupportDirectory: URL? = nil,
         fileManager: FileManager = .default,
-        decoderUserInfo: [CodingUserInfoKey: Bool] = [:]
+        decoderUserInfo: [CodingUserInfoKey: Bool] = [:],
+        historyLimit: Int = 10
     ) {
+        self.historyLimit = max(1, historyLimit)
         self.schemaVersion = schemaVersion
         self.bundleIdentifier = bundleIdentifier
         self.appSupportDirectory = appSupportDirectory
@@ -94,7 +100,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     // MARK: - Moving snapshots between installs
 
     public func snapshotFileURL(bundleIdentifier: String) -> URL? {
-        SessionSnapshotFileLocation(appSupportDirectory: resolvedAppSupportDirectory()).primaryFileURL(
+        fileLocation().primaryFileURL(
             bundleIdentifier: bundleIdentifier
         )
     }
@@ -368,11 +374,87 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         snapshotFileURL(suffix: "-previous")
     }
 
-    private func snapshotFileURL(suffix: String) -> URL? {
-        SessionSnapshotFileLocation(appSupportDirectory: resolvedAppSupportDirectory()).fileURL(
-            bundleIdentifier: bundleIdentifier,
-            suffix: suffix
+    @discardableResult
+    public func archiveSnapshotToHistory(
+        fileURL: URL,
+        richness: SessionSnapshotRichness,
+        archivedAt: Date
+    ) -> SessionSnapshotHistoryEntry? {
+        guard let directory = historyDirectoryURL(),
+              fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        let existing = historyEntries()
+        if let newest = existing.first, fileSize(newest.fileURL) == fileSize(fileURL),
+           fileManager.contentsEqual(atPath: newest.fileURL.path, andPath: fileURL.path) {
+            return nil
+        }
+        let entry = SessionSnapshotHistoryEntry(
+            fileURL: directory.appendingPathComponent(
+                SessionSnapshotHistoryEntry.fileName(
+                    safeBundleId: safeBundleIdentifier(),
+                    archivedAt: archivedAt,
+                    richness: richness
+                ),
+                isDirectory: false
+            ),
+            archivedAt: archivedAt,
+            richness: richness
         )
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            // copyItem clones on APFS, so launch pays no read+write of a
+            // multi-megabyte scrollback snapshot.
+            try fileManager.copyItem(at: fileURL, to: entry.fileURL)
+        } catch {
+            return nil
+        }
+        let all = [entry] + existing
+        let kept = Set(SessionSnapshotHistoryEntry.retained(all, limit: historyLimit).map(\.fileURL))
+        for stale in all where !kept.contains(stale.fileURL) {
+            try? fileManager.removeItem(at: stale.fileURL)
+        }
+        return kept.contains(entry.fileURL) ? entry : nil
+    }
+
+    private func fileSize(_ url: URL) -> UInt64? {
+        (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value
+    }
+
+    public func historyEntries() -> [SessionSnapshotHistoryEntry] {
+        // Names, not URLs: enumerated URLs can come back symlink-resolved
+        // (`/private/var`) and would not match the URLs archive returns.
+        guard let directory = historyDirectoryURL(),
+              let names = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return [] }
+        let safeBundleId = safeBundleIdentifier()
+        return names
+            .compactMap {
+                SessionSnapshotHistoryEntry.parse(
+                    fileURL: directory.appendingPathComponent($0, isDirectory: false),
+                    safeBundleId: safeBundleId
+                )
+            }
+            .sorted { $0.archivedAt > $1.archivedAt }
+    }
+
+    /// `Application Support/cmux/session-history/`, shared by every bundle;
+    /// file names carry the bundle identifier.
+    public func historyDirectoryURL() -> URL? {
+        cmuxAppSupportDirectoryURL()?.appendingPathComponent("session-history", isDirectory: true)
+    }
+
+    private func snapshotFileURL(suffix: String) -> URL? {
+        fileLocation().fileURL(bundleIdentifier: bundleIdentifier, suffix: suffix)
+    }
+
+    private func cmuxAppSupportDirectoryURL() -> URL? {
+        fileLocation().cmuxDirectoryURL
+    }
+
+    private func safeBundleIdentifier() -> String {
+        SessionSnapshotFileLocation.safeBundleIdentifier(bundleIdentifier)
+    }
+
+    private func fileLocation() -> SessionSnapshotFileLocation {
+        SessionSnapshotFileLocation(appSupportDirectory: resolvedAppSupportDirectory())
     }
 
     private func resolvedAppSupportDirectory() -> URL {

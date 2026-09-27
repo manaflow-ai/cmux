@@ -308,7 +308,7 @@ struct SessionSnapshotTransferTests {
         let primaryURL = try #require(repository.defaultSnapshotFileURL())
         let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
         #expect(repository.save(snapshot("current"), fileURL: primaryURL))
-        let newerText = #"{\"version\":2,\"windows\":[{\"name\":\"future\"}]}"#
+        let newerText = #"{"version":2,"windows":[{"name":"future"}]}"#
         try write(newerText, to: backupURL)
 
         let sideURL = SessionSnapshotFileLocation.newerSchemaSideFileURL(
