@@ -5035,6 +5035,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateExplicitSurfaceTargetBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         // Automation tests are deliberately offline: they validate the
         // checked-in rule and synthetic event without opening a socket or
         // executing actions. The live engine uses the identical matcher when
@@ -7482,7 +7487,8 @@ struct CMUXCLI {
                     client: client,
                     jsonOutput: jsonOutput,
                     windowOverride: windowId,
-                    includeContextInPlainOutput: false
+                    includeContextInPlainOutput: false,
+                    requireExplicitTarget: true
                 )
                 break
             }
@@ -7495,6 +7501,12 @@ struct CMUXCLI {
             if !trailing.isEmpty {
                 throw CLIError(message: "read-screen: unexpected arguments: \(trailing.joined(separator: " "))")
             }
+
+            try requireExplicitSurfaceTarget(
+                commandName: "read-screen",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
 
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
@@ -7531,6 +7543,11 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            try requireExplicitSurfaceTarget(
+                commandName: "send",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let (usesPaste, textArgs) = Self.splitSendPasteFlag(rem2)
@@ -7578,6 +7595,11 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+            try requireExplicitSurfaceTarget(
+                commandName: "send-key",
+                workspaceArgument: wsArg,
+                surfaceArgument: sfArg
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
@@ -20079,20 +20101,7 @@ struct CMUXCLI {
         case "send":
             return Self.sendHelp
         case "send-key":
-            return """
-            Usage: cmux send-key [flags] [--] <key>
-
-            Send a key event to a terminal surface.
-
-            Flags:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
-
-            Example:
-              cmux send-key enter
-              cmux send-key --surface surface:2 ctrl+c
-            """
+            return String(localized: "cli.help.sendKey", defaultValue: "Usage: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <key>\n\nSend a key event to a terminal surface.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c")
         case "send-panel":
             return """
             Usage: cmux send-panel --panel <id|ref|index> [flags] [--] <text>

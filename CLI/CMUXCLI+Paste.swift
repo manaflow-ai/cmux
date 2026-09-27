@@ -315,7 +315,7 @@ extension CMUXCLI {
 
     static var sendHelp: String {
         String(localized: "cli.help.send", defaultValue: """
-        Usage: cmux send [flags] [--] <text>
+        Usage: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>
 
         Send text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
 
@@ -324,8 +324,8 @@ extension CMUXCLI {
         With --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.
 
         Flags:
-          --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-          --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
+          --workspace <id|ref|index>   Target workspace (required unless --surface is provided)
+          --surface <id|ref|index>     Target surface (required unless --workspace is provided)
           --window <id|ref|index>      Window context for workspace/surface refs and indexes
           --paste                      Paste the text instead of typing it
 
