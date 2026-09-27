@@ -1865,6 +1865,22 @@ struct SidebarAppKitRowCellTests {
         #expect(configured.closeButtonPaintForTesting.alpha == 0)
     }
 
+    /// The close X shares the trailing slot with the unread badge and
+    /// spinner, which swap synchronously. The X must land in the same frame
+    /// on hover-in and leave in the same frame on hover-out.
+    @Test
+    func hoverRevealsAndConcealsCloseButtonInSameFrame() {
+        let cell = Self.configuredCell(model: Self.makeModel())
+
+        cell.enforcePointerHovering(true)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 1)
+
+        cell.enforcePointerHovering(false)
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+    }
+
     @Test
     func recycledHoveredCellSnapsCloseButtonHidden() {
         let cell = Self.configuredCell(model: Self.makeModel())
