@@ -1228,6 +1228,28 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     }
 
     func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let previousShowBranchDirectory = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey)
+        let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defer {
+            restoreUserDefaultForTabManagerTests(
+                previousWatchGitStatus,
+                key: SidebarWorkspaceDetailDefaults.watchGitStatusKey
+            )
+            restoreUserDefaultForTabManagerTests(
+                previousShowBranchDirectory,
+                key: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
+            )
+            restoreUserDefaultForTabManagerTests(
+                previousShowPullRequests,
+                key: SidebarWorkspaceDetailDefaults.showPullRequestsKey
+            )
+        }
+
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-git-inherited-background-\(UUID().uuidString)",
