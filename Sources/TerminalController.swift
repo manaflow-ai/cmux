@@ -456,6 +456,32 @@ class TerminalController {
         weak var controller: TerminalController?
     }
 
+    /// Queues a session hook the app observed for a remote agent (the cmux-tui agent
+    /// roster of a `cmux ssh` machine) through the same relay-backed delivery
+    /// lane as `agent.hook.enqueue`, routed to the local pane showing it.
+    /// - Returns: `false` when the socket is not listening, the event is
+    ///   invalid for queued delivery, or the queue is full.
+    nonisolated func enqueueMirroredAgentHook(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> Bool {
+        guard let socketPath = currentSocketPathForRemoteRestore(),
+              let event = AgentHookDeliveryEvent.mirrored(
+                  agent: agent,
+                  subcommand: subcommand,
+                  payload: payload,
+                  workspaceID: workspaceID,
+                  surfaceID: surfaceID,
+                  deliverySocketPath: socketPath
+              ) else {
+            return false
+        }
+        return agentHookDeliveryQueue.enqueue(event)
+    }
+
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),

@@ -70,6 +70,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_omo_shadow_config_mirror.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_socket_autodiscovery.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -1315,6 +1320,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_classify_failures.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1328,4 +1337,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_resources_plist_unique_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"

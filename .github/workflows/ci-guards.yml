@@ -67,6 +67,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
 
+      - name: Validate machine-failure detection for focused reruns
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_machine_failure.py
+
       - name: Validate the CI timing readout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
@@ -78,6 +82,10 @@ jobs:
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
+
+      - name: Validate CI failure attribution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_classify_failures.py
 
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' }}
