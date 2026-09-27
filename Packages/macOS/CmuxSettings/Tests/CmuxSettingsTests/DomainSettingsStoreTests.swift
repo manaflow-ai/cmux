@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 import Testing
 @testable import CmuxSettings
@@ -475,6 +476,38 @@ struct QuitConfirmationPolicyTests {
         #expect(!store.shouldShowConfirmation(
             isQuitWarningConfirmed: false, hasDirtyWorkspaces: false, isDevBuild: false
         ))
+    }
+
+    /// A confirmation dialog during logout, restart, or shutdown blocks the
+    /// whole session change, so those quits skip it in every mode.
+    @Test(arguments: ["always", "dirty-only"])
+    func sessionEndNeverWarns(mode: String) {
+        let defaults = makeScratchDefaults()
+        defaults.set(mode, forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .sessionEnd
+        ))
+        #expect(store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .user
+        ))
+    }
+
+    @Test func quitEventReasonMapsSessionChanges() {
+        let sessionCodes: [OSType] = [
+            kAELogOut, kAEReallyLogOut,
+            kAEShowRestartDialog, kAERestart,
+            kAEShowShutdownDialog, kAEShutDown,
+        ]
+        for code in sessionCodes {
+            #expect(QuitRequestReason(appleEventQuitReason: code) == .sessionEnd)
+        }
+        #expect(QuitRequestReason(appleEventQuitReason: nil) == .user)
+        #expect(QuitRequestReason(appleEventQuitReason: 0) == .user)
+        #expect(QuitRequestReason(appleEventQuitReason: kAEQuitApplication) == .user)
     }
 
     @Test func neverModeNeverWarns() {

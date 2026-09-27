@@ -143,6 +143,14 @@ struct CLISocketPathResolver {
     private let inspectSocketPathEntry: (String) -> SocketPathEntry
     private let socketAcceptsConnections: (String) -> Bool
     private let stateDirectory: URL
+    private let confinesDiscoveryToStateDirectory: Bool
+
+    /// Debug-only environment key that confines implicit discovery to `stateDirectory`.
+    ///
+    /// Tests that spawn the CLI under a temporary home set it so the machine-wide
+    /// `/tmp` marker files and legacy `/tmp` socket aliases, which a real cmux running
+    /// as the same user publishes, cannot route them to that app. Release builds ignore it.
+    static let isolatedDiscoveryEnvironmentKey = "CMUX_TEST_ISOLATED_SOCKET_DISCOVERY"
 
     /// Creates a resolver with explicit discovery inputs and filesystem probes.
     ///
@@ -163,6 +171,11 @@ struct CLISocketPathResolver {
         self.inspectSocketPathEntry = inspectSocketPathEntry
         self.socketAcceptsConnections = socketAcceptsConnections
         self.stateDirectory = stateDirectory ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
+#if DEBUG
+        self.confinesDiscoveryToStateDirectory = environment[Self.isolatedDiscoveryEnvironmentKey] == "1"
+#else
+        self.confinesDiscoveryToStateDirectory = false
+#endif
     }
 
     static func defaultSocketPath(
@@ -292,10 +305,16 @@ struct CLISocketPathResolver {
             requestedPath,
             defaultPath: ownDefaultPath,
             variant: variant
-        ) {
+        ), !confinesDiscoveryToStateDirectory || isInsideStateDirectory(requestedPath) {
             candidates.append(requestedPath)
         }
         return candidates
+    }
+
+    private func isInsideStateDirectory(_ path: String) -> Bool {
+        let directoryPath = (stateDirectory.path as NSString).standardizingPath
+        let standardizedPath = (path as NSString).standardizingPath
+        return standardizedPath.hasPrefix(directoryPath + "/")
     }
 
     private func shouldIncludeImplicitRequestedPath(
@@ -313,10 +332,14 @@ struct CLISocketPathResolver {
     }
 
     private func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
+        let paths: [String]
         switch variant {
         case .stable, .nightly, .rc, .staging, .dev:
-            return resolvedStableImplicitDefaultPaths()
+            paths = resolvedStableImplicitDefaultPaths()
         }
+        // The legacy /tmp aliases are shared by every cmux running as this user.
+        guard confinesDiscoveryToStateDirectory else { return paths }
+        return paths.filter { isInsideStateDirectory($0) }
     }
 
     private func resolvedStableImplicitDefaultPaths() -> [String] {
@@ -332,7 +355,10 @@ struct CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        let candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
+        var candidates = lastSocketPathFiles(bundleIdentifier: bundleIdentifier, environment: environment)
+        if confinesDiscoveryToStateDirectory {
+            candidates.removeAll { !isInsideStateDirectory($0) }
+        }
         var values: [String] = []
         for candidate in candidates {
             guard let contents = boundedMarkerContents(at: candidate) else { continue }

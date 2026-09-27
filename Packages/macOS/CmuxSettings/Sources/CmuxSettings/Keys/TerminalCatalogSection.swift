@@ -52,6 +52,16 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.reflowHardWrapOnCopy"
     )
 
+    /// Whether a paste Ghostty flags as unsafe asks for confirmation in a
+    /// sheet on the terminal's window. Off by default: cmux has always
+    /// approved these pastes without asking. Ghostty's
+    /// `clipboard-paste-protection` decides which pastes are unsafe.
+    public let confirmUnsafePaste = DefaultsKey<Bool>(
+        id: "terminal.confirmUnsafePaste",
+        defaultValue: false,
+        userDefaultsKey: "terminal.confirmUnsafePaste"
+    )
+
     /// Whether macOS text-editing gestures are replayed as their line-editor
     /// equivalents: Command and Option arrow motion, and the Command and Option
     /// deletion chords. Off by default, because the mode claims chords the

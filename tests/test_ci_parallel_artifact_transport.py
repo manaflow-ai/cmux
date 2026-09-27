@@ -129,14 +129,15 @@ class WorkflowWiringTests(unittest.TestCase):
         # Same permissions: the R2 transport needs id-token to mint its token.
         self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
         # The two routes differ only by the job's owned_jobs key (#14318) and
-        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards)
-        # and pr_gui_runner (the shards are GUI jobs; pr_runner_pool.gui_runner).
+        # the shards' pr_shard_runner branch (pr_runner_pool.spread_shards).
+        # Both take pr_gui_runner: both hold the mini's gui token
+        # (pr_runner_pool.gui_token_job()).
         shard_route = step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
         self.assertIn("inputs.pr_shard_runner || ", shard_route)
         self.assertEqual(
             step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY").replace("'cli-product'", "LATE"),
             shard_route.replace("format(' shard-{0} ', matrix.shard)", "KEY").replace("format('shard-{0}', matrix.shard)", "LATE")
-            .replace("inputs.pr_shard_runner || ", "").replace("inputs.pr_gui_runner || ", ""),
+            .replace("inputs.pr_shard_runner || ", ""),
         )
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):

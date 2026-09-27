@@ -3176,7 +3176,7 @@
       "shadowConfig": "シャドウ設定",
       "shadowConfigDesc": "cmux omoはシャドウ設定ディレクトリを使用するため、元のOpenCode設定には影響しません：",
       "shadowStep1": "~/.config/opencode/opencode.jsonをコピーし、プラグイン配列にoh-my-opencodeを追加",
-      "shadowStep2": "元のディレクトリからnode_modules、package.json、bun.lockをシンボリックリンク",
+      "shadowStep2": "opencode.json が参照する ~/.config/opencode 内のその他のファイル（プロンプトファイルなど）をリンクし、node_modules を再利用（エージェント、コマンド、プラグインは元のディレクトリから読み込まれます）",
       "shadowStep3": "opencode起動前にOPENCODE_CONFIG_DIRをシャドウディレクトリに設定",
       "envVars": "環境変数",
       "envVarName": "変数",

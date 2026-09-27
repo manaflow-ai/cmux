@@ -194,7 +194,7 @@ final class CanvasPaneView: NSView {
         layer?.borderColor = chrome.isFocused
             ? accentColor.nsColor(for: effectiveAppearance).cgColor
             : NSColor.separatorColor.cgColor
-        layer?.borderWidth = chrome.isFocused ? 2 : 1
+        layer?.borderWidth = chrome.isFocused ? CGFloat.paneIndicatorStrokeWidth : 1
         layer?.backgroundColor = paneBackground.cgColor
     }
 
