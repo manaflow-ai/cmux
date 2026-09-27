@@ -192,6 +192,7 @@ enum SettingsSearchIndex {
         setting(.browser, "history", String(localized: "settings.browser.history", defaultValue: "Browsing History"), "clear visited suggestions"),
         setting(.globalHotkey, "enable-hotkey", String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"), "global shortcut show hide windows"),
         setting(.globalHotkey, "shortcut", String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"), "keyboard recorder command option control"),
+        setting(.keyboardShortcuts, "base-keymap", String(localized: "settings.shortcuts.baseKeymap", defaultValue: "Base Keymap"), "preset iterm2 terminal tmux keybindings"),
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "pane-resize-step", String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"), "resize pane split step pixels keyboard repeat"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),

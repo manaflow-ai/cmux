@@ -144216,65 +144216,6 @@
         }
       }
     },
-    "command.openTerminalChatView.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open terminal as chat"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルをチャットで表示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以对话形式查看终端"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal als Chat öffnen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir le terminal en discussion"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح الطرفية كدردشة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir la terminal como chat"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以對話形式檢視終端機"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널을 채팅으로 열기"
-          }
-        }
-      }
-    },
     "command.openDiffViewer.title": {
       "extractionState": "manual",
       "localizations": {
@@ -302435,201 +302376,6 @@
         }
       }
     },
-    "settings.app.warnBeforeClosingWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warn Before Closing Workspace"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التحذير قبل إغلاق مساحة العمل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Arbeitsbereichs warnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Advertir antes de cerrar un espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avertir avant de fermer un espace de travail"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを閉じる前に警告"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스를 닫기 전에 경고"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Попереджати перед закриттям робочої області"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭工作区前警告"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉工作區前發出警告"
-          }
-        }
-      }
-    },
-    "settings.app.warnBeforeClosingWorkspace.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspaces close immediately without confirmation. Pinned workspaces still ask."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تُغلق مساحات العمل فورًا دون تأكيد. لا تزال مساحات العمل المثبتة تطلب التأكيد."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereiche werden sofort und ohne Bestätigung geschlossen. Angepinnte Arbeitsbereiche fragen weiterhin nach."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los espacios de trabajo se cierran inmediatamente sin confirmación. Los espacios de trabajo fijados siguen pidiendo confirmación."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les espaces de travail se ferment immédiatement sans confirmation. Les espaces de travail épinglés demandent toujours."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認なしにすぐワークスペースを閉じます。ピン留めされたワークスペースは引き続き確認します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "확인 창 없이 워크스페이스가 즉시 닫힙니다. 고정된 워크스페이스는 계속 확인합니다."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Робочі області закриваються одразу без підтвердження. Закріплені робочі області все одно запитують."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区会直接关闭，不做确认。已固定的工作区仍会确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作區將立即關閉，無需確認。釘選的工作區仍會確認。"
-          }
-        }
-      }
-    },
-    "settings.app.warnBeforeClosingWorkspace.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a confirmation before closing a workspace with a running process, or several workspaces at once."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار تأكيد قبل إغلاق مساحة عمل بها عملية قيد التشغيل، أو عدة مساحات عمل دفعة واحدة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eine Bestätigung anzeigen, bevor ein Arbeitsbereich mit einem laufenden Prozess oder mehrere Arbeitsbereiche auf einmal geschlossen werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra una confirmación antes de cerrar un espacio de trabajo con un proceso en ejecución, o varios espacios de trabajo a la vez."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher une confirmation avant de fermer un espace de travail avec un processus en cours, ou plusieurs espaces de travail à la fois."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中のプロセスがあるワークスペース、または複数のワークスペースをまとめて閉じる前に確認を表示します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실행 중인 프로세스가 있는 워크스페이스나 여러 워크스페이스를 한 번에 닫기 전에 확인 창을 표시합니다."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати підтвердження перед закриттям робочої області із запущеним процесом або кількох робочих областей одночасно."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭有正在运行进程的工作区，或一次关闭多个工作区前显示确认。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉有執行中程序的工作區，或一次關閉多個工作區前顯示確認。"
-          }
-        }
-      }
-    },
     "settings.app.warnBeforeQuit": {
       "extractionState": "manual",
       "localizations": {
@@ -349313,71 +349059,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface 關閉標籤頁 按鈕 確認 警告"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.warn-before-closing-workspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent إغلاق مساحة العمل تأكيد تحذير عملية قيد التشغيل"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent arbeitsbereich schließen bestätigung warnung laufender prozess"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent cerrar espacio de trabajo confirmación advertencia proceso en ejecución"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent fermer espace de travail confirmation avertissement processus en cours"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent ワークスペースを閉じる 確認 警告 実行中のプロセス"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 워크스페이스 닫기 확인 경고 실행 중인 프로세스"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent закрити робочу область підтвердження попередження запущений процес"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 关闭工作区 确认 警告 正在运行的进程"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 關閉工作區 確認 警告 執行中的程序"
           }
         }
       }
@@ -548142,1317 +547823,2657 @@
         }
       }
     },
-    "settings.terminal.ghostty.backgroundBlur": {
+    "command.shortcutKeymap.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Background Blur"
+            "value": "Base Keymap: %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تمويه الخلفية"
+            "value": "مخطط المفاتيح الأساسي: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hintergrundunschärfe"
+            "value": "Basis-Tastaturbelegung: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desenfoque del fondo"
+            "value": "Mapa de teclas base: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flou de l'arrière-plan"
+            "value": "Disposition de base : %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景のぼかし"
+            "value": "ベースキーマップ: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "배경 흐림"
+            "value": "기본 키맵: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景模糊"
+            "value": "基础键位方案：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景模糊"
+            "value": "基礎按鍵配置：%@"
           }
         }
       }
     },
-    "settings.terminal.ghostty.backgroundOpacity": {
+    "settings.shortcuts.baseKeymap": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Background Opacity"
+            "value": "Base Keymap"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عتامة الخلفية"
+            "value": "مخطط المفاتيح الأساسي"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hintergrunddeckkraft"
+            "value": "Basis-Tastaturbelegung"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opacidad del fondo"
+            "value": "Mapa de teclas base"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opacité de l'arrière-plan"
+            "value": "Disposition de base"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景の不透明度"
+            "value": "ベースキーマップ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "배경 불투명도"
+            "value": "기본 키맵"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景不透明度"
+            "value": "基础键位方案"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景不透明度"
+            "value": "基礎按鍵配置"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorBlink": {
+    "settings.shortcuts.baseKeymap.conflictHint": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blinking Cursor"
+            "value": "Change or turn off the macOS shortcut in System Settings > Keyboard > Keyboard Shortcuts."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مؤشر وامض"
+            "value": "غيّر اختصار macOS أو أوقفه في إعدادات النظام > لوحة المفاتيح > اختصارات لوحة المفاتيح."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blinkender Cursor"
+            "value": "Ändern oder deaktivieren Sie das macOS-Tastaturkürzel unter Systemeinstellungen > Tastatur > Tastaturkurzbefehle."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cursor parpadeante"
+            "value": "Cambia o desactiva el atajo de macOS en Ajustes del Sistema > Teclado > Atajos de teclado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Curseur clignotant"
+            "value": "Modifiez ou désactivez le raccourci macOS dans Réglages Système > Clavier > Raccourcis clavier."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カーソルの点滅"
+            "value": "システム設定 > キーボード > キーボードショートカットで macOS のショートカットを変更するかオフにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "커서 깜박임"
+            "value": "시스템 설정 > 키보드 > 키보드 단축키에서 macOS 단축키를 변경하거나 끄세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "光标闪烁"
+            "value": "请在“系统设置”>“键盘”>“键盘快捷键”中更改或关闭该 macOS 快捷键。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "游標閃爍"
+            "value": "請在「系統設定」>「鍵盤」>「鍵盤快速鍵」中更改或關閉該 macOS 快速鍵。"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorStyle": {
+    "settings.shortcuts.baseKeymap.custom": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cursor Style"
+            "value": "Custom"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمط المؤشر"
+            "value": "مخصص"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cursorstil"
+            "value": "Benutzerdefiniert"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Estilo del cursor"
+            "value": "Personalizado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Style du curseur"
+            "value": "Personnalisée"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カーソルのスタイル"
+            "value": "カスタム"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "커서 스타일"
+            "value": "사용자 지정"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "光标样式"
+            "value": "自定义"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "游標樣式"
+            "value": "自訂"
           }
         }
       }
     },
-    "settings.terminal.ghostty.fontFamily": {
+    "settings.shortcuts.baseKeymap.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font"
+            "value": "Start from another terminal's shortcuts. Only the differences are written to cmux.json; choose cmux to remove them."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الخط"
+            "value": "ابدأ من اختصارات طرفية أخرى. تُكتب الاختلافات فقط في cmux.json؛ اختر cmux لإزالتها."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schrift"
+            "value": "Mit den Tastaturkürzeln eines anderen Terminals beginnen. Nur die Unterschiede werden in cmux.json geschrieben; wählen Sie cmux, um sie zu entfernen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuente"
+            "value": "Parte de los atajos de otro terminal. Solo se escriben las diferencias en cmux.json; elige cmux para eliminarlas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Police"
+            "value": "Partez des raccourcis d’un autre terminal. Seules les différences sont écrites dans cmux.json ; choisissez cmux pour les supprimer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォント"
+            "value": "他のターミナルのショートカットから始めます。差分だけが cmux.json に書き込まれ、cmux を選ぶと削除されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "글꼴"
+            "value": "다른 터미널의 단축키에서 시작합니다. 차이점만 cmux.json에 기록되며, cmux를 선택하면 제거됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字体"
+            "value": "以其他终端的快捷键为起点。只会将差异写入 cmux.json；选择 cmux 即可移除。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "字體"
+            "value": "以其他終端機的快速鍵為起點。只會將差異寫入 cmux.json；選擇 cmux 即可移除。"
           }
         }
       }
     },
-    "settings.terminal.ghostty.fontSize": {
+    "shortcut.keymap.preset.cmux": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font Size"
+            "value": "cmux (Default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حجم الخط"
+            "value": "cmux (الافتراضي)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schriftgröße"
+            "value": "cmux (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamaño de fuente"
+            "value": "cmux (predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taille de police"
+            "value": "cmux (par défaut)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォントサイズ"
+            "value": "cmux（デフォルト）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "글꼴 크기"
+            "value": "cmux (기본값)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "字体大小"
+            "value": "cmux（默认）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "字體大小"
+            "value": "cmux（預設）"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt": {
+    "shortcut.keymap.preset.iterm2": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option as Alt"
+            "value": "iTerm2"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option كمفتاح Alt"
+            "value": "iTerm2"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wahltaste als Alt"
+            "value": "iTerm2"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opción como Alt"
+            "value": "iTerm2"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option comme Alt"
+            "value": "iTerm2"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option を Alt として使用"
+            "value": "iTerm2"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option을 Alt로 사용"
+            "value": "iTerm2"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option 作为 Alt"
+            "value": "iTerm2"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option 作為 Alt"
+            "value": "iTerm2"
           }
         }
       }
     },
-    "settings.terminal.ghostty.scrollbackLimit": {
+    "shortcut.keymap.preset.terminal": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scrollback Limit"
+            "value": "Terminal.app"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حد سجل التمرير"
+            "value": "Terminal.app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scrollback-Limit"
+            "value": "Terminal.app"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Límite del historial de desplazamiento"
+            "value": "Terminal.app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limite de défilement arrière"
+            "value": "Terminal.app"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクロールバックの上限"
+            "value": "Terminal.app"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크롤백 한도"
+            "value": "Terminal.app"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回滚上限"
+            "value": "Terminal.app"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "回捲上限"
+            "value": "Terminal.app"
           }
         }
       }
     },
-    "settings.terminal.ghostty.windowPaddingX": {
+    "shortcut.keymap.preset.tmux": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Horizontal Padding"
+            "value": "tmux-style (Ctrl-B Prefix)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الحشو الأفقي"
+            "value": "نمط tmux (البادئة Ctrl-B)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Horizontaler Innenabstand"
+            "value": "tmux-Stil (Ctrl-B-Präfix)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relleno horizontal"
+            "value": "Estilo tmux (prefijo Ctrl-B)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marge intérieure horizontale"
+            "value": "Style tmux (préfixe Ctrl-B)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "水平方向の余白"
+            "value": "tmux 風（Ctrl-B プレフィックス）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "가로 여백"
+            "value": "tmux 스타일 (Ctrl-B 접두사)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "水平边距"
+            "value": "tmux 风格（Ctrl-B 前缀）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "水平邊距"
+            "value": "tmux 風格（Ctrl-B 前綴）"
           }
         }
       }
     },
-    "settings.terminal.ghostty.windowPaddingY": {
+    "shortcut.keymap.summary.change": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertical Padding"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الحشو العمودي"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertikaler Innenabstand"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relleno vertical"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marge intérieure verticale"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "垂直方向の余白"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세로 여백"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "垂直边距"
+            "value": "%1$@: %2$@ → %3$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "垂直邊距"
+            "value": "%1$@: %2$@ → %3$@"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorStyle.bar": {
+    "shortcut.keymap.summary.conflict": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bar"
+            "value": "%1$@ is also a macOS shortcut (%2$@). macOS may handle it before cmux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شريط"
+            "value": "%1$@ هو أيضًا اختصار في macOS (%2$@). قد يعالجه macOS قبل cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balken"
+            "value": "%1$@ ist auch ein macOS-Tastaturkürzel (%2$@). macOS verarbeitet es möglicherweise vor cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra"
+            "value": "%1$@ también es un atajo de macOS (%2$@). macOS puede procesarlo antes que cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barre"
+            "value": "%1$@ est aussi un raccourci macOS (%2$@). macOS peut le traiter avant cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バー"
+            "value": "%1$@ は macOS のショートカット（%2$@）でもあります。cmux より先に macOS が処理する場合があります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "막대"
+            "value": "%1$@은(는) macOS 단축키(%2$@)이기도 합니다. macOS가 cmux보다 먼저 처리할 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "竖线"
+            "value": "%1$@ 也是 macOS 快捷键（%2$@）。macOS 可能会先于 cmux 处理它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "直線"
+            "value": "%1$@ 也是 macOS 快速鍵（%2$@）。macOS 可能會先於 cmux 處理它。"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorStyle.block": {
+    "shortcut.keymap.summary.kept": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Block"
+            "value": "Kept your own shortcut for %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كتلة"
+            "value": "تم الاحتفاظ باختصارك الخاص لـ %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Block"
+            "value": "Ihr eigenes Tastaturkürzel für %@ wurde beibehalten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bloque"
+            "value": "Se conservó tu propio atajo para %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bloc"
+            "value": "Votre propre raccourci pour %@ a été conservé."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブロック"
+            "value": "%@ に設定したショートカットはそのまま残しました。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "블록"
+            "value": "%@에 대한 사용자 단축키를 유지했습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "方块"
+            "value": "已保留你为“%@”设置的快捷键。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "方塊"
+            "value": "已保留您為「%@」設定的快速鍵。"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorStyle.blockHollow": {
+    "shortcut.keymap.summary.none": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hollow"
+            "value": "No shortcuts changed."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مجوّف"
+            "value": "لم يتم تغيير أي اختصارات."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hohl"
+            "value": "Keine Tastaturkürzel geändert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hueco"
+            "value": "No se cambió ningún atajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Creux"
+            "value": "Aucun raccourci modifié."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "中抜き"
+            "value": "変更されたショートカットはありません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "속이 빈 블록"
+            "value": "변경된 단축키가 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "空心"
+            "value": "未更改任何快捷键。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "空心"
+            "value": "未變更任何快速鍵。"
           }
         }
       }
     },
-    "settings.terminal.ghostty.cursorStyle.underline": {
+    "shortcut.macos.accessibilityShortcuts": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Underline"
+            "value": "Show Accessibility Shortcuts"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسطير"
+            "value": "إظهار اختصارات تسهيلات الاستخدام"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unterstrich"
+            "value": "Kurzbefehle für Bedienungshilfen anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subrayado"
+            "value": "Mostrar funciones rápidas de accesibilidad"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Soulignement"
+            "value": "Afficher les raccourcis d’accessibilité"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "下線"
+            "value": "アクセシビリティのショートカットを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "밑줄"
+            "value": "손쉬운 사용 단축키 보기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "下划线"
+            "value": "显示辅助功能快捷键"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "底線"
+            "value": "顯示輔助使用快速鍵"
           }
         }
       }
     },
-    "settings.terminal.ghostty.fontFamily.default": {
+    "shortcut.macos.appSwitcher": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default"
+            "value": "Switch apps"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افتراضي"
+            "value": "التبديل بين التطبيقات"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standard"
+            "value": "Zwischen Apps wechseln"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Predeterminada"
+            "value": "Cambiar de app"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Par défaut"
+            "value": "Passer d’une app à l’autre"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルト"
+            "value": "アプリを切り替える"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본값"
+            "value": "앱 전환"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "默认"
+            "value": "切换 App"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "預設"
+            "value": "切換 App"
           }
         }
       }
     },
-    "settings.terminal.ghostty.note": {
+    "shortcut.macos.appSwitcherReverse": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These rows show the value in effect and save to cmux's Ghostty config, which loads after your own Ghostty config. The caption under each row is its config key."
+            "value": "Switch apps backward"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعرض هذه الصفوف القيمة السارية وتحفظ في إعدادات Ghostty الخاصة بـ cmux، والتي تُحمَّل بعد إعدادات Ghostty الخاصة بك. التسمية أسفل كل صف هي مفتاح الإعداد الخاص به."
+            "value": "التبديل بين التطبيقات للخلف"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese Zeilen zeigen den wirksamen Wert und speichern in die Ghostty-Konfiguration von cmux, die nach deiner eigenen Ghostty-Konfiguration geladen wird. Die Beschriftung unter jeder Zeile ist ihr Konfigurationsschlüssel."
+            "value": "Rückwärts zwischen Apps wechseln"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Estas filas muestran el valor en vigor y se guardan en la configuración de Ghostty de cmux, que se carga después de tu propia configuración de Ghostty. El texto bajo cada fila es su clave de configuración."
+            "value": "Cambiar de app hacia atrás"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ces lignes affichent la valeur en vigueur et enregistrent dans la configuration Ghostty de cmux, chargée après votre propre configuration Ghostty. La légende sous chaque ligne est sa clé de configuration."
+            "value": "Passer d’une app à l’autre en sens inverse"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これらの行は現在有効な値を表示し、cmux の Ghostty 設定に保存します。この設定はご自身の Ghostty 設定の後に読み込まれます。各行の下のキャプションはその設定キーです。"
+            "value": "アプリを逆順に切り替える"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 행들은 현재 적용 중인 값을 보여 주며, 사용자의 Ghostty 설정 다음에 로드되는 cmux의 Ghostty 설정에 저장됩니다. 각 행 아래의 캡션은 해당 설정 키입니다."
+            "value": "앱 역방향 전환"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这些行显示当前生效的值，并保存到 cmux 的 Ghostty 配置，该配置会在你自己的 Ghostty 配置之后加载。每行下方的说明文字是其配置键。"
+            "value": "反向切换 App"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這些列顯示目前生效的值，並儲存到 cmux 的 Ghostty 設定，該設定會在你自己的 Ghostty 設定之後載入。每列下方的說明文字是其設定鍵。"
+            "value": "反向切換 App"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt.automatic": {
+    "shortcut.macos.applicationWindows": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic"
+            "value": "Show application windows"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلقائي"
+            "value": "إظهار نوافذ التطبيق"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch"
+            "value": "Programmfenster anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automático"
+            "value": "Mostrar ventanas de la aplicación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatique"
+            "value": "Afficher les fenêtres d’application"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動"
+            "value": "アプリケーションウインドウを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자동"
+            "value": "응용 프로그램 윈도우 보기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动"
+            "value": "显示应用程序窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動"
+            "value": "顯示應用程式視窗"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt.both": {
+    "shortcut.macos.characterViewer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Both Option Keys"
+            "value": "Show Emoji & Symbols"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كلا مفتاحي Option"
+            "value": "إظهار الرموز التعبيرية والرموز"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beide Wahltasten"
+            "value": "Emoji & Symbole anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ambas teclas Opción"
+            "value": "Mostrar emojis y símbolos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les deux touches Option"
+            "value": "Afficher Emoji et symboles"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方の Option キー"
+            "value": "絵文字と記号を表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "양쪽 Option 키"
+            "value": "이모티콘 및 기호 보기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "两个 Option 键"
+            "value": "显示表情与符号"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "兩個 Option 鍵"
+            "value": "顯示表情符號與符號"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt.left": {
+    "shortcut.macos.finderSearch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Left Option"
+            "value": "Show Finder search window"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مفتاح Option الأيسر"
+            "value": "إظهار نافذة البحث في Finder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Linke Wahltaste"
+            "value": "Finder-Suchfenster anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opción izquierda"
+            "value": "Mostrar ventana de búsqueda del Finder"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option gauche"
+            "value": "Afficher la fenêtre de recherche du Finder"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "左 Option"
+            "value": "Finder の検索ウインドウを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "왼쪽 Option"
+            "value": "Finder 검색 윈도우 보기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "左 Option"
+            "value": "显示“访达”搜索窗口"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "左 Option"
+            "value": "顯示 Finder 搜尋視窗"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt.off": {
+    "shortcut.macos.focusDock": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off"
+            "value": "Move focus to the Dock"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيقاف"
+            "value": "نقل التركيز إلى Dock"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus"
+            "value": "Fokus auf das Dock bewegen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado"
+            "value": "Mover el foco al Dock"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé"
+            "value": "Placer le curseur dans le Dock"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ"
+            "value": "Dock にフォーカスを移動"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끔"
+            "value": "Dock으로 포커스 이동"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭"
+            "value": "将焦点移到程序坞"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉"
+            "value": "將焦點移至 Dock"
           }
         }
       }
     },
-    "settings.terminal.ghostty.optionAsAlt.right": {
+    "shortcut.macos.focusMenuBar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Right Option"
+            "value": "Move focus to the menu bar"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مفتاح Option الأيمن"
+            "value": "نقل التركيز إلى شريط القائمة"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechte Wahltaste"
+            "value": "Fokus auf die Menüleiste bewegen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opción derecha"
+            "value": "Mover el foco a la barra de menús"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Option droite"
+            "value": "Placer le curseur dans la barre des menus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右 Option"
+            "value": "メニューバーにフォーカスを移動"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 Option"
+            "value": "메뉴 막대로 포커스 이동"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "右 Option"
+            "value": "将焦点移到菜单栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "右 Option"
+            "value": "將焦點移至選單列"
           }
         }
       }
     },
-    "settings.terminal.ghostty.saveFailed": {
+    "shortcut.macos.helpMenuSearch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't save the Ghostty config. Please try again."
+            "value": "Show Help menu"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر حفظ إعدادات Ghostty. يُرجى المحاولة مرة أخرى."
+            "value": "إظهار قائمة التعليمات"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Ghostty-Konfiguration konnte nicht gespeichert werden. Bitte versuche es erneut."
+            "value": "Menü „Hilfe“ anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo guardar la configuración de Ghostty. Inténtalo de nuevo."
+            "value": "Mostrar el menú Ayuda"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible d'enregistrer la configuration Ghostty. Veuillez réessayer."
+            "value": "Afficher le menu Aide"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定を保存できませんでした。もう一度お試しください。"
+            "value": "「ヘルプ」メニューを表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정을 저장하지 못했습니다. 다시 시도하세요."
+            "value": "도움말 메뉴 보기"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法保存 Ghostty 配置。请重试。"
+            "value": "显示“帮助”菜单"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法儲存 Ghostty 設定。請再試一次。"
+            "value": "顯示「輔助說明」選單"
           }
         }
       }
     },
-    "settings.terminal.ghostty.scrollbackLimit.unit": {
+    "shortcut.macos.lockScreen": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "MB"
+            "value": "Lock Screen"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قفل الشاشة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm sperren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloquear pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verrouiller l’écran"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MB"
+            "value": "画面をロック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 잠금"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定螢幕"
+          }
+        }
+      }
+    },
+    "shortcut.macos.logOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log Out"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الخروج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer la session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出"
+          }
+        }
+      }
+    },
+    "shortcut.macos.lookUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look up & data detectors"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث وكاشفات البيانات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachschlagen & Datenerkennung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consultar y detectores de datos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche et détecteurs de données"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調べる/データ検出"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾아보기 및 데이터 감지기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查询与数据检测器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢與資料偵測器"
+          }
+        }
+      }
+    },
+    "shortcut.macos.missionControl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Mission Control"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار Mission Control"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mission Control anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Mission Control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher Mission Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mission Control を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mission Control 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示调度中心"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示「指揮中心」"
+          }
+        }
+      }
+    },
+    "shortcut.macos.nextInputSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select the next input source"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديد مصدر الإدخال التالي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächste Eingabequelle auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar la siguiente fuente de entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner la source de saisie suivante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の入力ソースを選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 입력 소스 선택"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择下一个输入法"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取下一個輸入方式"
+          }
+        }
+      }
+    },
+    "shortcut.macos.nextWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move focus to the next window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل التركيز إلى النافذة التالية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus auf das nächste Fenster bewegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover el foco a la siguiente ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer le curseur sur la fenêtre suivante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のウインドウにフォーカスを移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 윈도우로 포커스 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将焦点移到下一个窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將焦點移至下一個視窗"
+          }
+        }
+      }
+    },
+    "shortcut.macos.previousInputSource": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select the previous input source"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديد مصدر الإدخال السابق"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorherige Eingabequelle auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar la fuente de entrada anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionner la source de saisie précédente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の入力ソースを選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 입력 소스 선택"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择上一个输入法"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取上一個輸入方式"
+          }
+        }
+      }
+    },
+    "shortcut.macos.previousWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move focus to the previous window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل التركيز إلى النافذة السابقة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus auf das vorherige Fenster bewegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover el foco a la ventana anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer le curseur sur la fenêtre précédente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のウインドウにフォーカスを移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 윈도우로 포커스 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将焦点移到上一个窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將焦點移至上一個視窗"
+          }
+        }
+      }
+    },
+    "shortcut.macos.screenshotScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save picture of screen as a file"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ صورة الشاشة كملف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfoto als Datei sichern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar imagen de la pantalla como archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une image de l’écran dans un fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面のピクチャをファイルとして保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 사진을 파일로 저장"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将屏幕图片存储为文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將螢幕圖片儲存為檔案"
+          }
+        }
+      }
+    },
+    "shortcut.macos.screenshotScreenToClipboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy picture of screen to the clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ صورة الشاشة إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfoto in die Zwischenablage kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar imagen de la pantalla en el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier une image de l’écran dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面のピクチャをクリップボードにコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 사진을 클립보드로 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将屏幕图片拷贝到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將螢幕圖片拷貝到剪貼板"
+          }
+        }
+      }
+    },
+    "shortcut.macos.screenshotSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save picture of selected area as a file"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ صورة المنطقة المحددة كملف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto des ausgewählten Bereichs als Datei sichern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar imagen del área seleccionada como archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer une image de la zone sélectionnée dans un fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択部分のピクチャをファイルとして保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 영역 사진을 파일로 저장"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选区域的图片存储为文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將所選區域的圖片儲存為檔案"
+          }
+        }
+      }
+    },
+    "shortcut.macos.screenshotSelectionToClipboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy picture of selected area to the clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ صورة المنطقة المحددة إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto des ausgewählten Bereichs in die Zwischenablage kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar imagen del área seleccionada en el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier une image de la zone sélectionnée dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択部分のピクチャをクリップボードにコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 영역 사진을 클립보드로 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选区域的图片拷贝到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將所選區域的圖片拷貝到剪貼板"
+          }
+        }
+      }
+    },
+    "shortcut.macos.screenshotToolbar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot and recording options"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات لقطة الشاشة والتسجيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmfoto- und Aufnahmeoptionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de captura de pantalla y grabación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options de capture d’écran et d’enregistrement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットと収録のオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷 및 기록 옵션"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截屏和录制选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "截圖和錄製選項"
+          }
+        }
+      }
+    },
+    "shortcut.macos.spaceLeft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move left a space"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الانتقال مساحة واحدة إلى اليسار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Space nach links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir un espacio a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller un espace à gauche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左の操作スペースへ移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 스페이스로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向左移动一个空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向左移動一個空間"
+          }
+        }
+      }
+    },
+    "shortcut.macos.spaceRight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move right a space"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الانتقال مساحة واحدة إلى اليمين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Space nach rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir un espacio a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller un espace à droite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右の操作スペースへ移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 스페이스로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右移动一个空间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右移動一個空間"
+          }
+        }
+      }
+    },
+    "shortcut.macos.spotlight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Spotlight search"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار بحث Spotlight"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotlight-Suche anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar búsqueda de Spotlight"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la recherche Spotlight"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotlight 検索を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotlight 검색 보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示“聚焦”搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Spotlight 搜尋"
+          }
+        }
+      }
+    },
+    "shortcut.macos.toggleDockHiding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Dock hiding on or off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل أو إيقاف إخفاء Dock"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisches Ausblenden des Docks ein- oder ausschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar o desactivar la ocultación del Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer ou désactiver le masquage du Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock を自動的に表示/非表示のオン/オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 가리기 켜기 또는 끄기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开或关闭程序坞隐藏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟或關閉 Dock 隱藏"
+          }
+        }
+      }
+    },
+    "shortcut.macos.voiceOver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn VoiceOver on or off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل VoiceOver أو إيقافه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VoiceOver ein- oder ausschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar o desactivar VoiceOver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer ou désactiver VoiceOver"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VoiceOver のオン/オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VoiceOver 켜기 또는 끄기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开或关闭旁白"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟或關閉「旁白」"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.keyboardShortcuts.base-keymap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base keymap preset iterm iterm2 terminal app tmux prefix keybindings coming from another terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مخطط المفاتيح الأساسي إعداد مسبق iterm iterm2 terminal app tmux بادئة اختصارات طرفية أخرى"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis Tastaturbelegung Vorlage iterm iterm2 terminal app tmux Präfix Tastenbelegung anderes Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mapa de teclas base preajuste iterm iterm2 terminal app tmux prefijo atajos otro terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disposition de base préréglage iterm iterm2 terminal app tmux préfixe raccourcis autre terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベースキーマップ プリセット iterm iterm2 terminal app tmux プレフィックス ショートカット 他のターミナル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 키맵 프리셋 iterm iterm2 terminal app tmux 접두사 단축키 다른 터미널"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基础键位方案 预设 iterm iterm2 terminal app tmux 前缀 快捷键 其他终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基礎按鍵配置 預設組合 iterm iterm2 terminal app tmux 前綴 快速鍵 其他終端機"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.baseKeymap.apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply Keymap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق مخطط المفاتيح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastaturbelegung anwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar mapa de teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquer la disposition"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーマップを適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키맵 적용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用键位方案"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用按鍵配置"
+          }
+        }
+      }
+    },
+    "shortcut.keymap.summary.iterm2Numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 will select tabs in the focused pane instead of workspaces. Workspaces move to ⌥⌘1…9."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيحدد ⌘1…9 علامات التبويب في الجزء المحدد بدلًا من مساحات العمل. تنتقل مساحات العمل إلى ⌥⌘1…9."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 wählt dann Tabs im fokussierten Bereich statt Arbeitsbereiche aus. Arbeitsbereiche wechseln zu ⌥⌘1…9."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 seleccionará pestañas del panel enfocado en lugar de espacios de trabajo. Los espacios de trabajo pasan a ⌥⌘1…9."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 sélectionnera les onglets du panneau actif au lieu des espaces de travail. Les espaces de travail passent à ⌥⌘1…9."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 はワークスペースではなく、フォーカス中のペインのタブを選択するようになります。ワークスペースは ⌥⌘1…9 に移ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9는 작업 공간 대신 포커스된 패널의 탭을 선택합니다. 작업 공간은 ⌥⌘1…9로 이동합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 将选择当前窗格中的标签页，而不是工作区。工作区改用 ⌥⌘1…9。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘1…9 將選取目前窗格中的分頁，而不是工作區。工作區改用 ⌥⌘1…9。"
+          }
+        }
+      }
+    },
+    "cli.help.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
+          }
+        }
+      }
+    },
+    "cli.send.hint.usePaste": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلميح: كُتب كل سطر جديد كضغطة Enter؛ للنصوص الكبيرة متعددة الأسطر استخدم cmux send --paste أو cmux paste لإرسالها كلصقة واحدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis: Jeder Zeilenumbruch wurde als Enter getippt; für große mehrzeilige Texte cmux send --paste oder cmux paste verwenden, um sie als ein einziges Einfügen zu senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hint: each newline was typed as Enter; for large multi-line text use cmux send --paste or cmux paste to deliver it as one paste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sugerencia: cada salto de línea se escribió como Intro; para textos grandes de varias líneas usa cmux send --paste o cmux paste para enviarlos como un solo pegado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "astuce : chaque saut de ligne a été tapé comme Entrée ; pour un texte volumineux sur plusieurs lignes, utilisez cmux send --paste ou cmux paste pour l’envoyer en un seul collage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒント: 各改行は Enter として入力されました。大きな複数行テキストは cmux send --paste または cmux paste を使うと 1 回の貼り付けとして送れます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "힌트: 각 줄바꿈이 Enter로 입력되었습니다. 큰 여러 줄 텍스트는 cmux send --paste 또는 cmux paste를 사용해 한 번의 붙여넣기로 보내세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示：每个换行都作为 Enter 输入；对于大量多行文本，请使用 cmux send --paste 或 cmux paste 以一次粘贴发送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示：每個換行都以 Enter 輸入；若是大量多行文字，請使用 cmux send --paste 或 cmux paste 以單次貼上送出"
           }
         }
       }
@@ -552761,6 +553782,183 @@
         }
       }
     },
+    "settings.terminal.importFromTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from Another Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のターミナルから読み込む"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他终端导入"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus anderem Terminal importieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer depuis un autre terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد من طرفية أخرى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar desde otra terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從其他終端機匯入"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 터미널에서 가져오기"
+          }
+        }
+      }
+    },
+    "settings.terminal.importFromTerminal.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込む…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importieren…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기…"
+          }
+        }
+      }
+    },
+    "settings.terminal.importFromTerminal.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring over your font, colors, cursor and more from iTerm2, Terminal, Alacritty, Kitty, WezTerm or Warp."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iTerm2、ターミナル、Alacritty、Kitty、WezTerm、Warp からフォント、カラー、カーソルなどを引き継ぎます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 iTerm2、终端、Alacritty、Kitty、WezTerm 或 Warp 导入字体、颜色、光标等设置。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übernimmt Schrift, Farben, Cursor und mehr aus iTerm2, Terminal, Alacritty, Kitty, WezTerm oder Warp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprend la police, les couleurs, le curseur et plus encore depuis iTerm2, Terminal, Alacritty, Kitty, WezTerm ou Warp."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقل الخط والألوان والمؤشر وغيرها من iTerm2 أو Terminal أو Alacritty أو Kitty أو WezTerm أو Warp."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trae la fuente, los colores, el cursor y más desde iTerm2, Terminal, Alacritty, Kitty, WezTerm o Warp."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 iTerm2、終端機、Alacritty、Kitty、WezTerm 或 Warp 匯入字體、顏色、游標等設定。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iTerm2, 터미널, Alacritty, Kitty, WezTerm, Warp에서 글꼴, 색상, 커서 등을 가져옵니다."
+          }
+        }
+      }
+    },
     "settings.terminal.memoryGuardrail.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -553170,6 +554368,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルタブ、分割、またはワークスペースを開くと、TextBox が表示されます。"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.customColorIsNotAnInputKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown key custom_color; set_color accepts hex or color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なキー custom_color です。set_color は hex または color を受け付けます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的键 custom_color；set_color 接受 hex 或 color"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Schlüssel custom_color; set_color akzeptiert hex oder color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé inconnue custom_color ; set_color accepte hex ou color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح غير معروف custom_color؛ يقبل set_color المفتاح hex أو color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave desconocida custom_color; set_color acepta hex o color"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的鍵 custom_color；set_color 接受 hex 或 color"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 키 custom_color입니다. set_color는 hex 또는 color를 받습니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.colorMustBeHex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color must be a 6-digit hex color like #FF3EA5 (leading # optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color は #FF3EA5 のような 6 桁の 16 進カラーである必要があります（先頭の # は省略可）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必须是 6 位十六进制颜色，例如 #FF3EA5（开头的 # 可省略）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color muss eine 6-stellige Hex-Farbe wie #FF3EA5 sein (führendes # optional)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color doit être une couleur hexadécimale à 6 chiffres comme #FF3EA5 (# initial facultatif)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة color لونًا سداسيًا عشريًا من 6 خانات مثل #FF3EA5 (الرمز # في البداية اختياري)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color debe ser un color hexadecimal de 6 dígitos como #FF3EA5 (el # inicial es opcional)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必須是 6 位十六進位顏色，例如 #FF3EA5（開頭的 # 可省略）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color는 #FF3EA5 같은 6자리 16진수 색상이어야 합니다(앞의 #는 생략 가능)"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.colorMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color must be a string holding a hex color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color は 16 進カラーを含む文字列である必要があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必须是包含十六进制颜色的字符串"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color muss ein String mit einer Hex-Farbe sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color doit être une chaîne contenant une couleur hexadécimale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة color سلسلة نصية تحتوي على لون سداسي عشري"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color debe ser una cadena de texto con un color hexadecimal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必須是包含十六進位顏色的字串"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color는 16진수 색상을 담은 문자열이어야 합니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.iconSymbolIsNotAnInputKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown key icon_symbol; set_icon accepts symbol or icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なキー icon_symbol です。set_icon は symbol または icon を受け付けます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的键 icon_symbol；set_icon 接受 symbol 或 icon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Schlüssel icon_symbol; set_icon akzeptiert symbol oder icon"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé inconnue icon_symbol ; set_icon accepte symbol ou icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح غير معروف icon_symbol؛ يقبل set_icon المفتاح symbol أو icon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave desconocida icon_symbol; set_icon acepta symbol o icon"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的鍵 icon_symbol；set_icon 接受 symbol 或 icon"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 키 icon_symbol입니다. set_icon은 symbol 또는 icon을 받습니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.symbolMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol must be a string"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol は文字列である必要があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol 必须是字符串"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol muss ein String sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol doit être une chaîne de caractères"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة symbol سلسلة نصية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol debe ser una cadena de texto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol 必須是字串"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol은 문자열이어야 합니다"
           }
         }
       }
@@ -555833,714 +557326,6 @@
         }
       }
     },
-    "settings.terminal.ghostty.overridden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Overridden by your config (%@)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم تجاوزه بواسطة إعداداتك (%@)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Von deiner Konfiguration überschrieben (%@)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anulado por tu configuración (%@)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remplacé par votre configuration (%@)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ご自身の設定で上書きされています（%@）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용자 설정에 의해 재정의됨(%@)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已被你的配置覆盖（%@）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已被你的設定覆寫（%@）"
-          }
-        }
-      }
-    },
-    "settings.terminal.ghostty.scrollbackLimit.newTerminals": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applies to new terminals."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينطبق على الطرفيات الجديدة."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gilt für neue Terminals."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se aplica a las terminales nuevas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S'applique aux nouveaux terminaux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいターミナルに適用されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 터미널에 적용됩니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "应用于新的终端。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "套用於新的終端機。"
-          }
-        }
-      }
-    },
-    "cli.help.send": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام: cmux send [flags] [--] <text>\n\nيرسل نصًا إلى سطح طرفية كضغطات مفاتيح. تسلسلات الهروب: \\n و\\r ترسلان Enter، و\\t ترسل Tab.\n\nللنصوص الكبيرة (مثلًا أكثر من 4 كيلوبايت، أو عدة أسطر موجهة إلى وكيل)، استخدم --paste أو cmux paste. تضغط ضغطات المفاتيح Enter عند كل سطر جديد، مما قد يرسل كل سطر بمفرده.\n\nمع --paste، يمر النص دون تغيير عبر مسار اللصق نفسه الذي يستخدمه cmux paste وCmd+V: لا تُفسَّر تسلسلات الهروب مثل \\n، وتُستبدل أحرف التحكم مثل Esc وCtrl-C بمسافات. يجب أن يأتي --paste قبل النص.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --paste                      يلصق النص بدلًا من كتابته\n\nمثال:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verwendung: cmux send [flags] [--] <text>\n\nSendet Text als Tastatureingaben an eine Terminal-Oberfläche. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFür große Texte (zum Beispiel über 4 KB oder mehrere Zeilen an einen Agenten) --paste oder cmux paste verwenden. Tastatureingaben drücken bei jedem Zeilenumbruch Enter, wodurch jede Zeile einzeln abgesendet werden kann.\n\nMit --paste geht der Text unverändert über denselben Einfügepfad wie cmux paste und Cmd+V: Escape-Sequenzen wie \\n werden nicht interpretiert, und Steuerzeichen wie Esc und Strg-C werden durch Leerzeichen ersetzt. --paste muss vor dem Text stehen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --paste                      Fügt den Text ein, statt ihn zu tippen\n\nBeispiel:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage: cmux send [flags] [--] <text>\n\nSend text to a terminal surface as keystrokes. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFor large text (for example over 4 KB, or several lines going to an agent), use --paste or cmux paste. Keystrokes press Enter at every newline, which can submit each line on its own.\n\nWith --paste, the text goes through the same paste path as cmux paste and Cmd+V, unchanged: escape sequences such as \\n are not interpreted, and control characters such as Esc and Ctrl-C are replaced with spaces. --paste must come before the text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --paste                      Paste the text instead of typing it\n\nExample:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso: cmux send [flags] [--] <text>\n\nEnvía texto a una superficie de terminal como pulsaciones de teclas. Secuencias de escape: \\n y \\r envían Intro, \\t envía Tab.\n\nPara textos grandes (por ejemplo, más de 4 KB o varias líneas dirigidas a un agente), usa --paste o cmux paste. Las pulsaciones presionan Intro en cada salto de línea, lo que puede enviar cada línea por separado.\n\nCon --paste, el texto pasa sin cambios por la misma ruta de pegado que cmux paste y Cmd+V: las secuencias de escape como \\n no se interpretan y los caracteres de control como Esc y Ctrl-C se reemplazan por espacios. --paste debe ir antes del texto.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (predeterminada: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --paste                      Pega el texto en lugar de escribirlo\n\nEjemplo:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation : cmux send [flags] [--] <text>\n\nEnvoie du texte à une surface de terminal sous forme de frappes. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nPour un texte volumineux (par exemple plus de 4 Ko, ou plusieurs lignes destinées à un agent), utilisez --paste ou cmux paste. Les frappes appuient sur Entrée à chaque saut de ligne, ce qui peut envoyer chaque ligne séparément.\n\nAvec --paste, le texte passe tel quel par le même chemin de collage que cmux paste et Cmd+V : les séquences d’échappement comme \\n ne sont pas interprétées, et les caractères de contrôle comme Échap et Ctrl-C sont remplacés par des espaces. --paste doit précéder le texte.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --paste                      Colle le texte au lieu de le taper\n\nExemple :\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用方法: cmux send [flags] [--] <text>\n\nテキストをキー入力としてターミナルサーフェスに送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\n大きなテキスト（たとえば 4 KB を超えるもの、またはエージェントに送る複数行）には --paste または cmux paste を使ってください。キー入力では改行ごとに Enter が押されるため、各行が個別に送信されることがあります。\n\n--paste を使うと、テキストはそのまま cmux paste や Cmd+V と同じ貼り付け経路で送られます。\\n などのエスケープシーケンスは解釈されず、Esc や Ctrl-C などの制御文字はスペースに置き換えられます。--paste はテキストより前に指定してください。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --paste                      テキストを入力する代わりに貼り付けます\n\n例:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법: cmux send [flags] [--] <text>\n\n텍스트를 키 입력으로 터미널 서피스에 보냅니다. 이스케이프 시퀀스: \\n과 \\r은 Enter, \\t는 Tab을 보냅니다.\n\n큰 텍스트(예: 4 KB 초과 또는 에이전트로 보내는 여러 줄)에는 --paste 또는 cmux paste를 사용하세요. 키 입력은 줄바꿈마다 Enter를 누르므로 각 줄이 따로 제출될 수 있습니다.\n\n--paste를 쓰면 텍스트가 변경 없이 cmux paste 및 Cmd+V와 같은 붙여넣기 경로로 전달됩니다. \\n 같은 이스케이프 시퀀스는 해석되지 않으며, Esc와 Ctrl-C 같은 제어 문자는 공백으로 바뀝니다. --paste는 텍스트보다 앞에 와야 합니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 서피스 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      워크스페이스/서피스 참조와 인덱스에 사용할 창 컨텍스트\n  --paste                      텍스트를 입력하는 대신 붙여넣습니다\n\n예:\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按键方式将文本发送到终端表面。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n对于大量文本（例如超过 4 KB，或要发给代理的多行文本），请使用 --paste 或 cmux paste。按键方式会在每个换行处按下 Enter，可能让每一行单独提交。\n\n使用 --paste 时，文本会原样通过与 cmux paste 和 Cmd+V 相同的粘贴路径发送：不会解释 \\n 等转义序列，Esc 和 Ctrl-C 等控制字符会被替换为空格。--paste 必须放在文本之前。\n\n标志：\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --paste                      粘贴文本，而不是逐键输入\n\n示例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用法：cmux send [flags] [--] <text>\n\n以按鍵方式將文字傳送到終端機表面。跳脫序列：\\n 和 \\r 送出 Enter，\\t 送出 Tab。\n\n若是大量文字（例如超過 4 KB，或要送給代理的多行文字），請使用 --paste 或 cmux paste。按鍵方式會在每個換行處按下 Enter，可能讓每一行各自送出。\n\n使用 --paste 時，文字會原封不動地透過與 cmux paste 和 Cmd+V 相同的貼上路徑送出：不會解譯 \\n 等跳脫序列，Esc 和 Ctrl-C 等控制字元會被替換為空格。--paste 必須放在文字之前。\n\n旗標：\n  --workspace <id|ref|index>   目標工作區（預設：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目標表面（預設：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作區／表面參照與索引所用的視窗上下文\n  --paste                      貼上文字，而不是逐鍵輸入\n\n範例：\n  cmux send \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"\n  cmux send --paste --surface surface:2 \"$(cat notes.md)\""
-          }
-        }
-      }
-    },
-    "cli.send.hint.usePaste": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تلميح: كُتب كل سطر جديد كضغطة Enter؛ للنصوص الكبيرة متعددة الأسطر استخدم cmux send --paste أو cmux paste لإرسالها كلصقة واحدة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinweis: Jeder Zeilenumbruch wurde als Enter getippt; für große mehrzeilige Texte cmux send --paste oder cmux paste verwenden, um sie als ein einziges Einfügen zu senden"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "hint: each newline was typed as Enter; for large multi-line text use cmux send --paste or cmux paste to deliver it as one paste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sugerencia: cada salto de línea se escribió como Intro; para textos grandes de varias líneas usa cmux send --paste o cmux paste para enviarlos como un solo pegado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "astuce : chaque saut de ligne a été tapé comme Entrée ; pour un texte volumineux sur plusieurs lignes, utilisez cmux send --paste ou cmux paste pour l’envoyer en un seul collage"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ヒント: 各改行は Enter として入力されました。大きな複数行テキストは cmux send --paste または cmux paste を使うと 1 回の貼り付けとして送れます"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "힌트: 각 줄바꿈이 Enter로 입력되었습니다. 큰 여러 줄 텍스트는 cmux send --paste 또는 cmux paste를 사용해 한 번의 붙여넣기로 보내세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：每个换行都作为 Enter 输入；对于大量多行文本，请使用 cmux send --paste 或 cmux paste 以一次粘贴发送"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提示：每個換行都以 Enter 輸入；若是大量多行文字，請使用 cmux send --paste 或 cmux paste 以單次貼上送出"
-          }
-        }
-      }
-    },
-    "settings.terminal.importFromTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import from Another Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のターミナルから読み込む"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从其他终端导入"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus anderem Terminal importieren"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importer depuis un autre terminal"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استيراد من طرفية أخرى"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importar desde otra terminal"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從其他終端機匯入"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 터미널에서 가져오기"
-          }
-        }
-      }
-    },
-    "settings.terminal.importFromTerminal.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込む…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importieren…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importer…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استيراد…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importar…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "匯入…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가져오기…"
-          }
-        }
-      }
-    },
-    "settings.terminal.importFromTerminal.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bring over your font, colors, cursor and more from iTerm2, Terminal, Alacritty, Kitty, WezTerm or Warp."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iTerm2、ターミナル、Alacritty、Kitty、WezTerm、Warp からフォント、カラー、カーソルなどを引き継ぎます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从 iTerm2、终端、Alacritty、Kitty、WezTerm 或 Warp 导入字体、颜色、光标等设置。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Übernimmt Schrift, Farben, Cursor und mehr aus iTerm2, Terminal, Alacritty, Kitty, WezTerm oder Warp."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reprend la police, les couleurs, le curseur et plus encore depuis iTerm2, Terminal, Alacritty, Kitty, WezTerm ou Warp."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "انقل الخط والألوان والمؤشر وغيرها من iTerm2 أو Terminal أو Alacritty أو Kitty أو WezTerm أو Warp."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trae la fuente, los colores, el cursor y más desde iTerm2, Terminal, Alacritty, Kitty, WezTerm o Warp."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從 iTerm2、終端機、Alacritty、Kitty、WezTerm 或 Warp 匯入字體、顏色、游標等設定。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "iTerm2, 터미널, Alacritty, Kitty, WezTerm, Warp에서 글꼴, 색상, 커서 등을 가져옵니다."
-          }
-        }
-      }
-    },
-    "workspaceGroup.error.customColorIsNotAnInputKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unknown key custom_color; set_color accepts hex or color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明なキー custom_color です。set_color は hex または color を受け付けます"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知的键 custom_color；set_color 接受 hex 或 color"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unbekannter Schlüssel custom_color; set_color akzeptiert hex oder color"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clé inconnue custom_color ; set_color accepte hex ou color"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفتاح غير معروف custom_color؛ يقبل set_color المفتاح hex أو color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clave desconocida custom_color; set_color acepta hex o color"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知的鍵 custom_color；set_color 接受 hex 或 color"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알 수 없는 키 custom_color입니다. set_color는 hex 또는 color를 받습니다"
-          }
-        }
-      }
-    },
-    "workspaceGroup.error.colorMustBeHex": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color must be a 6-digit hex color like #FF3EA5 (leading # optional)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color は #FF3EA5 のような 6 桁の 16 進カラーである必要があります（先頭の # は省略可）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color 必须是 6 位十六进制颜色，例如 #FF3EA5（开头的 # 可省略）"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color muss eine 6-stellige Hex-Farbe wie #FF3EA5 sein (führendes # optional)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color doit être une couleur hexadécimale à 6 chiffres comme #FF3EA5 (# initial facultatif)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجب أن تكون قيمة color لونًا سداسيًا عشريًا من 6 خانات مثل #FF3EA5 (الرمز # في البداية اختياري)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color debe ser un color hexadecimal de 6 dígitos como #FF3EA5 (el # inicial es opcional)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color 必須是 6 位十六進位顏色，例如 #FF3EA5（開頭的 # 可省略）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color는 #FF3EA5 같은 6자리 16진수 색상이어야 합니다(앞의 #는 생략 가능)"
-          }
-        }
-      }
-    },
-    "workspaceGroup.error.colorMustBeString": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color must be a string holding a hex color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color は 16 進カラーを含む文字列である必要があります"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color 必须是包含十六进制颜色的字符串"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color muss ein String mit einer Hex-Farbe sein"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color doit être une chaîne contenant une couleur hexadécimale"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجب أن تكون قيمة color سلسلة نصية تحتوي على لون سداسي عشري"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color debe ser una cadena de texto con un color hexadecimal"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color 必須是包含十六進位顏色的字串"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "color는 16진수 색상을 담은 문자열이어야 합니다"
-          }
-        }
-      }
-    },
-    "workspaceGroup.error.iconSymbolIsNotAnInputKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "unknown key icon_symbol; set_icon accepts symbol or icon"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明なキー icon_symbol です。set_icon は symbol または icon を受け付けます"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知的键 icon_symbol；set_icon 接受 symbol 或 icon"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unbekannter Schlüssel icon_symbol; set_icon akzeptiert symbol oder icon"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clé inconnue icon_symbol ; set_icon accepte symbol ou icon"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفتاح غير معروف icon_symbol؛ يقبل set_icon المفتاح symbol أو icon"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clave desconocida icon_symbol; set_icon acepta symbol o icon"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未知的鍵 icon_symbol；set_icon 接受 symbol 或 icon"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알 수 없는 키 icon_symbol입니다. set_icon은 symbol 또는 icon을 받습니다"
-          }
-        }
-      }
-    },
-    "workspaceGroup.error.symbolMustBeString": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol must be a string"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol は文字列である必要があります"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol 必须是字符串"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol muss ein String sein"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol doit être une chaîne de caractères"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يجب أن تكون قيمة symbol سلسلة نصية"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol debe ser una cadena de texto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol 必須是字串"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "symbol은 문자열이어야 합니다"
-          }
-        }
-      }
-    },
     "terminal.paste.notice.imageTooLarge": {
       "extractionState": "manual",
       "localizations": {
@@ -559074,6 +559859,1758 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ghostty 設定錯誤"
+          }
+        }
+      }
+    },
+    "command.openTerminalChatView.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open terminal as chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルをチャットで表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以对话形式查看终端"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal als Chat öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le terminal en discussion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الطرفية كدردشة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la terminal como chat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以對話形式檢視終端機"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 채팅으로 열기"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق مساحة العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Arbeitsbereichs warnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advertir antes de cerrar un espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる前に警告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 닫기 전에 경고"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭工作区前警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉工作區前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWorkspace.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces close immediately without confirmation. Pinned workspaces still ask."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُغلق مساحات العمل فورًا دون تأكيد. لا تزال مساحات العمل المثبتة تطلب التأكيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche werden sofort und ohne Bestätigung geschlossen. Angepinnte Arbeitsbereiche fragen weiterhin nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo se cierran inmediatamente sin confirmación. Los espacios de trabajo fijados siguen pidiendo confirmación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail se ferment immédiatement sans confirmation. Les espaces de travail épinglés demandent toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認なしにすぐワークスペースを閉じます。ピン留めされたワークスペースは引き続き確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 창 없이 워크스페이스가 즉시 닫힙니다. 고정된 워크스페이스는 계속 확인합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі області закриваються одразу без підтвердження. Закріплені робочі області все одно запитують."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区会直接关闭，不做确认。已固定的工作区仍会确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區將立即關閉，無需確認。釘選的工作區仍會確認。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingWorkspace.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a confirmation before closing a workspace with a running process, or several workspaces at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد قبل إغلاق مساحة عمل بها عملية قيد التشغيل، أو عدة مساحات عمل دفعة واحدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Bestätigung anzeigen, bevor ein Arbeitsbereich mit einem laufenden Prozess oder mehrere Arbeitsbereiche auf einmal geschlossen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una confirmación antes de cerrar un espacio de trabajo con un proceso en ejecución, o varios espacios de trabajo a la vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher une confirmation avant de fermer un espace de travail avec un processus en cours, ou plusieurs espaces de travail à la fois."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプロセスがあるワークスペース、または複数のワークスペースをまとめて閉じる前に確認を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로세스가 있는 워크스페이스나 여러 워크스페이스를 한 번에 닫기 전에 확인 창을 표시합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження перед закриттям робочої області із запущеним процесом або кількох робочих областей одночасно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭有正在运行进程的工作区，或一次关闭多个工作区前显示确认。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉有執行中程序的工作區，或一次關閉多個工作區前顯示確認。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.warn-before-closing-workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent إغلاق مساحة العمل تأكيد تحذير عملية قيد التشغيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent arbeitsbereich schließen bestätigung warnung laufender prozess"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent cerrar espacio de trabajo confirmación advertencia proceso en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent fermer espace de travail confirmation avertissement processus en cours"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent ワークスペースを閉じる 確認 警告 実行中のプロセス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 워크스페이스 닫기 확인 경고 실행 중인 프로세스"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent закрити робочу область підтвердження попередження запущений процес"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 关闭工作区 确认 警告 正在运行的进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.warnBeforeClosingWorkspace close workspace confirmation command-shift-w cmd-shift-w running process agent 關閉工作區 確認 警告 執行中的程序"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.backgroundBlur": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Blur"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمويه الخلفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundunschärfe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenfoque del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flou de l'arrière-plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景のぼかし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 흐림"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模糊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模糊"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.backgroundOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Opacity"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عتامة الخلفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrunddeckkraft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacité de l'arrière-plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景の不透明度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 불투명도"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景不透明度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景不透明度"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorBlink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blinking Cursor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مؤشر وامض"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blinkender Cursor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor parpadeante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Curseur clignotant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カーソルの点滅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "커서 깜박임"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "光标闪烁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標閃爍"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط المؤشر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursorstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo del cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style du curseur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カーソルのスタイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "커서 스타일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "光标样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "游標樣式"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.fontFamily": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글꼴"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字體"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.fontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الخط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de police"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントサイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글꼴 크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字体大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字體大小"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option as Alt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option كمفتاح Alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wahltaste als Alt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción como Alt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option comme Alt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option を Alt として使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option을 Alt로 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option 作为 Alt"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option 作為 Alt"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.scrollbackLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrollback Limit"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حد سجل التمرير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrollback-Limit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite del historial de desplazamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de défilement arrière"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクロールバックの上限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크롤백 한도"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回滚上限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回捲上限"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.windowPaddingX": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal Padding"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحشو الأفقي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontaler Innenabstand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relleno horizontal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marge intérieure horizontale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水平方向の余白"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가로 여백"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水平边距"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水平邊距"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.windowPaddingY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical Padding"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحشو العمودي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertikaler Innenabstand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relleno vertical"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marge intérieure verticale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直方向の余白"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세로 여백"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直边距"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直邊距"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorStyle.bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "막대"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直線"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorStyle.block": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتلة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloque"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloc"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "블록"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方塊"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorStyle.blockHollow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hollow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجوّف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hohl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hueco"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中抜き"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속이 빈 블록"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空心"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空心"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.cursorStyle.underline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسطير"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterstrich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subrayado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soulignement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下線"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "밑줄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下划线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底線"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.fontFamily.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتراضي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These rows show the value in effect and save to cmux's Ghostty config, which loads after your own Ghostty config. The caption under each row is its config key."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض هذه الصفوف القيمة السارية وتحفظ في إعدادات Ghostty الخاصة بـ cmux، والتي تُحمَّل بعد إعدادات Ghostty الخاصة بك. التسمية أسفل كل صف هي مفتاح الإعداد الخاص به."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Zeilen zeigen den wirksamen Wert und speichern in die Ghostty-Konfiguration von cmux, die nach deiner eigenen Ghostty-Konfiguration geladen wird. Die Beschriftung unter jeder Zeile ist ihr Konfigurationsschlüssel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estas filas muestran el valor en vigor y se guardan en la configuración de Ghostty de cmux, que se carga después de tu propia configuración de Ghostty. El texto bajo cada fila es su clave de configuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces lignes affichent la valeur en vigueur et enregistrent dans la configuration Ghostty de cmux, chargée après votre propre configuration Ghostty. La légende sous chaque ligne est sa clé de configuration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの行は現在有効な値を表示し、cmux の Ghostty 設定に保存します。この設定はご自身の Ghostty 設定の後に読み込まれます。各行の下のキャプションはその設定キーです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 행들은 현재 적용 중인 값을 보여 주며, 사용자의 Ghostty 설정 다음에 로드되는 cmux의 Ghostty 설정에 저장됩니다. 각 행 아래의 캡션은 해당 설정 키입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些行显示当前生效的值，并保存到 cmux 的 Ghostty 配置，该配置会在你自己的 Ghostty 配置之后加载。每行下方的说明文字是其配置键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些列顯示目前生效的值，並儲存到 cmux 的 Ghostty 設定，該設定會在你自己的 Ghostty 設定之後載入。每列下方的說明文字是其設定鍵。"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt.both": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both Option Keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كلا مفتاحي Option"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beide Wahltasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ambas teclas Opción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les deux touches Option"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の Option キー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "양쪽 Option 키"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两个 Option 键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兩個 Option 鍵"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt.left": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Option"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح Option الأيسر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linke Wahltaste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option gauche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左 Option"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽 Option"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左 Option"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左 Option"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.optionAsAlt.right": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Option"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح Option الأيمن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechte Wahltaste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option droite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右 Option"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 Option"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右 Option"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右 Option"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the Ghostty config. Please try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر حفظ إعدادات Ghostty. يُرجى المحاولة مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ghostty-Konfiguration konnte nicht gespeichert werden. Bitte versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar la configuración de Ghostty. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer la configuration Ghostty. Veuillez réessayer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 設定を保存できませんでした。もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty 설정을 저장하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存 Ghostty 配置。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存 Ghostty 設定。請再試一次。"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.scrollbackLimit.unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MB"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.overridden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overridden by your config (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تجاوزه بواسطة إعداداتك (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von deiner Konfiguration überschrieben (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anulado por tu configuración (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacé par votre configuration (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ご自身の設定で上書きされています（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 설정에 의해 재정의됨(%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已被你的配置覆盖（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已被你的設定覆寫（%@）"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.scrollbackLimit.newTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to new terminals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينطبق على الطرفيات الجديدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gilt für neue Terminals."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplica a las terminales nuevas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S'applique aux nouveaux terminaux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널에 적용됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用于新的终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用於新的終端機。"
           }
         }
       }

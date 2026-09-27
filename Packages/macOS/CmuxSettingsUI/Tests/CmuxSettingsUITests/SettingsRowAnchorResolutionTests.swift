@@ -197,6 +197,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:globalHotkey:enable-hotkey",
         "setting:globalHotkey:shortcut",
         "setting:keyboardShortcuts:shortcuts",
+        "setting:keyboardShortcuts:base-keymap",
         "setting:keyboardShortcuts:shortcut-chords",
         "setting:keyboardShortcuts:reset-defaults",
         "setting:terminal:memory-guardrail",
