@@ -274,7 +274,11 @@ fn find_real_claude(path: &OsStr, shim_dir: Option<&Path>) -> Option<PathBuf> {
     std::env::split_paths(path)
         .filter(|dir| !dir.as_os_str().is_empty() && !is_shim_directory(dir, shim_dir))
         .map(|dir| dir.join("claude"))
-        .find(|candidate| current_process_can_execute(candidate) && !is_claude_shim(candidate))
+        .find(|candidate| {
+            candidate.metadata().is_ok_and(|metadata| metadata.is_file())
+                && current_process_can_execute(candidate)
+                && !is_claude_shim(candidate)
+        })
 }
 
 fn current_process_can_execute(path: &Path) -> bool {
@@ -770,6 +774,10 @@ mod tests {
         let linked = root.path().join("linked");
         fs::create_dir_all(&linked).unwrap();
         std::os::unix::fs::symlink(shim_dir.join("claude"), linked.join("claude")).unwrap();
+        // A searchable directory named `claude` satisfies access(X_OK) but
+        // cannot be executed as the Claude binary.
+        let directory_candidate = root.path().join("directory-candidate");
+        fs::create_dir_all(directory_candidate.join("claude")).unwrap();
         // An owned file with only the "other execute" bit set looks
         // executable to a bitmask check but is not executable by its owner.
         let inaccessible = root.path().join("inaccessible");
@@ -780,8 +788,15 @@ mod tests {
         let real = root.path().join("real");
         write_executable(&real.join("claude"), "#!/bin/sh\n");
 
-        let path =
-            std::env::join_paths([&shim_dir, &copied, &linked, &inaccessible, &real]).unwrap();
+        let path = std::env::join_paths([
+            &shim_dir,
+            &copied,
+            &linked,
+            &directory_candidate,
+            &inaccessible,
+            &real,
+        ])
+        .unwrap();
         assert_eq!(find_real_claude(&path, Some(shim_dir.as_path())), Some(real.join("claude")));
         assert_eq!(
             path_without_shims(&path, Some(shim_dir.as_path())),
