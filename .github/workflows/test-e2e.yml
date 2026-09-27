@@ -1258,8 +1258,6 @@ jobs:
           artifact-id: ${{ needs.build.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
 
-      # The steps come from this workflow's revision, not the tested one, which
-      # may predate them.
       # On an owned Mac the tests share its one console session with every
       # other GUI job, so they need glaeda's gui token. This job runs only when
       # build could not get it, so asking at job start meant waiting glaeda's
@@ -1285,6 +1283,8 @@ jobs:
               ;;
           esac
 
+      # The steps come from this workflow's revision, not the tested one, which
+      # may predate them.
       - name: Checkout the E2E test steps
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
