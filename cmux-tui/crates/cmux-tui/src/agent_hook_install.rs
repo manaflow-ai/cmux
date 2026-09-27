@@ -495,11 +495,19 @@ fn runtime_data_home(home: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+/// cmux-tui's own directory under the XDG data home (`~/.local/share/cmux-tui`).
+pub(crate) fn runtime_cmux_tui_data_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
-    Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
+    Some(runtime_data_home(&home).join("cmux-tui"))
 }
 
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
+#[cfg(unix)]
+pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+    Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
+}
+
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
 #[cfg(not(unix))]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     None
@@ -1161,7 +1169,8 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     Ok(())
 }
 
-fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
+/// A `cmux-tui-hook` beside `current_exe`, else the first one on `PATH`.
+pub(crate) fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
     current_exe
         .and_then(Path::parent)
         .map(|parent| parent.join("cmux-tui-hook"))
@@ -1179,7 +1188,8 @@ fn find_executable(binary: &str, path: Option<&std::ffi::OsStr>) -> Option<PathB
         .find(|candidate| is_executable_file(candidate))
 }
 
-fn is_executable_file(path: &Path) -> bool {
+/// Whether `path` is a regular file with an execute bit (any regular file off Unix).
+pub(crate) fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
@@ -1844,6 +1854,55 @@ fn codex_hook_timeout(event: &str) -> u64 {
     }
 }
 
+#[cfg(unix)]
+/// Claude's hook groups in exactly the shape `agent hook install claude`
+/// writes, for a launcher that passes them through `--settings`. With the
+/// detached helper available the commands are byte-identical to the installed
+/// ones, so Claude Code deduplicates them against a copy in the user's
+/// settings. `emit_binary` replaces each command with the CLI's
+/// `agent hook emit` for hosts that have no helper.
+pub(crate) fn claude_session_hook_settings(
+    emit_binary: Option<&Path>,
+) -> anyhow::Result<Map<String, Value>> {
+    let provider = *PROVIDERS
+        .iter()
+        .find(|provider| provider.id == "claude")
+        .context("the claude hook provider is missing")?;
+    let Format::Nested { timeout, .. } = provider.format else {
+        anyhow::bail!("the claude hook provider must use nested hooks");
+    };
+    let mut root = Map::new();
+    rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
+    let Some(binary) = emit_binary else {
+        return Ok(root);
+    };
+    let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = emit_hook_command(&binary, provider.id, event);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
+/// receipt is discarded because Claude Code adds hook stdout to the context.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    format!(
+        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
 fn hook_command(provider: &str, event: &str) -> String {
     format!(
         "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
@@ -2489,11 +2548,13 @@ fn codex_trust_state_verified(
     })
 }
 
-fn shell_quote(value: &str) -> String {
+/// Single-quotes a value for a POSIX shell command line.
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
