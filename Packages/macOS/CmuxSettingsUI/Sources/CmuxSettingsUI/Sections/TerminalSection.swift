@@ -279,6 +279,24 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
+                subtitle: String(
+                    localized: "settings.terminal.importFromTerminal.subtitle",
+                    defaultValue: "Bring over your font, colors, cursor and more from iTerm2, Terminal, Alacritty, Kitty, WezTerm or Warp."
+                )
+            ) {
+                Button(
+                    String(localized: "settings.terminal.importFromTerminal.button", defaultValue: "Import…")
+                ) {
+                    hostActions.openTerminalImport()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalImportButton")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.adaptiveDefaultTheme"),
                 String(
                     localized: "settings.terminal.adaptiveDefaultTheme",

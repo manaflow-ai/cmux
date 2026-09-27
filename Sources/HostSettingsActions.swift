@@ -141,10 +141,24 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openTerminalThemePicker() {
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        openBundledCLIInTerminalTab(arguments: "themes 2>/dev/null; exit", purpose: "theme picker")
+    }
+
+    func openTerminalImport() {
+        // No trailing `exit`: the tab stays open so the import report can be read.
+        openBundledCLIInTerminalTab(arguments: "import", purpose: "terminal import")
+    }
+
+    /// Opens a focused terminal tab in the selected workspace that runs the bundled
+    /// cmux CLI with `arguments`, the shared path for Settings rows backed by a CLI command.
+    private func openBundledCLIInTerminalTab(arguments: String, purpose: String) {
         let cliURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
         guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
+            hostSettingsLogger.error("Settings \(purpose, privacy: .public) unavailable: bundled cmux CLI missing")
             return
         }
 
@@ -155,12 +169,9 @@ final class HostSettingsActions: SettingsHostActions {
             return
         }
 
-        // The native Settings entry point keeps CLI diagnostics private. The
-        // interactive picker still owns stdout/the TTY, while raw helper and
-        // launch errors on stderr are suppressed on this user-facing path.
-        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit\n"
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(arguments)\n"
         do {
-            let picker = try SurfacePaneFactory.makeTerminalPane(
+            let pane = try SurfacePaneFactory.makeTerminalPane(
                 initialCommand: nil,
                 initialInput: initialInput,
                 workingDirectory: nil,
@@ -171,11 +182,11 @@ final class HostSettingsActions: SettingsHostActions {
                 _ = appDelegate.focusMainWindow(windowId: windowID)
             }
             SurfacePaneFactory.focus(
-                panelID: picker.panelID,
-                in: picker.workspaceID
+                panelID: pane.panelID,
+                in: pane.workspaceID
             )
         } catch {
-            hostSettingsLogger.error("Failed to open terminal theme picker")
+            hostSettingsLogger.error("Failed to open Settings \(purpose, privacy: .public) terminal")
         }
     }
 
