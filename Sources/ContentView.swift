@@ -3960,7 +3960,7 @@ struct ContentView: View {
             .accessibilityHidden(true)
         }
         .onAppear {
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count)
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { oldValue, newValue in
@@ -3980,7 +3980,7 @@ struct ContentView: View {
                 commandPaletteVisibleResultsVersion &+= 1
             }
             scheduleCommandPaletteResultsRefresh(query: newValue)
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count)
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
@@ -3992,7 +3992,7 @@ struct ContentView: View {
                     query: commandPaletteQuery,
                     forceSearchCorpusRefresh: true
                 )
-                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count)
                 syncCommandPaletteDebugStateForObservedWindow()
             }
         }
@@ -4005,12 +4005,12 @@ struct ContentView: View {
             )
             syncCommandPaletteSelectionAnchorFromCurrentResults()
             let visibleResultCount = commandPaletteVisibleResults.count
-            updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
+            updateCommandPaletteScrollTarget(resultCount: visibleResultCount)
             syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteSelectedResultIndex) { _ in
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: true)
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count)
             syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
         }
@@ -5525,7 +5525,7 @@ struct ContentView: View {
                     scope: scope,
                     fingerprint: fingerprint
                 )
-                updateCommandPaletteScrollTarget(resultCount: previewResults.count, animated: false)
+                updateCommandPaletteScrollTarget(resultCount: previewResults.count)
                 syncCommandPaletteOverlayCommandListState()
                 syncCommandPaletteDebugStateForObservedWindow()
             }
@@ -9565,7 +9565,7 @@ struct ContentView: View {
         return nil
     }
 
-    private func updateCommandPaletteScrollTarget(resultCount: Int, animated: Bool) {
+    private func updateCommandPaletteScrollTarget(resultCount: Int) {
         guard resultCount > 0 else {
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
@@ -9578,16 +9578,10 @@ struct ContentView: View {
             resultCount: resultCount
         )
 
-        let assignTarget = {
-            commandPaletteScrollTargetIndex = selectedIndex
-        }
-        if animated {
-            withAnimation(.easeOut(duration: 0.1)) {
-                assignTarget()
-            }
-        } else {
-            assignTarget()
-        }
+        // The overlay applies this target on a later main-actor turn
+        // (scheduleCommandListUpdate), so a withAnimation here never reached
+        // the scroll; set it directly.
+        commandPaletteScrollTargetIndex = selectedIndex
     }
 
     private func syncCommandPaletteSelectionAnchor(resultIDs: [String]) {
@@ -9618,9 +9612,8 @@ struct ContentView: View {
         } else {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
-        updateCommandPaletteScrollTarget(resultCount: count, animated: true)
-        syncCommandPaletteOverlayCommandListState()
-        syncCommandPaletteDebugStateForObservedWindow()
+        // The scroll target, overlay list and debug state follow from
+        // .onChange(of: commandPaletteSelectedResultIndex).
     }
 
     private func forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal(_ event: NSEvent) -> Bool {

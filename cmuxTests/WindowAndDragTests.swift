@@ -697,6 +697,35 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
     }
 
+    func testExecutableSourceFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/tool.py")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .pythonScript, isExecutable: true))
+    }
+
+    func testExecutableMarkdownFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/README.md")
+        let contentType = UTType("net.daringfireball.markdown") ?? .plainText
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType, isExecutable: true))
+    }
+
+    func testTerminalCommandFileRunsEvenThoughItIsText() throws {
+        let url = URL(fileURLWithPath: "/tmp/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .shellScript, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/Run Me.command'\n")
+    }
+
+    func testExtensionlessExecutableDataFileRuns() throws {
+        let url = URL(fileURLWithPath: "/tmp/runme")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .data, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/runme'\n")
+    }
+
     func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)

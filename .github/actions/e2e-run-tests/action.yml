@@ -322,9 +322,9 @@ runs:
       run: |
         defaults write com.apple.CrashReporter DialogType none 2>/dev/null || true
         uid="$(id -u)"
-        # SIGKILL: a SecurityAgent holding a modal prompt (Spotlight asking
-        # for the test keychain since boot) outlived SIGTERM on cmux8s and
-        # covered a dogfood tour. Problem Reporter owns the crash dialog.
+        # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
+        # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
+        # Problem Reporter owns the crash dialog that covered a dogfood tour.
         for process in UserNotificationCenter SecurityAgent "Problem Reporter"; do
           if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
