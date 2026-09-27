@@ -231,7 +231,7 @@ describe("terminal delivery", () => {
     setTranscriptRpcForTest(async () => ({ ok: false, error: "not_found" }));
     const sess = fakeSession({ agentSessionId: "claude-1234" });
     await transcriptAdapter.send(sess, "hi");
-    expect(sess.events).toEqual([{ kind: "error", message: "Couldn't send to the terminal: not_found" }]);
+    expect(sess.events).toEqual([{ kind: "error", message: "Couldn't send to the terminal: not_found", prompt: "hi" }]);
     expect((await focusTranscriptTerminal(sess)).ok).toBe(false);
   });
 });
