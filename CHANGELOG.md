@@ -12,6 +12,7 @@ All notable changes to cmux are documented here.
 - Global search finds text in the scrollback of open terminals, and Return on a terminal hit opens that pane's find bar on the match ([#11665](https://github.com/manaflow-ai/cmux/pull/11665)) -- thanks @smoreg!
 
 ### Changed
+- Claude Code hooks for tool calls, prompts, and stops no longer start the cmux CLI for every event; one forwarder per session admits them, cutting per-tool-call hook CPU by about two thirds (PR_LINK)
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed

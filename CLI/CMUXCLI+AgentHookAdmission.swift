@@ -221,6 +221,14 @@ extension CMUXCLI {
         responseTimeout: TimeInterval = TimeInterval(Self.agentHookBarrierResponseTimeoutSeconds),
         deadline: Date? = nil
     ) throws {
+        // A barrier orders behind admitted events only, so first admit any
+        // event the session's hooks published to the spool.
+        admitSpooledAgentHooks(
+            agent: agent,
+            client: client,
+            socketPassword: socketPassword,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
@@ -270,13 +278,42 @@ extension CMUXCLI {
         }
 
         let processEnvironment = ProcessInfo.processInfo.environment
+        // Spooled events published before this one keep their queue position.
+        admitSpooledAgentHooks(
+            agent: agent,
+            client: client,
+            socketPassword: socketPassword,
+            processEnvironment: processEnvironment
+        )
+        try admitQueuedAgentHook(
+            agent: agent,
+            subcommand: subcommand,
+            rawPayload: Self.readBoundedAgentHookInput() ?? "{}",
+            processEnvironment: processEnvironment,
+            client: client,
+            socketPassword: socketPassword
+        )
+        print("{}")
+    }
+
+    /// Admits one immutable hook event to the app-owned queue.
+    ///
+    /// `processEnvironment` is the hook process's environment: this process's
+    /// own for a CLI hook, or the values a spool record captured.
+    func admitQueuedAgentHook(
+        agent: String,
+        subcommand: String,
+        rawPayload: String,
+        processEnvironment: [String: String],
+        client: SocketClient,
+        socketPassword: String? = nil
+    ) throws {
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
             processEnvironment: processEnvironment
         )
-        let rawPayload = Self.readBoundedAgentHookInput() ?? "{}"
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
                 rawPayload,
@@ -311,7 +348,6 @@ extension CMUXCLI {
             params: params,
             responseTimeout: TimeInterval(Self.agentHookAdmissionResponseTimeoutSeconds)
         )
-        print("{}")
     }
 
     /// Converts remote filesystem/process evidence into bounded, portable
@@ -717,7 +753,7 @@ extension CMUXCLI {
         truncate(normalizedSingleLine(value), maxLength: maximumLength)
     }
 
-    private static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
+    static func queuedAgentHookDataEnvironmentKeys(agent: String) -> [String] {
         [
             "PWD",
             "CMUX_AGENT_HOOK_STATE_DIR", "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS",
