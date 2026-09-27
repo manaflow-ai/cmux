@@ -286,13 +286,16 @@ func claudeRelayWordIsClean(word string) bool {
 const claudeRelayPortablePathPunctuation = " /._-+,@:=~%"
 
 // claudeRelayPathIsPortable reports whether a path uses only letters,
-// digits, combining marks and claudeRelayPortablePathPunctuation.
+// digits, combining marks and claudeRelayPortablePathPunctuation. Letters are
+// limited to the Basic Multilingual Plane: relay admission rejects the whole
+// hook event for a path it does not accept, and an older macOS may not know
+// letters from a newer Unicode version than Go's tables.
 func claudeRelayPathIsPortable(path string) bool {
 	if !utf8.ValidString(path) {
 		return false
 	}
 	for _, r := range path {
-		if !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) &&
+		if r > 0xffff || !unicode.IsLetter(r) && !unicode.IsNumber(r) && !unicode.IsMark(r) &&
 			!strings.ContainsRune(claudeRelayPortablePathPunctuation, r) {
 			return false
 		}

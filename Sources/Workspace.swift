@@ -1666,7 +1666,9 @@ extension Workspace {
             // A relay-origin session may be typed only into a fresh remote
             // shell. A tmux profile reattaches the surviving tmux session and a
             // Mosh terminal can outlive the app, so Claude may still be running
-            // at the prompt the resume command would be typed into.
+            // at the prompt the resume command would be typed into. With no
+            // remote configuration (a relay session in a local workspace) the
+            // profile comparison is also true, so nothing is typed there either.
             let relayResumeTargetMayBeLive =
                 (restorableAgent?.requiresRemoteHostExecution == true ||
                     RelayAgentResumeContext.isRelayOrigin(source: resumeBinding?.launchCommand?.source)) &&

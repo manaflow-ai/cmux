@@ -120,6 +120,7 @@ func TestClaudeRelayRemoteCwdIsBounded(t *testing.T) {
 		`{"cwd":"/tmp/` + "`id`" + `"}`:                      "",
 		`{"cwd":"/tmp/a\u2028b"}`:                            "",
 		`{"cwd":"/tmp/a\u202eb"}`:                            "",
+		`{"cwd":"/tmp/\ud822\udf00"}`:                        "",
 		`{"cwd":"/tmp/a!b"}`:                                 "",
 		`{"cwd":"/` + strings.Repeat("x", 1024) + `"}`:       "",
 		`{"cwd":7}`:                           "",
