@@ -45,7 +45,7 @@ struct ProjectSchemesTabView: View {
         Button(action: { panel.selectedSchemeName = scheme.name }) {
             HStack(spacing: 8) {
                 Image(systemName: "play.rectangle")
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(CmuxAccentColor.color)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
                         Text(scheme.name)
@@ -56,9 +56,9 @@ struct ProjectSchemesTabView: View {
                             .padding(.vertical, 1)
                             .background(
                                 RoundedRectangle(cornerRadius: 3)
-                                    .fill((scheme.isShared ? Color.accentColor : Color.orange).opacity(0.18))
+                                    .fill((scheme.isShared ? CmuxAccentColor.color : Color.orange).opacity(0.18))
                             )
-                            .foregroundStyle(scheme.isShared ? Color.accentColor : Color.orange)
+                            .foregroundStyle(scheme.isShared ? CmuxAccentColor.color : Color.orange)
                     }
                     HStack(spacing: 8) {
                         if !scheme.runTargetIDs.isEmpty {
@@ -97,9 +97,9 @@ struct ProjectSchemesTabView: View {
                             .padding(.vertical, 1)
                             .background(
                                 RoundedRectangle(cornerRadius: 3)
-                                    .fill((selected.scheme.isShared ? Color.accentColor : Color.orange).opacity(0.18))
+                                    .fill((selected.scheme.isShared ? CmuxAccentColor.color : Color.orange).opacity(0.18))
                             )
-                            .foregroundStyle(selected.scheme.isShared ? Color.accentColor : Color.orange)
+                            .foregroundStyle(selected.scheme.isShared ? CmuxAccentColor.color : Color.orange)
                         Spacer()
                     }
                     row(label: String(localized: "projectSchemes.detail.visibility", defaultValue: "Visibility"), value: scopeDetailText(isShared: selected.scheme.isShared))

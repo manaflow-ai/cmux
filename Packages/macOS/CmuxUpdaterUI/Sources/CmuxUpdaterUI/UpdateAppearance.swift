@@ -48,11 +48,11 @@ public struct UpdateAppearance: Sendable {
         }
         switch model.effectiveState {
         case .permissionRequest:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
+            return accentDarkened(by: 0.3)
         case .updateAvailable:
             return accent
         case .notFound:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
+            return accentDarkened(by: 0.5)
         case .error:
             return .orange.opacity(0.2)
         default:
@@ -78,5 +78,11 @@ public struct UpdateAppearance: Sendable {
         default:
             return .primary
         }
+    }
+
+    /// A darker shade of the host accent for secondary emphasis states.
+    func accentDarkened(by fraction: CGFloat) -> Color {
+        let base = NSColor(accent)
+        return Color(nsColor: base.blended(withFraction: fraction, of: .black) ?? base)
     }
 }

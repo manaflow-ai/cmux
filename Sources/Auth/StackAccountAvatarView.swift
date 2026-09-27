@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 /// Displays the Stack profile image with an initial-based fallback.
@@ -99,7 +100,7 @@ struct StackAccountAvatarView: View {
     }
 
     private var fallbackForegroundColor: Color {
-        loadingSystemName == nil ? Color.accentColor : Color(nsColor: .secondaryLabelColor)
+        loadingSystemName == nil ? CmuxAccentColor.color : Color(nsColor: .secondaryLabelColor)
     }
 
     private var initial: String? {

@@ -163,7 +163,7 @@ struct ProjectPanelView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(panel.activeTab == tab
-                                      ? Color.accentColor
+                                      ? CmuxAccentColor.color
                                       : Color.secondary.opacity(0.10))
                         )
                         .foregroundStyle(panel.activeTab == tab ? Color.white : Color.primary)

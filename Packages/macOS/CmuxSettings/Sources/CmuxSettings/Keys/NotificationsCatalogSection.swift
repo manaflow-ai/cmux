@@ -27,7 +27,7 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
     )
 
     /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
-    /// Empty (the default) keeps the built-in `systemBlue`.
+    /// Empty (the default) keeps the cmux accent (`CmuxAccentColor`).
     public let paneFlashColorHex = DefaultsKey<String>(
         id: "notifications.paneFlashColor",
         defaultValue: "",

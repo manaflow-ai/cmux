@@ -1,5 +1,6 @@
 import Foundation
 import os
+import CmuxFoundation
 import SwiftUI
 
 private let vaultCheckpointTimelineLogger = Logger(
@@ -140,12 +141,12 @@ struct VaultCheckpointTimelineView: View {
                     systemImage: "flag"
                 )
                 .cmuxFont(size: 11, weight: .semibold)
-                .foregroundColor(.accentColor)
+                .foregroundColor(CmuxAccentColor.color)
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.13))
+                        .fill(CmuxAccentColor.color.opacity(0.13))
                 )
             }
             .buttonStyle(.borderless)
@@ -393,7 +394,7 @@ private struct VaultCheckpointRow: View, Equatable {
             Circle()
                 .fill(
                     checkpoint.source == .manual
-                        ? Color.accentColor
+                        ? CmuxAccentColor.color
                         : Color.secondary.opacity(0.65)
                 )
                 .frame(width: checkpoint.source == .manual ? 9 : 7,
@@ -411,14 +412,14 @@ private struct VaultCheckpointRow: View, Equatable {
                 systemImage: "arrow.triangle.branch"
             )
             .cmuxFont(size: 10, weight: .semibold)
-            .foregroundColor(isForkEnabled ? .accentColor : .secondary)
+            .foregroundColor(isForkEnabled ? CmuxAccentColor.color : .secondary)
             .padding(.horizontal, 8)
             .frame(height: 22)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(
                         isForkEnabled
-                            ? Color.accentColor.opacity(isHovered ? 0.16 : 0.10)
+                            ? CmuxAccentColor.color.opacity(isHovered ? 0.16 : 0.10)
                             : Color.primary.opacity(0.04)
                     )
             )

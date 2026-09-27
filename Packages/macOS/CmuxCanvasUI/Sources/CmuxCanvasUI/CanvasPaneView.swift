@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CmuxCanvas
+import CmuxFoundation
 
 /// Delegate through which a pane view reports gestures to the canvas root.
 @MainActor
@@ -183,7 +184,7 @@ final class CanvasPaneView: NSView {
 
     private func applyChromeColors() {
         layer?.borderColor = chrome.isFocused
-            ? NSColor.controlAccentColor.cgColor
+            ? CmuxAccentColor.nsColor(for: effectiveAppearance).cgColor
             : NSColor.separatorColor.cgColor
         layer?.borderWidth = chrome.isFocused ? 2 : 1
         layer?.backgroundColor = paneBackground.cgColor

@@ -71,7 +71,7 @@ struct ThemeWindowThumbnail: View {
                         Rectangle()
                             .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
                         RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(CmuxAccentColor.color)
                             .frame(height: max(height * 0.12, 6))
                             .padding(max(width * 0.04, 4))
                     }

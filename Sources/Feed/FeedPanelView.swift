@@ -1918,9 +1918,9 @@ struct FeedButton: View {
         case .light:
             return isHovered ? Color.white.opacity(0.96) : Color.white.opacity(0.88)
         case .primary:
-            return isHovered
-                ? Color(red: 0.28, green: 0.55, blue: 0.95)
-                : Color(red: 0.24, green: 0.48, blue: 0.88)
+            guard isHovered else { return CmuxAccentColor.color }
+            let accent = CmuxAccentColor.nsColor(isDark: colorScheme == .dark)
+            return Color(nsColor: accent.blended(withFraction: 0.15, of: .white) ?? accent)
         case .success:
             return isHovered
                 ? Color(red: 0.22, green: 0.72, blue: 0.42)
@@ -1952,7 +1952,7 @@ struct FeedButton: View {
         case .soft: return Color.gray
         case .dark: return Color.black
         case .light: return Color.white
-        case .primary: return Color(red: 0.24, green: 0.48, blue: 0.88)
+        case .primary: return CmuxAccentColor.color
         case .success: return Color(red: 0.18, green: 0.62, blue: 0.35)
         case .warning: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .destructive: return Color(red: 0.75, green: 0.22, blue: 0.22)
@@ -2509,7 +2509,7 @@ private struct PlanBodyView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.85))
+                                    .fill(CmuxAccentColor.color.opacity(0.85))
                                     .frame(width: 3.5, height: 3.5)
                                     .padding(.top, 5.5)
                                     .frame(width: 10, alignment: .center)

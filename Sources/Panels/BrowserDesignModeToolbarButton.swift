@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 struct BrowserDesignModeToolbarButton: View {
@@ -17,7 +18,7 @@ struct BrowserDesignModeToolbarButton: View {
                 systemName: controller.isActive ? "paintbrush.pointed.fill" : "paintbrush.pointed",
                 pointSize: iconPointSize,
                 weight: .medium,
-                tint: controller.isActive ? Color.accentColor : inactiveColor
+                tint: controller.isActive ? CmuxAccentColor.color : inactiveColor
             )
             .frame(width: hitSize, height: hitSize, alignment: .center)
         }

@@ -1,5 +1,6 @@
 import CmuxComputerUse
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 /// Two-card onboarding for the standalone local computer-use helper.
@@ -691,7 +692,7 @@ struct ComputerUsePermissionCompanionView: View {
                     .foregroundStyle(ComputerUseOnboardingView.brandBlue)
                     .frame(width: 30, height: 30)
                     .background(
-                        Color.accentColor.opacity(0.12),
+                        CmuxAccentColor.color.opacity(0.12),
                         in: Circle()
                     )
                     .frame(
@@ -817,13 +818,13 @@ struct ComputerUsePermissionCompanionView: View {
                 .fill(Color.primary.opacity(0.055))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.035))
+                        .fill(CmuxAccentColor.color.opacity(0.035))
                 }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(
-                    Color.accentColor.opacity(0.18),
+                    CmuxAccentColor.color.opacity(0.18),
                     lineWidth: 0.5
                 )
         }

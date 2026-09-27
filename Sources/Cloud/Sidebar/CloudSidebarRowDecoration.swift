@@ -19,7 +19,7 @@ struct CloudSidebarRowDecoration: ViewModifier {
         HStack(spacing: 2) {
             if showsAttentionSlot && hasUnreadNotification {
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(CmuxAccentColor.color)
                     .frame(width: 6, height: 6)
                     .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
                     .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))

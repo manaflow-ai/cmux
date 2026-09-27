@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
 public enum PanelType: String, Codable, CaseIterable, Sendable {
@@ -121,12 +122,12 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
 
 /// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case cmuxAccent
 
     var strokeColor: NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .cmuxAccent:
+            return CmuxAccentColor.dynamicNSColor
         }
     }
 }
@@ -163,13 +164,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.6,
         glowRadius: 6
     )

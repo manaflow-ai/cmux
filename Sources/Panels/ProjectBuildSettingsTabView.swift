@@ -105,7 +105,7 @@ struct ProjectBuildSettingsTabView: View {
                     .overlay(alignment: .leading) {
                         if row.winner == .target {
                             Rectangle()
-                                .fill(Color.accentColor)
+                                .fill(CmuxAccentColor.color)
                                 .frame(width: 3)
                         }
                     }
@@ -219,7 +219,7 @@ private struct SettingsRow: View {
     private func valueCell(_ value: String, emphasis: CellEmphasis) -> some View {
         let style: Color = {
             switch emphasis {
-            case .accent: return Color.accentColor
+            case .accent: return CmuxAccentColor.color
             case .normal: return Color.primary
             case .dim: return Color.secondary
             }

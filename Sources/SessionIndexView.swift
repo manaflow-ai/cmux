@@ -889,7 +889,7 @@ struct SectionReorderGap: View, Equatable {
             .overlay(alignment: .center) {
                 if isDropTarget && isValidDrop {
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(CmuxAccentColor.color)
                         .frame(height: 3)
                         .padding(.horizontal, 10)
                 }

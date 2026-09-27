@@ -56,7 +56,7 @@ private final class TerminalPromptScrollMarkerOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.controlAccentColor.setFill()
+        cmuxAccentNSColor(for: effectiveAppearance).setFill()
         for entry in markerEntries() where entry.rect.intersects(dirtyRect) {
             NSBezierPath(
                 roundedRect: entry.rect,
