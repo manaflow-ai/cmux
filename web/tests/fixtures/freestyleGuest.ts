@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +10,7 @@ import { installFreestyleGuestCli } from "../../services/vms/drivers/freestyleGu
 import { rollbackFreestyleCreate } from "../../services/vms/drivers/providerCreateCleanup";
 import { ProviderError, type CreateOptions } from "../../services/vms/drivers/types";
 import type { GuestCliDistribution } from "../../services/vms/guestCliDistribution";
+import { runChild } from "../helpers/run-child";
 
 export type GuestExecRequest = {
   command: string;
@@ -18,7 +18,7 @@ export type GuestExecRequest = {
   linuxUser: string;
 };
 
-const testDistribution = (() => {
+const testDistribution = await (async () => {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-cli-fixture-"));
   const source = join(root, "source");
   mkdirSync(source);
@@ -27,7 +27,7 @@ const testDistribution = (() => {
   writeFileSync(join(source, "cmux-cloud-cli"), facade, { mode: 0o755 });
   writeFileSync(join(source, "coderouter"), core, { mode: 0o755 });
   const archive = join(root, "cli.tar.gz");
-  const tar = spawnSync("tar", ["-czf", archive, "-C", source, "cmux-cloud-cli", "coderouter"], {
+  const tar = await runChild("tar", ["-czf", archive, "-C", source, "cmux-cloud-cli", "coderouter"], {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   });
   if (tar.status !== 0) throw new Error("could not create the synthetic guest CLI archive");
