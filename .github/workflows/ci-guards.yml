@@ -211,6 +211,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
 
+      - name: Validate the release-media scenes and changelog patcher
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_media.py
+
       - name: Validate .xcstrings merge driver
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py

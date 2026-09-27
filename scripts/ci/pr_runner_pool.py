@@ -1298,7 +1298,9 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0: an owned pool, in
     order, when the jobs it would place there start within `queue_rounds`
     job lengths and within the queue bound (owned_room()), whatever
-    Blacksmith's expected wait (Blacksmith is overflow); else the Blacksmith
+    Blacksmith's expected wait (Blacksmith is overflow), the first one whose
+    machines (and root runners) are free for the run now ahead of the first
+    it would queue on; else the Blacksmith
     pool with the least expected wait (expected_wait()), the earlier in
     order on a tie. `taken` is the
     peak of the runs since the snapshot that took each owned pool, by their
@@ -1348,6 +1350,18 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     reserve = max(0, reserve)
     fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
             and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs + reserve)]
+    if queue_rounds:
+        # An owned pool the run starts on now beats an earlier one it would
+        # queue on: with the rounds, std always fits by its queue places, so
+        # light sat idle while runs queued behind std's busy root runners.
+        def idle(counts: Mapping[str, int], added_jobs: int, label: str) -> int:
+            return counts["capacity"] - counts["running"] - counts["queued"] - taken_now.get(label, 0) - added_jobs
+
+        now = [label for label in fits
+               if idle(load[label], added[label] * REPLAYED_RUN_JOBS, label) >= max(1, jobs) + reserve
+               and (label not in roots or root_jobs <= 0
+                    or idle(roots[label], added[label], label) >= root_jobs + reserve)]
+        fits = now or fits
     if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
         # A pool with a root runner free first, when the run needs one.
         fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
@@ -1458,9 +1472,13 @@ def decide(
     queue_rounds = limits.queue_rounds
     for _ in range(max(0, ephemeral_since) if ephemeral else 0):
         added[pick(load, added, ephemeral, limits.max_queued, jobs=1, queue_rounds=queue_rounds).label] += 1
+    # With a root count, a replayed run needs one root runner (its admission), as a
+    # real run does: pick() prefers the pool it starts on now, and std's idle side
+    # runners alone would charge it to std while the run itself took light.
     for _ in range(max(0, routed_since)):
-        added[pick(load, added, usable, limits.max_queued, jobs=1, queue_rounds=queue_rounds,
-                   taken=taken, taken_now=held, compared_jobs=REPLAYED_RUN_JOBS).label] += 1
+        added[pick(load, added, usable, limits.max_queued, jobs=1, roots=roots, root_jobs=1,
+                   queue_rounds=queue_rounds, taken=taken, taken_now=held,
+                   compared_jobs=REPLAYED_RUN_JOBS).label] += 1
     if reserve:
         # Main's full suite with a reserve (CI_OWNED_MAIN_RESERVE) takes an
         # owned pool only while its peak and the reserve are free now: no
@@ -1494,7 +1512,7 @@ def decide(
             machines += f" and {places} queue places within {chosen.limit:g} min"
         if chosen.blacksmith_wait is not None:
             machines += f" (Blacksmith's expected wait {chosen.blacksmith_wait:g} min)"
-        root = ""
+        root, root_now = "", None
         if chosen.root_room is not None:
             root_now = max(0, idle(roots[label], added[label]))
             root = f"; {root_now} of {roots[label]['capacity']} root runners free"
@@ -1503,7 +1521,12 @@ def decide(
             root += f", it needs {root_jobs}"
         whole = chosen.room >= max(1, jobs) and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
-        if whole:
+        earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]
+        starts_now = free_now >= max(1, jobs) and (root_now is None or root_jobs <= 0 or root_now >= root_jobs)
+        if whole and earlier and queue_rounds and starts_now:
+            why = (f"first owned pool free for this run now ({machines}, this run needs {max(1, jobs)}{root}; "
+                   f"{', '.join(earlier)} not free now){replay}")
+        elif whole:
             why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
         else:
             why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
