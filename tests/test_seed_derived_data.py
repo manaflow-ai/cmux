@@ -1327,7 +1327,8 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):
         # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
-        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs.
+        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs. Here the
+        # bot's re-run, after a host fault (a person's: test below).
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         # Attempt 1 takes the owned pool only when the picker placed admission
         # there (pr_owned_jobs); otherwise the retry runner.
@@ -1340,6 +1341,7 @@ class Wiring(unittest.TestCase):
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     triggering_actor="github-actions[bot]",
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
                                      pr_owned_jobs=owned_jobs)
@@ -1347,18 +1349,18 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 
-    def test_a_retry_of_an_owned_job_goes_to_blacksmith_whoever_starts_it(self):
-        # owned_pool_rescue.py re-runs a refused job's failed jobs with
-        # github.token (attempt 2 by github-actions[bot]), ci-failure-attribution
-        # re-runs machine failures, and a person may "Re-run failed jobs". All
-        # reuse attempt 1's outputs, owned pool included, and all take the
-        # Blacksmith retry runner: a retry never lands on the mini that refused
-        # or failed it, so a refusal costs one re-run and never loops.
+    def test_a_retry_goes_to_blacksmith_after_a_host_fault_and_to_the_fleet_after_a_code_failure(self):
+        # github-actions[bot] re-runs only after a host fault: owned_pool_rescue.py
+        # after a refusal, ci-failure-attribution when every failure is the
+        # machine's. That retry takes the Blacksmith retry runner, never the mini
+        # that refused or failed it. A person's "Re-run failed jobs" follows a
+        # code or test failure and goes back to the owned label; a mini failing
+        # it there is re-run by the attribution bot onto Blacksmith, so it never loops.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
         for actor, attempt, runner in (("github-actions[bot]", "2", "blacksmith-12vcpu-macos-26"),
-                                       ("someone", "2", "blacksmith-12vcpu-macos-26"),
+                                       ("someone", "2", "glaeda-std-xcode-26.6"),
                                        ("github-actions[bot]", "3", "blacksmith-12vcpu-macos-26"),
-                                       ("someone", "3", "blacksmith-12vcpu-macos-26")):
+                                       ("someone", "3", "glaeda-std-xcode-26.6")):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
@@ -1372,9 +1374,10 @@ class Wiring(unittest.TestCase):
         # Every macOS job an owned mini may take, in every workflow: with the
         # picker's owned outputs, the side-lane variables and late placement's
         # labels all set, attempt 1 may take a glaeda-* label, but attempts 2
-        # and 3 (any re-run of failed jobs: the rescue's, the failure
-        # attribution's or a person's) never do, so a retry cannot land on the
-        # mini that refused or failed it.
+        # and 3 of a host-fault re-run (github-actions[bot]'s: the rescue's or
+        # the failure attribution's) never do, so such a retry cannot land on
+        # the mini that refused or failed it. A person's re-run follows a code
+        # failure and may (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
         owned_jobs = (" admission shard-1 lag cli-product swift-package claude-wrapper remote-daemon ")
@@ -1453,7 +1456,7 @@ class Wiring(unittest.TestCase):
             # A retry never comes back to the fleet, whoever re-ran it.
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
             ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", retry),
-            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, root),  # a code failure's re-run
             ("3", "github-actions[bot]", " admission shard-1 lag cli-product ", root, retry),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
@@ -1492,6 +1495,7 @@ class Wiring(unittest.TestCase):
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     triggering_actor="github-actions[bot]",
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
             context["inputs"].update(pr_runner=mini, pr_retry_runner=retry,
                                      pr_root_runner=root, pr_gui_runner=gui_runner, pr_owned_jobs=owned_jobs)
@@ -1512,8 +1516,8 @@ class Wiring(unittest.TestCase):
             ("1", "someone", warm, [root, "glaeda-runner-cmux7-glaeda"]),
             ("1", "someone", "", root),
             ("2", "github-actions[bot]", warm, retry),
-            ("2", "someone", warm, retry),
-            ("3", "someone", warm, retry),
+            ("2", "someone", warm, root),  # a code failure's re-run: the root label, never the pin
+            ("3", "someone", warm, root),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
@@ -1539,6 +1543,7 @@ class Wiring(unittest.TestCase):
         owned_jobs = " admission shard-1 shard-2 lag cli-product "
         for attempt, actor, runner in (("1", "github-actions[bot]", root),
                                        ("2", "github-actions[bot]", retry),
+                                       # Main has no failure attribution or re-run watch: every retry on Blacksmith.
                                        ("2", "someone", retry),
                                        ("3", "someone", retry)):
             context = github_context("workflow_dispatch")
