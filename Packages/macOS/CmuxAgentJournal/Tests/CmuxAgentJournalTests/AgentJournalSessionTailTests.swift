@@ -14,11 +14,17 @@ struct AgentJournalSessionTailTests {
             store.close()
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
-        func append(_ kind: AgentJournalEventKind, _ session: String, at ms: Int64, subagent: Bool = false) throws {
+        func append(
+            _ kind: AgentJournalEventKind,
+            _ session: String,
+            at ms: Int64,
+            subagent: Bool = false,
+            source: String = "claude"
+        ) throws {
             _ = try store.append(AgentJournalEventDraft(
                 kind: kind,
                 occurredAtMs: ms,
-                source: "claude",
+                source: source,
                 agentKey: "claude_code",
                 sessionId: session,
                 workspaceId: UUID().uuidString,
@@ -29,6 +35,9 @@ struct AgentJournalSessionTailTests {
         // Killed mid-turn with the app.
         try append(.sessionStarted, "lost", at: 1_000)
         try append(.turnStarted, "lost", at: 2_000)
+        // A newer subagent start for the same provider session cannot
+        // replace the top-level session source.
+        try append(.sessionStarted, "lost", at: 2_100, subagent: true, source: "subagent")
         // Quit normally.
         try append(.sessionStarted, "done", at: 1_000)
         try append(.sessionEnded, "done", at: 1_500)

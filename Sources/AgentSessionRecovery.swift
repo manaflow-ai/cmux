@@ -120,7 +120,7 @@ struct AgentSessionRecovery: Sendable {
 
     private static func isProcessAlive(pid: Int, startSeconds: Int64?) -> Bool {
         guard pid > 0, let identity = AgentPIDProcessIdentity(pid: pid_t(pid)) else { return false }
-        guard let startSeconds else { return true }
+        guard let startSeconds else { return false }
         return identity.startSeconds == startSeconds
     }
 
@@ -307,6 +307,25 @@ extension TerminalController {
     /// session without an end event is more likely a closed pane than a lost
     /// one, so only named sessions are restored then.
     nonisolated func v2AgentRecoveryRestore(params: [String: Any]) -> V2CallResult {
+        let requestedSessionIDs: [String]?
+        if let rawRequestedSessionIDs = params["session_ids"] {
+            guard let requested = rawRequestedSessionIDs as? [String], !requested.isEmpty else {
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        format: String(
+                            localized: "socket.surfaceSelection.invalidSelector",
+                            defaultValue: "Invalid selector for `%@`."
+                        ),
+                        "session_ids"
+                    ),
+                    data: nil
+                )
+            }
+            requestedSessionIDs = requested
+        } else {
+            requestedSessionIDs = nil
+        }
         guard let context = v2MainSync(commandKey: "session.agent_recovery.restore", { Self.agentRecoveryContext() }) else {
             return .err(code: "unavailable", message: "App is not ready", data: nil)
         }
@@ -314,7 +333,7 @@ extension TerminalController {
             openSessionIds: context.openSessionIds,
             activeSince: context.activeSince
         )
-        if let requested = params["session_ids"] as? [String], !requested.isEmpty {
+        if let requested = requestedSessionIDs {
             let wanted = Set(requested)
             candidates = candidates.filter { wanted.contains($0.sessionId) }
         } else if !context.previousExitUnclean {

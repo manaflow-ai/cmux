@@ -54,7 +54,9 @@ public struct AgentJournalSessionTailReader: Sendable {
             SELECT j.session_id,
                    COALESCE(
                        (SELECT s.source FROM agent_journal s
-                        WHERE s.session_id = j.session_id AND s.kind = 'agent.session.started'
+                        WHERE s.session_id = j.session_id
+                          AND s.kind = 'agent.session.started'
+                          AND COALESCE(s.is_subagent, 0) = 0
                         ORDER BY s.sequence DESC LIMIT 1),
                        MAX(j.source)
                    ),

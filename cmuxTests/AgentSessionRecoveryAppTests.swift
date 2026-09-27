@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import CmuxAgentJournal
 import Foundation
 import Testing
@@ -42,6 +43,7 @@ struct AgentSessionRecoveryAppTests {
         try append(.sessionStarted, "already-open")
         try append(.sessionStarted, "no-transcript")
         try append(.sessionStarted, "no-pid")
+        try append(.sessionStarted, "missing-pid-start")
         store.close()
 
         func record(
@@ -49,7 +51,8 @@ struct AgentSessionRecoveryAppTests {
             cwd: String,
             launch: AgentLaunchCommand,
             hasTranscript: Bool = true,
-            pid: Int? = 999_999
+            pid: Int? = 999_999,
+            pidStartSeconds: Int64? = 1
         ) throws -> RestorableAgentHookSessionRecord {
             let transcript = root.appendingPathComponent("\(id).jsonl")
             if hasTranscript { try Data("{}\n".utf8).write(to: transcript) }
@@ -60,7 +63,7 @@ struct AgentSessionRecoveryAppTests {
                 cwd: cwd,
                 transcriptPath: transcript.path,
                 pid: pid,
-                pidStartSeconds: 1,
+                pidStartSeconds: pidStartSeconds,
                 launchCommand: launch,
                 isRestorable: true,
                 updatedAt: now.timeIntervalSince1970
@@ -81,6 +84,15 @@ struct AgentSessionRecoveryAppTests {
             "no-transcript": try record("no-transcript", cwd: "/tmp", launch: plain, hasTranscript: false),
             // A hook that never saw the agent's pid still leaves a resumable session.
             "no-pid": try record("no-pid", cwd: "/tmp", launch: plain, pid: nil),
+            // A PID without its process generation is stale evidence. Use
+            // this test process so the pre-fix liveness check suppresses it.
+            "missing-pid-start": try record(
+                "missing-pid-start",
+                cwd: "/tmp",
+                launch: plain,
+                pid: Int(getpid()),
+                pidStartSeconds: nil
+            ),
         ]
         try JSONEncoder().encode(file).write(to: root.appendingPathComponent("claude-hook-sessions.json"))
 
@@ -90,7 +102,7 @@ struct AgentSessionRecoveryAppTests {
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
         )
         let candidates = recovery.candidates(openSessionIds: ["already-open"], now: now)
-        #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain", "no-pid"])
+        #expect(Set(candidates.map(\.sessionId)) == ["proxied", "plain", "no-pid", "missing-pid-start"])
 
         let proxiedCandidate = try #require(candidates.first { $0.sessionId == "proxied" })
         #expect(
@@ -103,6 +115,26 @@ struct AgentSessionRecoveryAppTests {
         let plainCommand = try #require(AgentSessionRecovery.resumeCommand(for: plainCandidate))
         #expect(plainCommand.contains("--resume"))
         #expect(plainCommand.contains("plain"))
+    }
+
+    @Test
+    func restoreRejectsMalformedSessionIDsBeforeReadingAppState() {
+        let invalidValues: [Any] = [
+            "one-session",
+            [String](),
+            [1],
+            NSNull(),
+        ]
+        for value in invalidValues {
+            let result = TerminalController.shared.v2AgentRecoveryRestore(
+                params: ["session_ids": value]
+            )
+            guard case let .err(code, _, _) = result else {
+                Issue.record("Expected invalid_params for malformed session_ids")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
     }
 
     @Test
