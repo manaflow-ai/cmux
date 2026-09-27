@@ -7055,6 +7055,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             endedPersistentRemotePTYAttachSurfaceIds.removeAll()
             clearRemoteRelayIDAliases()
         }
+        // Clear under the previous configuration so a switch away from a relay
+        // does not leave hidden relay-host lifecycle entries behind.
+        clearRelayHostAgentStatus()
         remoteConfiguration = configuration
         // Publish this workspace's owned-ID set (identity entries) before the
         // remote shell's first relay RPC can arrive (GHSA-9vmv-3hjw-j28c).
@@ -7204,6 +7207,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteConnectionState = .disconnected
         remoteConnectionDetail = disconnectedDetail
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
+        clearRelayHostAgentStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
         statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
         remoteLastErrorFingerprint = nil
@@ -8102,6 +8106,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteControllerConnectionDetail = detail
         remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
+        if effectiveState != .connected {
+            clearRelayHostAgentStatus()
+        }
         if effectiveState == .connecting || effectiveState == .reconnecting {
             // A retry has ownership of the failure now.  Retract any prior
             // red sidebar entry immediately; only a bounded parked state may

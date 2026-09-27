@@ -2420,7 +2420,33 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     func testRemoteRelayRejectsQueuedHookMethodsWithoutIDAliases() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
-        for method in ["agent.hook.enqueue", "agent.hook.barrier"] {
+        // `agent.hook.enqueue` is admitted only with relay_backed and owned
+        // workspace/surface selectors (RemoteRelayAgentHookPolicyTests). This
+        // unscoped, non-relay shape stays denied at both gates.
+        let enqueue: [String: Any] = [
+            "id": "relay-hook-provenance-request",
+            "method": "agent.hook.enqueue",
+            "params": ["agent": "claude", "subcommand": "prompt-submit", "relay_backed": false],
+        ]
+        let enqueueData = try JSONSerialization.data(withJSONObject: enqueue, options: [])
+        XCTAssertNotEqual(
+            RemoteRelayCommandPolicy().evaluate(commandLine: enqueueData, workspaceAliases: [:], surfaceAliases: [:]),
+            .allow
+        )
+        let rewrittenEnqueue = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: remoteWorkspace.rewriteRemoteRelayCommandLine(enqueueData)
+        ) as? [String: Any])
+        XCTAssertNotEqual(
+            RemoteRelayAuthorizationPolicy().validate(
+                method: "agent.hook.enqueue",
+                parameters: try XCTUnwrap(rewrittenEnqueue["params"] as? [String: Any]),
+                ownerWorkspaceID: remoteWorkspace.id,
+                surfaceIDs: Set(remoteWorkspace.panels.keys)
+            ),
+            .allowed
+        )
+
+        for method in ["agent.hook.barrier"] {
             let request: [String: Any] = [
                 "id": "relay-hook-provenance-request",
                 "method": method,
