@@ -105,6 +105,14 @@ class SettingsUITestCase: XCTestCase {
         )
     }
 
+    /// Reads a toggle's on state from its accessibility value.
+    func isOn(_ control: XCUIElement) -> Bool {
+        let value = String(describing: control.value ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return value == "1" || value == "true" || value == "on"
+    }
+
     /// Deletes UserDefaults keys from the debug suite so a test starts
     /// from the known default. Pass the raw `userDefaultsKey`s.
     func resetDefaults(_ keys: [String], suite: String = "com.cmuxterm.app.debug") {

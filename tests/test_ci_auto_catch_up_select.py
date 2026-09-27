@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -530,6 +531,22 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 2)
             self.assertIn("::error::", completed.stdout)
             self.assertFalse(output.exists())
+
+    def test_graphql_retries_transient_gateway_errors(self) -> None:
+        failed = subprocess.CompletedProcess([], 1, "", "gh: HTTP 502")
+        succeeded = subprocess.CompletedProcess([], 0, '{"data": {}}', "")
+        with mock.patch.object(selector.subprocess, "run", side_effect=[failed, succeeded]) as run:
+            with mock.patch.object(selector.time, "sleep") as sleep:
+                self.assertEqual(selector.gh_graphql("query", {}), {"data": {}})
+        self.assertEqual(run.call_count, 2)
+        sleep.assert_called_once_with(selector.GRAPHQL_RETRY_DELAY_SECONDS)
+
+    def test_graphql_does_not_retry_non_transient_errors(self) -> None:
+        failed = subprocess.CompletedProcess([], 1, "", "gh: authentication failed")
+        with mock.patch.object(selector.subprocess, "run", return_value=failed) as run:
+            with self.assertRaises(selector.SelectionError):
+                selector.gh_graphql("query", {})
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == "__main__":

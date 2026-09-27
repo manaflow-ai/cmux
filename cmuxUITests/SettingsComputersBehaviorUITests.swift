@@ -62,9 +62,9 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         let incomingAccess = toggle(window, id: incomingAccessToggleID)
         let refresh = window.buttons[refreshButtonID]
         XCTAssertTrue(window.descendants(matching: .any)["SettingsComputersHeading"].exists)
-        XCTAssertTrue(poll(timeout: 4) { self.isVisible(discovery, in: window) }, "navigating to Devices should scroll Discover other Macs into view")
-        XCTAssertTrue(poll(timeout: 4) { self.isVisible(incomingAccess, in: window) }, "navigating to Devices should scroll Make this Mac discoverable into view")
-        XCTAssertTrue(poll(timeout: 4) { self.isVisible(refresh, in: window) }, "navigating to Devices should scroll Refresh into view")
+        XCTAssertTrue(poll(timeout: 4) { self.isVisible(discovery, in: window) }, "the Devices page should show Discover other Macs")
+        XCTAssertTrue(poll(timeout: 4) { self.isVisible(incomingAccess, in: window) }, "the Devices page should show Make this Mac discoverable")
+        XCTAssertTrue(poll(timeout: 4) { self.isVisible(refresh, in: window) }, "the Devices page should show Refresh")
 
         let after = XCTAttachment(screenshot: window.screenshot())
         after.name = "Devices section with discovery and access switches"
@@ -86,9 +86,9 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 4) { self.isToggleOn(reopened) }, "Discover other Macs should stay on after reopening Settings")
     }
 
-    /// The detail pane is one scrolling stack, so "the Mobile page" is the
-    /// span from Mobile's header down to the next section's header, Cloud.
-    /// None of the Devices controls may sit inside it.
+    /// Settings shows one section at a time, so with Mobile selected the
+    /// detail pane is the Mobile page. None of the Devices controls may be
+    /// in it, and all of them are back once Devices is selected.
     func testMobilePageNoLongerShowsDevicesControls() {
         let app = makeLaunchedApp(additionalArguments: cloudOnArguments)
         let window = openSettings(app)
@@ -96,11 +96,15 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
 
         navigate(window, to: "Mobile")
         let mobileHeader = detailHeader(window, "Mobile")
-        let cloudHeader = detailHeader(window, "Cloud")
+        let placeholder = window.descendants(matching: .any)["SettingsSectionPlaceholder.mobile"]
+        XCTAssertTrue(
+            poll(timeout: 6) { self.isVisible(mobileHeader, in: window) && !placeholder.exists },
+            "Mobile's content should be the shown pane"
+        )
         let controls = [
-            ("Discover other Macs", toggle(window, id: discoveryToggleID)),
-            ("Make this Mac discoverable", toggle(window, id: incomingAccessToggleID)),
-            ("Refresh", requireElement(candidates: [window.buttons[refreshButtonID]], timeout: 4, description: "Refresh")),
+            ("Discover other Macs", window.descendants(matching: .any)[discoveryToggleID]),
+            ("Make this Mac discoverable", window.descendants(matching: .any)[incomingAccessToggleID]),
+            ("Refresh", window.buttons[refreshButtonID]),
         ]
 
         let screenshot = XCTAttachment(screenshot: window.screenshot())
@@ -108,13 +112,15 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
 
-        XCTAssertLessThan(mobileHeader.frame.minY, cloudHeader.frame.minY, "Cloud should follow Mobile in the detail pane")
         for (name, control) in controls {
-            XCTAssertGreaterThan(
-                control.frame.minY,
-                cloudHeader.frame.minY,
-                "\(name) should sit below Cloud in Devices, not on the Mobile page"
-            )
+            XCTAssertFalse(control.exists, "\(name) belongs to Devices, not the Mobile page")
+        }
+
+        // The same queries find every control on the Devices page, so the
+        // absence above is not a query that never matches.
+        navigate(window, to: "Devices")
+        for (name, control) in controls {
+            XCTAssertTrue(poll(timeout: 4) { control.exists }, "\(name) should be on the Devices page")
         }
     }
 
@@ -207,24 +213,24 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 4) { !incomingAccess.isEnabled }, "Make this Mac discoverable should be disabled while Cloud Machines is off")
     }
 
-    /// Devices is the navigation target: its header is pinned near the top
-    /// of the detail pane, Cloud's header (directly above it) has scrolled
-    /// away, and the section's two switches and Refresh are on screen.
+    /// Devices is the navigation target: the detail pane shows the Devices
+    /// page from its top, no other section's page (Mobile, Cloud) is
+    /// showing, and the section's two switches and Refresh are on screen.
     private func assertLandedOnDevices(_ window: XCUIElement, after action: String, line: UInt = #line) {
         var devices: CGRect?
-        var cloud: CGRect?
+        var others: [String] = []
         var viewport = CGRect.zero
         XCTAssertTrue(
             poll(timeout: 6) {
                 viewport = self.detailViewport(window)
                 devices = self.detailHeaderFrame(window, "Devices")
-                cloud = self.detailHeaderFrame(window, "Cloud")
-                guard let devices, let cloud else { return false }
+                others = ["Mobile", "Cloud"].filter { self.detailHeaderFrame(window, $0) != nil }
+                guard let devices else { return false }
                 return viewport.contains(CGPoint(x: devices.midX, y: devices.midY))
                     && devices.minY < viewport.minY + viewport.height / 3
-                    && !viewport.contains(CGPoint(x: cloud.midX, y: cloud.midY))
+                    && others.isEmpty
             },
-            "\(action) should pin the Devices header to the top of Settings: Devices at \(String(describing: devices)), Cloud at \(String(describing: cloud)), viewport \(viewport)",
+            "\(action) should open the Devices page at its top: Devices at \(String(describing: devices)), other pages showing \(others), viewport \(viewport)",
             line: line
         )
         let controls = [
