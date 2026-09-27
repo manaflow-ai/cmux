@@ -631,8 +631,10 @@ jobs:
           MAX_DISTANCE: ${{ vars.CI_OWNED_PREFER_SEED }}
           CMUX_SEED_LOCAL_CACHE: ${{ env.CMUX_OWNED_STATE_ROOT }}/seeds
           GH_TOKEN: ${{ github.token }}
+          # This pull request's parked build when the root keeps main (check's adopt_from).
+          OWNED_START: ${{ steps.owned-state.outputs.adopt_from || env.CMUX_OWNED_STATE_ROOT }}
         run: |
-          python3 scripts/ci/owned_build_state.py prefer "$CMUX_OWNED_STATE_ROOT" "$PWD" \
+          python3 scripts/ci/owned_build_state.py prefer "$OWNED_START" "$PWD" \
             "$SEED_PREFIX" "$MERGED_ONTO" "$MAX_DISTANCE"
 
       - name: Cache GhosttyKit.xcframework
@@ -820,7 +822,10 @@ jobs:
         id: owned-adopt
         if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true' && (steps.prefer-seed.outputs.prefer != 'true' || steps.seed-derived-data.outputs.hit != 'true')
         continue-on-error: true
-        run: python3 scripts/ci/owned_build_state.py adopt "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_CI_CANONICAL_SRC"
+        env:
+          # A root that keeps the mini's only main build hands this pull request its parked build instead.
+          OWNED_START: ${{ steps.owned-state.outputs.adopt_from || env.CMUX_OWNED_STATE_ROOT }}
+        run: python3 scripts/ci/owned_build_state.py adopt "$OWNED_START" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_CI_CANONICAL_SRC"
 
       # What the next owned job's adopt replays, after either adopt above has
       # set the times this compile sees. About 4 s (seed-derived-data.yml's
@@ -833,8 +838,9 @@ jobs:
         continue-on-error: true
         env:
           CMUX_WARM_DISTANCE_START: ${{ runner.temp }}/warm-distance-start.json
+          OWNED_START: ${{ steps.owned-state.outputs.adopt_from || env.CMUX_OWNED_STATE_ROOT }}
         run: |
-          cp "$CMUX_OWNED_STATE_ROOT/stamp.json" "$RUNNER_TEMP/warm-start-stamp.json" 2>/dev/null || true
+          cp "$OWNED_START/stamp.json" "$RUNNER_TEMP/warm-start-stamp.json" 2>/dev/null || true
           python3 scripts/ci/owned_build_state.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Compile app-host test product

@@ -159,6 +159,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -377,19 +378,62 @@ def park(store: Path) -> str:
     return slot.name
 
 
-def unpark(store: Path, number: object, fingerprint: str) -> bool:
-    """Swap pull request NUMBER's parked build in as the kept one, parking the current kept build first."""
+def main_build(store: Path, fingerprint: str = "") -> bool:
+    """STORE keeps a current build of main (no pull request); with FINGERPRINT, one of that fingerprint."""
+    stamp = read_stamp(store)
+    kept = str(stamp.get("fingerprint") or "")
+    return ((store / DERIVED).is_dir() and kept.endswith(f"-{STATE_VERSION}") and not pr_key(stamp.get("pr"))
+            and (not fingerprint or kept == stamped(fingerprint)))
+
+
+def holds_last_main(store: Path, fingerprint: str = "") -> bool:
+    """STORE keeps the only main build among its mini's canonical roots, on a mini with more than one.
+
+    Such a root stays at main: a pull request compiled there is kept in its PR slot instead, and that pull
+    request's next push adopts from the slot (check's `adopt_from`). Every other pull request admitted to
+    the mini then has a start near main's head rather than another pull request's build, which is a rebuild
+    for everyone once that pull request changed a package interface (09-27: 100 of 108 picker candidates
+    were rebuild). glaeda-idle-warm keeps it at main's head."""
+    others = other_root_stores(store)
+    # Another root's fingerprint includes its root, so its main build is checked by STATE_VERSION only
+    # (as stamp_keys does): a main build from an older Xcode there still counts, until its next keep.
+    return bool(others) and main_build(store, fingerprint) and not any(main_build(other) for other in others)
+
+
+@contextlib.contextmanager
+def mini_keep_lock(store: Path):
+    """One `keep` at a time across the mini's roots, so two roots never both decide the other keeps main."""
+    suffix = store.name[len(ROOT_STORE_PREFIX):]
+    base = store.parent if store.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() else store
+    lock = os.open(base / ".keep.lock", os.O_RDONLY | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(lock)
+
+
+def usable_slot(store: Path, number: object, fingerprint: str) -> Path | None:
+    """Pull request NUMBER's parked build beside STORE, when fresh and of FINGERPRINT."""
     slot = pr_slot(store, number)
     if slot is None or not (slot / DERIVED).is_dir():
-        return False
+        return None
     try:
         if time.time() - slot.stat().st_mtime > PR_SLOT_HOURS * 3600:
-            return False  # expired: neither published nor routed to
+            return None  # expired: neither published nor routed to
     except OSError:
+        return None
+    if not fingerprint or read_stamp(slot).get("fingerprint") != stamped(fingerprint):
+        return None
+    return slot
+
+
+def unpark(store: Path, number: object, fingerprint: str) -> bool:
+    """Swap pull request NUMBER's parked build in as the kept one, parking the current kept build first."""
+    slot = usable_slot(store, number, fingerprint)
+    if slot is None:
         return False
     stamp = read_stamp(slot)
-    if not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
-        return False
     current = read_stamp(store)
     if pr_key(current.get("pr")) == pr_key(number) and (store / DERIVED).is_dir():
         return False  # the kept build is this pull request's already
@@ -430,11 +474,16 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
     store.mkdir(parents=True, exist_ok=True)
     sweep_discarded(store)
     unparked = False
+    adopt_from = None
     if pr_number:
         try:
-            unparked = unpark(store, pr_number, fingerprint)
+            if main_build(store, fingerprint):
+                # A main build stays in place (holds_last_main): the job adopts its parked build directly.
+                adopt_from = usable_slot(store, pr_number, fingerprint)
+            else:
+                unparked = unpark(store, pr_number, fingerprint)
         except (OSError, RuntimeError):
-            unparked = False
+            unparked, adopt_from = False, None
     if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
         # Which seeds this root adopts, for seed_derived_data.py `prefetch`
         # to fetch ahead while the Mac is idle. Best effort.
@@ -450,9 +499,16 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
             incoming.rename(store / seed.SEED_SOURCE)
         except OSError:
             pass
-    stamp = read_stamp(store)
+    if adopt_from is not None and tree_bytes(adopt_from / DERIVED) > MAX_DERIVED_BYTES:
+        with contextlib.suppress(OSError, RuntimeError):
+            clear(adopt_from)  # grown past the cap: drop it and start from the main build
+        adopt_from = None
+    start = adopt_from or store
+    stamp = read_stamp(start)
     result = {"warm": "false", "packages": "false"}
-    derived = store / DERIVED
+    if adopt_from is not None:
+        result["adopt_from"] = str(adopt_from)
+    derived = start / DERIVED
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
     elif not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
@@ -466,7 +522,8 @@ def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | 
             result["reason"] = f"kept DerivedData grew to {size} bytes"
         else:
             result["warm"] = "true"
-            result["reason"] = "this pull request's parked build" if unparked else "kept DerivedData matches"
+            result["reason"] = ("this pull request's parked build" if unparked or adopt_from is not None
+                                else "kept DerivedData matches")
     packages = (package_store or store) / PACKAGES
     if packages.is_dir():
         destination = workspace / ".ci-source-packages"
@@ -576,6 +633,35 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     # A seed's record is never replayed here (adopt reads RECORD only).
     for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
+    with mini_keep_lock(store):
+        result = keep_locked(store, incoming, fingerprint, merged_onto, pr_number)
+    sweep_discarded(store)
+    return result
+
+
+def keep_locked(store: Path, incoming: Path, fingerprint: str, merged_onto: str, pr_number: str) -> dict[str, str]:
+    """`keep` after the clone, under mini_keep_lock: park or replace."""
+    slot = pr_slot(store, pr_number)
+    if slot is not None and holds_last_main(store, fingerprint):
+        # This root stays at main for the mini's other pull requests; this build waits in its slot.
+        staged = slot.with_name(f".{slot.name}.incoming-{os.getpid()}")
+        try:
+            remove(staged)
+            staged.mkdir(parents=True)
+            incoming.rename(staged / DERIVED)
+            stamp = {"fingerprint": stamped(fingerprint), "pr": int(pr_number.strip())}
+            if warm_key(merged_onto):
+                stamp["merged_onto"] = merged_onto.strip().lower()
+            write_stamp(staged, stamp)
+            clear(slot)
+            staged.rename(slot)
+            os.utime(slot)
+        except (OSError, RuntimeError):
+            remove(incoming)
+            remove(staged)
+            raise
+        prune_pr_slots(store)
+        return {"kept": "parked", "parked": slot.name, "reason": "this root keeps the mini's only main build"}
     # Another pull request's build is parked, not dropped: its next push may come back to it.
     parked = ""
     if pr_key(read_stamp(store).get("pr")) != pr_key(pr_number):
@@ -596,7 +682,10 @@ def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr
     for field in ("pr_app_swift_files", "pr_app_swift_total", "pr_package_interface", "pr_hot_files"):
         stamp.pop(field, None)
     write_stamp(store, stamp)
-    clear(store / DERIVED)
+    # Set the old build aside only: its delete (12 to 40 GB) runs after the lock (`keep`, sweep_discarded).
+    old = store / DERIVED
+    if old.exists() or old.is_symlink():
+        old.rename(store / f".{DERIVED}.discard-{os.getpid()}")
     incoming.rename(store / DERIVED)
     stamp["fingerprint"] = stamped(fingerprint)
     if warm_key(merged_onto):
