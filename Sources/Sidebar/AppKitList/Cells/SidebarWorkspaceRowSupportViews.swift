@@ -9,6 +9,8 @@ import SwiftUI
 @MainActor
 struct SidebarRowPalette {
     let model: SidebarWorkspaceRowModel
+    var isSelectionEmphasized: Bool = true
+    var increasesSelectionContrast: Bool = false
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
@@ -17,7 +19,9 @@ struct SidebarRowPalette {
             for: colorScheme,
             sidebarSelectionColorHex: model.settings.selectionColorHex,
             activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
-            subtleSelection: model.settings.subtleSelection
+            subtleSelection: model.settings.subtleSelection,
+            isEmphasized: isSelectionEmphasized,
+            increasesContrast: increasesSelectionContrast
         )
     }
 

@@ -323,7 +323,9 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
     activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail,
-    subtleSelection: Bool = false
+    subtleSelection: Bool = false,
+    isEmphasized: Bool = true,
+    increasesContrast: Bool = false
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
@@ -335,8 +337,8 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
     let fill = CmuxSelectionFill.resolve(
         colorScheme: colorScheme,
-        isEmphasized: true,
-        increasesContrast: false
+        isEmphasized: isEmphasized,
+        increasesContrast: increasesContrast
     )
     return cmuxCompositedNSColor(fill.color, over: surface)
 }
@@ -399,7 +401,9 @@ func sidebarWorkspaceRowBackgroundStyle(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex,
         activeTabIndicatorStyle: activeTabIndicatorStyle,
-        subtleSelection: subtleSelection
+        subtleSelection: subtleSelection,
+        isEmphasized: isEmphasized,
+        increasesContrast: increasesContrast
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)
     // A configured selection color is an explicit request for a solid fill.
