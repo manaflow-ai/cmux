@@ -282,4 +282,64 @@ if (cd "$TMP/merge" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$MSTORE" "$RESOLVER
   exit 1
 fi
 
+# Regression (#14434 review): the candidate window counted commits, not input versions.
+# Merge commits of one version interleave, so HEAD's version spanned dozens of commits
+# and its only published member (main's first merge of it) fell past the old 20-commit
+# window: exact mode failed although a client with HEAD's inputs was published. Here 25
+# branches make the same cmux-tui change after main first merged it, so 26 commits of
+# HEAD's version precede that published merge.
+git init -q "$TMP/wide"
+git -C "$TMP/wide" checkout -q -b main
+wcommit() {
+  mkdir -p "$(dirname "$TMP/wide/$2")"
+  echo "$1" >"$TMP/wide/$2"
+  git -C "$TMP/wide" add -A
+  GIT_COMMITTER_DATE="$3" GIT_AUTHOR_DATE="$3" git -C "$TMP/wide" commit -q -m "$1"
+}
+wmerge() {
+  GIT_COMMITTER_DATE="$2" GIT_AUTHOR_DATE="$2" git -C "$TMP/wide" merge -q --no-ff --no-edit "$1"
+}
+wcommit "base" cmux-tui/a.rs "2026-09-01T00:00:00"
+BASE_SHA="$(git -C "$TMP/wide" rev-parse HEAD)"
+git -C "$TMP/wide" checkout -q -b first "$BASE_SHA"
+wcommit "tui v2" cmux-tui/a.rs "2026-09-02T00:00:00"
+git -C "$TMP/wide" checkout -q main
+wmerge first "2026-09-02T01:00:00"
+PUBLISHED="$(git -C "$TMP/wide" rev-parse HEAD)"
+for i in $(seq 10 34); do
+  git -C "$TMP/wide" checkout -q -b "b$i" "$BASE_SHA"
+  wcommit "tui v2" cmux-tui/a.rs "2026-09-03T00:$i:00"
+  git -C "$TMP/wide" checkout -q main
+  wmerge "b$i" "2026-09-03T00:$i:30"
+done
+wcommit "app after" Sources/App.swift "2026-09-04T00:00:00"
+ahead="$(git -C "$TMP/wide" log --full-history --format=%H HEAD -- cmux-tui | grep -n "^$PUBLISHED\$" | cut -d: -f1)"
+if [[ -z "$ahead" || $ahead -le 21 ]]; then
+  echo "FAIL: the published merge must sit past the 20th candidate (test setup), at '${ahead}'"
+  exit 1
+fi
+WSTORE="$TMP/wstore"
+mkdir -p "$WSTORE/$PUBLISHED"
+printf '{"commit":"%s"}\n' "$PUBLISHED" >"$WSTORE/$PUBLISHED/manifest.json"
+got="$(cd "$TMP/wide" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$WSTORE" "$RESOLVER" 2>"$TMP/wide.err")" || {
+  echo "FAIL: exact mode must find the published member $PUBLISHED of HEAD's input version"
+  cat "$TMP/wide.err"
+  exit 1
+}
+if [[ "$got" != "$PUBLISHED" ]]; then
+  echo "FAIL: expected the published merge $PUBLISHED, got '$got'"
+  exit 1
+fi
+# A shallow clone deepens until it sees an older version, so it reaches the same answer.
+git clone -q --depth 1 "file://$TMP/wide" "$TMP/wide-shallow"
+got="$(cd "$TMP/wide-shallow" && CMUX_TUI_CLIENT_MANIFEST_BASE="file://$WSTORE" "$RESOLVER" 2>"$TMP/wide-shallow.err")" || {
+  echo "FAIL: a shallow clone must deepen to the published member $PUBLISHED"
+  cat "$TMP/wide-shallow.err"
+  exit 1
+}
+if [[ "$got" != "$PUBLISHED" ]]; then
+  echo "FAIL: shallow clone expected $PUBLISHED, got '$got'"
+  exit 1
+fi
+
 echo "PASS: resolve-cmux-tui-client-commit picks the newest published cmux-tui commit, shallow or not"

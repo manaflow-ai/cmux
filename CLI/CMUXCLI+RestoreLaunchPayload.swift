@@ -8,6 +8,9 @@ extension CMUXCLI {
         if let launcher = command.launcher {
             payload["launcher"] = launcher
         }
+        if let externalLauncher = command.externalLauncher {
+            payload["external_launcher"] = externalLauncher
+        }
         if let executablePath = command.executablePath {
             payload["executable_path"] = executablePath
         }

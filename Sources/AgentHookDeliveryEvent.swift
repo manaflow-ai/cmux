@@ -121,6 +121,42 @@ struct AgentHookDeliveryEvent: Sendable {
         self.queueAdmissionInstant = nil
     }
 
+    /// Builds a relay-backed session event for an agent the Mac observes
+    /// through a remote daemon's agent roster instead of a hook call (the
+    /// cmux-tui path of `cmux ssh`).
+    ///
+    /// The route is the local pane showing the remote terminal. A mirrored
+    /// `session-end` suppresses the hook CLI's visible cleanup (status row,
+    /// agent PID, pane notifications): the pane's status is projected from the
+    /// roster, and its notifications belong to the daemon's durable rows. The
+    /// session record and journal still end.
+    static func mirrored(
+        agent: String,
+        subcommand: String,
+        payload: String,
+        workspaceID: UUID,
+        surfaceID: UUID,
+        deliverySocketPath: String
+    ) -> Self? {
+        var environment = [
+            "CMUX_WORKSPACE_ID": workspaceID.uuidString,
+            "CMUX_SURFACE_ID": surfaceID.uuidString,
+        ]
+        if subcommand == "session-end" {
+            environment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] = "1"
+        }
+        return Self(
+            params: [
+                "agent": agent,
+                "subcommand": subcommand,
+                "payload": payload,
+                "relay_backed": true,
+                "environment": environment,
+            ],
+            deliverySocketPath: deliverySocketPath
+        )
+    }
+
     /// Returns whether this newer terminal state can supersede an older
     /// buffered state snapshot without discarding an independent side effect.
     func canReplaceBufferedLifecycleState(_ earlier: Self) -> Bool {
