@@ -106,6 +106,17 @@ import Testing
         #expect(node?.children.map(\.text) == [""])
     }
 
+    @Test func localBindingClearsPersistentUnresolvedMask() {
+        let node = interp.evaluate("""
+        let TITLE = unknown
+        VStack {
+            let TITLE = "local"
+            Text(TITLE)
+        }
+        """, state: ["TITLE": .string("seed")])
+        #expect(node?.children.map(\.text) == ["local"])
+    }
+
     @Test func forwardTopLevelBindingShadowsSeededState() {
         let node = interp.evaluate("""
         let TITLE = PREFIX
