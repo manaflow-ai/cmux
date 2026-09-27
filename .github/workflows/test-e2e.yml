@@ -532,7 +532,9 @@ jobs:
           # too: any other value invalidates every compile the seed carries.
           DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
           CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
-          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          # A leftover indexer can refill the tree while `rm -rf` walks it
+          # ("Directory not empty", run 36317930241); clear-dirs.sh renames first.
+          scripts/ci/clear-dirs.sh "$DERIVED_DATA_PATH" "$CACHE_PATH"
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"

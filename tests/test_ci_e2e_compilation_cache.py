@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -42,8 +43,7 @@ class E2ECompilationCache(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.workspace = self.root / 'workspace'
-        self.workspace.mkdir()
+        self.workspace = self.make_workspace('workspace')
         tools = self.root / 'bin'
         tools.mkdir()
         xcode = tools / 'xcodebuild'
@@ -54,6 +54,14 @@ class E2ECompilationCache(unittest.TestCase):
                         GITHUB_ENV=str(self.root / 'env'), GITHUB_OUTPUT=str(self.root / 'output'),
                         PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6',
                         CMUX_CI_CANONICAL_ROOT=str(self.root / 'canonical'))
+
+    def make_workspace(self, name):
+        """A checkout stand-in: the prepare step clears its fixed paths with the real helper."""
+        workspace = self.root / name
+        helper = workspace / 'scripts/ci/clear-dirs.sh'
+        helper.parent.mkdir(parents=True)
+        shutil.copy2(ROOT / 'scripts/ci/clear-dirs.sh', helper)
+        return workspace
 
     def run_step(self, name, job='build', **env):
         return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name, job)['run']],
@@ -85,8 +93,7 @@ class E2ECompilationCache(unittest.TestCase):
         self.env['FIXTURE_XCODE'] = 'Xcode 26.7'
         self.assertNotEqual(original, self.prepare()['fingerprint'])
         self.env['FIXTURE_XCODE'] = 'Xcode 26.6'
-        other = self.root / 'other-workspace'
-        other.mkdir()
+        other = self.make_workspace('other-workspace')
         self.workspace = other
         self.env['GITHUB_WORKSPACE'] = str(other)
         self.assertNotEqual(original, self.prepare()['fingerprint'])
