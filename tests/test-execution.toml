@@ -1325,3 +1325,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_claude_hook_spool.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
