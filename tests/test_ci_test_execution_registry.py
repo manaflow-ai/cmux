@@ -412,6 +412,34 @@ class LaneRunnerTests(unittest.TestCase):
         self.assertIn("FAILED: tests/test_par_fail.py (exit 3)", output)
         self.assertIn("FAILED: tests/test_par_other_fail.py (exit 3)", output)
 
+    def test_a_process_start_failure_reports_the_test_and_continues(self) -> None:
+        original_popen = runner.subprocess.Popen
+
+        def start_process(command, **kwargs):
+            if Path(command[1]).stem == "test_start_fail":
+                raise OSError("simulated process creation failure")
+            return original_popen(command, **kwargs)
+
+        for serial in (False, True):
+            with self.subTest(serial=serial):
+                names = ["test_start_fail", "test_ok"]
+                registry = (
+                    "version = 1\n"
+                    + self.entry("test_start_fail", "lane-a", "serial = true\n" if serial else "")
+                    + self.entry("test_ok", "lane-a")
+                )
+                with mock.patch.object(runner.subprocess, "Popen", side_effect=start_process):
+                    code, log, output = self.run_lane(
+                        registry, names, "--lane", "lane-a", "--jobs", "2", peers=0
+                    )
+                self.assertEqual(code, 1)
+                self.assertIn("end test_ok", log)
+                self.assertIn("output from test_ok", output)
+                self.assertIn("simulated process creation failure", output)
+                self.assertIn("FAILED: tests/test_start_fail.py (exit 1)", output)
+                self.assertIn("2 tests in", output)
+                self.assertIn("1 failed", output)
+
     def test_a_hung_test_is_killed_and_reported(self) -> None:
         names = ["test_par_hang", "test_par_ok"]
         registry = "version = 1\n" + "".join(self.entry(name, "lane-a") for name in names)
