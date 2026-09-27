@@ -349,9 +349,60 @@ class WarmKeys(Fixture):
         self.build("main")
         self.kept(pr="")  # idle warming keeps main: 7 stays parked, main cannot be
         result = run(state.check, self.store, "fp", self.workspace, None, "7")
-        self.assertEqual(result["reason"], "kept DerivedData matches")
+        # The main build stays in place; the job adopts its own parked build directly.
+        slot = self.store / "pr-builds" / "pr-7"
+        self.assertEqual((result["warm"], result["reason"], result["adopt_from"]),
+                         ("true", "this pull request's parked build", str(slot)))
         self.assertEqual(self.kept_marker(), "main")
-        self.assertTrue((self.store / "pr-builds" / "pr-7" / "derived-data").is_dir())
+        self.assertTrue((slot / "derived-data").is_dir())
+        # With another Xcode's slot, nothing to adopt from: the main build is the start.
+        self.assertNotIn("adopt_from", run(state.check, self.store, "other", self.workspace, None, "7"))
+
+    def second_root(self, pr=""):
+        """Root 2 of this mini (STORE/cmux-ci-2), keeping a build of PR (main when "")."""
+        other = self.store / "cmux-ci-2"
+        (other / "derived-data").mkdir(parents=True, exist_ok=True)
+        stamp = {"fingerprint": f"x-{state.STATE_VERSION}", "merged_onto": B, **({"pr": int(pr)} if pr else {})}
+        (other / "stamp.json").write_text(json.dumps(stamp))
+        return other
+
+    def test_the_minis_last_main_root_stays_at_main_and_parks_pull_requests(self):
+        self.build("main")
+        self.kept(pr="")
+        self.second_root(pr="3")  # the other root holds a pull request's build
+        self.assertTrue(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "parked", "parked": "pr-7",
+                                             "reason": "this root keeps the mini's only main build"})
+        self.assertEqual(self.kept_marker(), "main")
+        slot = self.store / "pr-builds" / "pr-7"
+        self.assertEqual(json.loads((slot / "stamp.json").read_text()), {"fingerprint": state.stamped("fp"),
+                                                                          "merged_onto": A, "pr": 7})
+        self.assertEqual((slot / "derived-data" / "Build" / "marker").read_text(), "seven")
+        self.assertFalse((self.store / ".derived-data.incoming").exists())
+        # The root publishes main plus the parked build, which routing ranks for pull request 7 only.
+        self.assertEqual(self.keys(cache=False)["roots"][0], {"root": 1, "merged_onto": A,
+                                                              "parked": [{"merged_onto": A, "pr": 7}]})
+
+    def test_a_main_build_is_replaced_while_another_root_keeps_main(self):
+        self.build("main")
+        self.kept(pr="")
+        self.second_root()  # root 2 keeps main too
+        self.assertFalse(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "true"})
+        self.assertEqual(self.kept_marker(), "seven")
+
+    def test_a_single_root_mini_keeps_pull_request_builds_as_before(self):
+        self.build("main")
+        self.kept(pr="")
+        self.assertFalse(state.holds_last_main(self.store))
+        self.build("seven")
+        self.assertEqual(self.kept(pr="7"), {"kept": "true"})
+        # Main's own keep (a dispatch or idle warming) always replaces the kept build.
+        self.second_root(pr="3")
+        self.build("main again")
+        self.assertEqual(self.kept(pr=""), {"kept": "true", "parked": "pr-7"})
 
     def test_check_replaces_an_unreadable_kept_build_and_skips_an_expired_slot(self):
         self.build("seven")

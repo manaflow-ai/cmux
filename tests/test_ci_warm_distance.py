@@ -478,6 +478,9 @@ class DistanceRouting(unittest.TestCase):
         self.assertEqual(costs, {"m1-glaeda": "rebuild", "m2-glaeda": "far", "m3-glaeda": "rebuild"})
         self.assertEqual(name, "m2-glaeda")
         self.assertEqual(wd.own_parked(minis["m2"][0], 7), [parked])
+        # A root that keeps main hands the job its parked build too (check's adopt_from).
+        minis["m2"] = [{"root": 1, "merged_onto": "1" * 40, "parked": [parked]}]
+        self.assertEqual(self.route(runners, minis, changes, own=own)[0], "m2-glaeda")
         self.assertEqual(wd.own_parked(minis["m2"][0], None), [])
 
     def test_the_base_fetch_is_tried_twice_and_reported(self):

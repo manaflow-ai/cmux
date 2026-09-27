@@ -845,10 +845,11 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
             stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
             cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
                                   pr_number, hook, own)
-            # This pull request's build parked beside the root: admission's `check` swaps it in (and the
-            # hook ranks the root by it) unless the kept build is a main build, which `check` never parks.
+            # This pull request's build parked beside the root: admission's `check` swaps it in, or adopts
+            # from it where the root keeps main (owned_build_state.py holds_last_main), and the hook ranks
+            # the root by it.
             parked = own_parked(entry, pr_number)
-            if parked and (stamp is None or entry.get("pr")):
+            if parked:
                 cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
                                       hook, own)
             costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
