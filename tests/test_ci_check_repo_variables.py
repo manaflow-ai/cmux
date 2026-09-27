@@ -63,6 +63,13 @@ class Values(unittest.TestCase):
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))
 
+    def test_a_repeated_name_fails_instead_of_the_last_value_winning(self) -> None:
+        # A value with a newline in it can read as a second NAME=value line.
+        runners = "MACOS_RUNNER_PR=warp-macos-26-arm64-12x\nMACOS_RUNNER_PR=blacksmith-6vcpu-macos-26\n"
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=runners))
+        self.assertEqual(len(found), 1)
+        self.assertIn("repeats MACOS_RUNNER_PR", found[0])
+
 
 class Wiring(unittest.TestCase):
     def test_same_runner_variables_as_the_health_report(self) -> None:
