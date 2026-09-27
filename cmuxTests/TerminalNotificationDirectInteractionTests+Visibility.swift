@@ -63,6 +63,7 @@ extension TerminalNotificationDirectInteractionTests {
             workingDirectory: nil
         )
         let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -82,6 +83,16 @@ extension TerminalNotificationDirectInteractionTests {
         surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
+        if expected == 0 {
+            // The deferred refresh re-checks the presented frame, so a wrongly
+            // scheduled one would not show up in the refresh count below.
+            XCTAssertFalse(
+                hostedView.hasVisibilityRevealRefreshScheduled,
+                "A warm reveal must not schedule a deferred refresh",
+                file: file,
+                line: line
+            )
+        }
         drainMainQueue()
         if expected > 0 {
             // The reveal redraw runs on a later main-queue turn; wait for it.

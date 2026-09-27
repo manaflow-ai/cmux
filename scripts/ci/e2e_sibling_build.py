@@ -78,13 +78,40 @@ def started(run: dict) -> tuple[str, int]:
     return str(run.get("run_started_at") or ""), int(run["id"])
 
 
-def earlier_sibling(runs: list[dict], this: dict, revision: str, runner: str) -> dict | None:
+def title_pool(run: dict) -> str:
+    """The pool a dispatch asked for, from its title."""
+    match = TITLE.search(str(run.get("display_title", "")))
+    return match.group(1) if match else ""
+
+
+def routed_pool(get: Callable[[str], dict], run: dict) -> str:
+    """The pool a run's build job was routed to, or the one its title asked for.
+
+    The runner job may route a dispatch to another pool than its title names:
+    with CI_PR_POOL_OWNED set, a `blacksmith-6vcpu-macos-26` dispatch builds on
+    an owned Mac. Matching titles against the routed label found no sibling for
+    any such run, so on 2026-09-25 runs 36175110586, 36175263632 and
+    36176202852 each compiled 2a40caa on an owned Mac within 11 minutes.
+    Once the build job exists its runs-on label is the routed pool; before
+    that the run is still choosing, and its title is the best guess.
+    """
+    jobs = get(f"actions/runs/{run['id']}/jobs?filter=latest&per_page=100").get("jobs", [])
+    build = next((job for job in jobs if job.get("name") == BUILD_JOB), None)
+    labels = build.get("labels") if isinstance(build, dict) else None
+    if isinstance(labels, list) and labels and isinstance(labels[0], str):
+        return labels[0]
+    return title_pool(run)
+
+
+def earlier_sibling(runs: list[dict], this: dict, revision: str, runner: str,
+                    pool: Callable[[dict], str] = title_pool) -> dict | None:
     """The unfinished dispatch compiling `revision` on the same macOS that started first, before `this`."""
     matches = []
     for run in runs:
         match = TITLE.search(str(run.get("display_title", "")))
-        if (match and match.group(2) == revision and same_macos(match.group(1), runner)
-                and run.get("status") in UNFINISHED and started(run) < started(this)):
+        if (match and match.group(2) == revision
+                and run.get("status") in UNFINISHED and started(run) < started(this)
+                and same_macos(pool(run), runner)):
             matches.append(run)
     return min(matches, key=started) if matches else None
 
@@ -114,10 +141,11 @@ def wait(
     get: Callable[[str], dict] = gh_api,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    pool: Callable[[dict], str] | None = None,
 ) -> bool:
     runs = get(RUNNING).get("workflow_runs", [])
     this = next((run for run in runs if str(run.get("id")) == run_id), None) or get(f"actions/runs/{run_id}")
-    sibling = earlier_sibling(runs, this, revision, runner)
+    sibling = earlier_sibling(runs, this, revision, runner, pool or (lambda run: routed_pool(get, run)))
     if sibling is None:
         print("No earlier run is compiling this revision.")
         return False

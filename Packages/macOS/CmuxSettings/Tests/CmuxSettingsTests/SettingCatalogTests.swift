@@ -23,6 +23,10 @@ struct SettingCatalogTests {
                 "automation.claudeCodeIntegration",
                 "integrations.claudeCode.hooksEnabled",
             ],
+            "codexHooksEnabled": [
+                "automation.codexIntegration",
+                "integrations.codex.hooksEnabled",
+            ],
             "cursorHooksEnabled": [
                 "automation.cursorIntegration",
                 "integrations.cursor.hooksEnabled",
@@ -124,6 +128,14 @@ struct SettingCatalogTests {
 
     @Test func runawayMemoryGuardrailDefaultsOffForUntouchedConfigs() {
         #expect(!SettingCatalog().terminal.runawayMemoryGuardrailEnabled.defaultValue)
+    }
+
+    @Test func hardWrapReflowOnCopyDefaultsOff() {
+        #expect(!SettingCatalog().terminal.reflowHardWrapOnCopy.defaultValue)
+    }
+
+    @Test func unsafePasteConfirmationDefaultsOff() {
+        #expect(!SettingCatalog().terminal.confirmUnsafePaste.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

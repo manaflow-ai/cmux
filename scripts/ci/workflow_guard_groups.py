@@ -92,6 +92,11 @@ PATH_OWNERS = {
     # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
     # these by path; the receipt test also reads its workflow and fixtures.
     "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    # ...and the attribution imports these: the restart marker, the paths
+    # outside the app, and the suites a changed string reaches.
+    "scripts/ci/app_host_result_accounting.py": frozenset(("ci",)),
+    "scripts/ci/app_host_test_rerun.py": frozenset(("ci",)),
+    "scripts/ci/reverse_test_impact.py": frozenset(("ci",)),
     "scripts/ci/merge_receipt.py": frozenset(("ci",)),
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
@@ -104,6 +109,17 @@ PATH_OWNERS = {
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
+    # test_ci_auto_catch_up_select.py imports the selector and replays its fixture.
+    "scripts/ci/auto_catch_up_select.py": frozenset(("ci",)),
+    "tests/fixtures/auto_catch_up/replay.json": frozenset(("ci",)),
+    # test_ci_merge_main.py runs merge-main end to end: the green-base
+    # selection, the catch-up merge above, and the guard runner it reruns
+    # failed steps with (test_ci_run_guards.py also imports the runner).
+    "scripts/merge-main.sh": frozenset(("ci",)),
+    "scripts/ci/merge_main.py": frozenset(("ci",)),
+    "scripts/ci/last_green_base.py": frozenset(("ci",)),
+    "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
@@ -113,6 +129,7 @@ PATH_OWNERS = {
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
+    "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
@@ -129,6 +146,8 @@ PATH_OWNERS = {
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
+    # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
+    "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though

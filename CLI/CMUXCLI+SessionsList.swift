@@ -181,6 +181,9 @@ extension CMUXCLI {
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
                 payload["launch_arguments"] = record.launchCommand?.arguments ?? []
+                // Why `launch_arguments` is empty, when the capture recorded a
+                // ground for it. Null on a capture that produced a usable argv.
+                payload["launch_rejection_reason"] = record.launchCommand?.rejectionReason?.rawValue ?? NSNull()
                 payload.merge(
                     sessionsListForkDiagnostics(
                         agent: spec.name,
