@@ -57,13 +57,15 @@ final class SidebarFooterMenuAnchorNSView: NSView {
 
 extension NSMenu {
     /// Appends a closure-backed item. `identifier` doubles as the XCUITest
-    /// identifier; `shortcut` only draws the configured key equivalent, the
-    /// app-level binding still owns the key press.
+    /// identifier; `symbol` is the SF Symbol drawn at the leading edge;
+    /// `shortcut` only draws the configured key equivalent, the app-level
+    /// binding still owns the key press.
     @MainActor
     @discardableResult
     func addSidebarFooterItem(
         _ title: String,
         identifier: String,
+        symbol: String? = nil,
         shortcut: StoredShortcut? = nil,
         handler: @escaping () -> Void
     ) -> NSMenuItem {
@@ -78,6 +80,9 @@ extension NSMenu {
             DispatchQueue.main.async { handler() }
         }
         item.identifier = NSUserInterfaceItemIdentifier(identifier)
+        if let symbol {
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
         if let shortcut, let keyEquivalent = shortcut.menuItemKeyEquivalent {
             item.keyEquivalent = keyEquivalent
             item.keyEquivalentModifierMask = shortcut.modifierFlags
@@ -112,6 +117,7 @@ enum SidebarHelpMenuItems {
         menu.addSidebarFooterItem(
             String(localized: "menu.app.settings", defaultValue: "Settings…"),
             identifier: "SidebarHelpMenuOptionSettings",
+            symbol: "gearshape",
             shortcut: KeyboardShortcutSettings.menuShortcut(for: .openSettings)
         ) {
             if let appDelegate = AppDelegate.shared {
@@ -123,11 +129,13 @@ enum SidebarHelpMenuItems {
         menu.addSidebarFooterItem(
             String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
             identifier: "SidebarHelpMenuOptionKeyboardShortcuts",
+            symbol: "keyboard",
             handler: showKeyboardShortcuts
         )
         let whatsNew = menu.addSidebarFooterItem(
             String(localized: "sidebar.help.whatsNew", defaultValue: "What's New"),
-            identifier: "SidebarHelpMenuOptionWhatsNew"
+            identifier: "SidebarHelpMenuOptionWhatsNew",
+            symbol: "sparkles"
         ) {
             WhatsNewCenter.shared.presentOnDemand(source: "sidebarFooterMenu")
         }
@@ -144,6 +152,7 @@ enum SidebarHelpMenuItems {
         menu.addSidebarFooterItem(
             String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
             identifier: "SidebarHelpMenuOptionSendFeedback",
+            symbol: "bubble.left",
             shortcut: KeyboardShortcutSettings.menuShortcut(for: .sendFeedback),
             handler: onSendFeedback
         )
@@ -152,18 +161,20 @@ enum SidebarHelpMenuItems {
         help.autoenablesItems = false
         help.addSidebarFooterItem(
             String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
-            identifier: "SidebarHelpMenuOptionWelcome"
+            identifier: "SidebarHelpMenuOptionWelcome",
+            symbol: "hand.wave"
         ) {
             AppDelegate.shared?.openWelcomeWorkspace()
         }
-        addLink(to: help, String(localized: "about.docs", defaultValue: "Docs"), url: docsURL, identifier: "SidebarHelpMenuOptionDocs")
-        addLink(to: help, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: changelogURL, identifier: "SidebarHelpMenuOptionChangelog")
+        addLink(to: help, String(localized: "about.docs", defaultValue: "Docs"), url: docsURL, identifier: "SidebarHelpMenuOptionDocs", symbol: "book")
+        addLink(to: help, String(localized: "sidebar.help.changelog", defaultValue: "Changelog"), url: changelogURL, identifier: "SidebarHelpMenuOptionChangelog", symbol: "list.bullet.rectangle")
         help.addSidebarFooterSeparator()
-        addLink(to: help, String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"), url: githubIssuesURL, identifier: "SidebarHelpMenuOptionGitHubIssues")
-        addLink(to: help, String(localized: "sidebar.help.discord", defaultValue: "Discord"), url: discordURL, identifier: "SidebarHelpMenuOptionDiscord")
-        addLink(to: help, String(localized: "about.github", defaultValue: "GitHub"), url: githubURL, identifier: "SidebarHelpMenuOptionGitHub")
+        addLink(to: help, String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"), url: githubIssuesURL, identifier: "SidebarHelpMenuOptionGitHubIssues", symbol: "exclamationmark.bubble")
+        addLink(to: help, String(localized: "sidebar.help.discord", defaultValue: "Discord"), url: discordURL, identifier: "SidebarHelpMenuOptionDiscord", symbol: "bubble.left.and.bubble.right")
+        addLink(to: help, String(localized: "about.github", defaultValue: "GitHub"), url: githubURL, identifier: "SidebarHelpMenuOptionGitHub", symbol: "chevron.left.forwardslash.chevron.right")
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.identifier = NSUserInterfaceItemIdentifier("SidebarHelpMenuOptionHelp")
+        item.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: nil)
         item.submenu = help
         menu.addItem(item)
     }
@@ -172,21 +183,23 @@ enum SidebarHelpMenuItems {
     static func addMaintenance(to menu: NSMenu, browserDataImportCoordinator: BrowserDataImportCoordinator?) {
         menu.addSidebarFooterItem(
             String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
-            identifier: "SidebarHelpMenuOptionImportBrowserData"
+            identifier: "SidebarHelpMenuOptionImportBrowserData",
+            symbol: "square.and.arrow.down"
         ) { [browserDataImportCoordinator] in
             browserDataImportCoordinator?.presentImportDialog()
         }
         menu.addSidebarFooterItem(
             String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
-            identifier: "SidebarHelpMenuOptionCheckForUpdates"
+            identifier: "SidebarHelpMenuOptionCheckForUpdates",
+            symbol: "arrow.triangle.2.circlepath"
         ) {
             AppDelegate.shared?.checkForUpdates(nil)
         }
     }
 
-    private static func addLink(to menu: NSMenu, _ title: String, url: URL?, identifier: String) {
+    private static func addLink(to menu: NSMenu, _ title: String, url: URL?, identifier: String, symbol: String) {
         guard let url else { return }
-        let item = menu.addSidebarFooterItem(title, identifier: identifier) {
+        let item = menu.addSidebarFooterItem(title, identifier: identifier, symbol: symbol) {
             NSWorkspace.shared.open(url)
         }
         item.toolTip = url.absoluteString

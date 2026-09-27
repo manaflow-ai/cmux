@@ -16,8 +16,8 @@ enum SidebarAccountChipMetrics {
 ///
 /// Signed in it shows the avatar and name; signed out, a person icon and
 /// "Account", with Sign In… first in the menu; with the account button flag
-/// off, a ? icon and "Help". The chevron at the trailing edge marks where the
-/// target ends.
+/// off, a ? icon and "Help". One chevron at the trailing edge, pointing the way the
+/// menu opens, marks where the target ends.
 struct SidebarFooterMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
     @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
@@ -105,7 +105,7 @@ struct SidebarFooterMenuButton: View {
                     Spacer(minLength: 0)
                 }
                 CmuxSystemSymbolImage(
-                    systemName: "chevron.up.chevron.down",
+                    systemName: "chevron.up",
                     pointSize: SidebarAccountChipMetrics.chevronPointSize,
                     weight: .medium,
                     tint: Color(nsColor: .secondaryLabelColor)
@@ -174,7 +174,8 @@ struct SidebarFooterMenuButton: View {
                 let tabManager = tabManager
                 let signIn = menu.addSidebarFooterItem(
                     String(localized: "settings.account.signIn", defaultValue: "Sign In…"),
-                    identifier: "SidebarAccountSignInButton"
+                    identifier: "SidebarAccountSignInButton",
+                    symbol: "person.crop.circle"
                 ) {
                     _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
                         tabManager: tabManager,
@@ -201,7 +202,8 @@ struct SidebarFooterMenuButton: View {
             menu.addSidebarFooterSeparator()
             menu.addSidebarFooterItem(
                 String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
-                identifier: "SidebarHelpMenuOptionUpgrade"
+                identifier: "SidebarHelpMenuOptionUpgrade",
+                symbol: "star"
             ) {
                 if let flow, identity != nil {
                     flow.openProUpgrade(source: .sidebarAccountMenu)
@@ -215,7 +217,8 @@ struct SidebarFooterMenuButton: View {
             menu.addSidebarFooterSeparator()
             menu.addSidebarFooterItem(
                 String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
-                identifier: "SidebarAccountSignOutButton"
+                identifier: "SidebarAccountSignOutButton",
+                symbol: "rectangle.portrait.and.arrow.right"
             ) {
                 Task { await flow?.signOut() }
             }
