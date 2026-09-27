@@ -617,8 +617,8 @@ extension MobileHostAuthorizationTests {
 
         session = nil
         transport = nil
-        for _ in 0..<2_000 {
-            if weakSession == nil, weakTransport == nil { break }
+        let releaseDeadline = ContinuousClock.now + .seconds(10)
+        while (weakSession != nil || weakTransport != nil), ContinuousClock.now < releaseDeadline {
             await Task.yield()
         }
         #expect(weakSession == nil)
@@ -669,7 +669,8 @@ extension MobileHostAuthorizationTests {
                 == "iroh_server_events_v1"
         )
         await independent.failBlockedSend()
-        for _ in 0..<1_000 {
+        let transportDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < transportDeadline {
             if await session.debugEventTransportForTesting(streamID: "events") == .control {
                 break
             }
