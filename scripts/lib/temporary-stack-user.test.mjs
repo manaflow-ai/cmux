@@ -186,7 +186,7 @@ test("failed session creation preserves a direct-cleanup recovery record", async
 
   await assert.rejects(
     createTemporaryStackUser({ stackApp, stateFile, credentialsFile }),
-    /session unavailable/u,
+    /createSession failed/u,
   );
   assert.doesNotThrow(() => assertSecureFile(stateFile));
 

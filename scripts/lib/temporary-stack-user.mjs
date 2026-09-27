@@ -130,6 +130,7 @@ export async function createTemporaryStackUser({
   const email = `cmux-iroh-gate+${randomUUID()}@manaflow.ai`;
   const password = randomBytes(24).toString("base64url");
   let user;
+  let operation = "createUser";
   try {
     user = await stackApp.createUser({
       primaryEmail: email,
@@ -147,8 +148,10 @@ export async function createTemporaryStackUser({
       refreshToken: null,
       createdAt: now().toISOString(),
     };
+    operation = "writeState";
     writeExclusiveSecureFile(stateFile, `${JSON.stringify(initialState)}\n`);
 
+    operation = "createSession";
     const session = await user.createSession({
       expiresInMillis: 20 * 60 * 1000,
       isImpersonation: true,
@@ -161,6 +164,7 @@ export async function createTemporaryStackUser({
       accessToken,
       refreshToken,
     })}\n`);
+    operation = "writeCredentials";
     writeExclusiveSecureFile(credentialsFile, credentialFileContents(email, password));
     return { created: true };
   } catch (error) {
@@ -191,7 +195,10 @@ export async function createTemporaryStackUser({
         createdAt: now().toISOString(),
       })}\n`);
     }
-    throw error;
+    const contextualError = new Error(`temporary Stack ${operation} failed`);
+    contextualError.operation = operation;
+    contextualError.cause = error;
+    throw contextualError;
   }
 }
 
@@ -375,6 +382,7 @@ if (import.meta.main) {
       status: Number.isInteger(error?.status) ? error.status : null,
       statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : null,
       type: typeof error?.type === "string" ? error.type.slice(0, 80) : null,
+      operation: typeof error?.operation === "string" ? error.operation : null,
       message: typeof error?.message === "string"
         ? error.message
           .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "<email>")
