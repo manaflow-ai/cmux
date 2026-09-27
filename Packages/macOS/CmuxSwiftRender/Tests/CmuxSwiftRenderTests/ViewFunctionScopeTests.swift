@@ -98,6 +98,14 @@ import Testing
         """)
         #expect(node?.children.map(\.text) == ["ready"])
     }
+    @Test func unresolvedTopLevelBindingShadowsSeededState() {
+        let node = interp.evaluate("""
+        let TITLE = unknown
+        VStack { Text(TITLE) }
+        """, state: ["TITLE": .string("seed")])
+        #expect(node?.children.map(\.text) == [""])
+    }
+
     @Test func forwardTopLevelBindingShadowsSeededState() {
         let node = interp.evaluate("""
         let TITLE = PREFIX
