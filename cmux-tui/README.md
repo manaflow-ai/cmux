@@ -7,6 +7,7 @@
 - [Docs index](docs/README.md)
 - [Getting started](docs/getting-started.md)
 - [Remote daemon and clients](docs/remote.md)
+- [Cloud VM commands / Cloud VM コマンド](docs/cloud-vms.md)
 - [Remote workspace RPC contract](spec/remote-rpc.md)
 - [Concepts](docs/concepts.md)
 - [Keyboard](docs/keyboard.md)
