@@ -4407,6 +4407,36 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
     # An unreadable diff runs the unit tests rather than guessing.
     assert wants_unit_suite("pull_request", "compile-only", [], None) is True
 
+
+def test_a_cmux_ui_tests_diff_runs_its_classes_without_a_label() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import MAX_UI_SELECTORS, changed_ui_selectors, coverage_gap
+    with tempfile.TemporaryDirectory() as temp:
+        tmp_path = Path(temp)
+        ui = tmp_path / "cmuxUITests"
+        ui.mkdir()
+        (ui / "LaunchUITests.swift").write_text("import XCTest\n\nfinal class LaunchUITests: XCTestCase {}\n")
+        (ui / "Pair.swift").write_text("class AUITests: XCTestCase {}\nclass BUITests : XCTestCase {}\n")
+        (ui / "Helpers.swift").write_text("extension XCUIApplication {}\n")
+        # ci.yml's ui-tests job runs the classes a diff changes; a deleted file adds nothing.
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/LaunchUITests.swift", "cmuxUITests/Gone.swift",
+                                               "Sources/A.swift"]) == ["cmuxUITests/LaunchUITests"]
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Pair.swift"]) == ["cmuxUITests/AUITests",
+                                                                             "cmuxUITests/BUITests"]
+        assert changed_ui_selectors(tmp_path, ["Sources/A.swift"]) == []
+        # A helper any class may use maps to no class, so it stays a gap.
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Helpers.swift"]) is None
+        many = "".join(f"class C{index}UITests: XCTestCase {{}}\n" for index in range(MAX_UI_SELECTORS + 1))
+        (ui / "Many.swift").write_text(many)
+        assert changed_ui_selectors(tmp_path, ["cmuxUITests/Many.swift"]) is None
+
+        ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+        assert coverage_gap("pull_request", False, ui_diff, [], ui_suite=True) is False
+        # The full suite never runs cmuxUITests/, so full-ci does not close that gap.
+        assert coverage_gap("pull_request", True, ui_diff, []) is True
+        assert coverage_gap("pull_request", True, ui_diff, [], ui_suite=True) is False
+
+
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
