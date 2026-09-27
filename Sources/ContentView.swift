@@ -15429,7 +15429,7 @@ struct SidebarFooterButtons: View {
                 }
             }
             // The badge is an upgrade prompt, so Pro accounts don't get it.
-            if shows(.upgrade), AppDelegate.shared?.auth?.accountFlow?.isProActive != true {
+            if shows(.upgrade), AppDelegate.shared?.auth?.accountFlow.isProActive != true {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
