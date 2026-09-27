@@ -163,30 +163,6 @@ struct SidebarWorkspaceRowCommands {
         syncSelectionAfterMutation()
     }
 
-    /// Parity with TabItemView.promptRename (NSAlert flow).
-    func promptRename() {
-        guard let tabManager else { return }
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
-        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
-        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
-            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-    }
-
     /// Parity with TabItemView.beginWorkspaceDescriptionEditFromContextMenu.
     func beginDescriptionEdit() {
         guard let tabManager else { return }
@@ -202,48 +178,12 @@ struct SidebarWorkspaceRowCommands {
         tabManager?.applyWorkspaceColor(hex, toWorkspaceIds: contextMenuWorkspaceIds)
     }
 
-    /// Parity with TabItemView.promptCustomColor + showInvalidColorAlert.
     func promptCustomColor() {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
-        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
-        let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
-        let input = NSTextField(string: seed)
-        input.placeholderString = "#1565C0"
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
-        let alertWindow = alert.window
-        alertWindow.initialFirstResponder = input
-        let response = alert.runCmuxModal(
+        guard let hex = WorkspaceCustomColorPrompt.run(
+            currentHex: tab.customColor,
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
-        ) { _ in
-            alertWindow.makeFirstResponder(input)
-            input.selectText(nil)
-        }
-        guard response == .alertFirstButtonReturn else { return }
-        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
-            showInvalidColorAlert(input.stringValue)
-            return
-        }
-        applyTabColor(normalized)
-    }
-
-    private func showInvalidColorAlert(_ value: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "alert.invalidColor.title", defaultValue: "Invalid Color")
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            alert.informativeText = String(localized: "alert.invalidColor.emptyMessage", defaultValue: "Enter a hex color in the format #RRGGBB.")
-        } else {
-            alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
-        }
-        alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
-        _ = alert.runCmuxModal(
-            presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(tab.id)
-        )
+        ) else { return }
+        applyTabColor(hex)
     }
 
     /// Parity with TabItemView.moveWorkspaces(_:toWindow:).
@@ -280,11 +220,18 @@ struct SidebarWorkspaceRowCommands {
 
     // MARK: Menu
 
+    /// - Parameter beginInlineRename: Starts the row's inline title editor;
+    ///   "Rename Workspace…" edits in place because the row is on screen.
     func makeContextMenu(
         onOpen: @escaping () -> Void,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        beginInlineRename: @escaping () -> Void
     ) -> NSMenu {
-        SidebarWorkspaceRowMenuBuilder(commands: self).build(onOpen: onOpen, onClose: onClose)
+        SidebarWorkspaceRowMenuBuilder(commands: self).build(
+            onOpen: onOpen,
+            onClose: onClose,
+            beginInlineRename: beginInlineRename
+        )
     }
 }
 
@@ -302,7 +249,11 @@ struct SidebarWorkspaceRowMenuBuilder {
         isMulti ? multi : single
     }
 
-    func build(onOpen: @escaping () -> Void, onClose: @escaping () -> Void) -> NSMenu {
+    func build(
+        onOpen: @escaping () -> Void,
+        onClose: @escaping () -> Void,
+        beginInlineRename: @escaping () -> Void
+    ) -> NSMenu {
         let menu = SidebarRowTrackedMenu()
         menu.autoenablesItems = false
         menu.onOpen = onOpen
@@ -322,7 +273,11 @@ struct SidebarWorkspaceRowMenuBuilder {
             addTodoSection(to: menu, tabManager: tabManager)
             menu.addItem(.separator())
         }
-        addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
+        addRenameAndDescriptionItems(
+            to: menu,
+            tabManager: tabManager,
+            beginInlineRename: beginInlineRename
+        )
         addRemoteSection(to: menu, tabManager: tabManager)
         addColorMenu(to: menu)
         addSSHErrorItem(to: menu)
@@ -517,13 +472,16 @@ struct SidebarWorkspaceRowMenuBuilder {
         })
     }
 
-    private func addRenameAndDescriptionItems(to menu: NSMenu, tabManager: TabManager) {
+    private func addRenameAndDescriptionItems(
+        to menu: NSMenu,
+        tabManager: TabManager,
+        beginInlineRename: @escaping () -> Void
+    ) {
         menu.addItem(item(
             String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…"),
-            shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
-        ) { [commands] in
-            commands.promptRename()
-        })
+            shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace),
+            action: beginInlineRename
+        ))
 
         if tab.hasCustomTitle {
             menu.addItem(item(

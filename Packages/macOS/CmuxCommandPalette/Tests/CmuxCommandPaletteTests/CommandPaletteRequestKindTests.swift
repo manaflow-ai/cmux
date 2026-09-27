@@ -13,6 +13,7 @@ import Testing
             CommandPaletteRequestKind.editWorkspaceDescription.notificationName
                 == "cmux.commandPaletteEditWorkspaceDescriptionRequested"
         )
+        #expect(CommandPaletteRequestKind.rename.notificationName == "cmux.commandPaletteRenameRequested")
     }
 
     @Test func everyKindMarksPending() {
