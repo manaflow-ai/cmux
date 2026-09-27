@@ -13,6 +13,9 @@ All notable changes to cmux are documented here.
 - The Settings > Mobile pairing row says Open Pairing and no longer promises a Tailscale QR code, which pairing does not use ([#14817](https://github.com/manaflow-ai/cmux/pull/14817)) -- thanks @aliyansajid!
 
 ### Fixed
+- Closing a workspace no longer briefly flashes the close (X) button on every sidebar row, and the X no longer appears on the row that slides under a context menu's old position ([#14826](https://github.com/manaflow-ai/cmux/pull/14826)).
+- Closing or creating a workspace no longer rebuilds every sidebar row, so a rename, checklist edit, or popover open on another row survives it ([#14866](https://github.com/manaflow-ai/cmux/pull/14866)).
+- In pane tab bars, the tab that slides under the pointer after a close shows its hover and close button without moving the mouse, and VoiceOver can close any tab with a Close Tab action ([manaflow-ai/bonsplit#253](https://github.com/manaflow-ai/bonsplit/pull/253)).
 - Context-menu submenus built with `Menu` in custom sidebars appear instead of being dropped ([#14808](https://github.com/manaflow-ai/cmux/pull/14808)) -- thanks @aliyansajid!
 - Closing the last workspace no longer unfolds a collapsed sidebar group above it ([#10169](https://github.com/manaflow-ai/cmux/pull/10169)) -- thanks @AvoChang!
 - The focused pane border follows a zoomed terminal or browser pane instead of remaining at its pre-zoom split size, including when window chrome changes the overlay reference coordinates ([#14646](https://github.com/manaflow-ai/cmux/pull/14646)).
