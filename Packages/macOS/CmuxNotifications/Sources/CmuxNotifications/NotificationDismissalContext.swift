@@ -22,6 +22,13 @@ public enum NotificationDismissalContext: Sendable {
         }
     }
 
+    /// Whether a dismissal in this context flashes the pane. Typing means the
+    /// user is already working in that pane, so the cleared ring is the
+    /// acknowledgement; a flash under their cursor only adds noise.
+    public var flashesOnDismiss: Bool {
+        self != .terminalInteraction
+    }
+
     /// Whether this context may clear a manually-set unread indicator.
     public var canDismissManualUnreadIndicator: Bool {
         self == .terminalInteraction
