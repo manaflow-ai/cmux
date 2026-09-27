@@ -49,9 +49,6 @@ struct InterfaceDensityMetrics: Equatable {
     let titlebarBadgeSize: CGFloat
     /// Gap between titlebar control buttons.
     let titlebarSpacing: CGFloat
-    /// Vertical offset of the unread badge from the notifications button's
-    /// top edge. Negative moves it up; it must stay inside the 28pt row.
-    let titlebarBadgeYOffset: CGFloat
     /// Square hit target of each sidebar footer button.
     let sidebarFooterButtonSize: CGFloat
     /// Glyph size for the account and help buttons.
@@ -64,7 +61,6 @@ struct InterfaceDensityMetrics: Equatable {
         titlebarIconSize: 14,
         titlebarBadgeSize: 13,
         titlebarSpacing: 4,
-        titlebarBadgeYOffset: -2,
         sidebarFooterButtonSize: 26,
         sidebarFooterPrimaryIconSize: 16,
         sidebarFooterSecondaryIconSize: 14
@@ -75,7 +71,6 @@ struct InterfaceDensityMetrics: Equatable {
         titlebarIconSize: HeaderChromeControlMetrics.iconSize,
         titlebarBadgeSize: 12,
         titlebarSpacing: 6,
-        titlebarBadgeYOffset: -3,
         sidebarFooterButtonSize: 22,
         sidebarFooterPrimaryIconSize: 14,
         sidebarFooterSecondaryIconSize: 12
@@ -86,7 +81,6 @@ struct InterfaceDensityMetrics: Equatable {
         titlebarIconSize: 11,
         titlebarBadgeSize: 11,
         titlebarSpacing: 4,
-        titlebarBadgeYOffset: -3,
         sidebarFooterButtonSize: 20,
         sidebarFooterPrimaryIconSize: 13,
         sidebarFooterSecondaryIconSize: 11

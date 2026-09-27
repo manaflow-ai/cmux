@@ -74,7 +74,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
                 iconSize: metrics.titlebarIconSize,
                 buttonSize: metrics.titlebarButtonSize,
                 badgeSize: metrics.titlebarBadgeSize,
-                badgeOffset: CGSize(width: 3, height: metrics.titlebarBadgeYOffset),
+                badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,

@@ -551,9 +551,11 @@ final class WorkspaceContentViewVisibilityTests {
                 trailingEdge + TitlebarControlsDensityFit.edgeClearance <= sidebarEdge,
                 "\(density) controls end at \(trailingEdge), past the sidebar edge at \(sidebarEdge)"
             )
-            // The unread badge stays inside the 28pt titlebar row.
-            let buttonTop = (WindowChromeMetrics.appTitlebarHeight - config.buttonSize) / 2
-            #expect(buttonTop + config.badgeOffset.height >= 0)
+            // The unread badge anchors to the icon frame's top-trailing corner
+            // (not the button's) and must stay inside the 28pt titlebar row.
+            let iconFrame = HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
+            let iconTop = (WindowChromeMetrics.appTitlebarHeight - iconFrame) / 2
+            #expect(iconTop + config.badgeOffset.height >= 0)
         }
     }
 
