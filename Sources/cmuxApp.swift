@@ -297,6 +297,7 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
         MinimalModeTitlebarDebugSettings.migrateLegacyKeysIfNeeded(defaults: defaults)
         CmuxExtensionSidebarSelection.migrateLegacyDefaultsKeyIfNeeded(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")

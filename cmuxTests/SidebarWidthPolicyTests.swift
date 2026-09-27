@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -67,6 +68,33 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(
             SessionPersistencePolicy.sanitizedSidebarWidth(184, defaults: defaults),
             184,
+            accuracy: 0.001
+        )
+    }
+
+    func testLegacyStringMinimumSidebarWidthIsNormalizedToANumber() {
+        let suiteName = "SidebarWidthPolicyTests.legacyStringMinimum.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SessionPersistencePolicy.sidebarMinimumWidthKey
+
+        // `defaults write <bundle> sidebarMinimumWidth 180` stores a string.
+        defaults.set(" 180 ", forKey: key)
+        SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? Double, 180)
+        XCTAssertEqual(SidebarCatalogSection().leftMinWidth.value(in: defaults), 180, accuracy: 0.001)
+        XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults), 180, accuracy: 0.001)
+
+        // Numbers are left untouched, and garbage is not rewritten.
+        defaults.set(150.0, forKey: key)
+        SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? Double, 150)
+        defaults.set("wide", forKey: key)
+        SessionPersistencePolicy.normalizeLegacySidebarMinimumWidthIfNeeded(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: key) as? String, "wide")
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
+            LeftSidebarWidthSettings.defaultMinimumWidth,
             accuracy: 0.001
         )
     }

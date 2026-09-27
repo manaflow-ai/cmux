@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## Unreleased
 
 ### Added
+- Settings > Sidebar > Sidebar Minimum Width (`sidebar.leftMinWidth`, 120–260 pt, default 240) sets how narrow the workspace sidebar can be dragged, applies without a restart, and keeps an older `defaults write … sidebarMinimumWidth` value ([#14875](https://github.com/manaflow-ai/cmux/pull/14875))
 - Claude Code and Codex agents on a `cmux ssh` host show Running, Needs input, or Idle in the sidebar; cmux installs their hooks on the host when the Integrations toggles are on ([#14902](https://github.com/manaflow-ai/cmux/pull/14902))
 - Settings > Terminal > Reflow Hard-Wrapped Text on Copy (`terminal.reflowHardWrapOnCopy`, off by default) rejoins lines a program wrapped at exactly the terminal width when you copy ([#6923](https://github.com/manaflow-ai/cmux/pull/6923)) -- thanks @mvanhorn!
 - Pi is offered in the Machines Open Cloud Agent menu, `vm.cloud_agent_open`, and `cmux vm prompt --open pi` ([#14819](https://github.com/manaflow-ai/cmux/pull/14819)) -- thanks @aliyansajid!
