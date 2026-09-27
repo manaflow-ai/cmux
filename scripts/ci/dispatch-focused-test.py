@@ -636,10 +636,15 @@ def building_producer(commit: str) -> dict | None:
 
 
 def skips_macos(run_id: int) -> bool:
-    """Whether a CI run decided not to compile for macOS, so it will leave no products."""
+    """Whether a CI run decided not to compile for macOS, so it will leave no products.
+
+    A skipped `macos` caller (an earlier run's compile admission reused) lists
+    no admission job at all, only itself as skipped.
+    """
     listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
     return any(
-        job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("conclusion") == "skipped"
+        (job.get("name", "").endswith(rerun.ADMISSION_JOB) or job.get("name") == "macos")
+        and job.get("conclusion") == "skipped"
         for job in listing.get("jobs", [])
     )
 

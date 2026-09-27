@@ -56,9 +56,18 @@ UNIT_SUITE_LABEL = "unit-ci"
 UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
 UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
 UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
-UI_TEST_CLASS = re.compile(r"^\s*(?:(?:final|public|internal)\s+)*class\s+(\w+)\s*:\s*XCTestCase\b", re.M)
-# More changed classes than this is a sweep one focused run should not take.
+# A class declaration and the first type it inherits from, attributes and
+# modifiers allowed on the same line; and an extension of a type.
+UI_CLASS = re.compile(
+    r"^[ \t]*(?:@\w+(?:\([^)\n]*\))?\s+)*(?:(?:final|public|internal|open|private|fileprivate)\s+)*"
+    r"class\s+(\w+)\s*(?:<[^>\n]*>)?\s*:\s*(\w+)", re.M)
+UI_EXTENSION = re.compile(r"^[ \t]*(?:@\w+\s+)*(?:(?:public|internal|private|fileprivate)\s+)*extension\s+(\w+)\b", re.M)
+# More changed classes than this is a sweep one focused run should not take,
+# and the dispatch's concurrency group, which names every selector, must stay
+# within GitHub's 400 characters (dispatch-focused-test.py's MAX_CONCURRENCY_GROUP):
+# about 85 go to the runner label and the SHA.
 MAX_UI_SELECTORS = 8
+MAX_UI_FILTER_LENGTH = 300
 
 # Measured serial test time a changed-suites run may hold. One runner executes
 # it as a single batch, so it has to fit comfortably inside the batch timeout
@@ -503,28 +512,69 @@ def labels_from_event(event_path: str | Path) -> list[str] | None:
     return labels
 
 
+def ui_class_graph(root: Path) -> dict[str, str]:
+    """Every class cmuxUITests/ declares, mapped to the first type it inherits from."""
+    parents: dict[str, str] = {}
+    for file in sorted((root / "cmuxUITests").rglob("*.swift")):
+        try:
+            parents.update(UI_CLASS.findall(file.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError):
+            continue
+    return parents
+
+
 def changed_ui_selectors(root: Path, paths: Iterable[str] | None) -> list[str] | None:
     """The UI test classes a cmuxUITests/ diff changes, as test-e2e selectors.
 
-    A deleted file adds nothing. None when a changed file there defines no
-    test class (a helper any class may use, or a resource), or when there are
-    more than MAX_UI_SELECTORS: no focused run judges those.
+    A test class is one that inherits XCTestCase, directly or through a base
+    class the suite declares. A changed file selects the test classes it
+    declares or extends; a base class other test classes inherit selects
+    those instead, since it holds no test of its own to run. A deleted file
+    adds nothing. None when a changed file selects no test class (a helper or
+    a resource), or when the selection is more than one focused run takes:
+    no focused run judges those.
     """
+    changed = [path.strip() for path in paths or () if path.strip().startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES)]
+    if not changed:
+        return []
+    parents = ui_class_graph(root)
+
+    def is_test(name: str) -> bool:
+        seen = set()
+        while name in parents and name not in seen:
+            seen.add(name)
+            name = parents[name]
+        return name == "XCTestCase"
+
+    children: dict[str, list[str]] = {}
+    for name, parent in parents.items():
+        children.setdefault(parent, []).append(name)
+
+    def leaves(name: str) -> list[str]:
+        below = [leaf for child in sorted(children.get(name, ())) for leaf in leaves(child)]
+        return below or [name]
+
     selectors: list[str] = []
-    for path in (path.strip() for path in paths or ()):
-        if not path.startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES):
-            continue
+    for path in changed:
         file = root / path
         if not file.exists():
             continue
         try:
-            classes = UI_TEST_CLASS.findall(file.read_text(encoding="utf-8")) if file.suffix == ".swift" else []
+            text = file.read_text(encoding="utf-8") if file.suffix == ".swift" else ""
         except (OSError, UnicodeError):
             return None
-        if not classes:
+        # An extension of XCTestCase itself is a helper for every class.
+        named = [name for name, _ in UI_CLASS.findall(text)] + [
+            name for name in UI_EXTENSION.findall(text) if name != "XCTestCase"]
+        tests = [leaf for name in named if is_test(name) for leaf in leaves(name)]
+        if not tests:
             return None
-        selectors += [f"cmuxUITests/{name}" for name in classes if f"cmuxUITests/{name}" not in selectors]
-    return selectors if len(selectors) <= MAX_UI_SELECTORS else None
+        for name in tests:
+            if f"cmuxUITests/{name}" not in selectors:
+                selectors.append(f"cmuxUITests/{name}")
+    if len(selectors) > MAX_UI_SELECTORS or len(",".join(selectors)) > MAX_UI_FILTER_LENGTH:
+        return None
+    return selectors
 
 
 def coverage_gap(
