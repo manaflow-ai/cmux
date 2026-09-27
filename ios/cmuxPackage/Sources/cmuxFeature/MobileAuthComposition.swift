@@ -408,7 +408,7 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static func tokenStore(
+    static func tokenStore(
         appNamespace: MobileIOSAppNamespace?,
         accessGroup: String?,
         legacyProjectID: String
