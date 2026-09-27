@@ -26,7 +26,10 @@ checks, without any label:
 | `full-ci` | Requests the expensive full macOS suite policy: `unit-ci` plus the other lanes (eligible app-host shards, lag builds and other full-suite lanes). |
 | `no-full-ci` | Records a deliberate skip for `suite-coverage`. |
 
-Neither `unit-ci` nor `full-ci` is needed to test the suites you edited.
+Neither `unit-ci` nor `full-ci` is needed to test edited suites that normal PR
+routing runs. The exception is `cmuxUITests/`: no PR job runs it, so the
+`suite-coverage` job fails a `cmuxUITests/` diff until `full-ci` runs the suite
+or `no-full-ci` records the deliberate skip.
 
 `full-ci` is not shorthand for normal PR checks, relevant tests, review
 readiness or permission to merge. Do not add it as a generic review or merge

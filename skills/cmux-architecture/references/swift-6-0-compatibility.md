@@ -1,6 +1,6 @@
 # Swift 6.0 compatibility for app-linked code
 
-The macOS app also builds on Intel Macs running macOS 14 with Xcode 16.2
+The macOS app also builds on Intel Macs running macOS 14.5 or later with Xcode 16.2
 (Swift 6.0.3), including tagged `./scripts/reload.sh` dev builds.
 `GhosttyKit.xcframework` already ships fat x86_64+arm64 slices targeting macOS 13.
 Xcode 26 stays the pinned toolchain (`.xcode-version`) for CI, releases and the

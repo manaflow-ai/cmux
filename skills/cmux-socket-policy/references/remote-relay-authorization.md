@@ -9,7 +9,15 @@ The relay on the remote host authenticates but does not trust:
 (`Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/`) denies
 every method by default and only forwards an allowlist, scoped to objects the
 remote session owns. Command-bearing params (`initial_command`, `command`,
-`tmux_start_command`, `pane_start_command`) are denied on all methods.
+`tmux_start_command`, `pane_start_command`) are denied on every method except
+`surface.resume.set`.
+
+That one exception records an agent's resume command on a surface the remote
+session owns. It is safe only because the app drops relay-originated resume
+bindings (`ControlSurfaceResumeTarget.registeredBinding` returns `nil` when the
+request carries a remote workspace ID), so the stored command never runs on the
+Mac. Keep that check if you touch either side, and do not add another exception
+without the same analysis and tests.
 
 ## Checklist
 

@@ -70,7 +70,7 @@ Each has full detail in the skill named in parentheses. Load it before touching 
 
 ## Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c)
 
-Every v2 socket method you add or touch is a potential `cmux ssh` relay payload. `RemoteRelayCommandPolicy` denies every method by default and forwards only an allowlist scoped to objects the remote session owns, with command-bearing params denied on all methods.
+Every v2 socket method you add or touch is a potential `cmux ssh` relay payload. `RemoteRelayCommandPolicy` denies every method by default and forwards only an allowlist scoped to objects the remote session owns, with command-bearing params denied (one audited exception, `surface.resume.set`, is covered in the reference below).
 
 - Default is deny, and deny is safe. Allowlist a method only when the remote product flow needs it.
 - Before allowlisting, answer in the PR description: can it execute commands or open content on local objects, mutate or destroy objects the remote session does not own, or read local state the remote has no business seeing? Any yes means do not allowlist it; reshape the method or its params.

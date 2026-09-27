@@ -13,7 +13,7 @@ contributor tooling, start with [fast checks](#fast-checks-before-committing-or-
 and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
 
 - macOS 14+
-- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort, [Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md))
+- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14.5 or later also builds the macOS app (best effort, [Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md))
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles
   the bundled `cmux-cua` engine with `cargo`. The official installer puts both in `~/.cargo/bin`,
