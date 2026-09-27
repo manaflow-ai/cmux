@@ -56,11 +56,8 @@ struct ComputerUseOnboardingWindowTests {
                 $0.orderBack(nil)
             }
         )
-        controller.present()
         defer { controller.dismiss() }
-        let main = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
-        } as? ComputerUseOnboardingWindow)
+        let main = try #require(presentedOnboardingWindow { controller.present() })
         let originalFrame = main.frame
         controller.configureForPermissionCompanion(
             main, frame: NSRect(origin: originalFrame.origin, size: ComputerUsePermissionCompanionLayout.size)
@@ -404,12 +401,8 @@ struct ComputerUseOnboardingWindowTests {
         let controller = ComputerUseOnboardingWindowController(
             runtimeService: ComputerUseRuntimeService()
         )
-        controller.present()
         defer { controller.dismiss() }
-
-        let mainWindow = try #require(NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding"
-        } as? ComputerUseOnboardingWindow)
+        let mainWindow = try #require(presentedOnboardingWindow { controller.present() })
         #expect(mainWindow.level == .normal)
         #expect(mainWindow.collectionBehavior.contains(.managed))
         controller.configureForPermissionCompanion(
@@ -486,4 +479,17 @@ struct ComputerUseOnboardingWindowTests {
         #expect(presentedWindow?.identifier?.rawValue
             == "cmux.computerUse.onboarding.permissionCompanion")
     }
+}
+
+/// The onboarding window `present` opened. An earlier test's onboarding window
+/// can still be in `NSApp.windows` (closed but retained, or left open), and a
+/// bare identifier lookup found it instead: run 36316398822 shard 3 read the
+/// same stale window, invisible, in two tests.
+@MainActor
+private func presentedOnboardingWindow(_ present: () -> Void) -> ComputerUseOnboardingWindow? {
+    let earlier = Set(NSApp.windows.map(ObjectIdentifier.init))
+    present()
+    return NSApp.windows.first {
+        !earlier.contains(ObjectIdentifier($0)) && $0.identifier?.rawValue == "cmux.computerUse.onboarding"
+    } as? ComputerUseOnboardingWindow
 }
