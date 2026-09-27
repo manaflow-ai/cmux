@@ -321,7 +321,9 @@ struct CmuxSelectionFill: Equatable {
 func sidebarSelectedWorkspaceBackgroundNSColor(
     for colorScheme: ColorScheme,
     sidebarSelectionColorHex: String? = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
-    activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail
+    activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail,
+    isEmphasized: Bool = true,
+    increasesContrast: Bool = false
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
@@ -333,8 +335,8 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     let surface = NSColor(white: colorScheme == .dark ? 0.16 : 0.93, alpha: 1)
     let fill = CmuxSelectionFill.resolve(
         colorScheme: colorScheme,
-        isEmphasized: true,
-        increasesContrast: false
+        isEmphasized: isEmphasized,
+        increasesContrast: increasesContrast
     )
     return cmuxCompositedNSColor(fill.color, over: surface)
 }
@@ -395,7 +397,9 @@ func sidebarWorkspaceRowBackgroundStyle(
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex,
-        activeTabIndicatorStyle: activeTabIndicatorStyle
+        activeTabIndicatorStyle: activeTabIndicatorStyle,
+        isEmphasized: isEmphasized,
+        increasesContrast: increasesContrast
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)
     let hasConfiguredSelectionColor = sidebarSelectionColorHex.flatMap { NSColor(hex: $0) } != nil

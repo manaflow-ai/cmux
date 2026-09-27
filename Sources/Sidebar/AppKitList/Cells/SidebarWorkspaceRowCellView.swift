@@ -223,9 +223,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             customColorHex: model.snapshot.customColorHex,
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex,
-            // Key or main, like SwiftUI's controlActiveState: cmux's own
-            // popovers and child panels taking key must not grey the row.
-            isEmphasized: window.map { $0.isKeyWindow || $0.isMainWindow } ?? true
+            isEmphasized: palette.isSelectionEmphasized,
+            increasesContrast: palette.increasesSelectionContrast
         )
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
@@ -243,10 +242,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let model else { return }
         let painted = paintedModel(model)
         guard painted.isActive || painted.isMultiSelected else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        applySelectionChrome(painted)
-        CATransaction.commit()
+        // Selection-derived foregrounds must resolve from the same window and
+        // accessibility state as the fill. These notifications are rare, so
+        // repaint the row from its existing model instead of leaving text
+        // colors from the previous emphasis/contrast state behind.
+        applyModel(painted)
     }
 
     override func viewDidMoveToWindow() {
@@ -478,7 +478,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
-        SidebarRowPalette(model: model)
+        SidebarRowPalette(
+            model: model,
+            isSelectionEmphasized: window.map { $0.isKeyWindow || $0.isMainWindow } ?? true,
+            increasesSelectionContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        )
     }
 
     private func applyModel(_ model: SidebarWorkspaceRowModel) {

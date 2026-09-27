@@ -6,6 +6,30 @@ import Testing
 @MainActor
 struct SidebarRowPaletteTests {
     @Test(arguments: [false, true])
+    func selectedBackgroundUsesTheSameEmphasisAndContrastStateAsSelectionChrome(colorSchemeIsDark: Bool) {
+        let model = SidebarAppKitRowCellTests.makeModel(
+            isActive: true,
+            colorSchemeIsDark: colorSchemeIsDark
+        )
+        let scheme: ColorScheme = colorSchemeIsDark ? .dark : .light
+        let palette = SidebarRowPalette(
+            model: model,
+            isSelectionEmphasized: false,
+            increasesSelectionContrast: true
+        )
+        let expected = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: scheme,
+            sidebarSelectionColorHex: model.settings.selectionColorHex,
+            activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
+            isEmphasized: false,
+            increasesContrast: true
+        )
+
+        #expect(SidebarAppKitRowCellTests.distance(palette.selectedBackground, expected) < 0.001)
+        #expect(abs(palette.selectedBackground.alphaComponent - expected.alphaComponent) < 0.001)
+    }
+
+    @Test(arguments: [false, true])
     func rowPaletteSemanticColorsFollowRowSchemeAcrossAppearances(colorSchemeIsDark: Bool) throws {
         let lightAppearance = try #require(NSAppearance(named: .aqua))
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
