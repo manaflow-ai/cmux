@@ -209,10 +209,11 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
 @Suite("Pane attention color")
 struct PaneAttentionColorTests {
     @Test
-    func fallsBackToSystemBlueWhenUnset() {
+    func fallsBackToCmuxAccentWhenUnset() {
         #expect(
             WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() ==
-                NSColor.systemBlue.hexString()
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+                    .strokeColor(accent: CmuxAccentColor()).hexString()
         )
     }
 
@@ -227,7 +228,8 @@ struct PaneAttentionColorTests {
     func rejectsValuesOutsideSchema(configuredHex: String) {
         #expect(
             WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() ==
-                NSColor.systemBlue.hexString()
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
+                    .strokeColor(accent: CmuxAccentColor()).hexString()
         )
     }
 }
