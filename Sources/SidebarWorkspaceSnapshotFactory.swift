@@ -92,7 +92,9 @@ struct SidebarWorkspaceSnapshotFactory {
             ? SidebarCompactStatusGlyph.resolve(compactStatusInput(
                 agentEntries: statusEntries.agent,
                 hasActiveAgent: activeCodingAgentCount > 0,
-                directory: detailVisibility.showsBranchDirectory
+                // The directory toggle itself, like the branch and PR ones, so
+                // the tooltip keeps it under Hide All Details.
+                directory: settings.details.showBranchDirectory
                     ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
                     : nil,
                 orderedPanelIds: orderedPanelIds

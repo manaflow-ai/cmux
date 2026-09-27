@@ -66,14 +66,19 @@ struct SidebarCompactStatusGlyph: Equatable {
     var pulses: Bool { kind == .running }
 
     /// Unread notifications turn a settled row blue; agent activity and
-    /// errors stay louder.
-    func applyingUnread(_ hasUnread: Bool) -> SidebarCompactStatusGlyph {
-        guard hasUnread else { return self }
+    /// errors stay louder. The latest notification leads the tooltip, since
+    /// compact rows hide the notification preview line and the count badge.
+    func applyingUnread(_ unreadCount: Int, latestNotificationText: String?) -> SidebarCompactStatusGlyph {
+        guard unreadCount > 0 else { return self }
+        let text = latestNotificationText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let unreadTooltip = [text, tooltip]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: "\n")
         switch kind {
         case .pullRequest, .idle:
-            return SidebarCompactStatusGlyph(kind: .unseen, tooltip: tooltip)
+            return SidebarCompactStatusGlyph(kind: .unseen, tooltip: unreadTooltip)
         case .error, .needsInput, .running, .pending, .unseen:
-            return self
+            return SidebarCompactStatusGlyph(kind: kind, tooltip: unreadTooltip)
         }
     }
 
@@ -110,7 +115,7 @@ struct SidebarCompactStatusGlyph: Equatable {
             kind = .needsInput
         } else if input.hasActiveAgent || input.lifecycleStates.contains(.running) {
             kind = .running
-        } else if !input.lifecycleStates.isEmpty, !input.lifecycleStates.contains(.idle) {
+        } else if input.lifecycleStates.contains(.unknown) {
             kind = .pending
         } else if let pullRequest = input.pullRequests.first {
             switch pullRequest.status {
@@ -226,45 +231,94 @@ struct SidebarCompactStatusGlyph: Equatable {
 }
 
 /// Draws a compact status glyph in both sidebar engines. The running pulse
-/// is a Core Animation opacity loop on the view's own layer, so it costs no
-/// SwiftUI updates or main-thread work per frame (the loading spinner works
-/// the same way). Reduce Motion keeps the dot still.
+/// is a Core Animation opacity loop run by the render server, gated like
+/// `GPUSpinnerNSView`: it stops while the view or an ancestor is hidden, the
+/// window is occluded, the row is suspended, or Reduce Motion is on; it asks
+/// for at most 30 Hz; and every pulsing row shares one phase.
 final class SidebarCompactStatusGlyphImageView: NSImageView {
     private static let pulseKey = "cmux.compactStatus.pulse"
+    private static let pulseDuration: CFTimeInterval = 0.9
     private var pulses = false
+
+    /// Cleared by a suspended AppKit cell, like the spinner's flag.
+    var isPresentationActive = true {
+        didSet { if oldValue != isPresentationActive { updatePulse() } }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        imageScaling = .scaleNone
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(visibilityChanged),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        NotificationCenter.default.removeObserver(self)
+    }
 
     func configure(_ glyph: SidebarCompactStatusGlyph, pointSize: CGFloat, color: NSColor) {
         image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: glyph.symbolName, pointSize: pointSize, weight: .semibold
         )
-        imageScaling = .scaleNone
         contentTintColor = color
-        toolTip = glyph.tooltip
+        toolTip = glyph.tooltip.isEmpty ? nil : glyph.tooltip
+        setAccessibilityElement(!glyph.tooltip.isEmpty)
         setAccessibilityLabel(glyph.tooltip)
         setAccessibilityRole(.image)
-        setPulsing(glyph.pulses)
-    }
-
-    private func setPulsing(_ pulsing: Bool) {
-        pulses = pulsing
-        wantsLayer = true
-        updatePulse()
+        if pulses != glyph.pulses {
+            pulses = glyph.pulses
+            updatePulse()
+        }
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(visibilityChanged),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: window
+            )
+        }
         updatePulse()
     }
 
-    override var isHidden: Bool {
-        didSet { updatePulse() }
+    override func viewDidHide() {
+        super.viewDidHide()
+        updatePulse()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updatePulse()
+    }
+
+    @objc private func visibilityChanged() {
+        updatePulse()
+    }
+
+    private var shouldPulse: Bool {
+        guard pulses, isPresentationActive, !isHiddenOrHasHiddenAncestor else { return false }
+        guard let window, window.occlusionState.contains(.visible) else { return false }
+        return !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     private func updatePulse() {
         guard let layer else { return }
-        let animates = pulses && !isHidden && window != nil
-            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        guard animates else {
+        guard shouldPulse else {
             layer.removeAnimation(forKey: Self.pulseKey)
             return
         }
@@ -272,10 +326,16 @@ final class SidebarCompactStatusGlyphImageView: NSImageView {
         let pulse = CABasicAnimation(keyPath: "opacity")
         pulse.fromValue = 1.0
         pulse.toValue = 0.3
-        pulse.duration = 0.9
+        pulse.duration = Self.pulseDuration
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
+        pulse.isRemovedOnCompletion = false
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulse.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 30)
+        // Anchor to the shared media clock so every pulsing row is in phase.
+        let globalNow = CACurrentMediaTime()
+        let period = Self.pulseDuration * 2
+        pulse.beginTime = layer.convertTime(globalNow, from: nil) - globalNow.truncatingRemainder(dividingBy: period)
         layer.add(pulse, forKey: Self.pulseKey)
     }
 }

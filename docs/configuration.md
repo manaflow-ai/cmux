@@ -188,7 +188,8 @@ The glyph shows the loudest state that applies:
 
 - Default: `false`.
 - Only agent-owned status keys lose their rows (`claude_code`, `codex`, and the other built-in agent integrations). Status set with `cmux set-status` under any other key keeps its row.
-- The pulse is a Core Animation opacity loop, so it costs no per-frame CPU, and Reduce Motion keeps the dot still.
+- The notification preview moves to the top of the tooltip too. Rows you added yourself (a workspace description, `cmux set-status` under other keys, logs, progress, ports) keep their lines.
+- The pulse is a Core Animation opacity loop capped at 30 Hz. It stops while the window is hidden or occluded, and Reduce Motion keeps the dot still.
 - Pull request check and merge-conflict colors need check data the sidebar does not fetch yet; until then an open pull request shows gray.
 - Pull request and branch details follow `sidebar.showPullRequests` and the git branch toggle: turn either off and the glyph ignores it. Toggle compact status from **Settings > Sidebar > Compact Agent Status**.
 

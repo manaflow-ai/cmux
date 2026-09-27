@@ -110,14 +110,15 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
 
         if compact {
             // Glyph accessibility labels carry the tooltip text.
-            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle"] {
+            // "Finished" is the unseen workspace's notification, which leads its tooltip.
+            for label in ["Needs input", "PR #12: open", "PR #13: merged", "main", "Idle", "Finished"] {
                 let glyph = sidebar.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
                 XCTAssertTrue(glyph.waitForExistence(timeout: 5.0), "Expected a compact status glyph labelled \(label)")
             }
             // One line per row: branch and PR details live in the tooltip only.
             for detail in ["feat/sidebar", "feat/done"] {
-                let line = sidebar.staticTexts.matching(NSPredicate(format: "value == %@", detail)).firstMatch
+                let line = sidebar.staticTexts.matching(NSPredicate(format: "value CONTAINS %@", detail)).firstMatch
                 XCTAssertFalse(line.exists, "Expected no \(detail) line under the title in compact mode")
             }
         }

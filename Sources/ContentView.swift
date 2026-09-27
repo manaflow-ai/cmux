@@ -16073,7 +16073,10 @@ struct TabItemView: View, Equatable {
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let subtitleLineLimit = latestNotificationSubtitle == nil ? 2 : settings.notificationMessageLineLimit
         // Bound notification payloads before shaping so pathological text stays cheap in lazy, Equatable rows.
-        let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let displayedSubtitle = workspaceSnapshot.compactStatusGlyph != nil
+            ? nil
+            : effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
@@ -16094,7 +16097,7 @@ struct TabItemView: View, Equatable {
         )
 
         // Compact status draws running and unread as its one glyph instead.
-        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount > 0)
+        let compactStatusGlyph = workspaceSnapshot.compactStatusGlyph?.applyingUnread(unreadCount, latestNotificationText: latestNotificationText)
         let showsLoadingSpinner = compactStatusGlyph == nil
             && showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
         let showsUnreadBadge = compactStatusGlyph == nil && unreadCount > 0

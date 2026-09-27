@@ -266,6 +266,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         isPresentationActive = isActive
         leadingSpinner?.isPresentationActive = isActive
         trailingSpinner?.isPresentationActive = isActive
+        compactStatusGlyphView.isPresentationActive = isActive
     }
 
     func suspendPresentation(commitEdits: Bool = false) {
@@ -542,7 +543,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let trimmed = snapshot.latestConversationMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
             return (trimmed?.isEmpty == false) ? trimmed : nil
         }()
-        let effectiveSubtitle = model.latestNotificationText ?? conversationSubtitle
+        // Compact status rows are one line; the notification leads the glyph's tooltip instead.
+        let effectiveSubtitle = snapshot.compactStatusGlyph != nil
+            ? nil
+            : model.latestNotificationText ?? conversationSubtitle
         let subtitleLineLimit = model.latestNotificationText == nil ? 2 : settings.notificationMessageLineLimit
         subtitleView.isHidden = effectiveSubtitle == nil
         if let effectiveSubtitle {
@@ -744,7 +748,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(model.unreadCount > 0)
+        let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
+            model.unreadCount,
+            latestNotificationText: model.latestNotificationText
+        )
+        compactStatusGlyphView.isPresentationActive = isPresentationActive
         compactStatusGlyphView.isHidden = glyph == nil
         guard let glyph else { return }
         compactStatusGlyphView.configure(

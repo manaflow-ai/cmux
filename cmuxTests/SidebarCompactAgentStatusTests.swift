@@ -91,7 +91,7 @@ struct SidebarCompactAgentStatusTests {
 
     @Test
     func startingAgentIsAHollowRingAbovePullRequests() {
-        let glyph = Glyph.resolve(.init(lifecycleStates: [.unknown], pullRequests: [Self.openPR]))
+        let glyph = Glyph.resolve(.init(lifecycleStates: [.idle, .unknown], pullRequests: [Self.openPR]))
         #expect(glyph.kind == .pending)
         #expect(glyph.symbolName == "circle")
         #expect(!glyph.pulses)
@@ -135,11 +135,11 @@ struct SidebarCompactAgentStatusTests {
             Glyph.resolve(.init(pullRequests: [Self.openPR])),
         ]
         for glyph in settled {
-            let unseen = glyph.applyingUnread(true)
+            let unseen = glyph.applyingUnread(2, latestNotificationText: "Finished")
             #expect(unseen.kind == .unseen)
-            #expect(unseen.tooltip == glyph.tooltip)
+            #expect(unseen.tooltip.hasPrefix("Finished"))
             #expect(unseen.color(isActive: false, selected: .white, secondary: .gray) == .systemBlue)
-            #expect(glyph.applyingUnread(false) == glyph)
+            #expect(glyph.applyingUnread(0, latestNotificationText: "Finished") == glyph)
         }
         for input in [
             Glyph.Input(lifecycleStates: [.needsInput]),
@@ -147,7 +147,9 @@ struct SidebarCompactAgentStatusTests {
             Glyph.Input(lifecycleStates: [.unknown]),
         ] {
             let glyph = Glyph.resolve(input)
-            #expect(glyph.applyingUnread(true) == glyph)
+            let unread = glyph.applyingUnread(1, latestNotificationText: "Finished")
+            #expect(unread.kind == glyph.kind)
+            #expect(unread.tooltip.hasPrefix("Finished"))
         }
     }
 
@@ -266,6 +268,8 @@ struct SidebarCompactAgentStatusTests {
         let glyphView = try #require(views.compactMap { $0 as? SidebarCompactStatusGlyphImageView }.first)
         #expect(!glyphView.isHidden)
         #expect(glyphView.contentTintColor == .systemBlue)
-        #expect(views.compactMap { $0 as? SidebarRowUnreadBadgeView }.allSatisfy(\.isHidden))
+        let badges = views.compactMap { $0 as? SidebarRowUnreadBadgeView }
+        let visibleBadges = badges.filter { !$0.isHidden }
+        #expect(visibleBadges.isEmpty)
     }
 }
