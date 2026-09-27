@@ -24,6 +24,7 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
+    @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var passwordInputIndicator: DefaultsValueModel<Bool>
     @State private var passwordInputDots: DefaultsValueModel<Bool>
@@ -55,6 +56,7 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
+        _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _passwordInputIndicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputIndicator))
         _passwordInputDots = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showPasswordInputDots))
@@ -94,6 +96,7 @@ public struct TerminalSection: View {
             scrollBar,
             copyOnSelect,
             reflowHardWrapOnCopy,
+            confirmUnsafePaste,
             textEditingGestures,
             passwordInputIndicator,
             passwordInputDots,
@@ -279,6 +282,24 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.importFromTerminal", defaultValue: "Import from Another Terminal"),
+                subtitle: String(
+                    localized: "settings.terminal.importFromTerminal.subtitle",
+                    defaultValue: "Bring over your font, colors, cursor and more from iTerm2, Terminal, Alacritty, Kitty, WezTerm or Warp."
+                )
+            ) {
+                Button(
+                    String(localized: "settings.terminal.importFromTerminal.button", defaultValue: "Import…")
+                ) {
+                    hostActions.openTerminalImport()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalImportButton")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.adaptiveDefaultTheme"),
                 String(
                     localized: "settings.terminal.adaptiveDefaultTheme",
@@ -428,6 +449,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalReflowHardWrapOnCopyToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.confirmUnsafePaste"),
+                String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"),
+                subtitle: confirmUnsafePaste.current
+                    ? String(localized: "settings.terminal.confirmUnsafePaste.subtitleOn", defaultValue: "A paste Ghostty flags as unsafe, such as several lines into a program without bracketed paste, waits for you to confirm it in a sheet on the window.")
+                    : String(localized: "settings.terminal.confirmUnsafePaste.subtitleOff", defaultValue: "Pastes Ghostty flags as unsafe go through without asking.")
+            ) {
+                Toggle("", isOn: Binding(get: { confirmUnsafePaste.current }, set: { confirmUnsafePaste.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalConfirmUnsafePasteToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
