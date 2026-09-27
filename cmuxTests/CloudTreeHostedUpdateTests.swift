@@ -69,8 +69,10 @@ struct CloudTreeHostedUpdateTests {
         #expect(outline.isItemExpanded(section))
         coordinator.open(section)
         #expect(!outline.isItemExpanded(section))
+        if usePrivatePreferences { try fixture.attachScreenshot(named: "cloud-machines-collapsed", of: host) }
         coordinator.open(section)
         #expect(outline.isItemExpanded(section))
+        if usePrivatePreferences { try fixture.attachScreenshot(named: "cloud-machines-expanded", of: host) }
         #expect(trace.builds == initialBuilds)
     }
 

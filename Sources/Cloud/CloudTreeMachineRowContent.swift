@@ -146,6 +146,7 @@ struct CloudTreeMachineRowContent: View {
         }
         var parts: [String] = []
         if style.showsMachineStats {
+            let metrics = self.metrics
             parts.append([metrics.cpu, metrics.memory, metrics.disk]
                 .map { "\($0.label)\u{00A0}\($0.value)" }
                 .joined(separator: " · "))
