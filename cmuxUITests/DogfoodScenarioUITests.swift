@@ -17,6 +17,7 @@ import Darwin
 /// still leaves every later screenshot; the test fails at the end listing them.
 final class DogfoodScenarioUITests: XCTestCase {
     private var socketPath = ""
+    private var lastSocketError = "no attempt"
     private var diagnosticsPath = ""
     private var launchTag = ""
     private var saved: [String: Any] = [:]
@@ -88,7 +89,7 @@ final class DogfoodScenarioUITests: XCTestCase {
             zoomFrontWindow(in: app)
         }
         if scenario.usesSocket, !waitForSocket(timeout: 30) {
-            record(failure: "control socket never answered ping at \(socketCandidates().joined(separator: ", "))")
+            record(failure: "control socket never answered ping at \(socketCandidates().joined(separator: ", ")): \(lastSocketError)")
             attachSocketDiagnostics(app: app)
         }
         shot("00-launched", app: app)
@@ -163,7 +164,7 @@ final class DogfoodScenarioUITests: XCTestCase {
         case .socket(let method, let params, let saveAs):
             let resolved = substitute(params)
             guard let response = socketRequest(method: method, params: resolved) else {
-                throw DogfoodError("no reply from \(method)")
+                throw DogfoodError("no reply from \(method): \(lastSocketError)")
             }
             attachText(prettyJSON(response), name: "\(label)-\(method).json")
             guard response["ok"] as? Bool == true else {
@@ -288,7 +289,7 @@ final class DogfoodScenarioUITests: XCTestCase {
             socketFileExists: { self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) } },
             pingReturnsPong: {
                 for candidate in self.socketCandidates() where FileManager.default.fileExists(atPath: candidate) {
-                    if DogfoodSocketClient(path: candidate, responseTimeout: 1).sendLine("ping") == "PONG" {
+                    if self.socketLine("ping", path: candidate, timeout: 1) == "PONG" {
                         resolved = candidate
                         return true
                     }
@@ -343,7 +344,29 @@ final class DogfoodScenarioUITests: XCTestCase {
 
     private func socketRequest(method: String, params: Any) -> [String: Any]? {
         let request: [String: Any] = ["id": UUID().uuidString, "method": method, "params": params]
-        return DogfoodSocketClient(path: socketPath, responseTimeout: 15).sendJSON(request)
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request),
+              let reply = socketLine(String(decoding: data, as: UTF8.self), path: socketPath, timeout: 15),
+              let replyData = reply.data(using: .utf8) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: replyData)) as? [String: Any]
+    }
+
+    /// Direct connect first, then `nc -U` the way the other socket UI tests
+    /// fall back; `lastSocketError` keeps why the direct attempt failed.
+    private func socketLine(_ line: String, path: String, timeout: TimeInterval) -> String? {
+        let client = DogfoodSocketClient(path: path, responseTimeout: timeout)
+        if let reply = client.sendLine(line) {
+            return reply
+        }
+        lastSocketError = client.lastError ?? "no reply"
+        guard let reply = controlSocketCommandViaNetcat(line, socketPath: path, responseTimeout: timeout) else {
+            lastSocketError += "; nc -U: no reply"
+            return nil
+        }
+        lastSocketError += "; nc -U answered"
+        return reply
     }
 
     private func prettyJSON(_ value: Any) -> String {
@@ -581,25 +604,16 @@ struct DogfoodScenario {
 private final class DogfoodSocketClient {
     private let path: String
     private let responseTimeout: TimeInterval
+    private(set) var lastError: String?
 
     init(path: String, responseTimeout: TimeInterval) {
         self.path = path
         self.responseTimeout = responseTimeout
     }
 
-    func sendJSON(_ object: [String: Any]) -> [String: Any]? {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object),
-              let response = sendLine(String(decoding: data, as: UTF8.self)),
-              let responseData = response.data(using: .utf8) else {
-            return nil
-        }
-        return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
-    }
-
     func sendLine(_ line: String) -> String? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return nil }
+        guard fd >= 0 else { return fail("socket") }
         defer { close(fd) }
 
         var timeout = timeval(
@@ -614,7 +628,10 @@ private final class DogfoodSocketClient {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let pathBytes = Array(path.utf8CString)
-        guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+        guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            lastError = "path longer than sun_path"
+            return nil
+        }
         withUnsafeMutablePointer(to: &address.sun_path) { pointer in
             let raw = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
             for index in 0..<pathBytes.count {
@@ -628,21 +645,24 @@ private final class DogfoodSocketClient {
                 Darwin.connect(fd, $0, length)
             }
         }
-        guard connected == 0 else { return nil }
+        guard connected == 0 else { return fail("connect") }
 
         let payload = Array((line + "\n").utf8)
         let wrote = payload.withUnsafeBytes { buffer in
             guard let base = buffer.baseAddress else { return true }
             return Darwin.write(fd, base, buffer.count) == buffer.count
         }
-        guard wrote else { return nil }
+        guard wrote else { return fail("write") }
 
         var buffer = [UInt8](repeating: 0, count: 65_536)
         var received = Data()
         let deadline = Date().addingTimeInterval(responseTimeout)
         while Date() < deadline {
             let count = Darwin.read(fd, &buffer, buffer.count)
-            guard count > 0 else { break }
+            guard count > 0 else {
+                if count < 0 { _ = fail("read") } else { lastError = "read: closed after \(received.count) bytes" }
+                break
+            }
             received.append(contentsOf: buffer[0..<count])
             if let newline = received.firstIndex(of: UInt8(ascii: "\n")) {
                 return String(decoding: received[..<newline], as: UTF8.self)
@@ -650,5 +670,10 @@ private final class DogfoodSocketClient {
         }
         return received.isEmpty ? nil : String(decoding: received, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func fail(_ call: String) -> String? {
+        lastError = "\(call): \(String(cString: strerror(errno))) (errno \(errno))"
+        return nil
     }
 }
