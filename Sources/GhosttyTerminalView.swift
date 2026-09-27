@@ -11857,15 +11857,13 @@ final class GhosttySurfaceScrollView: NSView {
                 logDropZoneOverlay(event: "update", zone: zone, frame: targetFrame)
             }
 #endif
+            // Retargeting snaps to the new zone; sliding the frame lags the pointer.
+            applyDropZoneOverlayFrame(targetFrame)
+            guard dropZoneOverlayView.alphaValue < 1 else { return }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                if needsFrameUpdate {
-                    dropZoneOverlayView.animator().frame = targetFrame
-                }
-                if dropZoneOverlayView.alphaValue < 1 {
-                    dropZoneOverlayView.animator().alphaValue = 1
-                }
+                dropZoneOverlayView.animator().alphaValue = 1
             }
         } else {
             guard !dropZoneOverlayView.isHidden else { return }
