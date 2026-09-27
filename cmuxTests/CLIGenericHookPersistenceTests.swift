@@ -5127,10 +5127,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "environment",
             "an unavailable PID must keep the historical env-only fallback source"
         )
-        XCTAssertEqual(
-            persistedLaunch["rejectionReason"] as? String,
-            "argvUnavailable",
-            "an unavailable PID should be distinguishable from a positively rejected capture"
+        // With no cmux capture, the hook's inferred PID is whatever process ran it (the test host
+        // here), so the recorded ground is argvUnavailable or a PID-only mismatch. Either way it
+        // must be a diagnostic ground, not a positive capture rejection that would quarantine the
+        // env-only fallback.
+        let persistedReason = try XCTUnwrap(
+            (persistedLaunch["rejectionReason"] as? String).map(AgentLaunchCaptureRejectionReason.init(rawValue:)),
+            "an argv-less record must name its ground"
+        )
+        XCTAssertFalse(
+            persistedReason.isPositiveCaptureRejection,
+            "an unavailable PID should be distinguishable from a positively rejected capture; got \(persistedReason.rawValue)"
         )
         XCTAssertEqual(
             (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,
