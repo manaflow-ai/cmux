@@ -606,6 +606,9 @@ jobs:
         id: owned-state
         if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
         continue-on-error: true
+        env:
+          # This pull request's build parked on this root comes back first (owned_build_state.py PR slots).
+          CMUX_OWNED_PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
