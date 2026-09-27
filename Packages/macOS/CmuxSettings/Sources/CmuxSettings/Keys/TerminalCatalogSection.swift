@@ -62,6 +62,17 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether the shell input at a prompt behaves like a text field for
+    /// selection: Command-A selects the command being typed, Shift-arrows
+    /// extend, and typing, Delete, or Command-X replace the selection. Needs
+    /// shell integration (OSC 133). Off by default, because edits replay
+    /// arrow and Backspace keys that assume an emacs-style line editor.
+    public let promptSelection = DefaultsKey<Bool>(
+        id: "terminal.promptSelection",
+        defaultValue: false,
+        userDefaultsKey: "terminal.promptSelection"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.

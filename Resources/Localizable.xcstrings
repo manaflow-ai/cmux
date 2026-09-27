@@ -375637,6 +375637,183 @@
         }
       }
     },
+    "settings.terminal.promptSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Text Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトのテキスト選択"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示符文本选择"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textauswahl in der Eingabezeile"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélection de texte dans l’invite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديد النص في موجه الأوامر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selección de texto en la línea de comandos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示字元文字選取"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 텍스트 선택"
+          }
+        }
+      }
+    },
+    "settings.terminal.promptSelection.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At a shell prompt, Command-A selects the command you're typing, Shift-arrow keys extend the selection, and typing, Delete, or Command-X replace it. Needs shell integration and an emacs-style line editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルのプロンプトで、Command-A は入力中のコマンドを選択し、Shift-矢印キーで選択を広げ、入力、Delete、Command-X で選択範囲を置き換えます。シェル統合と emacs スタイルの行エディタが必要です。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示符处，Command-A 选择正在输入的命令，Shift 加方向键扩展选择，输入、Delete 或 Command-X 会替换所选内容。需要 shell 集成和 emacs 风格的行编辑器。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An einer Shell-Eingabeaufforderung wählt Befehl-A den eingegebenen Befehl aus, Umschalt-Pfeiltasten erweitern die Auswahl, und Tippen, Löschen oder Befehl-X ersetzen sie. Erfordert Shell-Integration und einen Zeileneditor im Emacs-Stil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À une invite du shell, Commande-A sélectionne la commande en cours de saisie, Maj-flèches étendent la sélection, et la saisie, Supprimer ou Commande-X la remplacent. Nécessite l’intégration du shell et un éditeur de ligne de style emacs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند موجه الصدفة، يحدد Command-A الأمر الذي تكتبه، وتوسّع مفاتيح Shift مع الأسهم التحديد، وتستبدله الكتابة أو Delete أو Command-X. يتطلب تكامل الصدفة ومحرر أسطر بنمط emacs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la línea de comandos del shell, Comando-A selecciona el comando que escribes, Mayúsculas con las flechas amplía la selección, y escribir, Eliminar o Comando-X la reemplazan. Requiere la integración del shell y un editor de línea de estilo emacs."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 shell 提示字元中，Command-A 會選取正在輸入的指令，Shift 加方向鍵可延伸選取範圍，輸入文字、Delete 或 Command-X 會取代選取內容。需要 shell 整合與 emacs 風格的行編輯器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 프롬프트에서 Command-A는 입력 중인 명령을 선택하고, Shift-화살표 키로 선택을 확장하며, 입력, Delete 또는 Command-X로 선택 영역을 대체합니다. 셸 통합과 emacs 스타일 줄 편집기가 필요합니다."
+          }
+        }
+      }
+    },
+    "settings.terminal.promptSelection.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-A selects everything in the terminal, and typing never replaces a selection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-A はターミナル全体を選択し、入力しても選択範囲は置き換えられません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-A 选择终端中的全部内容，输入不会替换所选内容。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl-A wählt den gesamten Terminalinhalt aus, und Tippen ersetzt nie eine Auswahl."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande-A sélectionne tout le contenu du terminal, et la saisie ne remplace jamais une sélection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحدد Command-A كل محتوى الطرفية، ولا تستبدل الكتابة أي تحديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando-A selecciona todo el contenido de la terminal, y escribir nunca reemplaza una selección."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-A 會選取終端機中的所有內容，輸入文字不會取代選取內容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-A는 터미널의 모든 내용을 선택하며, 입력해도 선택 영역이 대체되지 않습니다."
+          }
+        }
+      }
+    },
     "settings.terminal.textEditingGestures": {
       "extractionState": "manual",
       "localizations": {

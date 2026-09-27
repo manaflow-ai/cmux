@@ -273,6 +273,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: terminal.textEditingGestures.userDefaultsKey,
             invalidPath: terminal.textEditingGestures.id
         ),
+        .init(
+            jsonKey: "promptSelection",
+            defaultsKey: terminal.promptSelection.userDefaultsKey,
+            invalidPath: terminal.promptSelection.id
+        ),
     ]
 }
 
