@@ -178,6 +178,14 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(
                 section: .terminal,
+                id: "confirm-unsafe-paste",
+                title: String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"),
+                detailText: String(localized: "settings.terminal.confirmUnsafePaste.subtitleOff", defaultValue: "Pastes Ghostty flags as unsafe go through without asking."),
+                paths: ["terminal.confirmUnsafePaste"],
+                synonyms: "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"
+            ),
+            .init(
+                section: .terminal,
                 id: "password-input-indicator",
                 title: String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"),
                 detailText: String(localized: "settings.terminal.showPasswordInputIndicator.subtitle", defaultValue: "Shows a lock badge in the terminal corner while a program such as sudo or ssh reads a password with echo off."),

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import Combine
 import CmuxFoundation
 import CmuxSidebar
@@ -223,15 +224,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             sidebarSelectionColorHex: settings.selectionColorHex,
             subtleSelection: settings.subtleSelection,
             isEmphasized: palette.isSelectionEmphasized,
-            increasesContrast: palette.increasesSelectionContrast
+            increaseContrast: palette.increasesSelectionContrast
         )
         applyBackgroundStyle(style)
-        if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
-            backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
-        } else if let edgeColor = style.edgeColor {
+        if let edgeColor = style.edgeColor {
             backgroundView.layer?.borderWidth = 1
             backgroundView.layer?.borderColor = edgeColor.cgColor
+        } else if settings.activeTabIndicatorStyle.drawsActiveBorder(
+            isActive: model.isActive,
+            increaseContrast: model.displayAccessibility.increaseContrast
+        ) {
+            backgroundView.layer?.borderWidth = 1.5
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -492,7 +496,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         SidebarRowPalette(
             model: model,
             isSelectionEmphasized: NSApp.isActive && (window.map { $0.isKeyWindow || $0.isMainWindow } ?? true),
-            increasesSelectionContrast: NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            increasesSelectionContrast: model.displayAccessibility.increaseContrast
         )
     }
 
@@ -575,7 +579,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     hasOverride: true,
                     usesMonochrome: model.isActive,
                     fontScale: model.fontScale,
-                    colorScheme: palette.colorScheme
+                    colorScheme: palette.colorScheme,
+                    differentiateWithoutColor: model.displayAccessibility.differentiateWithoutColor
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)

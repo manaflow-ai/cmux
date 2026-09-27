@@ -297,7 +297,7 @@ struct CmuxSelectionFill: Equatable {
     static func resolve(
         colorScheme: ColorScheme,
         isEmphasized: Bool,
-        increasesContrast: Bool = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+        increaseContrast: Bool = false,
         isSecondary: Bool = false
     ) -> CmuxSelectionFill {
         let isDark = colorScheme == .dark
@@ -306,12 +306,12 @@ struct CmuxSelectionFill: Equatable {
         let edgeAlpha: CGFloat
         if isEmphasized {
             base = .controlAccentColor
-            fillAlpha = increasesContrast ? 0.26 : (isDark ? 0.14 : 0.11)
-            edgeAlpha = increasesContrast ? 0.95 : 0.60
+            fillAlpha = increaseContrast ? 0.26 : (isDark ? 0.14 : 0.11)
+            edgeAlpha = increaseContrast ? 0.95 : 0.60
         } else {
             base = .labelColor
             fillAlpha = isDark ? 0.08 : 0.06
-            edgeAlpha = increasesContrast ? 0.45 : 0.20
+            edgeAlpha = increaseContrast ? 0.45 : 0.20
         }
         // Secondary selections (multi-select members) sit at roughly half the
         // primary strength so the active row stays the clear anchor.
@@ -335,7 +335,7 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle = .leftRail,
     subtleSelection: Bool = false,
     isEmphasized: Bool = true,
-    increasesContrast: Bool = false
+    increaseContrast: Bool = false
 ) -> NSColor {
     if let hex = sidebarSelectionColorHex,
        let parsed = NSColor(hex: hex) {
@@ -348,7 +348,7 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
     let fill = CmuxSelectionFill.resolve(
         colorScheme: colorScheme,
         isEmphasized: isEmphasized,
-        increasesContrast: increasesContrast
+        increaseContrast: increaseContrast
     )
     return cmuxCompositedNSColor(fill.color, over: surface)
 }
@@ -405,15 +405,18 @@ func sidebarWorkspaceRowBackgroundStyle(
     sidebarSelectionColorHex: String?,
     subtleSelection: Bool = false,
     isEmphasized: Bool = true,
-    increasesContrast: Bool = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    increaseContrast: Bool = false
 ) -> SidebarWorkspaceRowBackgroundStyle {
+    // Increase Contrast: the multi-selection wash is otherwise too faint to
+    // read against the sidebar material.
+    let multiSelectionOpacity = increaseContrast ? 0.45 : 0.25
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex,
         activeTabIndicatorStyle: activeTabIndicatorStyle,
         subtleSelection: subtleSelection,
         isEmphasized: isEmphasized,
-        increasesContrast: increasesContrast
+        increaseContrast: increaseContrast
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)
     // A configured selection color is an explicit request for a solid fill.
@@ -423,7 +426,7 @@ func sidebarWorkspaceRowBackgroundStyle(
         let fill = CmuxSelectionFill.resolve(
             colorScheme: colorScheme,
             isEmphasized: isEmphasized,
-            increasesContrast: increasesContrast,
+            increaseContrast: increaseContrast,
             isSecondary: isSecondary
         )
         return SidebarWorkspaceRowBackgroundStyle(color: fill.color, opacity: 1, edgeColor: fill.edgeColor)
@@ -447,7 +450,7 @@ func sidebarWorkspaceRowBackgroundStyle(
         }
         if isMultiSelected {
             if usesSubtleSelection { return calmFill(isSecondary: true) }
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
         }
         return .clear
 
@@ -465,8 +468,17 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
         }
         return .clear
+    }
+}
+
+extension WorkspaceIndicatorStyle {
+    /// Whether the active row gets its outline stroke. Solid-fill rows always
+    /// draw it; with Increase Contrast every style does, so the selected row
+    /// keeps an edge even when its fill is close to the sidebar background.
+    func drawsActiveBorder(isActive: Bool, increaseContrast: Bool) -> Bool {
+        isActive && (self == .solidFill || increaseContrast)
     }
 }

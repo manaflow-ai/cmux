@@ -30,7 +30,7 @@ struct SidebarRowPaletteTests {
             activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
             subtleSelection: true,
             isEmphasized: false,
-            increasesContrast: true
+            increaseContrast: true
         )
 
         #expect(SidebarAppKitRowCellTests.distance(palette.selectedBackground, expected) < 0.001)

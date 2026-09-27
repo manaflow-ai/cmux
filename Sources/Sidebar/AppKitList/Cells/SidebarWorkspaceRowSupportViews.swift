@@ -21,7 +21,7 @@ struct SidebarRowPalette {
             activeTabIndicatorStyle: model.settings.activeTabIndicatorStyle,
             subtleSelection: model.settings.subtleSelection,
             isEmphasized: isSelectionEmphasized,
-            increasesContrast: increasesSelectionContrast
+            increaseContrast: increasesSelectionContrast
         )
     }
 

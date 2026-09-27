@@ -112,7 +112,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             let fill = CmuxSelectionFill.resolve(
                 colorScheme: scheme,
                 isEmphasized: true,
-                increasesContrast: false
+                increaseContrast: false
             )
             XCTAssertLessThanOrEqual(fill.color.alphaComponent, 0.3)
             XCTAssertNotNil(fill.edgeColor)
@@ -127,7 +127,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
                 sidebarSelectionColorHex: nil,
                 subtleSelection: true,
                 isEmphasized: true,
-                increasesContrast: false
+                increaseContrast: false
             )
             XCTAssertEqual(style.color, fill.color)
             XCTAssertEqual(style.edgeColor, fill.edgeColor)
@@ -178,13 +178,13 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
     func testInactiveWindowSelectionIsNeutralAndIncreaseContrastIsStronger() {
         for scheme in [ColorScheme.light, .dark] {
-            let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increasesContrast: false)
-            let inactive = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: false, increasesContrast: false)
-            let keyContrast = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increasesContrast: true)
+            let key = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: false)
+            let inactive = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: false, increaseContrast: false)
+            let keyContrast = CmuxSelectionFill.resolve(colorScheme: scheme, isEmphasized: true, increaseContrast: true)
             let multi = CmuxSelectionFill.resolve(
                 colorScheme: scheme,
                 isEmphasized: true,
-                increasesContrast: false,
+                increaseContrast: false,
                 isSecondary: true
             )
 
@@ -287,12 +287,12 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             sidebarSelectionColorHex: nil,
             subtleSelection: true,
             isEmphasized: true,
-            increasesContrast: false
+            increaseContrast: false
         )
 
         XCTAssertEqual(
             background.color,
-            CmuxSelectionFill.resolve(colorScheme: .light, isEmphasized: true, increasesContrast: false).color
+            CmuxSelectionFill.resolve(colorScheme: .light, isEmphasized: true, increaseContrast: false).color
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
