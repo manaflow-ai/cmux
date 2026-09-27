@@ -311,7 +311,16 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard let primaryURL = defaultSnapshotFileURL() else { return }
         switch loadOutcome(fileURL: primaryURL) {
         case .loaded(let snapshot):
-            _ = save(snapshot, fileURL: backupURL)
+            // Replacing the manual-restore cache must never destroy the only
+            // copy written by a newer cmux. Preserve that backup first; if the
+            // side-file write fails, keep the backup untouched and retry on a
+            // later sync instead of overwriting recoverable data.
+            switch preserveNewerSchemaSnapshotOutcome(fileURL: backupURL) {
+            case .notNeeded, .preserved:
+                _ = save(snapshot, fileURL: backupURL)
+            case .failed:
+                break
+            }
         case .missing:
             switch preserveNewerSchemaSnapshotOutcome(fileURL: backupURL) {
             case .notNeeded, .preserved:
