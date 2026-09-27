@@ -1,6 +1,6 @@
 /// The semantic agent-event taxonomy recorded in the agent journal.
 ///
-/// This is a port of the cmux-tui session journal's 12 `agent.*` event kinds
+/// This is a port of the cmux-tui session journal's `agent.*` event kinds
 /// (`cmux-tui/crates/cmux-tui-core/src/agent_hooks.rs`), so the macOS journal
 /// and the Rust journal describe agent activity in the same vocabulary. Sidebar
 /// lifecycle state is a deterministic fold over a stream of these kinds — never
@@ -37,4 +37,7 @@ public enum AgentJournalEventKind: String, Codable, Sendable, CaseIterable, Equa
     case messagePublished = "agent.message.published"
     /// The session ended (teardown, replacement, or finalize).
     case sessionEnded = "agent.session.ended"
+    /// An authoritative update for the persistent objective, independent of
+    /// process/turn activity.
+    case goalStateChanged = "agent.goal.state_changed"
 }

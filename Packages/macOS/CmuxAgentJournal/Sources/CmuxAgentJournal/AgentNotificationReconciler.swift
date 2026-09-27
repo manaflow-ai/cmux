@@ -196,7 +196,7 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let previousPhase = session.phase
         switch draft.kind {
-        case .messagePublished, .attentionResolved, .idleObserved:
+        case .messagePublished, .attentionResolved, .idleObserved, .goalStateChanged:
             return .init(.observation)
         case .sessionStarted:
             if session.ended { session.phase = .unknown; session.nativeTurn = nil }

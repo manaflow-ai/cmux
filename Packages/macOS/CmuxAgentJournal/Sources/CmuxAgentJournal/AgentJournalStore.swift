@@ -54,6 +54,7 @@ public final class AgentJournalStore: @unchecked Sendable {
         do {
             try Self.migrate(database)
             try Self.migrateAttention(database)
+            try Self.migrateGoals(database)
             try Self.pruneIfNeeded(database)
         } catch {
             database.close()
@@ -146,6 +147,7 @@ public final class AgentJournalStore: @unchecked Sendable {
                     throw AgentJournalStoreError.stepFailed(0, "committed row has no sequence")
                 }
                 try Self.writeAttention(database, eventId: draft.eventId, attention: draft.attention)
+                try Self.writeGoalLifecycle(database, draft: draft)
                 return AgentJournalAppendOutcome(
                     sequence: sequence,
                     committedAtMs: committedAtMs,
@@ -404,6 +406,7 @@ public final class AgentJournalStore: @unchecked Sendable {
         // identity from replay. Skipping the row keeps it visible as a gap.
         do {
             draft.attention = try Self.readAttention(database, eventId: eventId)
+            draft.goalLifecycle = try Self.readGoalLifecycle(database, eventId: eventId)
         } catch {
             return nil
         }

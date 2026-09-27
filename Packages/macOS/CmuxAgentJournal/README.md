@@ -5,7 +5,7 @@ semantic agent events, plus the deterministic reducer that derives
 Running / NeedsInput / Idle / Error for the sidebar from it.
 
 The design is a Swift port of the cmux-tui session journal
-(`cmux-tui/crates/cmux-tui-core/`): the same 12 `agent.*` semantic kinds, the
+(`cmux-tui/crates/cmux-tui-core/`): the same process and turn `agent.*` semantic kinds, plus a separate
 same normalized-key native-event mapping, an append-only SQLite table with a
 monotonic sequence and immutability triggers, and idempotent appends keyed by
 event id so producer retries replay the original receipt.
@@ -30,6 +30,40 @@ event id so producer retries replay the original receipt.
   and the diff the app applies to `Workspace.setAgentLifecycle`.
 - `AgentJournalReplayPolicy` — what a relaunch may repaint from history
   (needsInput/error survive; running/idle/unknown wait for live evidence).
+- `AgentGoalLifecycle` — provider-neutral objective state, generation, timestamp,
+  and provenance. Goal events are stored in a durable projection separate from
+  process lifecycle, so `running` plus `complete` is a valid session view.
+
+## Objective hook
+
+Providers that expose an authoritative objective receipt can publish it through
+the exact-session command below. The command requires workspace and surface UUIDs
+and accepts explicit retry inputs. A retry must reuse both the original
+`--updated-at-ms` and `--event-id` values so it replays the same journal receipt:
+
+```sh
+cmux agent goal-state complete \
+  --agent codex --session <thread-id> --generation <goal-id> \
+  --workspace <workspace-uuid> --surface <surface-uuid> \
+  --provenance provider_hook --updated-at-ms <timestamp> --event-id <event-id>
+```
+
+Codex app-server `ThreadGoalUpdatedNotification` values map directly to
+`active`, `paused`, `blocked`, or `complete`; `usageLimited` and `budgetLimited`
+are reported as `blocked` by the producer. Providers without an authoritative
+objective report `unmanaged`, while an unavailable receipt reports `unknown`.
+The command never accepts prompts, transcripts, credentials, or objective text.
+Use `--previous-generation` when replacing a completed generation. The journal
+rejects a replacement unless it names the currently stored generation, which
+prevents a late completion from an earlier objective from changing the new one.
+
+Each newly committed goal update also emits `agent.goal.state_changed` on the
+public `cmux events` stream. Its payload contains the event id, provider,
+lifecycle state, generation, producer timestamp, and provenance. The provider
+session identifier remains in the private journal projection rather than the
+public event payload; the journal event id and stream sequence make reconnect
+and deduplication safe.
+Replaying an already committed append does not emit a second public event.
 
 ## Testing
 

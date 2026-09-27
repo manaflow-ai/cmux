@@ -241,7 +241,10 @@ final class AgentJournalLifecycleCenter: Sendable {
     ///
     /// Runs on the socket worker thread; the reply IS the emitting hook's
     /// durable acknowledgement, so the SQLite commit happens inline here.
-    func handleAppendCommand(_ args: String) -> String {
+    func handleAppendCommand(
+        _ args: String,
+        goalTargetValidator: (@Sendable (AgentJournalEventDraft) -> Bool)? = nil
+    ) -> String {
         guard let store = lazyStore?.store(), let operations else {
             return "ERROR: agent journal unavailable"
         }
@@ -260,8 +263,16 @@ final class AgentJournalLifecycleCenter: Sendable {
 #endif
             return "ERROR: invalid agent journal event"
         }
+        if draft.kind == .goalStateChanged,
+           let goalTargetValidator,
+           !goalTargetValidator(draft) {
+            return "ERROR: goal target is no longer bound"
+        }
         do {
             let outcome = try store.append(draft)
+            if draft.kind == .goalStateChanged, !outcome.replayed, let goal = draft.goalLifecycle {
+                Self.publishGoalLifecycleEvent(draft: draft, goal: goal)
+            }
             operations.yield(
                 .ingest(
                     AgentJournalEvent(
@@ -289,7 +300,117 @@ final class AgentJournalLifecycleCenter: Sendable {
 #if DEBUG
             cmuxDebugLog("agentJournal.append.error \(String(describing: error))")
 #endif
+            if draft.kind == .goalStateChanged,
+               let storeError = error as? AgentJournalStoreError,
+               case .invalidDraft = storeError {
+                return "ERROR: goal_fence_rejected"
+            }
             return "ERROR: agent journal append failed"
+        }
+    }
+
+    /// Publishes the durable objective transition on the reconnectable public
+    /// event stream after its journal transaction commits.
+    private static func publishGoalLifecycleEvent(
+        draft: AgentJournalEventDraft,
+        goal: AgentGoalLifecycle
+    ) {
+        CmuxEventBus.shared.publish(
+            name: "agent.goal.state_changed",
+            category: "agent",
+            source: "journal",
+            workspaceId: draft.workspaceId,
+            surfaceId: draft.surfaceId,
+            payload: [
+                "event_id": draft.eventId,
+                "provider": draft.source,
+                "agent_key": draft.agentKey,
+                "goal_lifecycle": goal.state.rawValue,
+                "goal_generation": goal.generation,
+                "goal_updated_at_ms": goal.updatedAtMs,
+                "goal_provenance": goal.provenance,
+                "reconnectable": true,
+            ]
+        )
+    }
+
+    /// Reads one current objective projection for the sessions CLI without
+    /// opening SQLite in the interactive CLI process. A missing projection is
+    /// encoded as `null`; an unavailable journal is reported as an error so
+    /// callers can distinguish unmanaged from unknown.
+    func handleGoalQueryCommand(_ args: String) -> String {
+        struct Request: Decodable {
+            let source: String
+            let sessionID: String
+
+            enum CodingKeys: String, CodingKey {
+                case source
+                case sessionID = "session_id"
+            }
+        }
+        struct Response: Encodable {
+            let available: Bool
+            let goalLifecycle: AgentGoalLifecycle?
+
+            enum CodingKeys: String, CodingKey {
+                case available
+                case goalLifecycle = "goal_lifecycle"
+            }
+        }
+        struct BatchRequest: Decodable {
+            let sessions: [Request]
+        }
+        struct BatchItem: Encodable {
+            let source: String
+            let sessionID: String
+            let goalLifecycle: AgentGoalLifecycle?
+
+            enum CodingKeys: String, CodingKey {
+                case source
+                case sessionID = "session_id"
+                case goalLifecycle = "goal_lifecycle"
+            }
+        }
+        struct BatchResponse: Encodable {
+            let available: Bool
+            let goals: [BatchItem]
+        }
+        guard let data = args.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else {
+            return "ERROR: invalid goal query"
+        }
+        guard let store = lazyStore?.store() else {
+            return "ERROR: agent journal unavailable"
+        }
+        let decoder = JSONDecoder()
+        if let batch = try? decoder.decode(BatchRequest.self, from: data) {
+            guard !batch.sessions.isEmpty, batch.sessions.count <= 256,
+                  batch.sessions.allSatisfy({
+                      AgentJournalEventDraft.isValidSlug($0.source)
+                          && !$0.sessionID.isEmpty && $0.sessionID.count <= 256
+                  }) else {
+                return "ERROR: invalid goal query"
+            }
+            do {
+                let requests = batch.sessions.map { (source: $0.source, sessionId: $0.sessionID) }
+                let projections = try store.goalLifecycles(requests)
+                let goals = zip(batch.sessions, projections).map { request, projection in
+                    BatchItem(source: request.source, sessionID: request.sessionID, goalLifecycle: projection)
+                }
+                return String(decoding: try JSONEncoder().encode(BatchResponse(available: true, goals: goals)), as: UTF8.self)
+            } catch {
+                return "ERROR: agent journal unavailable"
+            }
+        }
+        guard let request = try? decoder.decode(Request.self, from: data),
+              AgentJournalEventDraft.isValidSlug(request.source),
+              !request.sessionID.isEmpty, request.sessionID.count <= 256 else {
+            return "ERROR: invalid goal query"
+        }
+        do {
+            let goal = try store.goalLifecycle(source: request.source, sessionId: request.sessionID)
+            return String(decoding: try JSONEncoder().encode(Response(available: true, goalLifecycle: goal)), as: UTF8.self)
+        } catch {
+            return "ERROR: agent journal unavailable"
         }
     }
 

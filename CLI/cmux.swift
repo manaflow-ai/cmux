@@ -4987,7 +4987,6 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
-        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
@@ -5101,6 +5100,21 @@ struct CMUXCLI {
 
         if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
+            return
+        }
+
+        // Session listing is primarily a local state inspection command, but
+        // its objective projection must query the selected app socket. Keep it
+        // on the resolved path (including an explicit --socket) and let the
+        // command authenticate lazily before its first goal query.
+        if command == "sessions" || command == "session-debug" {
+            try runSessionsCommand(
+                commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,
+                jsonOutput: jsonOutput,
+                processEnv: processEnv,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
             return
         }
 
@@ -5576,7 +5590,11 @@ struct CMUXCLI {
             }
 
         case "agent":
-            try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            if commandArgs.first == "goal-state" {
+                try runAgentGoalStateCommand(commandArgs: commandArgs, client: client, processEnv: processEnv, jsonOutput: jsonOutput)
+            } else {
+                try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
+            }
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -8324,6 +8342,11 @@ struct CMUXCLI {
         }
 
         switch command {
+        case "sessions", "session-debug":
+            // The command can still list local hook state when cmux is not
+            // running; objective fields become unknown until its socket is
+            // reachable.
+            return true
         case "themes", "setup-hooks", "uninstall-hooks":
             return true
         case "codex":
@@ -34863,6 +34886,7 @@ export default CMUXSessionRestore;
             pendingWork: Bool = false,
             declaredPhase: AgentLifecyclePhase? = nil,
             detail: String? = nil,
+            goalLifecycle: AgentGoalLifecycle? = nil,
             responseTimeout: TimeInterval? = nil,
             deadline: Date? = nil
         ) {
@@ -34880,7 +34904,8 @@ export default CMUXSessionRestore;
                 nativeEvent: reportedHookEventName(from: input) ?? subcommand,
                 declaredPhase: declaredPhase,
                 detail: detail,
-                attention: Self.semanticAttentionContext(input.rawObject),
+                attention: goalLifecycle == nil ? Self.semanticAttentionContext(input.rawObject) : nil,
+                goalLifecycle: goalLifecycle,
                 occurredAtMs: Self.semanticOccurredAtMs(input.rawObject),
                 responseTimeout: responseTimeout,
                 deadline: deadline ?? cursorShellDeadline,
@@ -37425,6 +37450,20 @@ export default CMUXSessionRestore;
                     && (mappedJournalKind == .approvalRequested || mappedJournalKind == .questionRequested)
                     ? .stateChanged
                     : mappedJournalKind
+            if def.name == "codex",
+               let goal = codexGoalLifecycle(
+                   from: input,
+                   sessionID: sessionId,
+                   updatedAtMs: Self.semanticOccurredAtMs(input.rawObject)
+                       ?? Int64(Date().timeIntervalSince1970 * 1_000)
+               ) {
+                emitJournal(
+                    .goalStateChanged,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    goalLifecycle: goal
+                )
+            }
             emitJournal(
                 notificationJournalKind,
                 workspaceId: workspaceId,

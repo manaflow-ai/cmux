@@ -64,6 +64,78 @@ struct AgentJournalLifecycleCenterTests {
         #expect(center.handleAppendCommand(json).hasPrefix("ERROR:"))
     }
 
+    @Test func goalTargetValidatorRunsBeforeDurableCommit() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-journal-goal-binding-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: url)
+        let goal = AgentGoalLifecycle(
+            state: .complete,
+            generation: "generation-1",
+            updatedAtMs: 1,
+            provenance: "provider_hook"
+        )
+        let draft = AgentJournalEventDraft(
+            eventId: "goal-binding-1",
+            kind: .goalStateChanged,
+            occurredAtMs: 1,
+            source: "codex",
+            agentKey: "codex",
+            sessionId: "session-1",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            goalLifecycle: goal
+        )
+        let json = try #require(String(data: JSONEncoder().encode(draft), encoding: .utf8))
+        #expect(center.handleAppendCommand(json, goalTargetValidator: { _ in false }) == "ERROR: goal target is no longer bound")
+        let store = try AgentJournalStore(databaseURL: url)
+        #expect(try store.headSequence() == 0)
+        #expect(try store.goalLifecycle(source: "codex", sessionId: "session-1") == nil)
+        store.close()
+    }
+
+    @Test func goalQueryBatchReturnsAbsentRowsAndRejectsOversizedRequests() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-journal-goal-query-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("journal.sqlite3", isDirectory: false)
+        let center = AgentJournalLifecycleCenter(databaseURL: url)
+        let goal = AgentGoalLifecycle(
+            state: .complete,
+            generation: "generation-1",
+            updatedAtMs: 1,
+            provenance: "provider_hook"
+        )
+        let draft = AgentJournalEventDraft(
+            eventId: "goal-query-1",
+            kind: .goalStateChanged,
+            occurredAtMs: 1,
+            source: "codex",
+            agentKey: "codex",
+            sessionId: "session-1",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            nativeEvent: "goal-state",
+            goalLifecycle: goal
+        )
+        let json = try #require(String(data: JSONEncoder().encode(draft), encoding: .utf8))
+        #expect(center.handleAppendCommand(json) == "OK 1")
+        let query = #"{"sessions":[{"source":"codex","session_id":"session-1"},{"source":"codex","session_id":"missing"}]}"#
+        let response = try #require(center.handleGoalQueryCommand(query).data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: response) as? [String: Any])
+        let goals = try #require(object["goals"] as? [[String: Any]])
+        #expect(goals.count == 2)
+        #expect(goals[0]["goal_lifecycle"] != nil)
+        #expect(goals[1]["goal_lifecycle"] is NSNull)
+        let oversizedPayload = [
+            "sessions": Array(repeating: ["source": "codex", "session_id": "s"], count: 257)
+        ] as [String: Any]
+        let oversized = try #require(String(
+            data: JSONSerialization.data(withJSONObject: oversizedPayload),
+            encoding: .utf8
+        ))
+        #expect(center.handleGoalQueryCommand(oversized) == "ERROR: invalid goal query")
+    }
+
     @Test func unavailableJournalReportsError() {
         let center = AgentJournalLifecycleCenter(databaseURL: nil)
         #expect(!center.isAvailable)

@@ -464,6 +464,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// (not private) so the package tests can pin the exact set.
     static let agentJournalV1Commands: Set<String> = [
         "agent_journal_append",
+        "agent_journal_goal",
     ]
 
     /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin

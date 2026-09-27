@@ -15,7 +15,8 @@ extension AgentJournalLifecycleCenter {
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
     ) -> LifecycleApplication? {
-        guard event.kind != .messagePublished else { return nil }
+        guard event.kind != .messagePublished,
+              event.kind != .goalStateChanged else { return nil }
         let canonical = canonicalized(event, aliases: aliases)
         reducer.apply(canonical, to: &state)
         guard canonical.draft.unattributedReason == nil else {
@@ -71,7 +72,8 @@ extension AgentJournalLifecycleCenter {
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle {
+                if event.kind != .goalStateChanged,
+                   decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
                 }
             }
