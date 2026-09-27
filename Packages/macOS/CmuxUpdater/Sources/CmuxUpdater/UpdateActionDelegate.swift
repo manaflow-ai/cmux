@@ -14,4 +14,8 @@ public protocol UpdateActionDelegate: AnyObject {
     /// session state, stop its terminal/runtime, and invalidate restorable state so the
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
+
+    /// What relaunching right now would interrupt. The updater holds a ready update's
+    /// relaunch while this is non-empty (see ``UpdateRelaunchBlockers``).
+    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers
 }
