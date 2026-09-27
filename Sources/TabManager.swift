@@ -3137,11 +3137,13 @@ class TabManager: ObservableObject {
     }
 
     /// Whether the Close Window command should ask before closing this
-    /// manager's window: `app.warnBeforeClosingWindow` is on and some workspace
-    /// has a panel that needs close confirmation.
-    func shouldConfirmWindowClose() -> Bool {
+    /// manager's window: `app.warnBeforeClosingWindow` is on and a panel that
+    /// closes with the window needs close confirmation, either in a workspace
+    /// or in the window Dock (which the caller owns and checks).
+    func shouldConfirmWindowClose(windowDockNeedsConfirmation: Bool) -> Bool {
         CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmWindowClose(
-            anyPanelNeedsConfirmation: tabs.contains(where: workspaceNeedsConfirmClose)
+            anyPanelNeedsConfirmation: windowDockNeedsConfirmation
+                || tabs.contains(where: workspaceNeedsConfirmClose)
         )
     }
 

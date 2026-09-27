@@ -1703,7 +1703,11 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
                 workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
             }
         }
-        XCTAssertFalse(manager.shouldConfirmWindowClose(), "An idle window has nothing to lose")
+        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "An idle window has nothing to lose")
+        XCTAssertTrue(
+            manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true),
+            "A busy window Dock panel is torn down with the window, so it counts"
+        )
 
         let busy = manager.tabs[2]
         guard let busyPanelId = busy.focusedPanelId else {
@@ -1711,10 +1715,11 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return
         }
         busy.updatePanelShellActivityState(panelId: busyPanelId, state: .commandRunning)
-        XCTAssertTrue(manager.shouldConfirmWindowClose())
+        XCTAssertTrue(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false))
 
         manager.closeTabWarningDefaults.set(false, forKey: AppCatalogSection().warnBeforeClosingWindow.userDefaultsKey)
-        XCTAssertFalse(manager.shouldConfirmWindowClose(), "The window setting turns the prompt off")
+        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: false), "The window setting turns the prompt off")
+        XCTAssertFalse(manager.shouldConfirmWindowClose(windowDockNeedsConfirmation: true))
     }
 
     func testClosingEveryWorkspaceFollowsTheWindowSetting() {
