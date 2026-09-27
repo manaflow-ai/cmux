@@ -97,12 +97,17 @@ each Mac (`sudo automationmodetool enable-automationmode-without-authentication`
 and the job's runner user cannot do it. Once the fleet has it,
 `vars.CI_E2E_OWNED_UI == '1'` lets UI runs take owned Macs too.
 
-A UI run that may take an owned Mac never goes to Blacksmith: its macOS
-sessions sit at a locked screen, so no app can come to the front and every
-UI test fails after a minute ("Failed to activate application"; runs
-36311300649, 36314786865 and 36315094804 on 2026-09-27, while the same
-tests passed on owned Macs). With no owned room it queues on the owned pool,
-and a re-run of it stays there too (retry_runner()).
+Blacksmith's macOS sessions sit at a locked screen, so no app comes to the
+front and every UI test fails after a minute ("Failed to activate
+application"; runs 36311300649, 36314786865 and 36315094804 on 2026-09-27,
+while the same tests passed on owned Macs). So an unpinned UI run that may
+take an owned Mac never ends on Blacksmith while an owned pool has machines
+(ui_owned_runner(), applied last wherever a UI run's pool is chosen: here
+and in dispatch-focused-test.py): with no owned room it queues on the owned
+pool, whatever the rule above or its fallbacks picked, and a re-run of it
+stays there too (retry_runner()). That overrides "an owned pool is never
+the fewest-queued fallback" and the move to Blacksmith for re-runs, for UI
+runs only.
 """
 from __future__ import annotations
 
@@ -217,6 +222,30 @@ def retry_runner(label: str, *, ui: bool = False) -> str:
     if ui and pr_runner_pool.persistent(label):
         return label
     return SMALL_RUNNER if pr_runner_pool.persistent(label) else label
+
+
+def ui_owned_runner(label: str | None, *, test_filter: str | None, owned: str | None, owned_ui: str | None,
+                    order: str | None, owned_slots: str | None, pr_xcode_app: str | None,
+                    log: Callable[[str], None] = lambda message: None) -> str | None:
+    """A UI run's pool, moved off Blacksmith onto an owned pool with machines (see the module docstring).
+
+    Any other run, or an owned label, comes back unchanged, as does every
+    label when no owned pool of the lane's Xcode pin has a slot count: a
+    fleet drained by zeroing CI_OWNED_POOL_SLOTS keeps UI runs off it.
+    """
+    if (not ui_run(test_filter) or not label or pr_runner_pool.persistent(label)
+            or (owned or "").strip() != "1" or not owned_target(test_filter, owned_ui)):
+        return label
+    slots = pr_runner_pool.slots(owned_slots, pr_xcode_app)
+    limits = settings(order, "", owned, pr_xcode_app)
+    pools = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
+             if pr_runner_pool.persistent(p) and slots.get(p, 0) > 0]
+    if not pools:
+        return label
+    root = pr_runner_pool.root_label(pools[0])
+    runner = root if root and slots.get(root, 0) > 0 else pools[0]
+    log(f"{label} cannot run UI tests (a locked screen); queued on {runner} instead")
+    return runner
 
 
 def title_runner(run: Mapping[str, Any]) -> str | None:
@@ -360,7 +389,6 @@ def auto_runner(
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
     owned_slots: Mapping[str, int] | None = None,
-    ui: bool = False,
 ) -> str | None:
     """The pool an unpinned run lands on, given what `auto` means.
 
@@ -396,14 +424,6 @@ def auto_runner(
     # glaeda gives an E2E job, which it does not know, the mini's root token,
     # so a pool with a root count sends it to its root runners.
     runner = choice.root_runner or choice.runner
-    owned = [label for label in limits.order if pr_runner_pool.persistent(label)]
-    if ui and owned and not pr_runner_pool.persistent(runner):
-        # Blacksmith cannot run UI tests (see the module docstring), so the
-        # run waits for the first owned pool instead.
-        root = pr_runner_pool.root_label(owned[0])
-        runner = root if root and (owned_slots or {}).get(root, 0) > 0 else owned[0]
-        log(f"{choice.reason}, but a UI run cannot run on Blacksmith -> queued on {runner} (janitor saw {queue})")
-        return runner
     log(f"{choice.reason} -> {runner} (janitor saw {queue})")
     return runner
 
@@ -433,7 +453,7 @@ def resolve(
         log(f"a UI run and {OWNED_UI_VARIABLE} is not 1; no owned Mac")
         owned = ""
     default = (variable or "").strip() or SMALL_RUNNER
-    return auto_runner(
+    label = auto_runner(
         default,
         enabled=enabled(overflow),
         limits=settings(order, max_queued, owned, pr_xcode_app, queue_rounds),
@@ -441,8 +461,9 @@ def resolve(
         now=now,
         log=log,
         owned_slots=pr_runner_pool.slots(owned_slots, pr_xcode_app),
-        ui=ui_run(test_filter),
     ) or SMALL_RUNNER
+    return ui_owned_runner(label, test_filter=test_filter, owned=owned, owned_ui=owned_ui, order=order,
+                           owned_slots=owned_slots, pr_xcode_app=pr_xcode_app, log=log) or label
 
 
 def read_live_owned(repo: str, env: Mapping[str, str], owned: str | None,

@@ -79,7 +79,9 @@ its failed and cancelled jobs re-run, keeping a build that passed, and the
 follow-on watch of attempt 2 finds no owned job and stops. A UI run's
 retry_label stays on its owned pool, since Blacksmith cannot run UI tests
 (e2e_runner_pool.py), so the watch of attempt 2 may re-run it once more;
-no attempt past 2 is watched, so it still never loops. When the build
+no attempt past 2 is watched, so it still never loops. A queued UI run
+moved that way only rejoins the same owned queue, costing its place in it;
+the watch stays for the refusals, which a re-run does clear. When the build
 itself did not succeed, every job is re-run instead, so the `sibling` job
 looks again for another run compiling the same revision
 (e2e_build_unfinished). A stuck E2E run
