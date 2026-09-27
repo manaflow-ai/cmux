@@ -120,6 +120,14 @@ CI_OWNED_PREFER_SEED lets `prefer` clone them), most recently used first,
 MAX_WARM_KEYS in all. It never fails: anything it cannot read leaves that key
 out.
 
+It also prints `roots`: every canonical root of the mini, each with what
+glaeda's hook reads from its stamp to rank it (`merged_onto`, `pr`,
+`pr_app_swift_files`, `pr_app_swift_total`, `pr_package_interface`), or the
+root number alone when it keeps no current build. pr_runner_pool.py scores
+every mini's roots with the hook's near/far/rebuild tiers from them
+(warm_distance.distance_route()), so a near build on another mini counts,
+not only an exact key.
+
 The other roots count because a job's root follows glaeda's free token, not
 the runner: the janitor records the keys against the runner that ran
 admission, and glaeda-cmux-runner-hook gives a routed admission the root
@@ -443,6 +451,28 @@ def other_root_stores(store: Path) -> list[Path]:
     return [path for path in roots if path != store]
 
 
+# The stamp fields glaeda's hook reads to rank a root (warm_distance.hook_root_cost()).
+ROOT_FIELDS = ("merged_onto", "pr", "pr_app_swift_files", "pr_app_swift_total", "pr_package_interface")
+
+
+def root_number(store: Path, first: Path) -> int:
+    """STORE's canonical root number: 1 for FIRST (root 1's store), k for cmux-ci-<k>."""
+    suffix = store.name[len(ROOT_STORE_PREFIX):]
+    return int(suffix) if store != first and store.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() else 1
+
+
+def root_summary(store: Path, number: int) -> dict[str, object]:
+    """What glaeda's hook reads from root NUMBER's stamp, when it keeps a current build; else the number alone."""
+    stamp = read_stamp(store)
+    if not (store / DERIVED).is_dir() or not str(stamp.get("fingerprint") or "").endswith(f"-{STATE_VERSION}"):
+        return {"root": number}
+    summary: dict[str, object] = {"root": number}
+    for field in ROOT_FIELDS:
+        if field in stamp:
+            summary[field] = stamp[field]
+    return summary
+
+
 def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
     """The main commits and pull requests this Mac starts from cheaply, as owned_warm_state.py reads them."""
     found: list[str] = stamp_keys(store, fingerprint)
@@ -472,7 +502,10 @@ def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dic
     for key in found:
         if key and key not in keys:
             keys.append(key)
-    return {"runner": runner, "pool": pool, "keys": keys[:MAX_WARM_KEYS]}
+    first = store.parent if others and others[0] == store.parent else store
+    roots = sorted((root_summary(path, root_number(path, first)) for path in (store, *others)),
+                   key=lambda summary: summary["root"])
+    return {"runner": runner, "pool": pool, "keys": keys[:MAX_WARM_KEYS], "roots": roots}
 
 
 def owned_by_live_process(path: Path) -> bool:

@@ -1,6 +1,7 @@
 import XCTest
 import Darwin
 import SQLite3
+import CMUXAgentLaunch
 import CmuxFoundation
 
 // These fixtures exercise the queued hook delivery contract.
@@ -13,11 +14,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let executable: String
         let launchArguments: [String]
         let extraEnvironment: [String: String]
+        let existingLaunchArguments: [String]?
+        let existingLaunchEnvironment: [String: String]?
+        let existingLaunchRejectionReason: String?
         let expectedArguments: [String]
         let expectedEnvironment: [String: String]?
+        let expectedSource: String?
+        let expectedRejectionReason: String?
+        let expectExecutablePath: Bool
+        let resolveAnyPID: Bool
+
+        init(
+            agent: String,
+            subcommand: String,
+            sessionId: String,
+            executable: String,
+            launchArguments: [String],
+            extraEnvironment: [String: String],
+            expectedArguments: [String],
+            expectedEnvironment: [String: String]?,
+            expectedSource: String? = nil,
+            expectedRejectionReason: String? = nil,
+            expectExecutablePath: Bool = true,
+            resolveAnyPID: Bool = false,
+            existingLaunchArguments: [String]? = nil,
+            existingLaunchEnvironment: [String: String]? = nil,
+            existingLaunchRejectionReason: String? = nil
+        ) {
+            self.agent = agent
+            self.subcommand = subcommand
+            self.sessionId = sessionId
+            self.executable = executable
+            self.launchArguments = launchArguments
+            self.extraEnvironment = extraEnvironment
+            self.existingLaunchArguments = existingLaunchArguments
+            self.existingLaunchEnvironment = existingLaunchEnvironment
+            self.existingLaunchRejectionReason = existingLaunchRejectionReason
+            self.expectedArguments = expectedArguments
+            self.expectedEnvironment = expectedEnvironment
+            self.expectedSource = expectedSource
+            self.expectedRejectionReason = expectedRejectionReason
+            self.expectExecutablePath = expectExecutablePath
+            self.resolveAnyPID = resolveAnyPID
+        }
     }
 
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
+        // Keep these Process/socket integration scenarios in this existing
+        // XCTest harness: moving only the new cases to Swift Testing would
+        // split the shared fixture and behavior suite.
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
                 agent: "cursor",
@@ -74,6 +119,130 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "danger-full-access"
                 ],
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-rejected-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--prompt",
+                    "one-shot prompt"
+                ],
+                extraEnvironment: [:],
+                expectedArguments: [],
+                expectedEnvironment: nil,
+                expectedSource: "rejected",
+                expectedRejectionReason: "sanitizerRejectedArgv"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-decode-failed-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64",
+                    "GEMINI_CLI_HOME": "/tmp/gemini decode-failed home",
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini decode-failed home"],
+                expectedSource: "rejected",
+                expectedRejectionReason: "argvDecodeFailed"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-decode-failed-empty-environment-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: ["CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64"],
+                expectedArguments: [],
+                expectedEnvironment: nil,
+                expectedSource: "rejected",
+                expectedRejectionReason: "argvDecodeFailed"
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-empty-argv-fallback-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "   ",
+                    "GEMINI_CLI_HOME": "/tmp/gemini empty argv home",
+                    "CMUX_GEMINI_PID": "999999999",
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini empty argv home"],
+                expectedSource: "environment",
+                expectedRejectionReason: "argvUnavailable",
+                expectExecutablePath: false
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-pid-fallback-mismatch-fallback-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    // The test host is a live, unrelated process. Its argv is
+                    // available, but the typed PID verdict must not turn the
+                    // env-only fallback into a hard capture rejection.
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "   ",
+                    "GEMINI_CLI_HOME": "/tmp/gemini pid fallback home",
+                    "CMUX_GEMINI_PID": String(ProcessInfo.processInfo.processIdentifier),
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini pid fallback home"],
+                expectedSource: "environment",
+                expectedRejectionReason: "nativeProcessDoesNotDescribeKind",
+                expectExecutablePath: false,
+                resolveAnyPID: true
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-rejected-does-not-downgrade-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64",
+                    "GEMINI_CLI_HOME": "/tmp/gemini rejected home",
+                    "CMUX_GEMINI_PID": "999999999",
+                ],
+                expectedArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "stable-model",
+                ],
+                expectedEnvironment: nil,
+                expectedSource: "environment",
+                existingLaunchArguments: [
+                    "/Users/example/.bun/bin/gemini",
+                    "--model",
+                    "stable-model",
+                ]
+            ),
+            GenericHookPersistenceScenario(
+                agent: "gemini",
+                subcommand: "session-start",
+                sessionId: "gemini-rejected-preserves-env-only-fallback-session-123",
+                executable: "/Users/example/.bun/bin/gemini",
+                launchArguments: ["/Users/example/.bun/bin/gemini"],
+                extraEnvironment: [
+                    "CMUX_AGENT_LAUNCH_ARGV_B64": "not-base64",
+                    "GEMINI_CLI_HOME": "/tmp/gemini rejected home",
+                    "CMUX_GEMINI_PID": "999999999",
+                ],
+                expectedArguments: [],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini stable home"],
+                expectedSource: "environment",
+                expectedRejectionReason: "argvUnavailable",
+                existingLaunchArguments: [],
+                existingLaunchEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini stable home"],
+                existingLaunchRejectionReason: "argvUnavailable"
             ),
             GenericHookPersistenceScenario(
                 agent: "kiro",
@@ -4600,6 +4769,42 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
+        if scenario.existingLaunchArguments != nil || scenario.existingLaunchEnvironment != nil {
+            let now = Date().timeIntervalSince1970
+            var existingLaunchCommand: [String: Any] = [
+                "launcher": scenario.agent,
+                "executablePath": scenario.executable,
+                "arguments": scenario.existingLaunchArguments ?? [],
+                "workingDirectory": workspace.path,
+                "source": "environment",
+            ]
+            if let existingLaunchEnvironment = scenario.existingLaunchEnvironment {
+                existingLaunchCommand["environment"] = existingLaunchEnvironment
+            }
+            if let existingLaunchRejectionReason = scenario.existingLaunchRejectionReason {
+                existingLaunchCommand["rejectionReason"] = existingLaunchRejectionReason
+            }
+            let existingStore: [String: Any] = [
+                "version": 1,
+                "sessions": [
+                    scenario.sessionId: [
+                        "sessionId": scenario.sessionId,
+                        "workspaceId": workspaceId,
+                        "surfaceId": surfaceId,
+                        "cwd": workspace.path,
+                        "startedAt": now,
+                        "updatedAt": now,
+                        "launchCommand": existingLaunchCommand,
+                    ],
+                ],
+            ]
+            let existingData = try JSONSerialization.data(withJSONObject: existingStore, options: [.sortedKeys])
+            try existingData.write(
+                to: root.appendingPathComponent("\(scenario.agent)-hook-sessions.json", isDirectory: false),
+                options: .atomic
+            )
+        }
+
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
@@ -4608,6 +4813,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
+            case "agent.resolve_delivery_target":
+                // The rejected-follow-up scenario supplies a deliberately dead PID. Resolve that
+                // fixture identity so the hook reaches the persistence path instead of spending its
+                // entire timeout probing an unavailable process.
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if scenario.resolveAnyPID, params["pid"] is NSNumber {
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                            "source": "pid",
+                        ]
+                    )
+                }
+                if let pid = params["pid"] as? NSNumber, pid.intValue == 999999999 {
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                            "source": "pid",
+                        ]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected resolver probe"]
+                )
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: surfaceId)
             case "surface.resume.set":
@@ -4660,10 +4897,71 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
         XCTAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
-        XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
+        // A malformed trusted capture has no independently validated executable path. Keeping
+        // that path would make an argv-less rejection look actionable to a later restore.
+        if scenario.expectedRejectionReason == "argvDecodeFailed" || !scenario.expectExecutablePath {
+            XCTAssertNil(launchCommand["executablePath"])
+        } else {
+            XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
+        }
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+        if let expectedSource = scenario.expectedSource {
+            XCTAssertEqual(launchCommand["source"] as? String, expectedSource)
+        }
+        if let expectedRejectionReason = scenario.expectedRejectionReason {
+            XCTAssertEqual(launchCommand["rejectionReason"] as? String, expectedRejectionReason)
+        }
+        if scenario.expectedRejectionReason == "nativeProcessDoesNotDescribeKind" {
+            let launchData = try JSONSerialization.data(withJSONObject: launchCommand, options: [])
+            let decoded = try JSONDecoder().decode(AgentLaunchCommand.self, from: launchData)
+            XCTAssertFalse(
+                decoded.isRejectedCapture,
+                "a PID-only mismatch must keep the env-only fallback eligible for restore"
+            )
+        }
+        if let existingLaunchArguments = scenario.existingLaunchArguments,
+           !existingLaunchArguments.isEmpty {
+            XCTAssertNil(
+                launchCommand["rejectionReason"],
+                "a rejected follow-up must not add a rejection marker to the preserved argv"
+            )
+            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            let resumeParams = try XCTUnwrap(
+                resumeSetRequests.last,
+                "a rejected follow-up must retain the existing resume binding"
+            )
+            XCTAssertTrue(
+                (resumeParams["command"] as? String)?.contains("stable-model") == true,
+                "the preserved argv must remain the authoritative resume command: \(resumeParams)"
+            )
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "a rejected follow-up must not clear a richer existing binding: \(state.commands)"
+            )
+        }
+        if scenario.existingLaunchEnvironment != nil {
+            XCTAssertEqual(
+                launchCommand["rejectionReason"] as? String,
+                scenario.existingLaunchRejectionReason,
+                "a classified rejection must not replace a safe argv-less fallback"
+            )
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "a classified rejection must not clear an argv-less fallback binding: \(state.commands)"
+            )
+        }
 
         if scenario.agent == "kiro" {
             let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
@@ -4823,6 +5121,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let persistedLaunch = try XCTUnwrap(
             persisted["launchCommand"] as? [String: Any],
             "env-only launchCommand must be persisted for the fork path"
+        )
+        XCTAssertEqual(
+            persistedLaunch["source"] as? String,
+            "environment",
+            "an unavailable PID must keep the historical env-only fallback source"
+        )
+        // With no cmux capture, the hook's inferred PID is whatever process ran it (the test host
+        // here), so the recorded ground is argvUnavailable or a PID-only mismatch. Either way it
+        // must be a diagnostic ground, not a positive capture rejection that would quarantine the
+        // env-only fallback.
+        let persistedReason = try XCTUnwrap(
+            (persistedLaunch["rejectionReason"] as? String).map(AgentLaunchCaptureRejectionReason.init(rawValue:)),
+            "an argv-less record must name its ground"
+        )
+        XCTAssertFalse(
+            persistedReason.isPositiveCaptureRejection,
+            "an unavailable PID should be distinguishable from a positively rejected capture; got \(persistedReason.rawValue)"
         )
         XCTAssertEqual(
             (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,

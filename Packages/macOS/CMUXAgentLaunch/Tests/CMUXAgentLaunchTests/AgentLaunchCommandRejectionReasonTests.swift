@@ -92,6 +92,7 @@ struct AgentLaunchCommandRejectionReasonTests {
         var repaired = rejected
         repaired.arguments = ["/usr/local/bin/codex", "resume"]
         #expect(repaired.rejectionReason == nil)
+        #expect(repaired.isRejectedCapture == false)
     }
 
     /// The one combination cmux never writes, if a hand-edited or foreign record
@@ -108,6 +109,8 @@ struct AgentLaunchCommandRejectionReasonTests {
         let command = try JSONDecoder().decode(AgentLaunchCommand.self, from: Data(stored.utf8))
         #expect(command.arguments == ["/usr/local/bin/codex", "--yolo"])
         #expect(command.rejectionReason == nil)
+        #expect(command.source == nil)
+        #expect(command.isRejectedCapture == false)
 
         let rewritten = try JSONEncoder().encode(command)
         let object = try #require(
@@ -117,6 +120,7 @@ struct AgentLaunchCommandRejectionReasonTests {
         // ground is the point, dropping the launch would be a new defect.
         #expect(object["arguments"] as? [String] == ["/usr/local/bin/codex", "--yolo"])
         #expect(object["rejectionReason"] == nil)
+        #expect(object["source"] == nil)
     }
 
     /// Records written before the field existed must still decode, and must not
@@ -134,5 +138,73 @@ struct AgentLaunchCommandRejectionReasonTests {
             try JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
         )
         #expect(object["rejectionReason"] == nil)
+    }
+
+    @Test func typedUnavailableGroundWinsOverLegacyRejectedMarker() throws {
+        let stored = """
+        {
+          "arguments": [],
+          "source": "rejected",
+          "rejectionReason": "argvUnavailable"
+        }
+        """
+        let command = try JSONDecoder().decode(
+            AgentLaunchCommand.self,
+            from: Data(stored.utf8)
+        )
+
+        #expect(command.rejectionReason == .argvUnavailable)
+        #expect(command.isRejectedCapture == false)
+    }
+
+    @Test(arguments: [
+        AgentLaunchCaptureRejectionReason.nativeProcessDoesNotDescribeKind,
+        AgentLaunchCaptureRejectionReason.argvLooksLikeShellWrapper,
+        AgentLaunchCaptureRejectionReason.argvUnavailable,
+    ])
+    func pidFallbackGroundsKeepEnvironmentFallbackEligible(
+        _ reason: AgentLaunchCaptureRejectionReason
+    ) {
+        let command = AgentLaunchCommand(
+            rejectedOn: reason,
+            launcher: "gemini",
+            environment: ["GEMINI_CLI_HOME": "/tmp/gemini"],
+            source: "environment"
+        )
+
+        #expect(command.rejectionReason == reason)
+        #expect(command.isRejectedCapture == false)
+        #expect(reason.isPositiveCaptureRejection == false)
+    }
+
+    @Test(arguments: [
+        AgentLaunchCaptureRejectionReason.launcherDoesNotDescribeKind,
+        AgentLaunchCaptureRejectionReason.argvDecodeFailed,
+        AgentLaunchCaptureRejectionReason.sanitizerRejectedArgv,
+    ])
+    func explicitCaptureGroundsStillFailClosed(
+        _ reason: AgentLaunchCaptureRejectionReason
+    ) {
+        let command = AgentLaunchCommand(
+            rejectedOn: reason,
+            launcher: "gemini",
+            environment: ["GEMINI_CLI_HOME": "/tmp/gemini"],
+            source: "rejected"
+        )
+
+        #expect(command.rejectionReason == reason)
+        #expect(command.isRejectedCapture)
+        #expect(reason.isPositiveCaptureRejection)
+    }
+
+    @Test func decodeFailureHasAStableForwardCompatibleToken() throws {
+        let reason = AgentLaunchCaptureRejectionReason.argvDecodeFailed
+        let encoded = try JSONEncoder().encode(reason)
+        let decoded = try JSONDecoder().decode(
+            AgentLaunchCaptureRejectionReason.self,
+            from: encoded
+        )
+        #expect(decoded == reason)
+        #expect(reason.rawValue == "argvDecodeFailed")
     }
 }

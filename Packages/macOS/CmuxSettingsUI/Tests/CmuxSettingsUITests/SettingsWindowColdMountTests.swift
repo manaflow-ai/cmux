@@ -205,6 +205,24 @@ import Testing
         #expect(model.pinnedScroll?.section == .browserImport)
     }
 
+    @Test func reopeningAfterASearchHitRestoresTheSectionNotTheRow() async {
+        let fixture = Self.makeFixture()
+        // The last session ended on a search hit inside Keyboard Shortcuts.
+        fixture.defaults.set(SettingsSectionID.keyboardShortcuts.rawValue, forKey: SettingsWindowRoot.selectedSectionDefaultsKey)
+        fixture.defaults.set("setting:keyboardShortcuts:shortcuts", forKey: "selectedSettingsSidebarEntry")
+        let model = Self.makeMountModel(initial: .keyboardShortcuts)
+        let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, mountModel: model), in: fixture)
+        defer { window.orderOut(nil) }
+
+        await Self.wait(for: model) { model.pinnedScroll != nil }
+        // The restore opens the pane at its top instead of centering the
+        // old hit, and the sidebar highlights the section row again.
+        #expect(model.pinnedScroll?.section == .keyboardShortcuts)
+        #expect(model.pinnedScroll?.anchor == .top)
+        #expect(model.pinnedScroll?.anchorID != "setting:keyboardShortcuts:shortcuts")
+        #expect(fixture.defaults.string(forKey: "selectedSettingsSidebarEntry") == "section:keyboardShortcuts")
+    }
+
     @Test func targetedOpenMountsTheTargetSectionFirst() {
         let fixture = Self.makeFixture()
         let accountWindow = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
