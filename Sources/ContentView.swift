@@ -15397,14 +15397,29 @@ struct SidebarFooterButtons: View {
     }
 
     var body: some View {
+        // The footer never asks the sidebar for width: when the full row does
+        // not fit, the account chip drops its name, and anything still too wide
+        // is clipped at the trailing edge instead of widening or shifting the
+        // sidebar.
+        ViewThatFits(in: .horizontal) {
+            row(showsAccountName: true)
+            row(showsAccountName: false)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+
+    /// Account chip, then the icon buttons and pills in one run from the
+    /// leading edge.
+    private func row(showsAccountName: Bool) -> some View {
         HStack(spacing: 4) {
-            // The account chip takes the free width on the left; the icon
-            // controls keep fixed slots to its right.
-            if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                SidebarAccountMenuButton()
-            }
-            if shows(.mobileConnect) || shows(.help) {
+            // Hover squares touch, as before the chip, so the chevron sits the
+            // same distance from ? as ? does from the Pro badge.
+            if shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
+                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                        SidebarAccountMenuButton(showsName: showsAccountName)
+                    }
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
@@ -15413,7 +15428,8 @@ struct SidebarFooterButtons: View {
                     }
                 }
             }
-            if shows(.upgrade) {
+            // The badge is an upgrade prompt, so Pro accounts don't get it.
+            if shows(.upgrade), AppDelegate.shared?.auth?.accountFlow?.isProActive != true {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15439,7 +15455,6 @@ struct SidebarFooterButtons: View {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
