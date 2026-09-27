@@ -294,7 +294,7 @@ struct CmuxSelectionFill: Equatable {
         let alpha: CGFloat
         if isEmphasized {
             base = .controlAccentColor
-            alpha = increasesContrast ? (isDark ? 0.42 : 0.32) : (isDark ? 0.24 : 0.16)
+            alpha = increasesContrast ? (isDark ? 0.42 : 0.36) : (isDark ? 0.24 : 0.20)
         } else {
             base = .labelColor
             alpha = increasesContrast ? (isDark ? 0.20 : 0.16) : (isDark ? 0.10 : 0.07)
