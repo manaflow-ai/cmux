@@ -85,10 +85,12 @@ pub(crate) fn pane_path() -> Option<String> {
     path_with_shim_first(&std::env::var_os("PATH").unwrap_or_default(), &dir)?.into_string().ok()
 }
 
+/// Directory holding the `claude` shim, under cmux-tui's data home.
 fn shim_directory() -> Option<PathBuf> {
     agent_hook_install::runtime_cmux_tui_data_home().map(|home| home.join("shims"))
 }
 
+/// This cmux-tui binary's canonical path, which the shim and fallback hooks run.
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
     Ok(executable.canonicalize().unwrap_or(executable))
@@ -139,6 +141,7 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
+/// The hook settings fragment merged into every wrapped launch.
 fn session_hook_settings(emit_binary: Option<&Path>) -> anyhow::Result<Map<String, Value>> {
     let mut settings = agent_hook_install::claude_session_hook_settings(emit_binary)?;
     // The hooks drive cmux notifications; Claude's own would duplicate them.
@@ -183,6 +186,7 @@ fn args_with_hooks(
     Ok(launch)
 }
 
+/// Parses one `--settings` value: inline JSON when it starts with `{`, else a file path.
 fn read_settings_argument(value: &OsStr) -> anyhow::Result<Map<String, Value>> {
     let data = match value.to_str() {
         Some(text) if text.trim_start().starts_with('{') => text.as_bytes().to_vec(),
@@ -242,6 +246,7 @@ fn write_settings_file(dir: &Path, data: &[u8], now: SystemTime) -> anyhow::Resu
     Ok(path)
 }
 
+/// Removes merged settings files, other than `keep`, idle past the retention.
 fn prune_settings_files(dir: &Path, keep: &Path, now: SystemTime) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -284,6 +289,7 @@ fn path_without_shims(path: &OsStr, shim_dir: Option<&Path>) -> OsString {
     std::env::join_paths(kept).unwrap_or_else(|_| path.to_owned())
 }
 
+/// Prepends `shim_dir` to `path`, dropping any later copy so repeated startups stay idempotent.
 fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
     let inherited = std::env::split_paths(path).filter(|dir| dir != shim_dir);
     let entries = std::iter::once(shim_dir.to_path_buf());
@@ -293,6 +299,7 @@ fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
     std::env::join_paths(entries.chain(inherited)).ok()
 }
 
+/// Whether `dir` is the shim directory, compared literally and after canonicalization.
 fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     let Some(shim_dir) = shim_dir else {
         return false;
@@ -304,6 +311,7 @@ fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
         )
 }
 
+/// Whether the file at `path` (following links) is a cmux-tui `claude` shim.
 fn is_claude_shim(path: &Path) -> bool {
     let mut head = Vec::new();
     fs::File::open(path)
@@ -477,18 +485,22 @@ mod launch_classification {
         "--tools",
     ];
 
+    /// Whether these Claude Code arguments run a command instead of starting a session.
     pub(super) fn is_non_launch(args: &[String]) -> bool {
         informational(args) || management(args)
     }
 
+    /// The option name without an inline `=value`.
     fn option_name(argument: &str) -> &str {
         argument.split_once('=').map_or(argument, |(name, _)| name)
     }
 
+    /// Whether an argument is a positional word rather than an option (`-` counts as positional).
     fn is_positional(argument: &str) -> bool {
         !argument.starts_with('-') || argument == "-"
     }
 
+    /// Whether the arguments ask only for help or version output.
     fn informational(args: &[String]) -> bool {
         let mut index = 0;
         while index < args.len() {
@@ -511,6 +523,7 @@ mod launch_classification {
         false
     }
 
+    /// Whether the first positional word is a management subcommand such as `mcp` or `doctor`.
     fn management(args: &[String]) -> bool {
         let mut index = 0;
         while index < args.len() {
@@ -542,6 +555,7 @@ mod launch_classification {
         false
     }
 
+    /// Whether `agents` is followed only by `--json` (once) and `--all`.
     fn agents_json(rest: &[String]) -> bool {
         let mut saw_json = false;
         for argument in rest {
@@ -554,6 +568,7 @@ mod launch_classification {
         saw_json
     }
 
+    /// Whether the next positional word after skipped log options is one of `allowed`.
     fn management_subcommand(args: &[String], mut index: usize, allowed: &[&str]) -> bool {
         while index < args.len() {
             let argument = args[index].as_str();
@@ -624,24 +639,29 @@ mod tests {
 
     use super::*;
 
+    /// Converts string literals into owned OS arguments.
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
     }
 
+    /// Writes an executable (0755) script, creating its parent directory.
     fn write_executable(path: &Path, content: &str) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, content).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    /// The permission bits of `path`.
     fn mode(path: &Path) -> u32 {
         fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
+    /// Reads and parses a JSON file.
     fn read_json(path: &Path) -> Value {
         serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
     }
 
+    /// An sr-style `--settings` file and an inline `--settings` fold into one private file that keeps both.
     #[test]
     fn claude_wrapper_merges_launcher_settings_with_the_hooks() {
         let root = tempfile::tempdir().unwrap();
@@ -689,6 +709,7 @@ mod tests {
         assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
     }
 
+    /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
     #[test]
     fn claude_wrapper_hook_commands_match_the_installed_hooks_or_fall_back_to_emit() {
         let installed = session_hook_settings(None).unwrap();
@@ -710,6 +731,7 @@ mod tests {
         );
     }
 
+    /// Unreadable or malformed `--settings` values fail so the launch proceeds without hooks.
     #[test]
     fn claude_wrapper_skips_injection_for_bad_settings_arguments() {
         let root = tempfile::tempdir().unwrap();
@@ -724,6 +746,7 @@ mod tests {
         }
     }
 
+    /// Resolution skips the shim directory, copies of the shim, and links to it.
     #[test]
     fn claude_wrapper_resolves_the_real_claude_past_the_shim() {
         let root = tempfile::tempdir().unwrap();
@@ -750,6 +773,7 @@ mod tests {
         assert_eq!(find_real_claude(&only_shims, Some(shim_dir.as_path())), None);
     }
 
+    /// Injection needs a live terminal and a session launch, and respects re-entry and the disable flag.
     #[test]
     fn claude_wrapper_injects_only_into_session_launches_in_a_live_terminal() {
         let root = tempfile::tempdir().unwrap();
@@ -791,6 +815,7 @@ mod tests {
         assert!(!should_inject(&[], env(missing)), "dead socket");
     }
 
+    /// Reuse restores private modes and refreshes the idle clock; idle copies are pruned.
     #[test]
     fn claude_wrapper_settings_cache_stays_private_and_prunes_idle_copies() {
         let root = tempfile::tempdir().unwrap();
@@ -820,10 +845,12 @@ mod tests {
         assert!(modified >= now - Duration::from_secs(1), "reuse must refresh the idle clock");
     }
 
+    /// Runs the shim script through `/bin/sh` with the given `PATH`.
     fn run_shim(shim: &Path, path: &OsStr, args: &[&str]) -> Output {
         Command::new("/bin/sh").arg(shim).args(args).env("PATH", path).output().unwrap()
     }
 
+    /// The shim execs the wrapper, rewrites idempotently, and falls back when the binary is gone.
     #[test]
     fn claude_wrapper_shim_execs_the_wrapper_and_falls_back_to_the_real_claude() {
         let root = tempfile::tempdir().unwrap();
@@ -872,6 +899,7 @@ mod tests {
         );
     }
 
+    /// The pane PATH starts with the shim directory exactly once.
     #[test]
     fn claude_wrapper_pane_path_puts_the_shim_first_once() {
         let shim = Path::new("/data/cmux-tui/shims");
@@ -882,6 +910,7 @@ mod tests {
         assert_eq!(path_with_shim_first(OsStr::new(""), shim).unwrap(), "/data/cmux-tui/shims");
     }
 
+    /// Only `agent claude-wrapper` argv selects the wrapper.
     #[test]
     fn claude_wrapper_invocation_selects_only_the_hidden_verb() {
         let args = os(&["agent", "claude-wrapper", "--settings", "x"]);

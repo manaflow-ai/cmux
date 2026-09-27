@@ -1566,6 +1566,7 @@ fn take_cloud_template_env() {
     let _ = CLOUD_TEMPLATE_ENV.set(settings);
 }
 
+/// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
@@ -1990,6 +1991,7 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,

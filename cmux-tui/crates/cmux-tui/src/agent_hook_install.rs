@@ -485,11 +485,13 @@ pub(crate) fn runtime_cmux_tui_data_home() -> Option<PathBuf> {
     Some(runtime_data_home(&home).join("cmux-tui"))
 }
 
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
 #[cfg(unix)]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
 }
 
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
 #[cfg(not(unix))]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     None
@@ -1146,6 +1148,7 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     Ok(())
 }
 
+/// A `cmux-tui-hook` beside `current_exe`, else the first one on `PATH`.
 pub(crate) fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
     current_exe
         .and_then(Path::parent)
@@ -1164,6 +1167,7 @@ fn find_executable(binary: &str, path: Option<&std::ffi::OsStr>) -> Option<PathB
         .find(|candidate| is_executable_file(candidate))
 }
 
+/// Whether `path` is a regular file with an execute bit (any regular file off Unix).
 pub(crate) fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
@@ -2508,10 +2512,12 @@ fn codex_trust_state_verified(
     })
 }
 
+/// Single-quotes a value for a POSIX shell command line.
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
