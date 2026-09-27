@@ -28,6 +28,7 @@ const (
 	// PATH passes through instead of stacking a second set of hooks.
 	claudeRelayWrapperActiveKey = "CMUX_CLAUDE_RELAY_WRAPPER_ACTIVE"
 	claudeHookRoundTripTimeout  = 3 * time.Second
+	claudeWrapperPingTimeout    = time.Second
 	claudeHookDeclaredTimeout   = 5
 )
 
@@ -76,17 +77,9 @@ func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() str
 	if !ok {
 		return 0
 	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		if _, err := socketRoundTripV2(socketPath, "agent.hook.enqueue", params, refreshAddr); err != nil && os.Getenv("CMUX_CLAUDE_HOOK_DEBUG") == "1" {
-			fmt.Fprintf(os.Stderr, "cmux claude-hook: %v\n", err)
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(claudeHookRoundTripTimeout):
-	}
+	// Delivery is best effort: a slow or missing relay must not hold the agent.
+	_, _ = socketRoundTripV2Until(socketPath, "agent.hook.enqueue", params, refreshAddr,
+		time.Now().Add(claudeHookRoundTripTimeout))
 	return 0
 }
 
@@ -149,6 +142,7 @@ func compactClaudeHookPayload(input []byte) string {
 	return string(encoded)
 }
 
+// setBoundedClaudeHookString copies a string field, truncated to maximumRunes.
 func setBoundedClaudeHookString(target map[string]any, key string, value any, maximumRunes int) {
 	text, ok := value.(string)
 	if !ok {
@@ -160,6 +154,7 @@ func setBoundedClaudeHookString(target map[string]any, key string, value any, ma
 	target[key] = text
 }
 
+// stripClaudeHookFilesystemKeys removes host path keys at every depth.
 func stripClaudeHookFilesystemKeys(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -211,7 +206,7 @@ func runClaudeWrapper(socketPath string, args []string, refreshAddr func() strin
 	cmuxBin := claudeWrapperCmuxBinary()
 	realClaude := findRealClaude(os.Getenv("PATH"), cmuxBin)
 	if realClaude == "" {
-		fmt.Fprintln(os.Stderr, "cmux: claude not found in PATH")
+		fmt.Fprintln(os.Stderr, "cmux: the agent executable was not found")
 		return 127
 	}
 	launchArgs := args
@@ -222,18 +217,20 @@ func runClaudeWrapper(socketPath string, args []string, refreshAddr func() strin
 			_ = os.Setenv("CMUX_CLAUDE_HOOK_CMUX_BIN", cmuxBin)
 			_ = os.Setenv(claudeRelayWrapperActiveKey, "1")
 		} else {
-			fmt.Fprintf(os.Stderr, "cmux: launching claude without cmux hooks: %v\n", err)
+			fmt.Fprintln(os.Stderr, "cmux: starting the agent without cmux status hooks")
 		}
 	}
 	_ = os.Setenv("PATH", pathWithoutCmuxShims(os.Getenv("PATH")))
 	argv := append([]string{realClaude}, launchArgs...)
 	if err := syscall.Exec(realClaude, argv, os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "cmux: failed to exec claude: %v\n", err)
+		fmt.Fprintln(os.Stderr, "cmux: the agent could not be started")
 		return 126
 	}
 	return 0
 }
 
+// claudeWrapperShouldInject reports whether this launch gets relay hooks: a
+// session entrypoint in a cmux surface with a relay that answers a ping.
 func claudeWrapperShouldInject(args []string, socketPath string, refreshAddr func() string) bool {
 	if os.Getenv("CMUX_CLAUDE_HOOKS_DISABLED") == "1" || socketPath == "" ||
 		os.Getenv("CMUX_SURFACE_ID") == "" || os.Getenv("CMUX_WORKSPACE_ID") == "" ||
@@ -242,17 +239,9 @@ func claudeWrapperShouldInject(args []string, socketPath string, refreshAddr fun
 	}
 	// Without a live relay the hooks cannot deliver, and the injected settings
 	// would disable Claude's own notifications.
-	done := make(chan error, 1)
-	go func() {
-		_, err := socketRoundTripV2(socketPath, "system.ping", nil, refreshAddr)
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		return err == nil
-	case <-time.After(time.Second):
-		return false
-	}
+	_, err := socketRoundTripV2Until(socketPath, "system.ping", nil, refreshAddr,
+		time.Now().Add(claudeWrapperPingTimeout))
+	return err == nil
 }
 
 // claudeWrapperCmuxBinary prefers the relay's stable CLI entrypoint, which
@@ -303,6 +292,7 @@ func findRealClaude(pathEnv string, cmuxBin string) string {
 	return ""
 }
 
+// claudeSettingsCacheDir is the private directory for merged settings files.
 func claudeSettingsCacheDir() string {
 	if home, err := os.UserHomeDir(); err == nil {
 		return filepath.Join(home, ".cmux", "claude-settings")
@@ -354,6 +344,7 @@ func claudeArgsWithRelayHooks(args []string, cmuxBin string, cacheDir string) ([
 	return append([]string{"--settings", path}, remaining...), nil
 }
 
+// readClaudeSettingsArgument parses a --settings value, inline JSON or a path.
 func readClaudeSettingsArgument(value string) (map[string]any, error) {
 	data := []byte(value)
 	if trimmed := strings.TrimSpace(value); !strings.HasPrefix(trimmed, "{") {
@@ -395,6 +386,7 @@ func mergeClaudeSettings(target map[string]any, source map[string]any) {
 	}
 }
 
+// claudeRelayHookSettings is the settings fragment with the relay hook groups.
 func claudeRelayHookSettings(cmuxBin string) map[string]any {
 	hooks := map[string]any{}
 	for _, definition := range claudeRelayHookEvents {
@@ -416,6 +408,7 @@ func claudeRelayHookSettings(cmuxBin string) map[string]any {
 	}
 }
 
+// shellQuoteClaudeHookPath single-quotes a path for a hook command line.
 func shellQuoteClaudeHookPath(path string) string {
 	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
 }
@@ -430,10 +423,15 @@ func writeClaudeSettingsFile(dir string, data []byte) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
+	// MkdirAll leaves an existing directory's mode alone; merged settings can
+	// hold launcher credentials, so keep both the directory and file private.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(data)
 	path := filepath.Join(dir, hex.EncodeToString(sum[:16])+".json")
 	pruneClaudeSettingsFiles(dir, path, time.Now())
-	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) && os.Chmod(path, 0o600) == nil {
 		now := time.Now()
 		_ = os.Chtimes(path, now, now)
 		return path, nil
@@ -456,6 +454,7 @@ func writeClaudeSettingsFile(dir string, data []byte) (string, error) {
 	return path, nil
 }
 
+// pruneClaudeSettingsFiles deletes merged settings idle past the retention.
 func pruneClaudeSettingsFiles(dir string, keep string, now time.Time) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

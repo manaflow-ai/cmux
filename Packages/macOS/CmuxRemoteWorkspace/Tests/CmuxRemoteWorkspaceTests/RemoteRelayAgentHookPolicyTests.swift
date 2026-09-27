@@ -98,6 +98,39 @@ struct RemoteRelayAgentHookPolicyTests {
         #expect(try evaluate(parameters) != .allow, "\(key)=\(value)")
     }
 
+    @Test("admission derives the replay environment from the authorized selectors")
+    func admissionRebuildsEnvironmentFromSelectors() throws {
+        let ownerKey = RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey
+        var parameters = hookParameters(overrides: [
+            "payload": #"{"session_id":"sess-1","cwd":"/home/leo/repo","transcript_path":"/Users/leo/.ssh/id_ed25519","nested":{"transcriptPath":"/etc/passwd","keep":1}}"#,
+        ])
+        parameters[ownerKey] = owner.uuidString
+        parameters["_cmux_remote_connection_id"] = UUID().uuidString
+
+        let admitted = try #require(RemoteRelayAgentHookAdmission.queueParameters(from: parameters))
+        #expect(admitted["environment"] as? [String: String] == [
+            "CMUX_WORKSPACE_ID": owner.uuidString,
+            "CMUX_SURFACE_ID": ownedSurface.uuidString,
+        ])
+        #expect(admitted["relay_backed"] as? Bool == true)
+        #expect(admitted["caller_tty"] as? String == "/dev/pts/3")
+        #expect(admitted[ownerKey] as? String == owner.uuidString)
+        #expect(admitted["workspace_id"] == nil)
+        #expect(admitted["_cmux_remote_connection_id"] == nil)
+        #expect(admitted["payload"] as? String == #"{"nested":{"keep":1},"session_id":"sess-1"}"#)
+    }
+
+    @Test("admission rejects requests without UUID selectors")
+    func admissionRequiresSelectors() {
+        #expect(RemoteRelayAgentHookAdmission.queueParameters(
+            from: hookParameters(overrides: ["surface_id": "surface:1"])
+        ) == nil)
+        var missingWorkspace = hookParameters()
+        missingWorkspace.removeValue(forKey: "workspace_id")
+        #expect(RemoteRelayAgentHookAdmission.queueParameters(from: missingWorkspace) == nil)
+        #expect(RemoteRelayAgentHookAdmission.portablePayload("not json") == "{}")
+    }
+
     @Test("the direct barrier stays unavailable through the relay")
     func barrierIsDenied() {
         let decision = RemoteRelayAuthorizationPolicy().validate(

@@ -260,7 +260,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
            let key = RemoteRelayRoutingSchema().agentHookContractViolation(in: parameters) {
             return .denied(
                 code: "remote_relay_method_denied",
-                message: "Relay agent hook parameter '\(key)' is not permitted"
+                message: "Relay parameter '\(key)' is not permitted"
             )
         }
         if let key = RemoteRelayRoutingSchema().unsupportedKey(in: parameters, method: method) {

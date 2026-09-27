@@ -104,7 +104,7 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
         if method == "agent.hook.enqueue",
            let key = RemoteRelayRoutingSchema().agentHookContractViolation(in: params) {
-            return .deny(reason: "agent hook parameter '\(key)' is outside the relay contract")
+            return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
 
         if let malformedSelector = malformedSelector(in: params, key: nil) {

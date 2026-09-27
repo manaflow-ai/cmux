@@ -1098,30 +1098,42 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 // For TCP connections, refreshAddr is used only to recover from a stale socket_addr
 // rewrite, not to poll for relay readiness.
 func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
+	return dialSocketUntil(addr, refreshAddr, time.Time{})
+}
+
+// dialSocketUntil is dialSocket with one deadline covering the dial and the
+// relay handshake. A zero deadline keeps the default per-step timeouts.
+func dialSocketUntil(addr string, refreshAddr func() string, deadline time.Time) (net.Conn, error) {
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/") {
-		conn, connectedAddr, err := dialTCP(addr)
+		conn, connectedAddr, err := dialTCP(addr, deadline)
 		if err != nil && refreshAddr != nil && isConnectionRefused(err) {
 			if refreshedAddr := strings.TrimSpace(refreshAddr()); refreshedAddr != "" && refreshedAddr != addr {
 				addr = refreshedAddr
-				conn, connectedAddr, err = dialTCP(addr)
+				conn, connectedAddr, err = dialTCP(addr, deadline)
 			}
 		}
 		if err != nil {
 			return nil, err
 		}
 		if auth := currentRelayAuth(connectedAddr); auth != nil {
-			if err := authenticateRelayConn(conn, auth); err != nil {
+			authDeadline := deadline
+			if authDeadline.IsZero() {
+				authDeadline = time.Now().Add(5 * time.Second)
+			}
+			if err := authenticateRelayConnUntil(conn, auth, authDeadline); err != nil {
 				conn.Close()
 				return nil, err
 			}
 		}
 		return conn, nil
 	}
-	return net.Dial("unix", addr)
+	dialer := net.Dialer{Deadline: deadline}
+	return dialer.Dial("unix", addr)
 }
 
-func dialTCP(addr string) (net.Conn, string, error) {
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+func dialTCP(addr string, deadline time.Time) (net.Conn, string, error) {
+	dialer := net.Dialer{Timeout: 2 * time.Second, Deadline: deadline}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return nil, addr, err
 	}
@@ -1137,8 +1149,14 @@ func isConnectionRefused(err error) bool {
 }
 
 func authenticateRelayConn(conn net.Conn, auth *relayAuthState) error {
+	return authenticateRelayConnUntil(conn, auth, time.Now().Add(5*time.Second))
+}
+
+// authenticateRelayConnUntil completes the relay challenge before deadline and
+// clears the connection deadline on success.
+func authenticateRelayConnUntil(conn net.Conn, auth *relayAuthState, deadline time.Time) error {
 	reader := bufio.NewReader(conn)
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetDeadline(deadline)
 
 	var challenge struct {
 		Protocol string `json:"protocol"`
@@ -1198,7 +1216,14 @@ func computeRelayMAC(token []byte, relayID, nonce string, version int) []byte {
 
 // socketRoundTripV2 sends a JSON-RPC request and returns the result JSON.
 func socketRoundTripV2(socketPath, method string, params map[string]any, refreshAddr func() string) (string, error) {
-	conn, err := dialSocket(socketPath, refreshAddr)
+	return socketRoundTripV2Until(socketPath, method, params, refreshAddr, time.Time{})
+}
+
+// socketRoundTripV2Until bounds the whole request (dial, relay handshake,
+// write, and response) by deadline. A zero deadline keeps the default
+// 15-second response wait.
+func socketRoundTripV2Until(socketPath, method string, params map[string]any, refreshAddr func() string, deadline time.Time) (string, error) {
+	conn, err := dialSocketUntil(socketPath, refreshAddr, deadline)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to %s: %w", socketPath, err)
 	}
@@ -1220,11 +1245,16 @@ func socketRoundTripV2(socketPath, method string, params map[string]any, refresh
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	if !deadline.IsZero() {
+		_ = conn.SetDeadline(deadline)
+	}
 	if _, err := conn.Write(append(payload, '\n')); err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	if deadline.IsZero() {
+		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	}
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {

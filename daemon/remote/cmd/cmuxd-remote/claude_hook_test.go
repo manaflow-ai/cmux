@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,5 +275,57 @@ func TestPathWithoutCmuxShims(t *testing.T) {
 	got := pathWithoutCmuxShims("/custom/shim:/tmp/cmux-cli-shims/s:/usr/bin::/bin")
 	if got != "/usr/bin:/bin" {
 		t.Fatalf("pathWithoutCmuxShims = %q", got)
+	}
+}
+
+func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "settings")
+	data := []byte(`{"env":{"TOKEN":"x"}}`)
+	path, err := writeClaudeSettingsFile(dir, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeClaudeSettingsFile(dir, data); err != nil {
+		t.Fatal(err)
+	}
+	for target, want := range map[string]os.FileMode{path: 0o600, dir: 0o700} {
+		info, err := os.Stat(target)
+		if err != nil || info.Mode().Perm() != want {
+			t.Fatalf("%s mode = %v, want %v (%v)", target, info.Mode().Perm(), want, err)
+		}
+	}
+}
+
+func TestClaudeHookRelayGivesUpAtItsDeadline(t *testing.T) {
+	// A listener that accepts and never answers the relay handshake.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { conn.Close() })
+		}
+	}()
+	t.Setenv("CMUX_RELAY_ID", "relay-test")
+	t.Setenv("CMUX_RELAY_TOKEN", "00112233445566778899aabbccddeeff")
+	start := time.Now()
+	_, err = socketRoundTripV2Until(listener.Addr().String(), "system.ping", nil, nil, time.Now().Add(200*time.Millisecond))
+	if err == nil {
+		t.Fatal("expected a deadline error")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("round trip ignored its deadline: %v", elapsed)
 	}
 }
