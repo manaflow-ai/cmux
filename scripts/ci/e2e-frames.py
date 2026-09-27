@@ -23,6 +23,7 @@ $GITHUB_STEP_SUMMARY). Needs `gh` for runs, and xcrun, sips and ffmpeg to build.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import shutil
@@ -60,12 +61,18 @@ def parse_run_id(value: str) -> str | None:
 
 
 def download(run_id: str, repo: str, name: str, into: Path) -> bool:
-    if into.exists() and any(into.iterdir()):
+    """Download an artifact once; a marker, not a non-empty directory, says it arrived, since a
+    local fallback build writes into the same place."""
+    marker = into / f".downloaded-{name}"
+    if marker.exists():
         return True
     into.mkdir(parents=True, exist_ok=True)
     done = subprocess.run(["gh", "run", "download", run_id, "--repo", repo, "-n", name, "-D", str(into)],
                           capture_output=True, text=True)
-    return done.returncode == 0 and any(into.iterdir())
+    if done.returncode != 0:
+        return False
+    marker.touch()
+    return True
 
 
 def slug(text: str, limit: int = 48) -> str:
@@ -109,7 +116,7 @@ def actions(xcresult: Path, identifier: str) -> list[dict]:
     steps = []
     for test_run in json.loads(raw).get("testRuns", []):
         for node in test_run.get("activities", []):
-            title = node.get("title", "")
+            title = " ".join(node.get("title", "").split())  # one line, for steps.md and captions
             if NOISE.match(title):
                 continue
             for pattern, short in RENAME:
@@ -230,7 +237,7 @@ def extract_test(xcresult: Path, exported: Path, entry: dict, outcome: dict, tes
     # Screenshots and recording samples interleave by time; number them in that order.
     steps.sort(key=lambda s: s["time"])
     for number, step in enumerate(steps, start=1):
-        final = frames / f"{number:02d}-{slug(step['title'])}.jpg"
+        final = frames / f"{number:03d}-{slug(step['title'])}.jpg"
         step["path"].rename(final)
         step["number"], step["path"] = number, final
     failed_step = None
@@ -249,7 +256,8 @@ def extract_test(xcresult: Path, exported: Path, entry: dict, outcome: dict, tes
         lines.append("No screenshots: XCUITest keeps them only for failing tests; "
                      "attach a .keepAlways capture to see a pass.")
     (test_dir / "steps.md").write_text("\n".join(lines) + "\n")
-    return {"test": identifier, "result": outcome["result"], "failures": outcome["failures"],
+    return {"test": identifier, "result": outcome["result"],
+            "failures": [f.splitlines()[0] for f in outcome["failures"] if f],
             "steps": [{"number": s["number"], "title": s["title"], "frame": str(s["path"])} for s in steps],
             "failed_step": failed_step, "sheets": [str(p) for p in build_sheets(steps, test_dir)],
             "dir": str(test_dir)}
@@ -312,12 +320,13 @@ def markdown(summary: list[dict]) -> str:
              "`scripts/ui-test <this run's URL>` downloads it.", ""]
     for item in sorted(summary, key=lambda i: i["result"] == "Passed"):
         opened = " open" if item["result"] != "Passed" else ""
-        lines.append(f"<details{opened}><summary><b>{item['result']}</b> <code>{item['test']}</code></summary>\n")
+        lines.append(f"<details{opened}><summary><b>{html.escape(item['result'])}</b> "
+                     f"<code>{html.escape(item['test'])}</code></summary>\n")
         for failure in item["failures"]:
-            lines.append(f"Failure: `{failure.splitlines()[0][:300] if failure else ''}`\n")
+            lines.append(f"Failure: <code>{html.escape(failure[:300])}</code>\n")
         for step in item["steps"][:80]:
             mark = " <b>&lt;- failed here</b>" if step["number"] == item["failed_step"] else ""
-            lines.append(f"{step['number']}. {step['title']}{mark}")
+            lines.append(f"{step['number']}. {html.escape(step['title'])}{mark}")
         lines.append("\n</details>\n")
     return "\n".join(lines) + "\n"
 
@@ -350,7 +359,7 @@ def main() -> int:
         xcresults = [local] if local.suffix == ".xcresult" else sorted(local.rglob("*.xcresult"))
         summary = build(xcresults, out, args.test)
         shutil.rmtree(out / ".attachments", ignore_errors=True)
-        if args.summary:
+        if args.summary and summary:
             with args.summary.open("a") as handle:
                 handle.write(markdown(summary))
 

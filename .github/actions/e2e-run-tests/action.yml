@@ -684,13 +684,13 @@ runs:
         python3 "$script" "$results" --out "$RUNNER_TEMP/ui-frames" --summary "$GITHUB_STEP_SUMMARY" || true
 
     - name: Upload UI test steps
-      if: ${{ always() && inputs.target == 'cmuxUITests' && hashFiles(format('{0}/ui-frames/**/steps.md', runner.temp)) != '' }}
+      # No hashFiles gate: it ignores paths outside the workspace, and
+      # runner.temp is outside it. if-no-files-found covers an empty build.
+      if: ${{ always() && inputs.target == 'cmuxUITests' }}
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ui-frames
-        path: |
-          ${{ runner.temp }}/ui-frames
-          !${{ runner.temp }}/ui-frames/.download
+        path: ${{ runner.temp }}/ui-frames
         if-no-files-found: ignore
         retention-days: 14
 
