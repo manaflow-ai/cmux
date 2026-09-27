@@ -681,9 +681,10 @@ def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, An
     STAMP the root's kept build (None: none, the cold cost), NUMBER the job's pull request, MODEL hook_model()'s.
     OWN (the job's own `paths` and features()) is what the hook leaves out as the same for every root; with it
     the seconds are the whole job's prediction rather than a lower bound. A kept build of the same pull
-    request has those files already, so there they count only for a package interface or hot file, which a
-    re-push usually touches again (14 of 23 such starts rebuilt on 2026-09-26/27). Without OWN this is the
-    hook's cost."""
+    request has those files already, so there they count only for a hot file, or a package interface, which a
+    re-push often touches again (14 of 23 such starts rebuilt on 2026-09-26/27). That start still beats every
+    other one for a job with its own package interface change (they all rebuild), so it ranks far, not
+    rebuild. Without OWN this is the hook's cost."""
     if stamp is None:
         return max(model["tiers"].values()) + 1.0, "cold", -1
     same = isinstance(stamp.get("pr"), int) and stamp.get("pr") == number
@@ -701,14 +702,18 @@ def hook_root_cost(changes: tuple[set[str], bool] | None, stamp: Mapping[str, An
     package = package or (kept_package and interface is not False)
     changed = files | kept_set
     own_paths: set[str] = set()
+    own_package = False
     if own is not None:
         own_paths = {str(path) for path in own.get("paths") or [] if isinstance(path, str) and app_swift(path)}
-        package = package or bool(own.get("package_swift_files") and own.get("package_interface") is not False)
+        own_package = bool(own.get("package_swift_files") and own.get("package_interface") is not False)
         if not same:  # a kept build of this pull request has its files already: they count only as a kind
             changed |= own_paths
+            package = package or own_package
     count = len(changed) + extra
     hot = bool((changed | own_paths) & set(model["hot_files"]))
     name = ("rebuild" if package or hot else "far" if count > model["near_app_swift_files"] else "near")
+    if same and own_package and name == "near":
+        name = "far"  # the kept build has the package change unless this push touched it again
     # Every root starts from its kept build: that tier's kept-start p50 when the model has one.
     return (model.get("kept") or {}).get(name, model["tiers"][name]), name, count
 
@@ -746,6 +751,13 @@ def mini_roots(warm: Mapping[str, Any], member: Callable[[str], str]) -> dict[st
     return {mini: roots for mini, (_, roots) in newest.items()}
 
 
+def own_parked(entry: Mapping[str, Any], pr_number: int | None) -> list[Mapping[str, Any]]:
+    """A root's parked builds (owned_build_state.py PR slots) of pull request PR_NUMBER."""
+    parked = entry.get("parked")
+    return [item for item in parked if isinstance(item, Mapping) and pr_number is not None
+            and item.get("pr") == pr_number] if isinstance(parked, list) else []
+
+
 def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
                    minis: Mapping[str, Sequence[Mapping[str, Any]]],
                    changes: Callable[[str], tuple[set[str], bool] | None], pr_number: int | None,
@@ -756,7 +768,7 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
 
     Every online `root` runner is a candidate. Its mini's roots (MINIS, the
     stamps admission publishes) each cost hook_root_cost() with the job's OWN
-    files. The hook hands the job the cheapest free root and each busy root
+    files, or by its parked build of this pull request, which admission swaps in. The hook hands the job the cheapest free root and each busy root
     runner of the mini holds one, so a runner costs the root ranked after the
     busy ones (the cheapest on an idle mini; for a busy runner, the one its
     job frees). A mini without stamps costs LEGACY[runner] (route_admission()'s
@@ -792,6 +804,12 @@ def distance_route(runners: Sequence[Mapping[str, Any]], root: str, *,
             stamp = entry if entry.get("merged_onto") or entry.get("pr") else None
             cost = hook_root_cost(changes(str(entry.get("merged_onto") or "")) if stamp else None, stamp,
                                   pr_number, hook, own)
+            # This pull request's build parked beside the root: admission's `check` swaps it in (and the
+            # hook ranks the root by it) unless the kept build is a main build, which `check` never parks.
+            parked = own_parked(entry, pr_number)
+            if parked and (stamp is None or entry.get("pr")):
+                cost = hook_root_cost(changes(str(parked[0].get("merged_onto") or "")), parked[0], pr_number,
+                                      hook, own)
             costs.append((*cost, number if isinstance(number, int) and not isinstance(number, bool) else 0))
         ranked[mini] = sorted(costs, key=lambda item: (item[0], item[2], item[3]))
     rows: list[dict[str, Any]] = []
@@ -860,8 +878,12 @@ def picker_distance_route(runners: Sequence[Mapping[str, Any]], root: str, *, me
     _deadline[0] = time.monotonic() + DISTANCE_BUDGET_SECONDS
     try:
         own_files = pull_request_files(workspace, base, fetch=False) if base else None
+        parked_bases = {str(item.get("merged_onto") or "") for roots in minis.values() for entry in roots
+                        for item in own_parked(entry, number)}
         bases = sorted({str(entry.get("merged_onto") or "") for roots in minis.values() for entry in roots}
-                       - {"", base})[:MAX_ROUTE_BASES]
+                       - {"", base} - parked_bases)
+        # This pull request's parked bases first, so the cap never drops them.
+        bases = [*sorted(parked_bases - {"", base}), *bases][:MAX_ROUTE_BASES]
         if WARM_SHA.fullmatch(base):
             if bases:
                 fetch_bases(workspace, bases)

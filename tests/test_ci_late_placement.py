@@ -61,15 +61,19 @@ class Decide(unittest.TestCase):
         slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
         # Admission ran on Blacksmith (the picker named no gui runner): the slots still route GUI jobs.
         placed, why = late.decide(dict(FULL, OWNED_SLOTS=slots), runners)
-        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui, "cli-product": ROOT_STD})
+        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
+        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
         self.assertIn(f"2 idle `{gui}`", why)
         # No gui count yet: the GUI jobs take the root label as before.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
         self.assertEqual(late.decide(FULL, runners)[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
-        # No idle gui runner: the GUI jobs stay where the picker put them.
-        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {"cli-product": ROOT_STD})
+        # No idle gui runner: the gui-token jobs stay where the picker put them.
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0], {})
+        # Enough gui runners: cli-product-tests takes one, never the root label.
+        many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
+        self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
 
     def test_no_idle_root_changes_nothing(self):
         self.assertEqual(late.decide(FULL, roots(idle=0, busy=16))[0], {})

@@ -315,6 +315,15 @@ loaded mini, then the name. The picker's candidates, pick and predicted
 seconds go to admission's record (`route.picker`) through the
 `admission_route` output.
 
+When `keep` replaces another pull request's build, it parks that build in
+`pr-builds/pr-<n>` beside the root's store (a rename; at most 2 per root, for
+6 h, and only with 140 GiB free). Admission's
+`check` for that pull request (`CMUX_OWNED_PR`) swaps it back in,
+glaeda's hook ranks the root by it, and `roots` publishes it as `parked`, so
+distance routing sends a re-push to the mini holding its own build. That
+start ranks far even when the pull request changes a package interface,
+where every other start rebuilds the app.
+
 The cost model is `scripts/ci/warm-distance-model.json`, fitted by
 `scripts/ci/warm_distance.py fit` from the line every owned admission appends
 to `/Users/Shared/cmux-build-fleet/ci/admissions.jsonl` on its mini (start,
@@ -457,6 +466,16 @@ every other attempt keeps the macOS 15 pool and pin. Like the other side
 lanes it takes the pool's side label (`pr_side_runner`) when the picker names
 one, so it never holds a mini's root runner. With it a full suite without the
 helper holds 12 machines at peak (`MAX_RUN_JOBS`).
+
+The side lanes (`claude-wrapper`, `remote-daemon`, `swift-package-tests`)
+prefer the light minis. On attempt 1 of a same-repository pull request whose
+pick is an owned pool, when at least as many light side runners
+(`glaeda-side-light-xcode-<version>`) are idle as the run has side lanes,
+`pr_side_runner` names the light side label, and the picked pool counts
+only admission and what follows it (`pr_runner_pool.light_side_lanes()`).
+Otherwise they take the picked pool's side label as before. Giving the light
+pool no machines beyond its root runners in `CI_OWNED_POOL_SLOTS` turns this
+off.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
