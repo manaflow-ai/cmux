@@ -22,7 +22,9 @@ scripts/run-e2e.sh --scenario dogfood/scenarios/sidebar-and-chrome-tour.json --r
   on or after the one that added it).
 - Tours of one commit run side by side; each dispatch gets its own concurrency
   group.
-- Until this lane's workflow input is on `main`, add `--workflow-ref <branch>`.
+- An `Expected Failure` with 0 frames means the runner could not bring the app
+  to the foreground, and XCUITest ended the test inside `launch()`. It happens
+  on some Blacksmith runners; dispatch the tour again.
 
 ## Write a tour
 
