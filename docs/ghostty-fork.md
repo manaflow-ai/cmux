@@ -12,6 +12,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Prompt input caret stops and selection
+
+- Branch: `cmux/prompt-input-selection` ([manaflow-ai/ghostty#235](https://github.com/manaflow-ai/ghostty/pull/235))
+- Commits: `218d80ead`, `d3edc8ede`; merged to fork `main` as `1015e149c`
+- Summary: `ghostty_surface_prompt_input` reports the OSC 133 shell input the
+  cursor is editing (length and caret in caret stops, plus the selection when it
+  lies wholly inside the input), and `ghostty_surface_select_prompt_input`
+  selects a range of it without writing a clipboard. A caret stop is an `.input`
+  cell holding text, wide spacers skipped, so one stop is one Left/Right step
+  for zle or readline. cmux's `terminal.promptSelection` uses them for
+  text-field selection at the prompt. Both refuse the alternate screen, a
+  running command, a line with no `.prompt` cell before its input (fzf
+  `--height` and completion menus draw in input mode), and a line holding a
+  multi-codepoint grapheme.
+- Coverage: seven `Screen: promptInput ...` Zig tests, run by
+  `build-ghosttykit.yml` before packaging (`-Dtest-filter="promptInput"`).
+- Conflict note: everything lives in new functions (`Screen.promptInput`,
+  `Screen.promptInputSelection`, `Surface.promptInput`,
+  `Surface.selectPromptInput`, and two `CAPI` exports). Only the cursor's
+  soft-wrapped line counts; a hard newline in a multi-line buffer takes no
+  cell, so offsets across it would not map onto arrow keys.
+
 ### Unfocused surface frame pacing
 
 - Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
