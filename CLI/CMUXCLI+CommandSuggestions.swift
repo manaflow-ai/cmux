@@ -115,6 +115,7 @@ extension CMUXCLI {
         "help",
         "hooks",
         "identify",
+        "import",
         "is-webview-focused",
         "ios",
         "join-pane",
