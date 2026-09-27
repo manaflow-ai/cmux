@@ -170,7 +170,7 @@ class CrashTests(unittest.TestCase):
         aborted = "Aborted by the app-host restart budget: xcodebuild restarted the app host 3 times\n"
         self.assertEqual(MODULE.host_crash(aborted).tests, [])
 
-    def test_a_crash_an_earlier_run_had_is_not_new(self):
+    def test_a_crash_is_recurring_only_when_an_earlier_run_showed_every_signature(self):
         same = MODULE.HostCrash("3", signatures=[CRASH_SIGNATURE])
         other = MODULE.HostCrash("3", signatures=["Fatal error: something else"])
         unknown = MODULE.HostCrash("3")
@@ -179,9 +179,74 @@ class CrashTests(unittest.TestCase):
         self.assertIsNone(MODULE.prior_crash(crash, []))
         self.assertIsNone(MODULE.prior_crash(crash, [(earlier_run, other)]))
         self.assertEqual(MODULE.prior_crash(crash, [(earlier_run, other), (earlier_run, same)]), (earlier_run, same))
-        # A side with no signature cannot be told apart, so it is not called new.
-        self.assertEqual(MODULE.prior_crash(crash, [(earlier_run, unknown)]), (earlier_run, unknown))
-        self.assertEqual(MODULE.prior_crash(unknown, [(earlier_run, other)]), (earlier_run, other))
+        # No signature on either side cannot be compared, so it is new.
+        self.assertIsNone(MODULE.prior_crash(crash, [(earlier_run, unknown)]))
+        self.assertIsNone(MODULE.prior_crash(unknown, [(earlier_run, same)]))
+        # A shard that also crashed a new way is not excused by the known one.
+        both = MODULE.HostCrash("7", signatures=[CRASH_SIGNATURE, "Fatal error: something new"])
+        self.assertIsNone(MODULE.prior_crash(both, [(earlier_run, same)]))
+        self.assertEqual(MODULE.prior_crash(both, [(earlier_run, same), (earlier_run, MODULE.HostCrash(
+            "1", signatures=["Fatal error: something new"]))]), (earlier_run, same))
+
+    def test_only_the_test_in_flight_is_the_crash_victim(self):
+        # The accounting lists every failure of a restarted batch; a plain
+        # assertion failure printed its own failed line and stays a regression.
+        log = CRASH_LOG.replace(
+            "2026-09-27T09:07:36.2652870Z",
+            "2026-09-27T09:07:30.0000000Z \u25c7 Test plainFailure() started.\n"
+            "2026-09-27T09:07:30.1000000Z \u2718 Test plainFailure() failed after 0.1 seconds with 1 issue.\n"
+            "2026-09-27T09:07:36.2652870Z", 1,
+        ).replace(
+            "\tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()\n",
+            "\tRecoverableMainWindowLifecycleTests.closingRecoveredWindowUsesNormalCloseFinalization()\n"
+            "2026-09-27T09:07:56.4282300Z \tRecoverableMainWindowLifecycleTests.plainFailure()\n", 1,
+        ).replace(
+            "recorded verdicts: 1 new, 0 known-main; typed test cases: 845",
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/plainFailure()\n"
+            "recorded verdicts: 2 new, 0 known-main; typed test cases: 845", 1,
+        )
+        crash = MODULE.host_crash(log, (), "7", "https://job/7")
+        self.assertEqual(crash.tests, [VICTIM])
+        plain = "RecoverableMainWindowLifecycleTests/plainFailure()"
+        failures = {VICTIM: ["https://job/7"], plain: ["https://job/7"]}
+        finding = MODULE.CrashFinding(crash, (run(id=1), MODULE.HostCrash("2", signatures=[CRASH_SIGNATURE])))
+        regressions, attributed, crashed = MODULE.split_crashes(failures, [finding])
+        self.assertEqual((list(regressions), list(attributed), crashed), ([plain], [plain], {}))
+        suite = pr(9, edited={"RecoverableMainWindowLifecycleTests"})
+        attributions = {plain: MODULE.suspects_for(plain, [suite])}
+        self.assertEqual([p.number for p, _, _, _ in MODULE.comment_plan(attributed, attributions)], [9])
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=run(id=1, head_sha=PREV), failures=regressions,
+            attributions=attributions, prs=[suite], direct=[], commits=[], crashes=[finding],
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual(data["tests"], [{"test": plain, "suspects": [9], "how": "only pull request in the range; edits the suite"}])
+
+    def test_a_display_name_maps_to_its_function_through_the_sources(self):
+        source = (
+            '@Suite struct RecoverableMainWindowLifecycleTests {\n'
+            '    @Test("Closing a recovered window uses normal close finalization")\n'
+            '    @MainActor\n    func closingRecoveredWindowUsesNormalCloseFinalization() async {}\n'
+            '    @Test("Shared") func a() {}\n}\n'
+        )
+        names = MODULE.swift_test_names([source, '@Test("Shared") func b() {}'])
+        self.assertEqual(names, {"Closing a recovered window uses normal close finalization": "closingRecoveredWindowUsesNormalCloseFinalization"})
+        # Two unexplained failures and one restart: the log cannot say which
+        # one the app died under without the display-name map, so neither is.
+        two = CRASH_LOG.replace(
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()",
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/closingRecoveredWindowUsesNormalCloseFinalization()\n"
+            "RATCHET_NEW_FAILURE RecoverableMainWindowLifecycleTests/silentFailure()", 1,
+        )
+        self.assertEqual(MODULE.host_crash(two).tests, [])
+        self.assertEqual(MODULE.host_crash(two, display_names=names).tests, [VICTIM])
+        # An XCTest in flight is named by the live log itself.
+        xctest = two.replace(
+            '\u25c7 Test "Closing a recovered window uses normal close finalization" started.',
+            "Test Case '-[cmuxTests.RecoverableMainWindowLifecycleTests silentFailure]' started.",
+        )
+        self.assertEqual(MODULE.host_crash(xctest).tests, ["RecoverableMainWindowLifecycleTests/silentFailure()"])
 
 
 class BaselineTests(unittest.TestCase):
@@ -394,13 +459,13 @@ class CrashReportTests(unittest.TestCase):
         self.assertNotIn("—", text)
 
     def test_only_the_crash_left_says_so(self):
-        finding = MODULE.CrashFinding(self.crash, (self.previous, MODULE.HostCrash("2")))
+        finding = MODULE.CrashFinding(self.crash, (self.previous, MODULE.HostCrash("2", signatures=[CRASH_SIGNATURE])))
         regressions, attributed, _ = MODULE.split_crashes({VICTIM: ["https://job/7"]}, [finding])
         text = MODULE.issue_section(
             repo=REPO, run=run(), previous=self.previous, failures=regressions, attributions={},
             prs=[], direct=[], crashes=[finding],
         )
-        self.assertIn("had an app-host restart (shard 2)", text)
+        self.assertIn("had the same crash (shard 2)", text)
         self.assertIn("No other app-host test fails here", text)
         self.assertNotIn("Pull requests merged", text)
 
@@ -425,6 +490,13 @@ class CrashReportTests(unittest.TestCase):
             failures=attributed, others=others, crashed=crashed,
         )
         self.assertIn("newly fail or crash the app host", body)
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures={}, attributions=attributions,
+            prs=[reaches], direct=[], commits=[], crashes=[finding], crashed=list(crashed),
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual([(entry["test"], entry.get("crash")) for entry in data["tests"]], [(VICTIM, True)])
         self.assertIn(
             f"- `{VICTIM}` (the app host crashed while running it: `{CRASH_SIGNATURE}`; "
             "only pull request in the range; edits the suite)", body,

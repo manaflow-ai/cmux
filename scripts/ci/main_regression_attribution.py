@@ -15,13 +15,16 @@ and tests the skipped runs saw failing are not new either.
 
 A batch whose app host xcodebuild restarted (the app crashed, exited or hit a
 test timeout) records the test that was running as failed. That test did not
-regress: the app died under it. Such a failure is reported as "the app host
-crashed while running it", with the crash signature the log shows (the
-objc, Swift or uncaught-exception message before the backtrace), or the
-diagnostics artifact to read when the log has none. When the baseline or a
-run skipped on the way to it also restarted the app host, with the same
-signature or one that cannot be compared, the crash is pre-existing: it is
-listed once as recurring and pings nobody, whichever test it hit this time.
+regress: the app died under it. The test in flight at the restart (started in
+the live log, never finished) is reported as "the app host crashed while
+running it", with the crash signature the log shows (the objc, Swift or
+uncaught-exception message before the backtrace), or the diagnostics
+artifact to read when the log has none. Every other failure of that batch is
+an ordinary failure. When the baseline or a run skipped on the way to it
+already showed every signature of the crash, the crash is pre-existing: it
+is listed once as recurring and pings nobody, whichever test it hit this
+time. A crash with no signature, or with a signature no earlier run showed,
+is new.
 
 Each new failure is attributed to the commits between the two runs' head
 SHAs, mapped to the pull requests merged into main by those commits. Each
@@ -41,10 +44,10 @@ request and its failing test set, and once per commit range. A test tied between
 MAX_PINGED_SUSPECTS pull requests is listed in the issue only. The section
 ends with a hidden data marker (DATA_PREFIX): the failures, their suspects,
 and the commits in the range that can change an app-host test's outcome.
-main_regression_bisect.py reads it to rerun and bisect each failure; tests
-the app host crashed under are left out, since rerunning one alone says
-nothing about a crash an earlier test may have set up. Nothing is reverted or
-re-run here.
+main_regression_bisect.py reads it to rerun and bisect each failure. A new
+crash's victims are included with `"crash": true`, so a crash from a pull
+request the ranking missed is still bisected; a recurring crash's are not.
+Nothing is reverted or re-run here.
 """
 
 from __future__ import annotations
@@ -112,6 +115,13 @@ CRASH_MESSAGE_RES = (
 )
 # The Swift runtime backtracer's header for a crashed process.
 PROGRAM_CRASHED_RE = re.compile(r"^\*\*\* Program crashed: (.+?)(?: at 0x[0-9a-fA-F]+)? \*\*\*$")
+# Live lines that start or end a test: XCTest's, then Swift Testing's.
+XCTEST_LIVE_RE = re.compile(r"^Test Case '-\[(?:\w+\.)?(\w+) (\w+)\]' (started|passed|failed|skipped)\b")
+SWIFT_TESTING_LIVE_RE = re.compile(
+    r'^(\u25c7|\u2714|\u2718|\u2799|\u279c) Test ("(?:[^"\\]|\\.)*"|\S+) (started|passed|failed|skipped)\b'
+)
+SWIFT_TEST_ATTRIBUTE_RE = re.compile(r'@Test\s*\(\s*"((?:[^"\\\n]|\\.)*)"')
+SWIFT_FUNC_RE = re.compile(r"\bfunc\s+(\w+)")
 # How many lines above that header the message may be.
 CRASH_MESSAGE_WINDOW = 12
 HEX_RE = re.compile(r"0x[0-9a-fA-F]+")
@@ -224,21 +234,115 @@ def signature(text: str) -> str:
     return " ".join(first_sentence.split())[:MAX_SIGNATURE_CHARS]
 
 
-def host_crash(log_text: str, known: Iterable[str] = (), shard: str = "", job_url: str = "") -> HostCrash | None:
+def swift_test_names(sources: Iterable[str]) -> dict[str, str]:
+    """Swift Testing display name -> function name, over cmuxTests/ sources.
+
+    The live log names a Swift Testing test by its display name when it has
+    one; the accounting names it `Suite/function()`. A display name two
+    functions share maps to neither.
+    """
+    names: dict[str, str] = {}
+    shared: set[str] = set()
+    for text in sources:
+        for match in SWIFT_TEST_ATTRIBUTE_RE.finditer(text):
+            function = SWIFT_FUNC_RE.search(text, match.end(), match.end() + 600)
+            if not function:
+                continue
+            display = match.group(1)
+            if display in names and names[display] != function.group(1):
+                shared.add(display)
+            names[display] = function.group(1)
+    return {display: function for display, function in names.items() if display not in shared}
+
+
+def function_of(test: str) -> str:
+    """`name` for a `Suite/name(...)` or `Suite/name` test id."""
+    return test.rsplit("/", 1)[-1].split("(", 1)[0]
+
+
+def live_test(line: str, display_names: Mapping[str, str]) -> tuple[str, str] | None:
+    """(key, state) for a live xcodebuild line that starts or ends a test.
+
+    The key is a `Suite/testName` id for XCTest and a bare function name for
+    Swift Testing, whose live lines do not name the suite.
+    """
+    xctest = XCTEST_LIVE_RE.match(line)
+    if xctest:
+        return f"{xctest.group(1)}/{xctest.group(2)}", xctest.group(3)
+    swift = SWIFT_TESTING_LIVE_RE.match(line)
+    if swift and swift.group(2) != "run":
+        name = swift.group(2)
+        if name.startswith('"'):
+            name = display_names.get(name[1:-1], name)
+        return name.split("(", 1)[0], swift.group(3)
+    return None
+
+
+def matches(key: str, test: str) -> bool:
+    """True when a live-log key names the accounting's test id."""
+    if "/" in key:
+        return test == key or test.split("(", 1)[0] == key
+    return function_of(test) == key
+
+
+def in_flight_victims(candidates: list[str], in_flight: list[str], failed: set[str], restarts: int) -> list[str]:
+    """The failures one restarted batch recorded only because the app host died.
+
+    xcodebuild records the test running at each restart as failed, and every
+    genuine failure of the batch as failed too. A candidate the live log saw
+    start and never finish is the crash's. When the live log cannot name it
+    (a display name no source maps), the failures with no failed line of
+    their own are the crash's only if there are exactly as many as restarts
+    left unexplained; otherwise none are, and they stay ordinary failures.
+    """
+    victims = [test for test in candidates if any(matches(key, test) for key in in_flight)]
+    unexplained = restarts - len(victims)
+    leftover = [
+        test for test in candidates
+        if test not in victims and not any(matches(key, test) for key in failed)
+    ]
+    if unexplained > 0 and len(leftover) == unexplained:
+        victims += leftover
+    return victims
+
+
+def host_crash(
+    log_text: str,
+    known: Iterable[str] = (),
+    shard: str = "",
+    job_url: str = "",
+    display_names: Mapping[str, str] | None = None,
+) -> HostCrash | None:
     """The app-host restarts one shard log shows, or None when its app host never restarted.
 
-    A failure counts as the crash's when the accounting recorded it under
-    RESTARTED_VERDICT, or xcodebuild listed it under "Failing tests:" after
-    restarting the app host in the same batch. The signature is the message
-    printed within CRASH_MESSAGE_WINDOW lines above the backtracer's "Program
-    crashed" header, else that header's reason; with no header, the last
-    message before the restart.
+    A batch's failures are what xcodebuild lists under "Failing tests:" and
+    what the accounting records under RESTARTED_VERDICT. Of those, only the
+    test in flight at a restart is the crash's (in_flight_victims); the rest
+    are ordinary failures. The signature is the message printed within
+    CRASH_MESSAGE_WINDOW lines above the backtracer's "Program crashed"
+    header, else that header's reason; with no header, the last message
+    before the restart.
     """
     known = set(known)
+    display_names = display_names or {}
     crash = HostCrash(shard=shard, job_url=job_url)
-    restarted = pending = in_block = in_verdicts = backtraced = False
+    restarted = in_block = in_verdicts = backtraced = False
     message: str | None = None
     since_message = 0
+    # One xcodebuild batch: tests running now, tests running at each restart,
+    # tests that printed a failure, the failures it recorded, its restarts.
+    running: list[str] = []
+    in_flight: list[str] = []
+    failed: set[str] = set()
+    candidates: list[str] = []
+    restarts = 0
+
+    def close_batch() -> None:
+        nonlocal running, in_flight, failed, candidates, restarts
+        if restarts:
+            crash.tests.extend(in_flight_victims(list(dict.fromkeys(candidates)), in_flight, failed, restarts))
+        running, in_flight, failed, candidates, restarts = [], [], set(), [], 0
+
     for raw in log_text.splitlines():
         line = clean(raw)
         stripped = line.strip()
@@ -256,20 +360,35 @@ def host_crash(log_text: str, known: Iterable[str] = (), shard: str = "", job_ur
             if signature(text) not in crash.signatures:
                 crash.signatures.append(signature(text))
         if XCODEBUILD_INVOCATION in line:
-            pending = False
-        if RESTART_MARKER in line or RESTART_BUDGET_ABORT in line:
+            close_batch()
+        live = live_test(stripped, display_names)
+        if live:
+            key, state = live
+            if state == "started":
+                running.append(key)
+            else:
+                if key in running:
+                    running.remove(key)
+                if state == "failed":
+                    failed.add(key)
+        if RESTART_BUDGET_ABORT in line:
+            restarted = True
+        if RESTART_MARKER in line:
             if not backtraced and message and signature(message) not in crash.signatures:
                 crash.signatures.append(signature(message))
-            restarted = pending = True
+            restarted = True
+            restarts += 1
+            in_flight += running
+            running = []
             backtraced, message = False, None
         if stripped == FAILING_TESTS_HEADER:
             in_block = True
             continue
         if in_block:
             test = failing_test_id(line)
-            if test and pending:
-                crash.tests.append(test)
-            elif not test:
+            if test:
+                candidates.append(test)
+            else:
                 in_block = False
         if stripped.startswith(RESTARTED_VERDICT):
             restarted = in_verdicts = True
@@ -277,9 +396,11 @@ def host_crash(log_text: str, known: Iterable[str] = (), shard: str = "", job_ur
         if in_verdicts:
             verdict = RATCHET_RE.match(stripped)
             if verdict:
-                crash.tests.append(verdict.group(1))
+                candidates.append(verdict.group(1))
             elif not stripped.startswith("RATCHET_KNOWN_FAILURE "):
-                in_verdicts = pending = False
+                in_verdicts = False
+                close_batch()
+    close_batch()
     if not restarted:
         return None
     crash.tests = [test for test in dict.fromkeys(crash.tests) if test not in known]
@@ -289,16 +410,21 @@ def host_crash(log_text: str, known: Iterable[str] = (), shard: str = "", job_ur
 def prior_crash(
     crash: HostCrash, earlier: Iterable[tuple[Mapping[str, object], HostCrash]],
 ) -> tuple[Mapping[str, object], HostCrash] | None:
-    """The newest earlier restart that makes this one not new.
+    """An earlier restart that makes this one not new, or None.
 
-    The same signature, or one that cannot be compared because a side shows
-    none. Two different known signatures are two crashes, and the older one
-    does not excuse the newer.
+    Only a crash whose every signature an earlier run already showed is
+    recurring. A crash with no signature cannot be compared, so it is new,
+    and so is a shard that crashed a second, new way besides a known one:
+    scoring keeps a new crash from pinging a pull request its diff does not
+    reach.
     """
-    for run, other in earlier:
-        if not crash.signatures or not other.signatures or set(crash.signatures) & set(other.signatures):
-            return run, other
-    return None
+    earlier = [(run, other) for run, other in earlier if other.signatures]
+    if not crash.signatures:
+        return None
+    seen = {sig for _, other in earlier for sig in other.signatures}
+    if not set(crash.signatures) <= seen:
+        return None
+    return next((run, other) for run, other in earlier if crash.signatures[0] in other.signatures)
 
 
 def crash_victims(findings: Iterable[CrashFinding]) -> dict[str, CrashFinding]:
@@ -456,7 +582,7 @@ def split_crashes(
     """(regressions, failures to attribute, attributed tests a crash cut short) among new failures.
 
     A test a crash cut short is reported with the crash, not as a
-    regression, and is not bisected. A new crash's tests are still
+    regression; only a new crash's victims are bisected. A new crash's tests are still
     attributed, so a pull request whose diff reaches the suite hears about
     it; a recurring crash's tests are attributed to nobody.
     """
@@ -534,7 +660,15 @@ def data_marker(
     attributions: Mapping[str, tuple[list[PullRequest], str]],
     prs: list[PullRequest],
     commits: list[str],
+    crashed: Iterable[str] = (),
 ) -> str:
+    """The hidden JSON main_regression_bisect.py reads: regressions, then new crashes' victims.
+
+    A victim of a crash no earlier run had carries `"crash": true`, so a crash
+    a pull request the scorer missed caused is still bisected. A recurring
+    crash's victims are left out: every commit in the range would reproduce it.
+    """
+    crashed = [test for test in crashed if test not in failures]
     bisected = commits if len(commits) <= MAX_BISECT_COMMITS else None
     listed = set(bisected or ())
     data = {
@@ -549,8 +683,9 @@ def data_marker(
                 "test": test,
                 "suspects": [pr.number for pr in attributions[test][0]],
                 "how": attributions[test][1],
+                **({"crash": True} if test in crashed else {}),
             }
-            for test in list(failures)[:MAX_LISTED_TESTS]
+            for test in [*failures, *crashed][:MAX_LISTED_TESTS]
         ],
         "prs": {pr.merge_sha: pr.number for pr in prs if pr.merge_sha in listed},
         "commits": bisected,
@@ -595,10 +730,9 @@ def crash_lines(
         line = f"- {what} in {where}, while running {running}"
         if recurring:
             prior_run, prior = next(finding.prior for finding in group if finding.prior)
-            same = "the same crash" if sig and sig in prior.signatures else "an app-host restart"
             line += (
                 f". Not new: [an earlier run]({prior_run.get('html_url')}) at "
-                f"`{short(str(prior_run.get('head_sha') or ''))}` had {same} (shard {prior.shard})."
+                f"`{short(str(prior_run.get('head_sha') or ''))}` had the same crash (shard {prior.shard})."
             )
         else:
             verdicts = [f"`{test}` {named(attributions[test])}" for test in tests if test in attributions]
@@ -619,12 +753,13 @@ def issue_section(
     no_baseline: Iterable[str] = (),
     commits: list[str] | None = None,
     crashes: Iterable[CrashFinding] = (),
+    crashed: Iterable[str] = (),
 ) -> str:
     """The tracking issue's section for one red run.
 
     `failures` are the regressions; tests an app-host crash cut short are
     listed under `crashes` instead, with their suspects in `attributions`
-    when the crash is new.
+    when the crash is new; `crashed` names those, for the bisect data.
     """
     if previous is None:
         return "### New failures\n\nNo earlier full-suite run with every app-host shard finished to compare against."
@@ -668,6 +803,7 @@ def issue_section(
     if commits is not None:
         lines += ["", data_marker(
             run=run, previous=previous, failures=failures, attributions=attributions, prs=prs, commits=commits,
+            crashed=crashed,
         )]
     return "\n".join(lines)
 
@@ -785,6 +921,7 @@ def run_jobs(repo: str, run_id: object) -> list[dict]:
 
 def job_failures(
     repo: str, jobs: list[Mapping[str, object]], known: Iterable[str],
+    display_names: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, set[str]], set[str], list[HostCrash]]:
     """(failing test -> job URLs, failing test -> shards, shards that did not grade every test,
     shards whose app host restarted) for one run."""
@@ -803,7 +940,7 @@ def job_failures(
         for test in log_failures(log, known):
             failures.setdefault(test, []).append(str(job.get("html_url") or ""))
             shards.setdefault(test, set()).add(shard_of(job))
-        crash = host_crash(log, known, shard_of(job), str(job.get("html_url") or ""))
+        crash = host_crash(log, known, shard_of(job), str(job.get("html_url") or ""), display_names)
         if crash is not None:
             crashes.append(crash)
     return failures, shards, ungraded, crashes
@@ -981,7 +1118,10 @@ def command_report(args: argparse.Namespace) -> int:
         print(f"Run {run['id']} did not finish every app-host shard; nothing to compare.")
         return 0
     known = set(json.loads(CATALOG.read_text(encoding="utf-8")).get("tests") or {})
-    current, current_shards, _, crashes = job_failures(args.repo, jobs, known)
+    display_names = swift_test_names(
+        path.read_text(encoding="utf-8", errors="replace") for path in (args.root / "cmuxTests").rglob("*.swift")
+    )
+    current, current_shards, _, crashes = job_failures(args.repo, jobs, known, display_names)
 
     # The baseline is the newest earlier run whose app-host shards all
     # finished. A shard of it that stopped before grading every test cannot
@@ -1006,7 +1146,7 @@ def command_report(args: argparse.Namespace) -> int:
         failed: dict[str, list[str]] = {}
         ungraded: set[str] = set()
         if candidate.get("conclusion") == "failure":
-            failed, _, ungraded, candidate_crashes = job_failures(args.repo, candidate_jobs, known)
+            failed, _, ungraded, candidate_crashes = job_failures(args.repo, candidate_jobs, known, display_names)
             earlier_crashes += [(candidate, crash) for crash in candidate_crashes]
         seen_failing |= set(failed)
         if ungraded and shard_map_changed(args.root, str(candidate["head_sha"]), str(run["head_sha"])):
@@ -1040,7 +1180,7 @@ def command_report(args: argparse.Namespace) -> int:
     section = issue_section(
         repo=args.repo, run=run, previous=previous, failures=regressions,
         attributions=attributions, prs=prs, direct=direct, no_baseline=no_baseline, commits=commits,
-        crashes=findings,
+        crashes=findings, crashed=list(crashed),
     )
     print(section)
     if args.section_output:
