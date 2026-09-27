@@ -308,7 +308,7 @@ extension CMUXCLI {
         automation <list|show|test|enable|disable|logs|reload> [args]
         \(executionExchangeHelp)
         todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
-        send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
+        send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--paste] <text>
         send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
         paste [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--submit] [text | -]
         send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>

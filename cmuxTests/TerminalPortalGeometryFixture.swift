@@ -156,7 +156,7 @@ final class TerminalPortalGeometryFixture {
 
     func close() {
         endResize()
-        surface.releaseSurfaceForTesting()
+        surface.releaseHostedSurfaceForTesting()
         portal.tearDown()
         window.close()
         workspace.tearDown()
