@@ -469518,6 +469518,301 @@
         }
       }
     },
+    "workspaceGroup.error.customColorIsNotAnInputKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown key custom_color; set_color accepts hex or color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なキー custom_color です。set_color は hex または color を受け付けます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的键 custom_color；set_color 接受 hex 或 color"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Schlüssel custom_color; set_color akzeptiert hex oder color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé inconnue custom_color ; set_color accepte hex ou color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح غير معروف custom_color؛ يقبل set_color المفتاح hex أو color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave desconocida custom_color; set_color acepta hex o color"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的鍵 custom_color；set_color 接受 hex 或 color"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 키 custom_color입니다. set_color는 hex 또는 color를 받습니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.colorMustBeHex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color must be a 6-digit hex color like #FF3EA5 (leading # optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color は #FF3EA5 のような 6 桁の 16 進カラーである必要があります（先頭の # は省略可）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必须是 6 位十六进制颜色，例如 #FF3EA5（开头的 # 可省略）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color muss eine 6-stellige Hex-Farbe wie #FF3EA5 sein (führendes # optional)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color doit être une couleur hexadécimale à 6 chiffres comme #FF3EA5 (# initial facultatif)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة color لونًا سداسيًا عشريًا من 6 خانات مثل #FF3EA5 (الرمز # في البداية اختياري)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color debe ser un color hexadecimal de 6 dígitos como #FF3EA5 (el # inicial es opcional)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必須是 6 位十六進位顏色，例如 #FF3EA5（開頭的 # 可省略）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color는 #FF3EA5 같은 6자리 16진수 색상이어야 합니다(앞의 #는 생략 가능)"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.colorMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color must be a string holding a hex color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color は 16 進カラーを含む文字列である必要があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必须是包含十六进制颜色的字符串"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color muss ein String mit einer Hex-Farbe sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color doit être une chaîne contenant une couleur hexadécimale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة color سلسلة نصية تحتوي على لون سداسي عشري"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color debe ser una cadena de texto con un color hexadecimal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color 必須是包含十六進位顏色的字串"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "color는 16진수 색상을 담은 문자열이어야 합니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.iconSymbolIsNotAnInputKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown key icon_symbol; set_icon accepts symbol or icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なキー icon_symbol です。set_icon は symbol または icon を受け付けます"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的键 icon_symbol；set_icon 接受 symbol 或 icon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Schlüssel icon_symbol; set_icon akzeptiert symbol oder icon"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé inconnue icon_symbol ; set_icon accepte symbol ou icon"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح غير معروف icon_symbol؛ يقبل set_icon المفتاح symbol أو icon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave desconocida icon_symbol; set_icon acepta symbol o icon"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的鍵 icon_symbol；set_icon 接受 symbol 或 icon"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 키 icon_symbol입니다. set_icon은 symbol 또는 icon을 받습니다"
+          }
+        }
+      }
+    },
+    "workspaceGroup.error.symbolMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol must be a string"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol は文字列である必要があります"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol 必须是字符串"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol muss ein String sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol doit être une chaîne de caractères"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة symbol سلسلة نصية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol debe ser una cadena de texto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol 必須是字串"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbol은 문자열이어야 합니다"
+          }
+        }
+      }
+    },
     "workspaceGroup.error.idempotencyKeyMustBeString": {
       "extractionState": "manual",
       "localizations": {
