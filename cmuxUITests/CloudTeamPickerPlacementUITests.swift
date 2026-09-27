@@ -72,27 +72,127 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         let app = launchSignedInApp(sidebarVisible: false)
         defer { app.terminate() }
         app.typeKey("t", modifierFlags: [.command, .option, .shift])
-        let create = app.buttons["CloudTeamPickerCreateTeamButton"]
-        XCTAssertTrue(create.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["CloudTeamPickerButton"].exists)
+        let create = createTeamItem(app)
+        assertDropdownAnchoredUnderTrigger(app)
         XCTAssertFalse(app.buttons["SidebarAccountSignOutButton"].exists)
         capture("shortcut-opens-cloud-picker")
 
         create.click()
-        let name = app.textFields["Team name"]
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        let name = sheet.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click()
         name.typeText("Draft team")
-        app.buttons["Cancel"].click()
-        XCTAssertTrue(create.waitForExistence(timeout: 5))
-        capture("cloud-create-team-editor-cancelled")
-        app.typeKey(.escape, modifierFlags: [])
+        button(in: sheet, identifier: "CloudCreateTeamSheet.cancel", label: "Cancel").click()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 5))
         XCTAssertTrue(create.waitForNonExistence(timeout: 5))
+        capture("cloud-create-team-sheet-cancelled")
         app.buttons["RightSidebar.closeButton"].click()
 
         invokePickerFromPalette(app)
-        XCTAssertTrue(create.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["CloudTeamPickerButton"].exists)
+        assertDropdownAnchoredUnderTrigger(app)
         capture("palette-opens-cloud-picker")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(create.waitForNonExistence(timeout: 5))
+    }
+
+    /// #15072: the picker is a pull-down menu under the trigger's leading edge,
+    /// not a centered popover bubble that truncates team names.
+    func testDropdownAnchorsUnderTriggerShowsFullNamesAndSwitchesTeams() {
+        let app = launchSignedInApp(teams: Self.fixtureTeams)
+        defer { app.terminate() }
+        let trigger = openCloudHeader(app)
+        waitForLabel(of: trigger, containing: Self.longTeamName)
+
+        trigger.click()
+        assertDropdownAnchoredUnderTrigger(app)
+        let longTeam = teamItem(app, id: "team-long", title: Self.longTeamName)
+        let alpha = teamItem(app, id: "team-alpha", title: "Alpha Squad")
+        XCTAssertTrue(longTeam.waitForExistence(timeout: 5))
+        XCTAssertEqual(longTeam.title, Self.longTeamName, "Menu rows carry the full team name.")
+        XCTAssertTrue(alpha.exists)
+        XCTAssertTrue(alpha.isEnabled)
+        capture("team-dropdown-open")
+
+        alpha.click()
+        XCTAssertTrue(alpha.waitForNonExistence(timeout: 5))
+        waitForLabel(of: trigger, containing: "Alpha Squad")
+        capture("team-dropdown-switched")
+    }
+
+    func testPendingSwitchDisablesMenuAndFailedSwitchReportsError() {
+        let app = launchSignedInApp(teams: Self.fixtureTeams, environment: [
+            "CMUX_UITEST_AUTH_FIXTURE_TEAM_SWITCH_DELAY_MS": "3000",
+            "CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_ID": "team-alpha",
+        ])
+        defer { app.terminate() }
+        let trigger = openCloudHeader(app)
+        waitForLabel(of: trigger, containing: Self.longTeamName)
+
+        trigger.click()
+        teamItem(app, id: "team-alpha", title: "Alpha Squad").click()
+        trigger.click()
+        let switching = app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerSwitchingStatus", "Switching teams…"
+        )).firstMatch
+        XCTAssertTrue(switching.waitForExistence(timeout: 5), "A pending switch stays visible in the menu.")
+        XCTAssertFalse(teamItem(app, id: "team-long", title: Self.longTeamName).isEnabled)
+        XCTAssertFalse(teamItem(app, id: "team-alpha", title: "Alpha Squad").isEnabled)
+        XCTAssertFalse(createTeamItem(app).isEnabled)
+        capture("team-dropdown-pending")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(switching.waitForNonExistence(timeout: 5))
+
+        let error = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@",
+            "CloudTeamPickerSwitchError", "Could not switch teams. Try again."
+        )).firstMatch
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "A rejected switch reports its failure.")
+        waitForLabel(of: trigger, containing: Self.longTeamName)
+        capture("team-dropdown-switch-failed")
+    }
+
+    func testCreateTeamSheetReportsErrorsAndSelectsNewTeam() {
+        let app = launchSignedInApp(teams: Self.fixtureTeams, environment: [
+            "CMUX_UITEST_AUTH_FIXTURE_REJECT_TEAM_NAME": "Taken Team",
+        ])
+        defer { app.terminate() }
+        let trigger = openCloudHeader(app)
+        waitForLabel(of: trigger, containing: Self.longTeamName)
+
+        trigger.click()
+        createTeamItem(app).click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        let name = sheet.textFields.firstMatch
+        let create = button(in: sheet, identifier: "CloudCreateTeamSheet.create", label: "Create")
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        XCTAssertFalse(create.isEnabled, "An empty name cannot be submitted.")
+        name.click()
+        name.typeText("   ")
+        XCTAssertFalse(create.isEnabled, "A blank name cannot be submitted.")
+
+        name.typeText("Taken Team")
+        create.click()
+        let error = sheet.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@",
+            "CloudCreateTeamSheet.error", "Could not create that team. Try again."
+        )).firstMatch
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "A rejected create keeps the sheet open with its error.")
+        XCTAssertTrue(sheet.exists)
+        capture("create-team-sheet-error")
+
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("Launch Crew")
+        create.click()
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10))
+        waitForLabel(of: trigger, containing: "Launch Crew")
+
+        trigger.click()
+        XCTAssertTrue(teamItem(app, id: "uitest-created-team-1", title: "Launch Crew").waitForExistence(timeout: 5))
+        capture("create-team-selected")
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     func testCloudGateExplainsWhyPickerCannotOpen() {
@@ -126,15 +226,90 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         command.click()
     }
 
+    private static let longTeamName = "Benjamin Swerdlow's Team"
+    private static let fixtureTeams = #"[{"id":"team-long","displayName":"Benjamin Swerdlow's Team"},{"id":"team-alpha","displayName":"Alpha Squad"}]"#
+
+    private func openCloudHeader(_ app: XCUIApplication) -> XCUIElement {
+        let cloudMode = app.buttons["RightSidebarModeButton.machines"]
+        XCTAssertTrue(cloudMode.waitForExistence(timeout: 10))
+        cloudMode.click()
+        let trigger = app.buttons["CloudTeamPickerButton"]
+        XCTAssertTrue(trigger.waitForExistence(timeout: 10))
+        return trigger
+    }
+
+    private func teamItem(_ app: XCUIApplication, id: String, title: String) -> XCUIElement {
+        app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerTeam_\(id)", title
+        )).firstMatch
+    }
+
+    private func createTeamItem(_ app: XCUIApplication) -> XCUIElement {
+        app.menuItems.matching(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerCreateTeamButton", "Create Team…"
+        )).firstMatch
+    }
+
+    private func button(in element: XCUIElement, identifier: String, label: String) -> XCUIElement {
+        element.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
+    }
+
+    private func waitForLabel(
+        of element: XCUIElement,
+        containing text: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", text),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 10), .completed,
+            "Expected \(element.label) to contain \(text)", file: file, line: line
+        )
+    }
+
+    /// The menu opens as a pull-down: its leading edge meets the trigger's and
+    /// its top sits just under the trigger, with no popover bubble.
+    private func assertDropdownAnchoredUnderTrigger(
+        _ app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let create = createTeamItem(app)
+        XCTAssertTrue(create.waitForExistence(timeout: 10), "The team menu opened.", file: file, line: line)
+        let trigger = app.buttons["CloudTeamPickerButton"]
+        XCTAssertTrue(trigger.exists, file: file, line: line)
+        XCTAssertEqual(app.popovers.count, 0, "The team picker must not open a popover.", file: file, line: line)
+        let menu = app.menus.containing(NSPredicate(
+            format: "identifier == %@ OR title == %@", "CloudTeamPickerCreateTeamButton", "Create Team…"
+        )).firstMatch
+        XCTAssertTrue(menu.exists, file: file, line: line)
+        let menuFrame = menu.frame
+        let triggerFrame = trigger.frame
+        XCTAssertEqual(menuFrame.minX, triggerFrame.minX, accuracy: 8,
+                       "Menu \(menuFrame) must align with trigger \(triggerFrame).", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(menuFrame.minY, triggerFrame.maxY - 2, file: file, line: line)
+        XCTAssertLessThanOrEqual(menuFrame.minY, triggerFrame.maxY + 12, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(menuFrame.width, triggerFrame.width - 1, file: file, line: line)
+    }
+
     private func launchSignedInApp(
         cloudEnabled: Bool = true,
-        sidebarVisible: Bool = true
+        sidebarVisible: Bool = true,
+        teams: String? = nil,
+        environment: [String: String] = [:]
     ) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UITEST_AUTH_FIXTURE"] = "1"
         app.launchEnvironment["CMUX_UITEST_AUTH_USER_ID"] = "team-picker-fixture"
         app.launchEnvironment["CMUX_UITEST_AUTH_NAME"] = "Team Picker Fixture"
+        if let teams {
+            app.launchEnvironment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"] = teams
+        }
+        app.launchEnvironment.merge(environment) { _, new in new }
         if sidebarVisible {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
