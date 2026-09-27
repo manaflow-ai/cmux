@@ -5311,6 +5311,7 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
         let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
             command: command,
@@ -7320,7 +7321,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "surface.list", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatIDs(publicSurfaceResumePayload(payload), mode: idFormat)))
             } else {
                 let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
                 if surfaces.isEmpty {
@@ -7503,6 +7504,15 @@ struct CMUXCLI {
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2SendSummary(payload, idFormat: idFormat))
+
+        case "paste":
+            try runPasteCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
 
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -9526,7 +9536,12 @@ struct CMUXCLI {
             params["command"] = commandText
 
             let payload = try client.sendV2(method: "surface.resume.set", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+            printV2Payload(
+                publicSurfaceResumePayload(payload) as? [String: Any] ?? payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: "OK"
+            )
 
         case "show", "get":
             try validateSurfaceResumeValueOptions(
@@ -9537,11 +9552,16 @@ struct CMUXCLI {
             let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatIDs(publicSurfaceResumePayload(payload), mode: idFormat)))
             } else if let binding = payload["resume_binding"] as? [String: Any],
                       let command = binding["command"] as? String,
                       !command.isEmpty {
-                print(command)
+                let publicBinding = publicSurfaceResumePayload(binding) as? [String: Any]
+                if let publicCommand = publicBinding?["command"] as? String {
+                    print(publicCommand)
+                } else {
+                    print("null")
+                }
             } else {
                 print("No resume binding")
             }
@@ -9563,7 +9583,12 @@ struct CMUXCLI {
             if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
             if let source { params["source"] = source }
             let payload = try client.sendV2(method: "surface.resume.clear", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+            printV2Payload(
+                publicSurfaceResumePayload(payload) as? [String: Any] ?? payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: "OK"
+            )
 
         default:
             throw CLIError(message: "Unsupported surface resume subcommand: \(subcommand)")
@@ -19976,12 +20001,13 @@ struct CMUXCLI {
             """
         case "paste-buffer":
             return """
-            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+            Usage: cmux paste-buffer [--name <name>] [--bracketed] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
             Paste a named tmux-compat buffer into a surface.
 
             Flags:
               --name <name>         Buffer name (default: default)
+              --bracketed           Deliver the buffer as one bracketed paste, like Cmd+V, instead of keystrokes
               --workspace <id|ref|index>  Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>    Surface context (default: focused surface)
               --window <id|ref|index>     Window context for workspace/surface refs and indexes
@@ -20017,6 +20043,8 @@ struct CMUXCLI {
             return Self.readSelectionHelp
         case "read-screen":
             return Self.readScreenHelp
+        case "paste":
+            return Self.pasteHelp
         case "send":
             return """
             Usage: cmux send [flags] [--] <text>
@@ -27509,29 +27537,16 @@ struct CMUXCLI {
             throw CLIError(message: "\(command) is not supported yet in cmux CLI parity mode")
 
         case "set-buffer":
-            let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
-            let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
-            // Store the text exactly as given, like tmux: trailing newlines and
+            // Store the text exactly as given: trailing newlines and
             // indentation are part of what paste-buffer should deliver. With no
-            // text argument, or a lone "-", read the text from stdin so output
-            // can be piped in (`cmd | cmux set-buffer`).
-            let textArgs = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
-            let content: String
-            if textArgs.isEmpty || textArgs == ["-"] {
-                guard isatty(STDIN_FILENO) != 1 else {
-                    throw CLIError(message: "set-buffer requires text")
-                }
-                let data = FileHandle.standardInput.readDataToEndOfFile()
-                guard let text = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: String(
-                        localized: "cli.setBuffer.error.invalidUTF8",
-                        defaultValue: "set-buffer: stdin is not valid UTF-8 text"
-                    ))
-                }
-                content = text
-            } else {
-                content = textArgs.joined(separator: " ")
-            }
+            // text argument, or a lone "-", take the text from stdin so output
+            // can be piped in (`cmd | cmux set-buffer`), the way tmux's
+            // `load-buffer -` does. Stdin was already drained before the socket
+            // connected (prepareStandardInputBeforeSocket).
+            let (name, textArgs, readsStandardInput) = setBufferTextArguments(commandArgs)
+            let content = try readsStandardInput
+                ? setBufferTextFromStandardInput()
+                : textArgs.joined(separator: " ")
             guard !content.isEmpty else {
                 throw CLIError(message: "set-buffer requires text")
             }
@@ -27562,14 +27577,20 @@ struct CMUXCLI {
             guard let buffer = store.buffers[name] else {
                 throw CLIError(message: "Buffer not found: \(name)")
             }
+            // --bracketed delivers the buffer as one paste (like Cmd+V) instead
+            // of keystrokes, so newlines stay in the text and vim-mode prompts
+            // do not eat the first character.
+            try Self.ensureTextFitsSocketRequest(buffer, command: "paste-buffer")
+            let bracketed = hasFlag(commandArgs, name: "--bracketed")
             var params: [String: Any] = ["text": buffer]
+            if bracketed { params["submit_key"] = "none" }
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
-            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            let payload = try client.sendV2(method: bracketed ? "terminal.paste" : "surface.send_text", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":
@@ -31873,7 +31894,14 @@ struct CMUXCLI {
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        let subrouterRouting = SubrouterCodexResumeRouting()
+        if fallbackKind == "codex" {
+            var launchBoundEnvironment = env
+            launchBoundEnvironment[SubrouterCodexResumeRouting.environmentKey] =
+                env[SubrouterCodexResumeRouting.launchBoundEnvironmentKey]
+            environment.merge(subrouterRouting.capturedEnvironment(in: launchBoundEnvironment)) { _, captured in captured }
+        }
         // The outer launcher (e.g. `sr claude proxy --account x`) so crash
         // recovery resumes through the same account routing.
         // `processArguments` is already the agent's own argv (kind-checked,
@@ -31974,11 +32002,19 @@ struct CMUXCLI {
                 source: "rejected"
             )
         }
+        let replayArguments = fallbackKind == "codex"
+            ? subrouterRouting.retainingRoutingProof(
+                in: sanitizedArguments,
+                from: arguments,
+                launcher: launcher,
+                environment: environment
+            )
+            : sanitizedArguments
         let source = envArguments == nil ? "process" : "environment"
 
         return record(
             executablePath: executablePath,
-            arguments: sanitizedArguments,
+            arguments: replayArguments,
             environment: environment.isEmpty ? nil : environment,
             source: source
         )
@@ -32112,7 +32148,7 @@ struct CMUXCLI {
             )
             return
         }
-        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
+        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, launchCommand: launchCommand)
         // Pin to the launch directory, not drift-prone runtime cwd.
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
@@ -32159,7 +32195,7 @@ struct CMUXCLI {
         if let resumeWorkingDirectory {
             params["cwd"] = resumeWorkingDirectory
         }
-        if let resumeEnvironment, !resumeEnvironment.isEmpty {
+        if !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
         }
         if let launchCommand {
@@ -32219,7 +32255,8 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            environment: launchCommand?.environment
         ) {
         case .resolved(let resolved):
             // Wrapper launchers include the claude-teams orphan-respawn path,
@@ -32418,11 +32455,16 @@ struct CMUXCLI {
 
     private func agentSurfaceResumeEnvironment(
         kind: String,
-        environment: [String: String]?
-    ) -> [String: String]? {
-        guard let environment else { return nil }
-        let selected = selectedAgentLaunchEnvironment(from: environment, kind: kind)
-        guard !selected.isEmpty else { return nil }
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> [String: String] {
+        let environment = launchCommand?.environment ?? [:]
+        let selected = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: environment,
+            kind: kind,
+            launcher: launchCommand?.launcher,
+            arguments: launchCommand?.arguments ?? []
+        )
+        guard !selected.isEmpty else { return [:] }
 
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",

@@ -24,9 +24,13 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     private var dismissalHandler: (() -> Void)?
+    private var fallbackAnchorPanel: NSPanel?
+    private let fallbackAnchorView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
 
     func toggle(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
-        if popover.isShown {
+        // A popover AppKit placed off every screen counts as shown but is not
+        // visible; toggling it must show the palette, not close the phantom.
+        if popover.isShown, !presentedWindowIsOffScreen {
             dismiss()
         } else {
             show(relativeTo: button, onDismiss: onDismiss)
@@ -34,21 +38,102 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     }
 
     func show(relativeTo button: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
-        if popover.isShown {
-            popover.performClose(nil)
+        closeImmediately()
+        if let buttonWindow = button.window, !Self.isOffScreen(buttonWindow.frame) {
+            fallbackAnchorPanel?.orderOut(nil)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+        if !popover.isShown || presentedWindowIsOffScreen {
+            // macOS places a status item asynchronously and may leave it
+            // unplaced when the menu bar is full or hidden. Anchored to such a
+            // button, the popover opens at an infinite origin and never
+            // appears, so present it under the menu bar of the active screen.
+            closeImmediately()
+            let anchor = presentFallbackAnchor()
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
         }
         dismissalHandler = onDismiss
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
+    /// Closes without the fade-out. An animated close only finishes when the
+    /// window server keeps drawing the popover, and one that never finishes
+    /// leaves `isShown` true, so every later toggle would close instead of show.
     func dismiss() {
-        popover.performClose(nil)
+        closeImmediately()
     }
 
     func popoverDidClose(_ notification: Notification) {
+        finishClose()
+    }
+
+    private func closeImmediately() {
+        guard popover.isShown else { return }
+        let animates = popover.animates
+        popover.animates = false
+        popover.close()
+        popover.animates = animates
+        finishClose()
+    }
+
+    private func finishClose() {
+        // A close that finishes animating after the next show must not pull
+        // the anchor out from under the popover that show presented.
+        guard !popover.isShown else { return }
+        fallbackAnchorPanel?.orderOut(nil)
         let handler = dismissalHandler
         dismissalHandler = nil
         handler?()
+    }
+
+    private var presentedWindowIsOffScreen: Bool {
+        guard let frame = popover.contentViewController?.view.window?.frame else { return false }
+        return Self.isOffScreen(frame)
+    }
+
+    /// True for a frame AppKit placed at an infinite origin or off every
+    /// screen. An empty frame is not yet placed, so it is not judged.
+    static func isOffScreen(_ frame: NSRect) -> Bool {
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.size.width.isFinite, frame.size.height.isFinite else {
+            return true
+        }
+        guard !frame.isEmpty else { return false }
+        return !NSScreen.screens.contains { $0.frame.intersects(frame) }
+    }
+
+    private func presentFallbackAnchor() -> NSView {
+        let panel = fallbackAnchorPanel ?? makeFallbackAnchorPanel()
+        fallbackAnchorPanel = panel
+        let screen = NSApp.keyWindow?.screen
+            ?? NSApp.mainWindow?.screen
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        if let visibleFrame = screen?.visibleFrame {
+            panel.setFrame(
+                NSRect(x: visibleFrame.midX, y: visibleFrame.maxY - 1, width: 1, height: 1),
+                display: false
+            )
+        }
+        panel.orderFrontRegardless()
+        return fallbackAnchorView
+    }
+
+    private func makeFallbackAnchorPanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: true
+        )
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = .statusBar
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.contentView = fallbackAnchorView
+        return panel
     }
 }
 

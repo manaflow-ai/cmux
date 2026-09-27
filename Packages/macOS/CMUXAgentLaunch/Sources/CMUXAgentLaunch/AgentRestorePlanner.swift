@@ -14,18 +14,22 @@ public struct AgentRestorePlanner: Sendable {
     ]
 
     private let isExecutableFile: @Sendable (String) -> Bool
+    private let isReadableFile: @Sendable (String) -> Bool
     private let externalLaunchers: AgentExternalLauncherRegistry
 
     /// Creates a restore planner.
     ///
     /// - Parameters:
     ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    ///   - isReadableFile: Readable-file lookup used to remove stale Claude settings paths.
     ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
     public init(
         isExecutableFile: @escaping @Sendable (String) -> Bool,
+        isReadableFile: @escaping @Sendable (String) -> Bool = AgentRestoreReadableFileResolver().isReadableFile(atPath:),
         externalLaunchers: AgentExternalLauncherRegistry = .empty
     ) {
         self.isExecutableFile = isExecutableFile
+        self.isReadableFile = isReadableFile
         self.externalLaunchers = externalLaunchers
     }
 
@@ -33,13 +37,16 @@ public struct AgentRestorePlanner: Sendable {
     ///
     /// - Parameters:
     ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - readableFileResolver: The filesystem dependency used to check Claude settings paths.
     ///   - externalLaunchers: User-declared launchers re-supplied around a resumed agent.
     public init(
         executableFileResolver: AgentRestoreExecutableFileResolver,
+        readableFileResolver: AgentRestoreReadableFileResolver = AgentRestoreReadableFileResolver(),
         externalLaunchers: AgentExternalLauncherRegistry = .empty
     ) {
         self.init(
             isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
+            isReadableFile: readableFileResolver.isReadableFile(atPath:),
             externalLaunchers: externalLaunchers
         )
     }
@@ -55,7 +62,16 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
-        guard let plannedArguments = plannedArguments(for: request, kind: kind),
+        let routedClaudeResume = routedClaudeResumeArguments(
+            for: request,
+            kind: kind,
+            ambientEnvironment: ambientEnvironment
+        )
+        guard let plannedArguments = plannedArguments(
+            for: request,
+            kind: kind,
+            routedClaudeResume: routedClaudeResume
+        ),
               !plannedArguments.values.isEmpty else {
             return nil
         }
@@ -85,10 +101,31 @@ public struct AgentRestorePlanner: Sendable {
         guard !sanitizedArguments.isEmpty else { return nil }
 
         var environment = ambientEnvironment
-        let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
+        let restoredEnvironment = restoredEnvironment(
+            for: request,
+            kind: kind,
+            routedThroughSubrouter: routedClaudeResume != nil
+        )
+        if hasProvenRoutedCodexLaunch(request, kind: kind) {
+            for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                environment.removeValue(forKey: key)
+            }
+        }
         environment.merge(restoredEnvironment) { _, restored in restored }
+        if routedClaudeResume != nil {
+            for key in SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys {
+                environment.removeValue(forKey: key)
+            }
+        }
 
         var routedArguments = sanitizedArguments
+        if kind == "claude", request.mode != .direct {
+            routedArguments = ClaudeRestoreSettingsPathFilter(
+                isReadableFile: isReadableFile,
+                workingDirectory: workingDirectory
+            ).removingUnreadableSettingsPaths(from: routedArguments)
+            guard !routedArguments.isEmpty else { return nil }
+        }
         let hermesProfilePin: HermesAgentResumeProfilePin?
         if kind == "hermes-agent", request.mode != .direct {
             let pin = HermesAgentResumeProfilePin(
@@ -119,13 +156,18 @@ public struct AgentRestorePlanner: Sendable {
             profilePin: hermesProfilePin
         )
 
+        // A routed Subrouter resume names its own launcher (`sr claude proxy`,
+        // `sr codex`) in argv[0], so a user-declared external launcher must
+        // not wrap it a second time.
         if request.mode == .resumeAgent,
+           routedClaudeResume == nil,
            let checkpointID = normalized(request.checkpointID),
            !AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
                launcher: request.launchCommand?.launcher,
                sessionId: checkpointID,
                executablePath: request.launchCommand?.executablePath,
-               arguments: request.launchCommand?.arguments ?? []
+               arguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
            ),
            let externalLauncher = externalLaunchers.resolvedLauncher(
                id: request.launchCommand?.externalLauncher,
@@ -176,12 +218,60 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
+    private func routedClaudeResumeArguments(
+        for request: AgentRestoreRequest,
+        kind: String,
+        ambientEnvironment: [String: String]
+    ) -> [String]? {
+        guard kind == "claude",
+              request.mode == .resumeAgent,
+              let checkpointID = normalized(request.checkpointID),
+              let launch = request.launchCommand else {
+            return nil
+        }
+        let router = SubrouterClaudeResumeRouting()
+        guard let routed = router.resumeArguments(
+            launcher: launch.launcher,
+            sessionID: checkpointID,
+            launchArguments: launch.arguments,
+            environment: launch.environment
+        ), let launcherExecutable = routed.first,
+        isResolvableOnRestorePath(launcherExecutable, ambientEnvironment: ambientEnvironment) else {
+            return nil
+        }
+        return AgentResumeArgv.claudeArgvApplyingObservedPermissionMode(
+            routed,
+            observedPermissionMode: request.observedPermissionMode
+        )
+    }
+
+    private func isResolvableOnRestorePath(
+        _ executable: String,
+        ambientEnvironment: [String: String]
+    ) -> Bool {
+        guard !executable.isEmpty else { return false }
+        if executable.contains("/") {
+            return isExecutableFile(executable)
+        }
+        let path = ambientEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return path.split(separator: ":").contains { directory in
+            !directory.isEmpty && isExecutableFile(
+                URL(fileURLWithPath: String(directory), isDirectory: true)
+                    .appendingPathComponent(executable, isDirectory: false).path
+            )
+        }
+    }
+
     private func plannedArguments(
         for request: AgentRestoreRequest,
-        kind: String
+        kind: String,
+        routedClaudeResume: [String]? = nil
     ) -> (values: [String], removesCapturedWorkingDirectoryOptions: Bool)? {
         let preparedArguments = request.preparedArguments.flatMap {
             $0.isEmpty ? nil : $0
+        }
+        if let routedClaudeResume, request.mode == .resumeAgent {
+            return (routedClaudeResume, true)
         }
         switch request.mode {
         case .direct:
@@ -205,7 +295,8 @@ public struct AgentRestorePlanner: Sendable {
                 launcher: launch?.launcher,
                 sessionId: checkpointID,
                 executablePath: launch?.executablePath,
-                arguments: launch?.arguments ?? []
+                arguments: launch?.arguments ?? [],
+                environment: launch?.environment
             ) {
             case .resolved(let arguments):
                 if let arguments {
@@ -252,9 +343,11 @@ public struct AgentRestorePlanner: Sendable {
 
     private func restoredEnvironment(
         for request: AgentRestoreRequest,
-        kind: String
+        kind: String,
+        routedThroughSubrouter: Bool = false
     ) -> [String: String] {
-        var captured = request.launchCommand?.environment ?? [:]
+        let launchEnvironment = request.launchCommand?.environment ?? [:]
+        var captured = launchEnvironment
         captured.merge(request.environment) { _, binding in binding }
         if kind == "codex", request.mode == .resumeAgent,
            normalized(captured["CODEX_HOME"]) == nil,
@@ -280,11 +373,45 @@ public struct AgentRestorePlanner: Sendable {
         if request.mode == .direct {
             return captured
         }
-        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+        let environmentPolicy = AgentLaunchEnvironmentPolicy()
+        var selected = environmentPolicy.selectedRestoreEnvironment(
             from: captured,
             kind: kind
         )
+        if kind == "codex" {
+            let router = SubrouterCodexResumeRouting()
+            if router.resumeArguments(
+                launcher: request.launchCommand?.launcher,
+                sessionID: "restore-environment-validation",
+                launchArguments: request.launchCommand?.arguments ?? [],
+                environment: launchEnvironment
+            ) != nil {
+                // Only the launch record can prove routed resume. Request environment
+                // remains authoritative for ordinary replay values, but presence and
+                // absence of restore-owned routing values come only from that proof.
+                for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                    selected.removeValue(forKey: key)
+                }
+                selected.merge(router.capturedRoutingEnvironment(in: launchEnvironment)) { _, routingValue in
+                    routingValue
+                }
+                if let customCodexPath = environmentPolicy.sanitizedValue(
+                    key: "CMUX_CUSTOM_CODEX_PATH",
+                    value: launchEnvironment["CMUX_CUSTOM_CODEX_PATH"]
+                ) {
+                    selected["CMUX_CUSTOM_CODEX_PATH"] = customCodexPath
+                }
+            }
+        }
         if kind == "claude" {
+            if routedThroughSubrouter {
+                for key in SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys {
+                    selected.removeValue(forKey: key)
+                }
+                return selected
+            }
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.environmentKey)
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.launchBoundEnvironmentKey)
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }
@@ -294,6 +421,16 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         return selected
+    }
+
+    private func hasProvenRoutedCodexLaunch(_ request: AgentRestoreRequest, kind: String) -> Bool {
+        guard kind == "codex", request.mode != .direct else { return false }
+        return SubrouterCodexResumeRouting().resumeArguments(
+            launcher: request.launchCommand?.launcher,
+            sessionID: "restore-environment-validation",
+            launchArguments: request.launchCommand?.arguments ?? [],
+            environment: request.launchCommand?.environment
+        ) != nil
     }
 
     private func retargetPreparedWorkingDirectory(
@@ -329,11 +466,53 @@ public struct AgentRestorePlanner: Sendable {
         kind: String,
         environment: inout [String: String]
     ) -> [String] {
+        guard let restoreLaunch = AgentRestoreLaunch(
+            kind: kind,
+            sessionID: request.checkpointID
+        ) else {
+            return arguments
+        }
+
+        if kind == "codex",
+           let checkpointID = normalized(request.checkpointID),
+           let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
+               launcher: request.launchCommand?.launcher,
+               sessionID: checkpointID,
+               launchArguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           arguments.starts(with: routedPrefix),
+           let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
+           isExecutableFile(wrapperShim) {
+            if let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+                in: request.launchCommand?.environment,
+                fallbackExecutable: request.launchCommand?.executablePath,
+                wrapperShim: wrapperShim
+            ) {
+                environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
+            }
+            environment["SUBROUTER_CODEX_BIN"] = wrapperShim
+            environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+            return arguments
+        }
+
+        if kind == "claude",
+           let checkpointID = normalized(request.checkpointID),
+           let routedPrefix = SubrouterClaudeResumeRouting().resumeArguments(
+               launcher: request.launchCommand?.launcher,
+               sessionID: checkpointID,
+               launchArguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           arguments.starts(with: routedPrefix.prefix(5)) {
+            if let capturedExecutable = normalized(request.launchCommand?.executablePath) {
+                environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
+            }
+            environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+            return arguments
+        }
+
         guard let first = arguments.first,
-              let restoreLaunch = AgentRestoreLaunch(
-                  kind: kind,
-                  sessionID: request.checkpointID
-              ),
               (first as NSString).lastPathComponent == restoreLaunch.executableName else {
             return arguments
         }
