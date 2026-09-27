@@ -15,6 +15,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "scripts/ci/node_product_cache.py"
