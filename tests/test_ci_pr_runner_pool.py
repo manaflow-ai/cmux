@@ -300,7 +300,7 @@ class FailSafe(unittest.TestCase):
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nplaced=0\nshard_runner=\n"
                                               f"refused_retry_runner=\nroot_runner=\nside_runner=\ngui_runner=\n"
-                                              "admission_runner=\nadmission_warm=\nowned_jobs=\n")
+                                              "admission_runner=\nadmission_route=\nadmission_warm=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -1408,6 +1408,42 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(owned_choice(jammed, queue_rounds="").runner, LARGE)
         self.assertEqual(owned_choice(jammed, queue_rounds="2").runner, MINI)
 
+    def test_a_pool_the_run_starts_on_now_beats_an_earlier_one_it_queues_on(self):
+        # Run 36318303703 (2026-09-27): std fit only by its root queue places
+        # (0 of 17 root runners free) while light sat idle, so light never ran.
+        def counts(capacity, running):
+            return {"capacity": capacity, "running": running, "queued": 0}
+        load = {MINI: counts(42, 37), LIGHT: counts(4, 0)}
+        roots = {MINI: counts(19, 19), LIGHT: counts(2, 0)}
+        added = {MINI: 0, LIGHT: 0}
+
+        def picked(**kwargs):
+            return pool.pick(load, added, [MINI, LIGHT], 0, jobs=3, roots=roots, root_jobs=1, **kwargs)
+
+        self.assertEqual((picked(queue_rounds=2).label, picked(queue_rounds=2).how), (LIGHT, "owned"))
+        # Both idle: the order decides, std first.
+        roots[MINI] = counts(19, 0)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+        # Light's root runners busy too: std's queue, as before.
+        roots[MINI], roots[LIGHT] = counts(19, 19), counts(2, 2)
+        self.assertEqual(picked(queue_rounds=2).label, MINI)
+
+    def test_a_replayed_run_takes_light_as_the_run_itself_did(self):
+        # The replay needs a root runner too: std's idle side runners alone
+        # would charge a newer run to std while it took light, and the next
+        # run would pile onto light behind it.
+        snap = fleet(busy=37)
+        snap["pools"][ROOT_MINI] = {"queued": 0, "running": 19}
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        snap["pools"]["glaeda-root-light-xcode-26.6"] = {"queued": 0, "running": 0}
+        slots = json.dumps({MINI: 42, ROOT_MINI: 19, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2})
+        first = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2")
+        self.assertEqual(first.runner, LIGHT)
+        self.assertIn("first owned pool free for this run now", first.reason)
+        self.assertIn(f"{MINI} not free now", first.reason)
+        second = owned_choice(snap, owned_slots=slots, root_jobs=1, queue_rounds="2", routed=1)
+        self.assertEqual(second.runner, MINI)
+
     def test_nothing_is_reserved_so_a_later_run_takes_idle_machines(self):
         # Run A took 3 of 11 minis for a full suite that peaks at 11; its shards
         # do not exist yet. Run B finds 8 idle minis and takes them: A's shards
@@ -1950,7 +1986,8 @@ class WarmAffinity(unittest.TestCase):
                          [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
-                owned_warm="1", state=None, attempt="1", pr_number="", running=None, rounds=""):
+                owned_warm="1", state=None, attempt="1", pr_number="", running=None, rounds="", distance="0",
+                changes=None):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh["warm"] = warm(2) if state is None else state
@@ -1961,6 +1998,10 @@ class WarmAffinity(unittest.TestCase):
                 unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
                 unittest.mock.patch.object(pool.GitHub, "runners", return_value=runners), \
                 unittest.mock.patch.object(warm_distance, "load_model", return_value=ROUTE_MODEL), \
+                unittest.mock.patch.object(pool.GitHub, "get", return_value={"artifacts": []}), \
+                unittest.mock.patch.object(warm_distance, "fetch_bases"), \
+                unittest.mock.patch.object(warm_distance, "main_changes",
+                                           side_effect=lambda _, old, new: (changes or {}).get(old)), \
                 unittest.mock.patch("sys.stdout", io.StringIO()):
             out, summary = Path(tmp, "out"), Path(tmp, "summary")
             env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "t",
@@ -1969,7 +2010,7 @@ class WarmAffinity(unittest.TestCase):
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
                    "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm,
-                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds}
+                   "PR_NUMBER": pr_number, "POOL_QUEUE_ROUNDS": rounds, "OWNED_WARM_DISTANCE": distance}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
@@ -2027,6 +2068,33 @@ class WarmAffinity(unittest.TestCase):
         values = self.outputs(runners, state=state, pr_number="7", merged_onto="e" * 40)
         self.assertEqual(json.loads(values["admission_warm"]), [["cmux1-glaeda"]])
         self.assertEqual(json.loads(values["admission_runner"])[1], "glaeda-runner-cmux1-glaeda")
+
+    def test_distance_routing_pins_the_nearest_kept_build_on_any_mini(self):
+        # No runner holds this run's merge base exactly. cmux2's root 1 sits two app Swift files behind it
+        # (near, 140 s); cmux1's only root is 40 behind (far, 266.5 s). GitHub's pick of the two costs
+        # their mean, 203 s; the pin saves 63 s, past ROUTE_MARGIN_SECONDS.
+        near_base, far_base = "1" * 40, "2" * 40
+        state = {"through": 9, "runners": {
+            "cmux1-glaeda": {"keys": [], "at": "2026-09-25T00:00:00Z",
+                             "roots": [{"root": 1, "merged_onto": far_base, "pr": 5, "pr_app_swift_files": [],
+                                        "pr_app_swift_total": 0, "pr_package_interface": False}]},
+            "cmux2-glaeda": {"keys": [], "at": "2026-09-25T00:00:00Z",
+                             "roots": [{"root": 1, "merged_onto": near_base, "pr": 6, "pr_app_swift_files": [],
+                                        "pr_app_swift_total": 0, "pr_package_interface": False}, {"root": 2}]}}}
+        changes = {near_base: ({"Sources/A.swift", "Sources/B.swift"}, False),
+                   far_base: ({f"Sources/F{index}.swift" for index in range(40)}, False)}
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI)]
+        values = self.outputs(runners, state=state, distance="", changes=changes)
+        self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
+        route = json.loads(values["admission_route"])
+        self.assertEqual((route["mode"], route["chosen"], route["predicted"], route["baseline"], route["tier"]),
+                         ("distance", "cmux2-glaeda", 140.0, 203.2, "near"))
+        self.assertEqual([(row["runner"], row["tier"]) for row in route["candidates"]],
+                         [("cmux2-glaeda", "near"), ("cmux1-glaeda", "far")])
+        # CI_OWNED_WARM_DISTANCE=0: exact keys only, and neither runner holds one.
+        values = self.outputs(runners, state=state, distance="0", changes=changes)
+        self.assertEqual(values["admission_runner"], "")
+        self.assertEqual(json.loads(values["admission_route"])["mode"], "key")
 
     def test_attempt_two_gets_no_pin(self):
         # Attempt 2 (the rescue's light retry) may take an owned pool again; admission is never pinned.
@@ -2352,6 +2420,10 @@ class Wiring(unittest.TestCase):
         listed = steps[names.index("List the commits this owned Mac starts from warm")]
         upload = steps[names.index("Upload the owned Mac's warm keys")]
         self.assertLess(keep, names.index("List the commits this owned Mac starts from warm"))
+        # After the warm distance record, which stamps the kept build with its own files: the roots it
+        # publishes carry them for the picker's distance routing.
+        self.assertLess(names.index("Record warm-state distance"),
+                        names.index("List the commits this owned Mac starts from warm"))
         self.assertIs(listed["continue-on-error"], True)
         self.assertIs(upload["continue-on-error"], True)
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", listed["if"])
@@ -2369,7 +2441,17 @@ class Wiring(unittest.TestCase):
         step = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                     if step.get("id") == "macos-pool")
         self.assertEqual(step["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
+        self.assertEqual(step["env"]["OWNED_WARM_DISTANCE"], "${{ vars.CI_OWNED_WARM_DISTANCE }}")
         self.assertEqual(step["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
+        # The picker's route costs reach admission's record, attempt 1 only (the attempt it placed).
+        ci = self.workflow("ci.yml")
+        self.assertEqual(ci["jobs"]["changes"]["outputs"]["macos_pr_admission_route"],
+                         "${{ steps.macos-pool.outputs.admission_route }}")
+        self.assertEqual(ci["jobs"]["macos"]["with"]["pr_admission_route"],
+                         "${{ needs.changes.outputs.macos_pr_admission_route }}")
+        record = next(step for step in self.workflow("ci-macos.yml")["jobs"]["macos-compile-admission"]["steps"]
+                      if step.get("name") == "Record warm-state distance")
+        self.assertEqual(record["env"]["PICKER_ROUTE"], "${{ github.run_attempt == 1 && inputs.pr_admission_route || '' }}")
         sweep = next(step for step in self.workflow("ci-queue-janitor.yml")["jobs"]["sweep"]["steps"]
                      if step.get("name") == "Cancel wasted macOS runs")
         self.assertEqual(sweep["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
@@ -2744,6 +2826,14 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13,
                                    queue_rounds="0")[0].persistent)
 
+    def test_simulator_runs_never_take_the_light_pool(self):
+        # Light minis carry no glaeda-ios-sim: an idle light pool does not beat
+        # std's queue for a run whose jobs need a simulator.
+        snap = sim_fleet(busy=40)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        route, _ = ios_route(snap, slots={MINI: 40, LIGHT: 4, IOS_SIM: 2}, queue_rounds="2")
+        self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+
     def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
         snap = self.incident_snapshot()
         # Enough newer runs replayed onto the std pool fill its queue bound: Blacksmith, the lane's default.
@@ -3064,10 +3154,15 @@ class E2EQueueRounds(unittest.TestCase):
             self.assertFalse(pool.persistent(choice.runner), rounds)
             self.assertIn("every pool is full", choice.reason)
         # With 2 rounds the run joins an owned root queue that starts it within 20 minutes.
-        choice = self.choice("2", 13)
-        self.assertTrue(pool.persistent(choice.runner))
-        self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
-        self.assertIn("queue places", choice.reason)
+        # The replay places each newer run as it picked, root runner included:
+        # 13 of them leave no owned root room, 3 leave light's root queue.
+        for since, runner in ((2, MINI), (3, self.LIGHT)):
+            choice = self.choice("2", since)
+            self.assertEqual(choice.runner, runner, since)
+            self.assertTrue(choice.root_runner.startswith(pool.ROOT_PREFIX))
+            self.assertIn("queue places", choice.reason)
+            self.assertNotIn("free for this run now", choice.reason)
+        self.assertFalse(pool.persistent(self.choice("2", 13).runner))
 
     def test_with_no_owned_room_the_blacksmith_pick_is_the_headroom_rules(self):
         # The rounds decide only whether an owned pool takes the run.

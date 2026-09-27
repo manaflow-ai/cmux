@@ -53,6 +53,45 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  // Placeholder key for the next release. The release cut renames it to the
+  // new version (see .claude/commands/release.md step 3).
+  Unreleased: {
+    title: "Agents over SSH, Predictive Echo, Prompt Markers",
+    features: [
+      {
+        title: "Agents on SSH Hosts",
+        description:
+          "Claude Code and Codex on a cmux ssh host show Running, Needs input, or Idle in the sidebar, like local agents. A stopped Claude Code session can move between your Mac and a host with its transcript and git working tree.",
+        tryIt: "Run `cmux session move <session-id> --to user@host`.",
+      },
+      {
+        title: "Predictive Local Echo (Beta)",
+        description:
+          "Over a slow remote link, the characters you type appear right away, underlined until the remote shell confirms them.",
+        tryIt: "Settings > Beta Features > Predictive local echo.",
+      },
+      {
+        title: "Jump to Your Prompts",
+        description:
+          "Each prompt you submit to an agent leaves a marker on the terminal scrollbar. Click a marker to jump back to that prompt in scrollback.",
+        tryIt:
+          "Submit a few prompts to Claude Code or Codex, then click a marker on the terminal scrollbar.",
+      },
+      {
+        title: "Search Terminal Scrollback",
+        description:
+          "Global Search finds text in the scrollback of open terminals. Return on a terminal hit opens that pane's find bar on the match.",
+        tryIt: "Press `⌥⌘F` and type text from any open terminal.",
+      },
+      {
+        title: "Password Input Indicator",
+        description:
+          "A lock badge shows while a program such as sudo or ssh reads a password with echo off, so you can tell it is waiting for one.",
+        tryIt:
+          "Run `read -s` at a shell prompt, or turn it off in Settings > Terminal > Password Input Indicator.",
+      },
+    ],
+  },
   "0.64.25": {
     title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
     features: [

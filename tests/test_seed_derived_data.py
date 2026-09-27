@@ -197,7 +197,7 @@ class SeedDerivedData(unittest.TestCase):
         with mock.patch.dict(os.environ), mock.patch.object(seed, "lineage", return_value=["head"]), \
                 mock.patch.object(seed, "seed_exists", return_value=False):
             self.assertEqual(seed.prefetch(self.root / "cmux-ci-2", "head")["reason"],
-                             "no seed of this width in REVISION's history")
+                             "no seed of any seeded width in REVISION's history")
         # Without a local cache nothing is recorded; a bad prefix is ignored.
         (self.root / "cmux-ci-2" / seed.SEED_SOURCE).unlink()
         self.assertEqual(seed.main(["seed", "keep", str(self.derived), "k", prefix]), 0)
@@ -303,6 +303,30 @@ class SeedDerivedData(unittest.TestCase):
         self.assertTrue((store / "seeds" / key / seed.MANIFEST).is_file())
         self.assertEqual([p.name for p in (store / "seeds").iterdir()], [key])
         self.assertEqual(os.environ["CI_CACHE_R2_PUBLIC_URL"], "https://cache.test")
+
+    def test_prefetch_falls_back_to_the_width_adopt_would_take(self):
+        """A 10-core light mini has no seeds of its own width: it keeps the
+        seed adopt would fall back to (12 before 6 before 14), and still
+        prefers its own width when one exists, however far."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "10"
+        store = self.prefetch_store()
+        prefix = "admission-derived-data-v1-macOS-ARM64-fp-"
+        exists = {prefix + "j14-head", prefix + "j12-p1", prefix + "j6-head"}
+
+        def fake_fetch(derived, exact, _prefix):
+            staging = derived.with_name(derived.name + ".seed")
+            (staging / "Build").mkdir(parents=True)
+            (staging / seed.MANIFEST).write_text("{}")
+            return exact
+
+        with mock.patch.object(seed, "lineage", return_value=["head", "p1", "p2"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda k: k in exists), \
+                mock.patch.object(seed, "fetch", side_effect=fake_fetch):
+            got = seed.prefetch(store, "head")
+            self.assertEqual((got["fetched"], got["key"], got["distance"]), ("true", prefix + "j12-p1", 1))
+            self.assertEqual(seed.locate(prefix, "head"), (prefix + "j12-p1", 1), "the same key adopt takes")
+            exists.add(prefix + "j10-p2")
+            self.assertEqual(seed.prefetch(store, "head")["key"], prefix + "j10-p2")
 
     def test_prefetch_never_replaces_a_copy_a_job_kept_meanwhile(self):
         store = self.prefetch_store()

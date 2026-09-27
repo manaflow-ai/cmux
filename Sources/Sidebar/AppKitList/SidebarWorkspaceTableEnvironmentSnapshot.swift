@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
 
@@ -8,10 +9,13 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
 #if DEBUG
     let lazyContractProbe: SidebarLazyContractProbe
 #endif
+    /// macOS Display accessibility settings the AppKit rows paint with.
+    var displayAccessibility: DisplayAccessibilityOptions = .standard
 
     func hasEquivalentPresentation(to other: Self) -> Bool {
         colorScheme == other.colorScheme
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
+            && displayAccessibility == other.displayAccessibility
     }
 
     @ViewBuilder

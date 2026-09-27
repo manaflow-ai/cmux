@@ -4960,7 +4960,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        if payload != .reject {
+        if !payload.isRejection {
             let payloadBytes = result.payloadBytes
             guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
                   pendingPastePayloadBytes <=
@@ -5141,7 +5141,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let (next, overflowed) = total.addingReportingOverflow(payloadBytes)
                 total = overflowed ? .max : next
             }
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return 0
         }
     }
@@ -10224,6 +10224,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
+    private lazy var pasteFailureNoticePresenter = TerminalPasteFailureNoticePresenter()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
@@ -11497,6 +11498,12 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
     }
+
+    /// Shows a brief, non-modal notice over this terminal for a paste that
+    /// produced nothing (see ``TerminalPasteFailureNotice``).
+    func showPasteFailureNotice(_ notice: TerminalPasteFailureNotice) {
+        pasteFailureNoticePresenter.show(notice, over: self)
+    }
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
@@ -11857,15 +11864,13 @@ final class GhosttySurfaceScrollView: NSView {
                 logDropZoneOverlay(event: "update", zone: zone, frame: targetFrame)
             }
 #endif
+            // Retargeting snaps to the new zone; sliding the frame lags the pointer.
+            applyDropZoneOverlayFrame(targetFrame)
+            guard dropZoneOverlayView.alphaValue < 1 else { return }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                if needsFrameUpdate {
-                    dropZoneOverlayView.animator().frame = targetFrame
-                }
-                if dropZoneOverlayView.alphaValue < 1 {
-                    dropZoneOverlayView.animator().alphaValue = 1
-                }
+                dropZoneOverlayView.animator().alphaValue = 1
             }
         } else {
             guard !dropZoneOverlayView.isHidden else { return }

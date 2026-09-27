@@ -246,6 +246,25 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
+    @Test(arguments: [false, true], [
+        ("**Pi finished.**", "Pi finished."),
+        ("Run `swift test` and read [the results](https://example.com).", "Run swift test and read the results."),
+        ("**Done**\n*All checks passed*", "Done\nAll checks passed"),
+    ])
+    func notificationPreviewDisplaysPlainText(isActive: Bool, content: (String, String)) throws {
+        let (markdown, expected) = content
+        var model = Self.makeModel(isActive: isActive)
+        model.latestNotificationText = markdown
+        let cell = Self.configuredCell(model: model)
+        let subtitle = try #require(Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { !$0.isHidden && $0.stringValue == expected })
+
+        #expect(Self.accessibilityLinks(in: subtitle).isEmpty)
+        #expect(subtitle.maximumNumberOfLines == model.settings.notificationMessageLineLimit)
+        #expect(cell.currentModelForMeasurement?.latestNotificationText == markdown)
+    }
+
     static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
@@ -1865,6 +1884,22 @@ struct SidebarAppKitRowCellTests {
         #expect(configured.closeButtonPaintForTesting.alpha == 0)
     }
 
+    /// The close X shares the trailing slot with the unread badge and
+    /// spinner, which swap synchronously. The X must land in the same frame
+    /// on hover-in and leave in the same frame on hover-out.
+    @Test
+    func hoverRevealsAndConcealsCloseButtonInSameFrame() {
+        let cell = Self.configuredCell(model: Self.makeModel())
+
+        cell.enforcePointerHovering(true)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 1)
+
+        cell.enforcePointerHovering(false)
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+    }
+
     @Test
     func recycledHoveredCellSnapsCloseButtonHidden() {
         let cell = Self.configuredCell(model: Self.makeModel())
@@ -1904,12 +1939,24 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func shortcutHintPillUsesExplicitOpacityAnimationInsideDisabledTransaction() {
+    func shortcutHintPillAppearsWithoutFadeIn() {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+
+        #expect(!pill.isHidden)
+        #expect(pill.layer?.opacity == 1)
+        #expect((pill.layer?.animationKeys() ?? []).isEmpty)
+    }
+
+    @Test
+    func shortcutHintPillFadesOutWithExplicitOpacityAnimationInsideDisabledTransaction() {
+        let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
+        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
+        pill.configure(text: nil, fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
         let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
@@ -2207,7 +2254,8 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: true
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: nil
         ))
 
         let workspacePin = try #require(
@@ -2222,5 +2270,69 @@ struct SidebarPinnedIndicatorColorTests {
         )
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
+    }
+}
+
+@Suite
+@MainActor
+struct SidebarGroupHeaderBadgeColorTests {
+    private static func badgeFill(notificationBadgeColorHex: String?) throws -> CGColor {
+        let cell = SidebarGroupHeaderTableCellView()
+        cell.configurePresentation(model: SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: false,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: 3,
+            canMarkRead: true,
+            canMarkUnread: false,
+            hasLatestNotifications: true,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false,
+            colorSchemeIsDark: true,
+            notificationBadgeColorHex: notificationBadgeColorHex
+        ))
+        let badge = try #require(
+            SidebarAppKitRowCellTests.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+        return try #require(badge.layer?.backgroundColor)
+    }
+
+    @Test
+    func groupBadgeUsesNotificationBadgeColorSetting() throws {
+        let expected = try #require(NSColor(hex: "#E5484D"))
+        #expect(try Self.badgeFill(notificationBadgeColorHex: "#E5484D") == expected.cgColor)
+    }
+
+    @Test
+    func groupBadgeFallsBackToCmuxAccentNotSystemAccent() throws {
+        #expect(try Self.badgeFill(notificationBadgeColorHex: nil) == cmuxAccentNSColor(for: .dark).cgColor)
+    }
+
+    @Test
+    func badgeResolverIgnoresInvalidHex() {
+        let fallback = NSColor.systemPurple
+        #expect(cmuxNotificationBadgeNSColor(hex: "not a color", fallback: fallback) == fallback)
+        #expect(cmuxNotificationBadgeNSColor(hex: nil, fallback: fallback) == fallback)
     }
 }
