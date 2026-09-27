@@ -129,6 +129,8 @@ def check_removed_user_entries_do_not_leave_dangling_links(cli_path: str, failur
         user_dir = make_user_config(root)
         (user_dir / "snippets").mkdir()
         (user_dir / "snippets" / "intro.md").write_text("Hello.\n", encoding="utf-8")
+        # Installed packages are shared through a node_modules link that pruning must keep.
+        (user_dir / "node_modules" / "oh-my-openagent").mkdir(parents=True)
         run_omo(cli_path, root)
         shadow = root / ".cmuxterm" / "omo-config"
 
@@ -143,6 +145,9 @@ def check_removed_user_entries_do_not_leave_dangling_links(cli_path: str, failur
             failures.append("pruning removed the cmux session plugin")
         if not (shadow / "prompts" / "chief.md").exists():
             failures.append("pruning removed a link whose target still exists")
+        shadow_node_modules = shadow / "node_modules"
+        if not shadow_node_modules.is_symlink() or shadow_node_modules.resolve() != (user_dir / "node_modules").resolve():
+            failures.append("pruning dropped the shared node_modules link")
 
 
 def main() -> int:
