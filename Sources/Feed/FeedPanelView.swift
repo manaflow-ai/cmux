@@ -655,13 +655,14 @@ private struct FeedRowSurface: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackgroundFill)
-        .animation(.easeOut(duration: 0.14), value: isHovered)
-        .animation(.easeOut(duration: 0.14), value: isSelected)
+        // Only the hover fill fades. Selection moves with j/k and lands in
+        // the next frame, and the row content never animates.
+        .background {
+            rowBackgroundFill
+                .animation(.easeOut(duration: 0.14), value: isHovered)
+        }
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) {
-                isHovered = hovering
-            }
+            isHovered = hovering
         }
     }
 

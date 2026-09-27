@@ -13,7 +13,7 @@ contributor tooling, start with [fast checks](#fast-checks-before-committing-or-
 and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
 
 - macOS 14+
-- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
+- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14.5 or later also builds the macOS app (best effort, [Swift 6.0 limits](skills/cmux-architecture/references/swift-6-0-compatibility.md))
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles
   the bundled `cmux-cua` engine with `cargo`. The official installer puts both in `~/.cargo/bin`,
@@ -97,27 +97,9 @@ The command executes repository Python/shell code, including for help and list.
 Use a [trusted checkout](docs/contributor-verification.md#trust-boundary).
 Git push does not run it automatically.
 
-## Team Dogfood Setup
+## Team Dev Setup
 
-DEBUG builds can auto-sign-in as you and auto-attach an iOS build to your Mac with no manual steps. Each developer does a one-time setup with their own Stack account.
-
-Run this once:
-
-```bash
-scripts/setup-team-dev.sh
-```
-
-It prompts for your Stack email and password (the password is never echoed), verifies them against Stack, and writes `~/.secrets/cmuxterm-dev.env` with `chmod 600`. Re-running it is safe; if you are already configured it prints the account and exits. To reset, delete `~/.secrets/cmuxterm-dev.env` and run it again.
-
-After that, every dev build signs you in automatically:
-
-```bash
-scripts/dev-setup.sh --tag <your-initials>
-```
-
-That builds the tagged macOS DEBUG app auto-signed-in as you, enables the iOS pairing host, mints an attach ticket, and launches the iOS dev build auto-attached to your Mac. Use `--surface mac` for macOS only. See `scripts/dev-setup.sh --help` for all flags.
-
-This is DEBUG-only and per-user. The credentials file lives outside the repo and is never committed; `scripts/cmuxterm-dev.env.example` is the in-repo template. Release builds never read these credentials (the auto-sign-in path is compiled out of release).
+Team members with a Stack account can make DEBUG builds sign in and attach an iOS build automatically; see [team dev setup](docs/team-dev-setup.md).
 
 ## Web and JS Tooling
 
@@ -133,15 +115,6 @@ It excludes generated bundles, build outputs, vendored trees, and review-tool me
 Biome formatting and import sorting are disabled for now; do not wire this into required CI until
 the remaining source lint diagnostics are paid down.
 
-## Rebuilding GhosttyKit
-
-If you make changes to the ghostty submodule, rebuild the xcframework:
-
-```bash
-cd ghostty
-zig build -Demit-xcframework=true -Doptimize=ReleaseFast
-```
-
 ## Running Tests
 
 Use the [contributor verification ladder](docs/contributor-verification.md): source checks,
@@ -154,38 +127,16 @@ fleet access are optional paths, not prerequisites for contributing.
 
 ## Ghostty Submodule
 
-The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty), a fork of the upstream Ghostty project.
+The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaflow-ai/ghostty), a fork of upstream Ghostty. To change it, rebuild `GhosttyKit.xcframework`, or pull in upstream, follow the [cmux-ghostty skill](skills/cmux-ghostty/SKILL.md): push the submodule commit to the fork before committing the pointer in this repository. Fork changes and conflict notes are in [docs/ghostty-fork.md](docs/ghostty-fork.md).
 
-### Making changes to ghostty
+## Pull Requests
 
-```bash
-cd ghostty
-git checkout -b my-feature
-# make changes
-git add .
-git commit -m "Description of changes"
-git push manaflow my-feature
-```
+- Describe the change as the [writing guide](STYLE.md) says and fill in the pull request template, including what ran.
+- For a bug fix, commit the failing regression test before the fix; see [regression commits](skills/cmux-testing/SKILL.md#reproduce-and-repair).
+- Add one line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) for a user-visible change.
+- Sign the [CLA](CLA.md) once by commenting `I have read the CLA Document v2.2 and I hereby sign the CLA` on your pull request. The CLA check asks for it on your first pull request.
 
-### Keeping the fork updated
-
-```bash
-cd ghostty
-git fetch origin
-git checkout main
-git merge origin/main
-git push manaflow main
-```
-
-Then update the parent repo:
-
-```bash
-cd ..
-git add ghostty
-git commit -m "Update ghostty submodule"
-```
-
-See `docs/ghostty-fork.md` for details on fork changes and conflict notes.
+Agents working in this repository also follow [CLAUDE.md](CLAUDE.md) (also `AGENTS.md`).
 
 ## License
 
