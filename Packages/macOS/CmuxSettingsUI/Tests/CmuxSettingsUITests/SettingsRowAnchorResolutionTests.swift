@@ -142,6 +142,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
         "terminal.confirmUnsafePaste",
+        "terminal.agentImagePasteSendsCtrlV",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",

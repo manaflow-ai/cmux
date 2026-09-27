@@ -3308,6 +3308,8 @@
 		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
 		0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
+		1A6E50000000000000000001 /* TerminalAgentImagePasteRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6E50000000000000000002 /* TerminalAgentImagePasteRouting.swift */; };
+		1760F8AA5B45FE666131701D /* TerminalAgentImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0195B0E09D9B9DCA95244A28 /* TerminalAgentImagePasteRoutingTests.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8362A0040000000000000004 /* TerminalCallerTTYBinding.swift */; };
@@ -7286,6 +7288,8 @@
 		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
 		257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TelemetrySettings.swift"; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
+		1A6E50000000000000000002 /* TerminalAgentImagePasteRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalAgentImagePasteRouting.swift"; sourceTree = SOURCE_ROOT; };
+		0195B0E09D9B9DCA95244A28 /* TerminalAgentImagePasteRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalAgentImagePasteRoutingTests.swift"; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 		8362A0040000000000000004 /* TerminalCallerTTYBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCallerTTYBinding.swift; sourceTree = "<group>"; };
@@ -9919,6 +9923,7 @@
 				6313B6A1 /* PaneMemoryWarning.swift */,
 				124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */,
 				124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */,
+				1A6E50000000000000000002 /* TerminalAgentImagePasteRouting.swift */,
 				124770000000000000000008 /* TerminalImageTransferTarget.swift */,
 				124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */,
 				12477000000000000000000A /* TerminalSurface+ImageTransferTarget.swift */,
@@ -12190,6 +12195,7 @@
 				A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */,
 				D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */,
 				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
+				0195B0E09D9B9DCA95244A28 /* TerminalAgentImagePasteRoutingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14799,6 +14805,7 @@
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */,
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
+				1A6E50000000000000000001 /* TerminalAgentImagePasteRouting.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
 				B8835A000000000000000001 /* TerminalClipboardInputSequencer+State.swift in Sources */,
@@ -16660,6 +16667,7 @@
 				B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */,
 				C7A507000000000000000002 /* TaskManagerResourcesTests.swift in Sources */,
 				C7A507000000000000004529 /* TaskManagerViewSnapshotBoundaryTests.swift in Sources */,
+				1760F8AA5B45FE666131701D /* TerminalAgentImagePasteRoutingTests.swift in Sources */,
 				C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */,
 				46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 				8362B0010000000000000001 /* TerminalCallerTTYResolverTests.swift in Sources */,
