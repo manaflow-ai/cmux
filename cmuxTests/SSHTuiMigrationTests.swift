@@ -131,6 +131,8 @@ struct SSHTuiMigrationTests {
 
     }
 
+    // Covers the two attach helpers: the title attach enqueues as a rename before
+    // binding, and the create request, whose fingerprint must not depend on it.
     @MainActor
     @Test("An SSH attach publishes the local workspace title to the remote workspace it creates")
     func attachPublishesLocalTitleToRemoteWorkspace() throws {

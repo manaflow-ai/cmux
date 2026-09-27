@@ -3,6 +3,9 @@ import CmuxCloudTui
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
+import os
+
+private let sshTuiWorkspaceLogger = Logger(subsystem: "com.cmuxterm.app", category: "SSHTuiWorkspace")
 
 /// Composes SSH carriers with the same terminal graph and native projections as Cloud.
 @MainActor
@@ -121,7 +124,10 @@ final class SSHTuiWorkspaceCoordinator {
             )
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             if let title = Self.remoteWorkspaceTitleToPublish(for: workspace) {
-                catalog.enqueueRemoteWorkspaceRename(on: machine, id: remoteID, name: title)
+                // A failed publish degrades to the daemon default name; log it rather than fail the attach.
+                catalog.enqueueRemoteWorkspaceRename(on: machine, id: remoteID, name: title) { error in
+                    sshTuiWorkspaceLogger.error("publishing the workspace title to \(remoteID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                }
             }
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: connection.id, isBase: false, remoteWorkspaceID: remoteID)
             let projected = try await catalog.project(resource.id, into: .workspace(id: workspace.id, placement: .tab),
