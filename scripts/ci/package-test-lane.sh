@@ -3,7 +3,7 @@
 # runs on a GitHub runner and as a fleet ci-step (`cmux-ci run`, hq#794) from a
 # fresh checkout of the commit on a mini.
 #
-# Usage: package-test-lane.sh [run|select|bonsplit|packages]
+# Usage: package-test-lane.sh [run|select|bonsplit|packages|ghostty-sha]
 #          [--event[=]NAME] [--full-suite[=]true|false]
 #
 #   run       (default) select, then set up what the selection needs (Xcode,
@@ -14,6 +14,8 @@
 #             needs_rust, changed_files) to GITHUB_OUTPUT.
 #   bonsplit  run the Bonsplit package tests.
 #   packages  run the packages listed in the file SELECTED_PACKAGES.
+#   ghostty-sha  print the GhosttyKit revision a download would use (empty
+#             when a ghostty submodule checkout provides it).
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -21,7 +23,7 @@ set -euo pipefail
 
 phase=run
 case "${1:-}" in
-  run|select|bonsplit|packages) phase="$1"; shift ;;
+  run|select|bonsplit|packages|ghostty-sha) phase="$1"; shift ;;
 esac
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
@@ -196,6 +198,17 @@ select_xcode() {
   export DEVELOPER_DIR
 }
 
+# A fleet step has no ghostty submodule checkout, only the empty directory git
+# leaves for the gitlink. `git -C ghostty` there walks up to the superproject,
+# so test for the submodule's own .git instead; the gitlink names the same
+# revision a checkout would.
+resolve_ghostty_sha() {
+  if [ -z "${GHOSTTY_SHA:-}" ] && [ ! -e ghostty/.git ]; then
+    GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
+    export GHOSTTY_SHA
+  fi
+}
+
 # The workflow restores GhosttyKit.xcframework from the Actions cache first and
 # removes an invalid one, so this downloads only on a miss.
 ensure_ghosttykit() {
@@ -203,12 +216,7 @@ ensure_ghosttykit() {
     return 0
   fi
   rm -rf GhosttyKit.xcframework
-  # A fleet step has no ghostty submodule checkout; the gitlink names the same
-  # revision the checkout would.
-  if [ -z "${GHOSTTY_SHA:-}" ] && ! git -C ghostty rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
-    export GHOSTTY_SHA
-  fi
+  resolve_ghostty_sha
   if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
     export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
   fi
@@ -412,6 +420,10 @@ run_package_tests() {
 }
 
 case "$phase" in
+  ghostty-sha)
+    resolve_ghostty_sha
+    echo "${GHOSTTY_SHA:-}"
+    ;;
   select)
     ensure_bonsplit
     ensure_parent
