@@ -158,7 +158,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
                 colorScheme: scheme,
                 sidebarSelectionColorHex: nil
             )
-            XCTAssertEqual(solid.color?.hexString(), cmuxAccentNSColor(for: scheme).hexString())
+            XCTAssertEqual(solid.color?.hexString(), CmuxAccentColor().nsColor(for: scheme).hexString())
             XCTAssertEqual(solid.opacity, 1.0, accuracy: 0.001)
             XCTAssertNil(solid.edgeColor)
 

@@ -9,6 +9,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appearanceMode"
     )
 
+    /// Accent for cmux-drawn chrome: cmux's fixed blue or the macOS accent.
+    /// See ``CmuxAccentColorMode``.
+    public let accentColor = DefaultsKey<CmuxAccentColorMode>(
+        id: "app.accentColor",
+        defaultValue: CmuxAccentColorMode.defaultValue,
+        userDefaultsKey: CmuxAccentColorMode.userDefaultsKey
+    )
+
     public let language = DefaultsKey<AppLanguage>(
         id: "app.language",
         defaultValue: .system,

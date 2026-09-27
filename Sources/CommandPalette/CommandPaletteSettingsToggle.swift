@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -193,6 +194,22 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["app.workspaceInheritWorkingDirectory", "workspace", "working", "directory", "cwd", "inherit"],
                 defaultValue: SettingCatalog().app.workspaceInheritWorkingDirectory.defaultValue,
                 defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "systemAccentColor",
+                settingsKey: "app.accentColor",
+                title: {
+                    String(localized: "settings.app.accentColor.systemToggle", defaultValue: "System Accent Color")
+                },
+                sectionTitle: app,
+                keywords: ["app.accentColor", "accent", "color", "system", "macOS", "highlight", "tint", "blue"],
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.accentColor) == .system
+                },
+                setOn: { newValue, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(newValue ? .system : .cmux, for: SettingCatalog().app.accentColor)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",

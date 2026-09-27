@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -61,6 +62,7 @@ extension CmuxSettingsFileStore {
                 "app": [
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
+                    "accentColor": AppCatalogSection().accentColor.defaultValue.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,

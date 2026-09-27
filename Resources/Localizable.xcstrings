@@ -78980,55 +78980,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n                         \"#4C8DFF\" draws as the cmux accent (app.accentColor)\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n                         \"#4C8DFF\" は cmux のアクセントカラーで表示されます（app.accentColor）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux set-status <key> <value> [flags]\n\n为工作区设置一个侧边栏状态条目。状态条目会以胶囊标签的形式\n显示在侧边栏的标签页行中。请使用唯一的 key，让不同工具\n（例如 \"claude_code\"、\"build\"）各自管理自己的条目。\n\n标志:\n  --icon <name>          图标名称（例如 \"sparkle\"、\"hammer\"）\n  --color <#hex>         胶囊标签颜色（例如 \"#ff9500\"）\n  --priority <n>         排序优先级；数值越大越靠前（默认：0）\n  --workspace <id|ref>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n\n示例:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "用法：cmux set-status <key> <value> [flags]\n\n为工作区设置一个侧边栏状态条目。状态条目会以胶囊标签的形式\n显示在侧边栏的标签页行中。请使用唯一的 key，让不同工具\n（例如 \"claude_code\"、\"build\"）各自管理自己的条目。\n\n标志:\n  --icon <name>          图标名称（例如 \"sparkle\"、\"hammer\"）\n  --color <#hex>         胶囊标签颜色（例如 \"#ff9500\"）\n                         \"#4C8DFF\" 以 cmux 强调色显示（app.accentColor）\n  --priority <n>         排序优先级；数值越大越靠前（默认：0）\n  --workspace <id|ref>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n\n示例:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux set-status <key> <value> [flags]\n\nSetzt einen Seitenleisten-Statuseintrag für einen Arbeitsbereich. Statuseinträge werden als\nPillen in der Tab-Zeile der Seitenleiste angezeigt. Verwenden Sie einen eindeutigen Schlüssel, damit verschiedene Werkzeuge\n(z. B. \"claude_code\", \"build\") ihre eigenen Einträge verwalten können.\n\nFlags:\n  --icon <name>          Symbolname (z. B. \"sparkle\", \"hammer\")\n  --color <#hex>         Pillenfarbe (z. B. \"#ff9500\")\n  --priority <n>         Sortierpriorität; höher erscheint zuerst (Standard: 0)\n  --workspace <id|ref>   Ziel-Arbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n\nBeispiel:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Verwendung: cmux set-status <key> <value> [flags]\n\nSetzt einen Seitenleisten-Statuseintrag für einen Arbeitsbereich. Statuseinträge werden als\nPillen in der Tab-Zeile der Seitenleiste angezeigt. Verwenden Sie einen eindeutigen Schlüssel, damit verschiedene Werkzeuge\n(z. B. \"claude_code\", \"build\") ihre eigenen Einträge verwalten können.\n\nFlags:\n  --icon <name>          Symbolname (z. B. \"sparkle\", \"hammer\")\n  --color <#hex>         Pillenfarbe (z. B. \"#ff9500\")\n                         \"#4C8DFF\" wird in der cmux-Akzentfarbe gezeichnet (app.accentColor)\n  --priority <n>         Sortierpriorität; höher erscheint zuerst (Standard: 0)\n  --workspace <id|ref>   Ziel-Arbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n\nBeispiel:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux set-status <key> <value> [flags]\n\nDéfinit une entrée de statut dans la barre latérale pour un espace de travail. Les entrées de statut apparaissent sous forme de\npastilles dans la rangée d'onglets de la barre latérale. Utilisez une clé unique pour que différents outils\n(par ex. \"claude_code\", \"build\") puissent gérer leurs propres entrées.\n\nOptions :\n  --icon <name>          Nom de l'icône (par ex. \"sparkle\", \"hammer\")\n  --color <#hex>         Couleur de la pastille (par ex. \"#ff9500\")\n  --priority <n>         Priorité de tri ; une valeur plus élevée apparaît en premier (par défaut : 0)\n  --workspace <id|ref>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n\nExemple :\n  cmux set-status build \"compilation\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Utilisation : cmux set-status <key> <value> [flags]\n\nDéfinit une entrée de statut dans la barre latérale pour un espace de travail. Les entrées de statut apparaissent sous forme de\npastilles dans la rangée d'onglets de la barre latérale. Utilisez une clé unique pour que différents outils\n(par ex. \"claude_code\", \"build\") puissent gérer leurs propres entrées.\n\nOptions :\n  --icon <name>          Nom de l'icône (par ex. \"sparkle\", \"hammer\")\n  --color <#hex>         Couleur de la pastille (par ex. \"#ff9500\")\n                         \"#4C8DFF\" s’affiche avec la couleur d’accentuation de cmux (app.accentColor)\n  --priority <n>         Priorité de tri ; une valeur plus élevée apparaît en premier (par défaut : 0)\n  --workspace <id|ref>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n\nExemple :\n  cmux set-status build \"compilation\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux set-status <key> <value> [flags]\n\nتعيين إدخال حالة في الشريط الجانبي لمساحة عمل. تظهر إدخالات الحالة على شكل\nحبوب (pills) في صف علامات تبويب الشريط الجانبي. استخدم مفتاحًا فريدًا بحيث تتمكن الأدوات المختلفة\n(مثل \"claude_code\"، \"build\") من إدارة إدخالاتها الخاصة.\n\nالخيارات:\n  --icon <name>          اسم الأيقونة (مثل \"sparkle\"، \"hammer\")\n  --color <#hex>         لون الحبة (مثل \"#ff9500\")\n  --priority <n>         أولوية الفرز؛ يظهر الأعلى أولاً (الافتراضي: 0)\n  --workspace <id|ref>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n\nمثال:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "الاستخدام: cmux set-status <key> <value> [flags]\n\nتعيين إدخال حالة في الشريط الجانبي لمساحة عمل. تظهر إدخالات الحالة على شكل\nحبوب (pills) في صف علامات تبويب الشريط الجانبي. استخدم مفتاحًا فريدًا بحيث تتمكن الأدوات المختلفة\n(مثل \"claude_code\"، \"build\") من إدارة إدخالاتها الخاصة.\n\nالخيارات:\n  --icon <name>          اسم الأيقونة (مثل \"sparkle\"، \"hammer\")\n  --color <#hex>         لون الحبة (مثل \"#ff9500\")\n                         يُرسم \"#4C8DFF\" بلون تمييز cmux (app.accentColor)\n  --priority <n>         أولوية الفرز؛ يظهر الأعلى أولاً (الافتراضي: 0)\n  --workspace <id|ref>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n\nمثال:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux set-status <key> <value> [flags]\n\nEstablece una entrada de estado de la barra lateral para un espacio de trabajo. Las entradas de estado aparecen como\npíldoras en la fila de pestañas de la barra lateral. Usa una clave única para que diferentes herramientas\n(por ejemplo, \"claude_code\", \"build\") puedan gestionar sus propias entradas.\n\nOpciones:\n  --icon <name>          Nombre del icono (por ejemplo, \"sparkle\", \"hammer\")\n  --color <#hex>         Color de la píldora (por ejemplo, \"#ff9500\")\n  --priority <n>         Prioridad de ordenación; los valores más altos aparecen primero (por defecto: 0)\n  --workspace <id|ref>   Espacio de trabajo objetivo (por defecto: $CMUX_WORKSPACE_ID)\n\nEjemplo:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Uso: cmux set-status <key> <value> [flags]\n\nEstablece una entrada de estado de la barra lateral para un espacio de trabajo. Las entradas de estado aparecen como\npíldoras en la fila de pestañas de la barra lateral. Usa una clave única para que diferentes herramientas\n(por ejemplo, \"claude_code\", \"build\") puedan gestionar sus propias entradas.\n\nOpciones:\n  --icon <name>          Nombre del icono (por ejemplo, \"sparkle\", \"hammer\")\n  --color <#hex>         Color de la píldora (por ejemplo, \"#ff9500\")\n                         \"#4C8DFF\" se dibuja con el color de acento de cmux (app.accentColor)\n  --priority <n>         Prioridad de ordenación; los valores más altos aparecen primero (por defecto: 0)\n  --workspace <id|ref>   Espacio de trabajo objetivo (por defecto: $CMUX_WORKSPACE_ID)\n\nEjemplo:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux set-status <key> <value> [flags]\n\n為工作區設定側邊欄狀態條目。狀態條目會以\n藥丸形標籤的形式顯示在側邊欄標籤列中。請使用唯一的鍵值 (key)，以便不同的工具\n(例如 \"claude_code\"、\"build\") 可以管理各自的條目。\n\n旗標：\n  --icon <name>          圖示名稱 (例如 \"sparkle\"、\"hammer\")\n  --color <#hex>         藥丸形標籤顏色 (例如 \"#ff9500\")\n  --priority <n>         排序優先權；值越高越優先顯示 (預設值：0)\n  --workspace <id|ref>   目標工作區 (預設值：$CMUX_WORKSPACE_ID)\n\n範例：\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "用法：cmux set-status <key> <value> [flags]\n\n為工作區設定側邊欄狀態條目。狀態條目會以\n藥丸形標籤的形式顯示在側邊欄標籤列中。請使用唯一的鍵值 (key)，以便不同的工具\n(例如 \"claude_code\"、\"build\") 可以管理各自的條目。\n\n旗標：\n  --icon <name>          圖示名稱 (例如 \"sparkle\"、\"hammer\")\n  --color <#hex>         藥丸形標籤顏色 (例如 \"#ff9500\")\n                         \"#4C8DFF\" 以 cmux 強調色顯示（app.accentColor）\n  --priority <n>         排序優先權；值越高越優先顯示 (預設值：0)\n  --workspace <id|ref>   目標工作區 (預設值：$CMUX_WORKSPACE_ID)\n\n範例：\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux set-status <key> <value> [flags]\n\n작업 공간의 사이드바 상태 항목을 설정합니다. 상태 항목은\n사이드바 탭 행에 알약(pill) 모양으로 나타납니다. 여러 다른 도구들\n(예: \"claude_code\", \"build\")이 각각의 항목을 관리할 수 있도록 고유한 키를 사용하십시오.\n\n플래그:\n  --icon <name>          아이콘 이름 (예: \"sparkle\", \"hammer\")\n  --color <#hex>         알약(pill) 색상 (예: \"#ff9500\")\n  --priority <n>         정렬 우선순위, 높을수록 먼저 표시됨 (기본값: 0)\n  --workspace <id|ref>   대상 작업 공간 (기본값: $CMUX_WORKSPACE_ID)\n\n예시:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "사용법: cmux set-status <key> <value> [flags]\n\n작업 공간의 사이드바 상태 항목을 설정합니다. 상태 항목은\n사이드바 탭 행에 알약(pill) 모양으로 나타납니다. 여러 다른 도구들\n(예: \"claude_code\", \"build\")이 각각의 항목을 관리할 수 있도록 고유한 키를 사용하십시오.\n\n플래그:\n  --icon <name>          아이콘 이름 (예: \"sparkle\", \"hammer\")\n  --color <#hex>         알약(pill) 색상 (예: \"#ff9500\")\n                         \"#4C8DFF\"는 cmux 강조 색상으로 표시됩니다 (app.accentColor)\n  --priority <n>         정렬 우선순위, 높을수록 먼저 표시됨 (기본값: 0)\n  --workspace <id|ref>   대상 작업 공간 (기본값: $CMUX_WORKSPACE_ID)\n\n예시:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
           }
         }
       }
@@ -291192,6 +291192,596 @@
         }
       }
     },
+    "settings.app.accentColor": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.cmux": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرق cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux plava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Blau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bleu cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blu cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ブルー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 파란색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-blå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niebieski cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синий cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีน้ำเงิน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Mavisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синій cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 蓝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 藍"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.subtitle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون مساحة العمل المحددة وحلقة التنبيه وحالة الوكيل وإبرازات cmux الأخرى. يتبع خيار النظام لون التمييز في macOS."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boja odabranog radnog prostora, prstena pažnje, statusa agenta i ostalih cmux istaknutih elemenata. Sistem prati boju naglaska macOS-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farve for det valgte arbejdsområde, opmærksomhedsringen, agentstatus og andre cmux-fremhævninger. System følger macOS-accentfarven."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farbe des ausgewählten Workspace, des Aufmerksamkeitsrings, des Agentenstatus und anderer cmux-Hervorhebungen. „Systemfarbe“ folgt der macOS-Akzentfarbe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the selected workspace, attention ring, agent status, and other cmux highlights. System follows the macOS accent color."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del espacio de trabajo seleccionado, el anillo de atención, el estado del agente y otros resaltados de cmux. Sistema sigue el color de acento de macOS."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur de l’espace de travail sélectionné, de l’anneau d’attention, de l’état de l’agent et des autres mises en évidence de cmux. Système suit la couleur d’accentuation de macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore dell’area di lavoro selezionata, dell’anello di attenzione, dello stato dell’agente e degli altri elementi evidenziati di cmux. Sistema segue il colore di evidenziazione di macOS."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のワークスペース、注意リング、エージェントの状態など、cmux のハイライトの色です。「システム」は macOS のアクセントカラーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 워크스페이스, 주의 링, 에이전트 상태 등 cmux 강조 표시의 색상입니다. 시스템은 macOS 강조 색상을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farge for det valgte arbeidsområdet, oppmerksomhetsringen, agentstatus og andre cmux-uthevinger. System følger macOS-aksentfargen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolor wybranego obszaru roboczego, pierścienia uwagi, stanu agenta i innych wyróżnień cmux. Systemowy podąża za kolorem akcentu macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor do espaço de trabalho selecionado, do anel de atenção, do status do agente e de outros destaques do cmux. Sistema segue a cor de destaque do macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвет выбранного рабочего пространства, кольца внимания, статуса агента и других выделений cmux. «Системный» следует цвету акцента macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีของพื้นที่ทำงานที่เลือก วงแจ้งเตือน สถานะเอเจนต์ และไฮไลต์อื่นๆ ของ cmux ตัวเลือกระบบจะใช้สีเน้นของ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili çalışma alanı, dikkat halkası, ajan durumu ve diğer cmux vurgularının rengi. Sistem, macOS vurgu rengini izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колір вибраного робочого простору, кільця уваги, статусу агента та інших виділень cmux. «Системний» використовує колір акценту macOS."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选工作区、提醒环、代理状态和其他 cmux 高亮的颜色。“系统”跟随 macOS 强调色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選工作區、提醒環、代理狀態和其他 cmux 醒目提示的顏色。「系統」跟隨 macOS 強調色。"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.system": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.app.accentColor.systemToggle": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون التمييز للنظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemska boja naglaska"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets accentfarve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Akzentfarbe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Accent Color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color de acento del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur d’accentuation du système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colore di evidenziazione di sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのアクセントカラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 강조 색상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemets aksentfarge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowy kolor akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor de destaque do sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный цвет акцента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเน้นของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem Vurgu Rengi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний колір акценту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统强调色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統強調色"
+          }
+        }
+      }
+    },
     "settings.app.appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -343816,6 +344406,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.appIcon dock icon application icon app switcher alternate icon app.appIcon dock icon application app switcher alternate 應用程式 一般 偏好設定 行為 選單列 狀態 側邊欄 圖示"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.accent-color": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue لون التمييز أزرق النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue boja naglaska plava sistem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue accentfarve blå system"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue Akzentfarbe blau System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue color de acento azul sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue couleur d’accentuation bleu système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue colore di evidenziazione blu sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue アクセントカラー 青 システム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 강조 색상 파란색 시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue aksentfarge blå system"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue kolor akcentu niebieski systemowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue cor de destaque azul sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue цвет акцента синий системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue สีเน้น สีน้ำเงิน ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue vurgu rengi mavi sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue колір акценту синій системний"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 强调色 蓝色 系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.accentColor accent color highlight tint blue purple system accent macOS accent cmux blue 強調色 藍色 系統"
           }
         }
       }
