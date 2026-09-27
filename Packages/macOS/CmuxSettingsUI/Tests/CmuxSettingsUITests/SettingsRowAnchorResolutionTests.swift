@@ -142,6 +142,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.reflowHardWrapOnCopy",
+        "terminal.confirmUnsafePaste",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
         "terminal.textEditingGestures",

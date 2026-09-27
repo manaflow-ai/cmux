@@ -181,6 +181,22 @@ writes a runner label at job time, so the routing App needs only
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
 
+Distance routing (`vars.CI_OWNED_WARM_DISTANCE`, on unless '0'): the exact
+keys above miss most warm starts (on 2026-09-26/27 a near kept build sat on
+another, free mini for about a quarter of admissions). With it on, each
+admission artifact also carries its mini's root stamps (`roots`:
+merged_onto, pr and the pull request's own app Swift files), the builds kept
+since the snapshot are folded in live (owned_warm_state.live_warm(), at most
+1 + 2 * LIVE_MAX_NEW requests), and warm_distance.picker_distance_route()
+scores every free root on every mini with glaeda's hook's near/far/rebuild
+tiers (main's diff from each kept merge base, from one blobless shallow
+fetch, plus the kept and this pull request's own files). The root label
+costs the mean of the idle root runners' costs (where GitHub would put it);
+the cheapest runner is pinned when it beats that by ROUTE_MARGIN_SECONDS,
+ties broken by cost, then the less loaded mini, then the name. The
+`admission_route` output carries the candidates, the pick and its predicted
+seconds (warm_distance.route_record()), which admission records.
+
 Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
 std mini has two root runners and a compile takes either free root, so two
 compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
@@ -1135,6 +1151,12 @@ def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merge
     return pinned_admission(root, name) if name else ""
 
 
+def distance_routing(env: Mapping[str, str]) -> bool:
+    """Whether admission's pin scores every mini's kept builds by distance (warm_distance.distance_route())
+    rather than exact keys (route_admission()): vars.CI_OWNED_WARM_DISTANCE, on unless '0'."""
+    return (env.get("OWNED_WARM_DISTANCE") or "").strip() != "0"
+
+
 def runner_member(name: str) -> str:
     """The mini a glaeda runner runs on: its name less `-glaeda` or `-glaeda-<K>`, or "" for another name."""
     match = GLAEDA_RUNNER_NAME.fullmatch(name or "")
@@ -1276,7 +1298,9 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0: an owned pool, in
     order, when the jobs it would place there start within `queue_rounds`
     job lengths and within the queue bound (owned_room()), whatever
-    Blacksmith's expected wait (Blacksmith is overflow); else the Blacksmith
+    Blacksmith's expected wait (Blacksmith is overflow), the first one whose
+    machines (and root runners) are free for the run now ahead of the first
+    it would queue on; else the Blacksmith
     pool with the least expected wait (expected_wait()), the earlier in
     order on a tie. `taken` is the
     peak of the runs since the snapshot that took each owned pool, by their
@@ -1326,6 +1350,18 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     reserve = max(0, reserve)
     fits = [label for label, room in rooms.items() if room.room >= max(1, jobs) + reserve
             and (room.root_room is None or root_jobs <= 0 or room.root_room >= root_jobs + reserve)]
+    if queue_rounds:
+        # An owned pool the run starts on now beats an earlier one it would
+        # queue on: with the rounds, std always fits by its queue places, so
+        # light sat idle while runs queued behind std's busy root runners.
+        def idle(counts: Mapping[str, int], added_jobs: int, label: str) -> int:
+            return counts["capacity"] - counts["running"] - counts["queued"] - taken_now.get(label, 0) - added_jobs
+
+        now = [label for label in fits
+               if idle(load[label], added[label] * REPLAYED_RUN_JOBS, label) >= max(1, jobs) + reserve
+               and (label not in roots or root_jobs <= 0
+                    or idle(roots[label], added[label], label) >= root_jobs + reserve)]
+        fits = now or fits
     if split and not reserve and not fits and rooms and max(room.room for room in rooms.values()) >= 1:
         # A pool with a root runner free first, when the run needs one.
         fits = [max(rooms, key=lambda label: (not root_jobs or rooms[label].root_room is None
@@ -1436,9 +1472,13 @@ def decide(
     queue_rounds = limits.queue_rounds
     for _ in range(max(0, ephemeral_since) if ephemeral else 0):
         added[pick(load, added, ephemeral, limits.max_queued, jobs=1, queue_rounds=queue_rounds).label] += 1
+    # With a root count, a replayed run needs one root runner (its admission), as a
+    # real run does: pick() prefers the pool it starts on now, and std's idle side
+    # runners alone would charge it to std while the run itself took light.
     for _ in range(max(0, routed_since)):
-        added[pick(load, added, usable, limits.max_queued, jobs=1, queue_rounds=queue_rounds,
-                   taken=taken, taken_now=held, compared_jobs=REPLAYED_RUN_JOBS).label] += 1
+        added[pick(load, added, usable, limits.max_queued, jobs=1, roots=roots, root_jobs=1,
+                   queue_rounds=queue_rounds, taken=taken, taken_now=held,
+                   compared_jobs=REPLAYED_RUN_JOBS).label] += 1
     if reserve:
         # Main's full suite with a reserve (CI_OWNED_MAIN_RESERVE) takes an
         # owned pool only while its peak and the reserve are free now: no
@@ -1472,7 +1512,7 @@ def decide(
             machines += f" and {places} queue places within {chosen.limit:g} min"
         if chosen.blacksmith_wait is not None:
             machines += f" (Blacksmith's expected wait {chosen.blacksmith_wait:g} min)"
-        root = ""
+        root, root_now = "", None
         if chosen.root_room is not None:
             root_now = max(0, idle(roots[label], added[label]))
             root = f"; {root_now} of {roots[label]['capacity']} root runners free"
@@ -1481,7 +1521,12 @@ def decide(
             root += f", it needs {root_jobs}"
         whole = chosen.room >= max(1, jobs) and (chosen.root_room is None or chosen.root_room >= root_jobs)
         kept = f", and {reserve} kept free for pull requests" if reserve else ""
-        if whole:
+        earlier = [other for other in candidates[:candidates.index(label)] if persistent(other)]
+        starts_now = free_now >= max(1, jobs) and (root_now is None or root_jobs <= 0 or root_now >= root_jobs)
+        if whole and earlier and queue_rounds and starts_now:
+            why = (f"first owned pool free for this run now ({machines}, this run needs {max(1, jobs)}{root}; "
+                   f"{', '.join(earlier)} not free now){replay}")
+        elif whole:
             why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
         else:
             why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
@@ -2146,6 +2191,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
     # ci-macos.yml reads both outputs on attempt 1 only.
     admission_runner = ""
+    admission_route = ""
     admission_warm: list[list[str]] = []
     # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
     # turns affinity off.
@@ -2162,14 +2208,31 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import warm_distance  # noqa: PLC0415
             try:
-                admission_runner, route = warm_distance.picker_route(
-                    live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
-                    pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
-                    queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
-                    warm_key=warm_key, runner_label=runner_label)
+                if distance_routing(env):
+                    # Every mini's kept builds by the hook's near/far/rebuild distance, with the
+                    # builds kept since the snapshot folded in live (owned_warm_state.live_warm()).
+                    import owned_warm_state  # noqa: PLC0415
+                    warm = snapshot.get("warm") if isinstance(snapshot.get("warm"), Mapping) else {}
+                    if token and repo and not args.snapshot:
+                        warm = owned_warm_state.live_warm(
+                            client(), warm, now, generated_at=parse_time(str(snapshot.get("generated_at") or "")))
+                    admission_runner, route = warm_distance.picker_distance_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot={**snapshot, "warm": warm}, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label, member=runner_member)
+                    route["live"] = warm.get("live")
+                else:
+                    admission_runner, route = warm_distance.picker_route(
+                        live_runners, choice.root_runner, merged_onto=env.get("MERGED_ONTO"),
+                        pr_number=env.get("PR_NUMBER"), snapshot=snapshot, workspace=Path.cwd(),
+                        queue_rounds=parse_queue_rounds(env.get("POOL_QUEUE_ROUNDS")), now=now,
+                        warm_key=warm_key, runner_label=runner_label)
                 print(f"warm routing: {route.get('why')} {json.dumps(route, sort_keys=True)}")
+                admission_route = json.dumps(warm_distance.route_record(route), separators=(",", ":"),
+                                             sort_keys=True)
             except Exception as error:  # noqa: BLE001 - a routing hint never costs the pool pick
-                admission_runner = ""
+                admission_runner = admission_route = ""
                 print(f"::warning title=warm routing::{type(error).__name__}: {error}"[:300])
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
@@ -2204,6 +2267,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # and the static label of the runner warm for this
                          # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
+                         # The picker's costs behind it (warm_distance.route_record()), JSON or "":
+                         # admission records them for ci-dash's Estimates view.
+                         f"admission_route={admission_route}\n"
                          # JSON tiers of the names of the root runners warm for
                          # this run's merge base, then its pull request, or ""
                          # (admission_placement.py).

@@ -96,6 +96,7 @@ enum SettingsSearchIndex {
         setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "text-editing-gestures", String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), "terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
+        setting(.terminal, "confirm-unsafe-paste", String(localized: "settings.terminal.confirmUnsafePaste", defaultValue: "Confirm Unsafe Pastes"), "terminal.confirmUnsafePaste confirm unsafe paste protection warning multi-line newline clipboard sheet"),
         setting(.terminal, "reflow-hard-wrap-on-copy", String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"), "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         setting(.terminal, "password-input-indicator", String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"), "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         setting(.terminal, "password-input-dots", String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"), "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
@@ -152,8 +153,7 @@ enum SettingsSearchIndex {
             String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
             [
                 "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
-                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitle", defaultValue: "Generates workspace and tab titles from agent conversations."),
                 String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
                 String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
                 String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
@@ -293,6 +293,7 @@ enum SettingsSearchIndex {
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
         "terminal.textEditingGestures": settingID(for: .terminal, idSuffix: "text-editing-gestures"),
         "terminal.reflowHardWrapOnCopy": settingID(for: .terminal, idSuffix: "reflow-hard-wrap-on-copy"),
+        "terminal.confirmUnsafePaste": settingID(for: .terminal, idSuffix: "confirm-unsafe-paste"),
         "terminal.showPasswordInputIndicator": settingID(for: .terminal, idSuffix: "password-input-indicator"),
         "terminal.showPasswordInputDots": settingID(for: .terminal, idSuffix: "password-input-dots"),
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),

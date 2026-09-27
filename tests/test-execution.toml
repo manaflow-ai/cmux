@@ -4,6 +4,10 @@
 # inventory only: existing files may remain legacy while we model their
 # current execution path, but newly added tests may not enter as legacy.
 # `manual` entries require a reason.
+#
+# Lane runners may run a lane's tests concurrently, so a test keeps its files
+# and sockets in its own temporary directory or pid-scoped names. `serial = true` runs an entry alone, for tests that assert
+# wall-clock bounds a busy machine could miss.
 version = 1
 
 [[test]]
@@ -49,6 +53,8 @@ requirements = ["cmux-cli"]
 path = "tests/test_cli_socket_operation_deadline.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
+# Asserts sub-second wall-clock deadlines; runs alone, before the parallel pool.
+serial = true
 
 [[test]]
 path = "tests/test_cli_simulator_contract.py"
@@ -66,6 +72,11 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cli_omo_openagent_plugin_migration.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_omo_shadow_config_mirror.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -1315,6 +1326,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_classify_failures.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 
@@ -1328,4 +1343,17 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_resources_plist_unique_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_claude_hook_spool.py"
+lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_ci_machine_failure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_media.py"
 lane = "linux-guard"

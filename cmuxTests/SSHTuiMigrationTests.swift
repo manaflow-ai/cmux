@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
@@ -128,6 +129,41 @@ struct SSHTuiMigrationTests {
         #expect(blocked.scopedToOwnerWorkspace(UUID()).sessionSnapshot() == legacy)
         #expect(blocked.withSSHControlMasterLeaseGeneration(UUID()).sessionSnapshot() == legacy)
 
+    }
+
+    // Covers the two attach helpers: the title attach enqueues as a rename before
+    // binding, and the create request, whose fingerprint must not depend on it.
+    @MainActor
+    @Test("An SSH attach publishes the local workspace title to the remote workspace it creates")
+    func attachPublishesLocalTitleToRemoteWorkspace() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let untitled = SSHTuiWorkspaceCoordinator.remoteWorkspaceCreationRequest(for: workspace, socketPath: "/tmp/fixture.sock")
+        #expect(untitled.operation == "workspace.create")
+        #expect(untitled.params["initial_content"] as? String == "empty")
+        #expect(SSHTuiWorkspaceCoordinator.remoteWorkspaceTitleToPublish(for: workspace) == nil)
+
+        // `cmux ssh --name`, `cmux mosh-tmux --name`, and a restored user title all
+        // reach attach as the local custom title. The daemon graph owns the name
+        // once the workspace is bound, so attach must publish the title or the
+        // daemon default (`workspace-N`) replaces it.
+        #expect(workspace.setCustomTitle("s655 @big-red", source: .user))
+        #expect(SSHTuiWorkspaceCoordinator.remoteWorkspaceTitleToPublish(for: workspace) == "s655 @big-red")
+        // The create itself stays unnamed and identical across title edits, so a
+        // replay of the per-workspace idempotency key never conflicts.
+        let titled = SSHTuiWorkspaceCoordinator.remoteWorkspaceCreationRequest(for: workspace, socketPath: "/tmp/fixture.sock")
+        #expect(titled.params["name"] == nil)
+        #expect(titled.parameters == untitled.parameters)
+        #expect(titled.idempotencyKey == untitled.idempotencyKey)
+
+        // Auto titles are derived locally, and a title over the daemon's
+        // 1024-byte limit would fail the rename; neither is published.
+        let automatic = Workspace()
+        defer { automatic.teardownAllPanels() }
+        #expect(automatic.setCustomTitle("derived-from-cwd", source: .auto))
+        #expect(SSHTuiWorkspaceCoordinator.remoteWorkspaceTitleToPublish(for: automatic) == nil)
+        #expect(workspace.setCustomTitle(String(repeating: "x", count: 1025), source: .user))
+        #expect(SSHTuiWorkspaceCoordinator.remoteWorkspaceTitleToPublish(for: workspace) == nil)
     }
 
     @Test("Managed SSH snapshot serialization records its session owner")
