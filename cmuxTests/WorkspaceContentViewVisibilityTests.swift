@@ -6,6 +6,7 @@ import CoreGraphics
 import Observation
 import SwiftUI
 import Bonsplit
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -505,6 +506,83 @@ final class WorkspaceContentViewVisibilityTests {
 
         #expect(minimalControls == [.upgrade])
         #expect(standardControls == SidebarFooterControl.allCases)
+    }
+
+    @Test
+    func interfaceDensityMetricsStayWithinHIGHitTargetsAndTitlebarRow() {
+        let comfortable = InterfaceDensityMetrics.metrics(for: .comfortable)
+        let standard = InterfaceDensityMetrics.metrics(for: .standard)
+        let compact = InterfaceDensityMetrics.metrics(for: .compact)
+
+        // Standard is exactly what shipped before app.density.
+        #expect(standard.titlebarButtonSize == HeaderChromeControlMetrics.buttonSize)
+        #expect(standard.titlebarIconSize == HeaderChromeControlMetrics.iconSize)
+        #expect(standard.sidebarFooterButtonSize == SidebarFooterButtonMetrics.buttonSize)
+        #expect(standard.sidebarFooterPrimaryIconSize == SidebarFooterButtonMetrics.helpIconSize)
+        #expect(standard.sidebarFooterSecondaryIconSize == SidebarFooterButtonMetrics.mobileIconSize)
+        #expect(
+            TitlebarControlsStyle.classic.config(density: .standard).buttonSize
+                == HeaderChromeControlMetrics.buttonSize
+        )
+
+        for metrics in [comfortable, standard, compact] {
+            // macOS HIG minimum control size is 20x20pt.
+            #expect(metrics.titlebarButtonSize >= 20)
+            #expect(metrics.sidebarFooterButtonSize >= 20)
+            // Buttons sit inside the fixed 28pt titlebar row.
+            #expect(metrics.titlebarButtonSize <= WindowChromeMetrics.appTitlebarHeight)
+        }
+        #expect(comfortable.titlebarIconSize > standard.titlebarIconSize)
+        #expect(comfortable.sidebarFooterPrimaryIconSize > standard.sidebarFooterPrimaryIconSize)
+        #expect(compact.titlebarIconSize < standard.titlebarIconSize)
+        #expect(compact.sidebarFooterPrimaryIconSize < standard.sidebarFooterPrimaryIconSize)
+    }
+
+    @Test
+    func sidebarAccountPresentationFollowsDensity() {
+        let comfortable = SidebarAccountButtonPresentation.resolve(
+            isSignedIn: true,
+            prefersProfileIcon: false,
+            hasProfilePicture: true,
+            density: .comfortable
+        )
+        #expect(comfortable.size == InterfaceDensityMetrics.comfortable.sidebarFooterPrimaryIconSize)
+    }
+
+    @Test
+    func compactDensityFoldsTitlebarControlsButKeepsUnreadVisible() {
+        func shows(
+            _ density: InterfaceDensity,
+            hovering: Bool = false,
+            unread: Bool = false,
+            mode: TitlebarControlsVisibilityMode = .alwaysVisible
+        ) -> Bool {
+            TitlebarControlsVisibilityMode.showsControls(
+                mode: mode,
+                density: density,
+                isHovering: hovering,
+                isPopoverShown: false,
+                showsShortcutHints: false,
+                hasUnreadNotifications: unread
+            )
+        }
+
+        #expect(shows(.comfortable))
+        #expect(shows(.standard))
+        #expect(!shows(.compact))
+        #expect(shows(.compact, hovering: true))
+        #expect(shows(.compact, unread: true))
+        // The legacy hover mode keeps its behavior outside compact.
+        #expect(!shows(.standard, unread: true, mode: .onHover))
+    }
+
+    @Test
+    func compactDensityFoldsOnlySidebarFooterActions() {
+        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .comfortable, isHoveringFooter: false, isShowingShortcutHints: false))
+        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .standard, isHoveringFooter: false, isShowingShortcutHints: false))
+        #expect(!SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: false, isShowingShortcutHints: false))
+        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: true, isShowingShortcutHints: false))
+        #expect(SidebarFooterFoldPolicy.showsFoldableActions(density: .compact, isHoveringFooter: false, isShowingShortcutHints: true))
     }
 
     @Test

@@ -15387,9 +15387,38 @@ struct SidebarFooterButtons: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
+    @AppStorage(InterfaceDensity.userDefaultsKey)
+    private var interfaceDensityRawValue = InterfaceDensity.defaultValue.rawValue
+    @State private var isHoveringFooter = false
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var interfaceDensity: InterfaceDensity {
+        InterfaceDensity(rawValue: interfaceDensityRawValue) ?? InterfaceDensity.defaultValue
+    }
+
+    /// Faded buttons are not hit-testable, so this clear layer keeps their
+    /// slots reporting hover. Only the button slots get it; the rest of the
+    /// footer stays click-through.
+    private var foldedActionsHoverTarget: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering { isHoveringFooter = true }
+            }
+    }
+
+    /// Compact density fades the footer's action buttons until the pointer
+    /// reaches the footer. They keep their slots, so pointing at a slot
+    /// brings its button back.
+    private var foldableActionsOpacity: Double {
+        SidebarFooterFoldPolicy.showsFoldableActions(
+            density: interfaceDensity,
+            isHoveringFooter: isHoveringFooter,
+            isShowingShortcutHints: showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        ) ? 1 : 0
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15397,6 +15426,8 @@ struct SidebarFooterButtons: View {
     }
 
     var body: some View {
+        let footerButtonSize = SidebarFooterButtonMetrics.buttonSize(for: interfaceDensity)
+        let secondaryIconSize = SidebarFooterButtonMetrics.secondaryIconSize(for: interfaceDensity)
         HStack(spacing: 4) {
             if shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
@@ -15410,6 +15441,8 @@ struct SidebarFooterButtons: View {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
                     }
                 }
+                .opacity(foldableActionsOpacity)
+                .background(foldedActionsHoverTarget)
             }
             // Command-hold reveal: appears immediately before Upgrade. It stays
             // mounted while its popover is open so releasing ⌘ does not dismiss it.
@@ -15429,11 +15462,13 @@ struct SidebarFooterButtons: View {
                         title: String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
                     )
                 } label: {
-                    CmuxSystemSymbolImage(magnified: "puzzlepiece.extension", pointSize: 12, weight: .medium, tint: Color(nsColor: .secondaryLabelColor))
-                        .frame(width: 22, height: 22, alignment: .center)
+                    CmuxSystemSymbolImage(magnified: "puzzlepiece.extension", pointSize: secondaryIconSize, weight: .medium, tint: Color(nsColor: .secondaryLabelColor))
+                        .frame(width: footerButtonSize, height: footerButtonSize, alignment: .center)
                 }
                 .buttonStyle(SidebarFooterIconButtonStyle())
-                .frame(width: 22, height: 22, alignment: .center)
+                .frame(width: footerButtonSize, height: footerButtonSize, alignment: .center)
+                .opacity(foldableActionsOpacity)
+                .background(foldedActionsHoverTarget)
                 .safeHelp(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
                 .accessibilityLabel(String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions"))
                 .accessibilityIdentifier("SidebarExtensionMenuButton")
@@ -15444,6 +15479,9 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHoveringFooter = $0 }
+        .animation(.easeInOut(duration: 0.14), value: foldableActionsOpacity)
+        .environment(\.cmuxInterfaceDensity, interfaceDensity)
     }
 }
 
@@ -15469,7 +15507,8 @@ private struct SidebarHelpMenuButton: View {
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
+    @Environment(\.cmuxInterfaceDensity) private var density
+    private var buttonSize: CGFloat { SidebarFooterButtonMetrics.buttonSize(for: density) }
 #if DEBUG
     @AppStorage(SidebarFooterHelpIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterHelpIconDebugSettings.defaultSize
@@ -15485,10 +15524,14 @@ private struct SidebarHelpMenuButton: View {
 
     private var iconSize: CGFloat {
 #if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.helpIconSize
+        if let override = SidebarFooterButtonMetrics.debugOverride(
+            key: SidebarFooterHelpIconDebugSettings.sizeKey,
+            value: debugIconSize
+        ) {
+            return override
+        }
 #endif
+        return SidebarFooterButtonMetrics.primaryIconSize(for: density)
     }
 
     private var iconWeight: Font.Weight {

@@ -1312,7 +1312,8 @@
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
-          "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
+          "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。",
+          "density": "窗口控件的尺寸:标题栏按钮、侧边栏底部和窗格标签栏的操作按钮。\"comfortable\" 使用更大的图标和点击区域,\"standard\" 保持原有尺寸,\"compact\" 使用更小的图标(点击区域不低于 macOS 最小值 20pt),并在指针移到标题栏、窗格标签栏和侧边栏底部之前淡出这些操作按钮。通知徽章和更新状态始终可见。文字大小由 app.globalFontMagnification 控制,侧边栏行详情由 sidebar.show* 设置控制。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题或终端颜色，否则 cmux 会提供随外观变化的默认配色。字体和其他设置会保留。为 false 时，Ghostty 使用固定的内置配色。显式主题和颜色始终优先，包括 theme = light:X,dark:Y。",

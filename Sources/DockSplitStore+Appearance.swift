@@ -42,6 +42,13 @@ extension DockSplitStore {
         )
     }
 
+    /// Re-applies `app.density` to this Dock's pane tab bars.
+    func refreshInterfaceDensity() {
+        let foldsActions = Workspace.paneTabBarActionsFoldBehindHover()
+        guard bonsplitController.configuration.appearance.splitButtonsOnHover != foldsActions else { return }
+        bonsplitController.configuration.appearance.splitButtonsOnHover = foldsActions
+    }
+
     static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
         makeAppearance(from: config, windowAppearance: nil)
     }
@@ -78,6 +85,7 @@ extension DockSplitStore {
             minimumPaneWidth: Self.minimumDockPaneSize,
             minimumPaneHeight: Self.minimumDockPaneSize,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
+            splitButtonsOnHover: Workspace.paneTabBarActionsFoldBehindHover(),
             splitButtonBackdropEffect: Workspace.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Workspace.currentSplitButtonTooltips(),
             enableAnimations: false,

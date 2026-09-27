@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarProviderKit
 import CmuxUpdater
@@ -36,6 +37,55 @@ enum SidebarFooterButtonMetrics {
     static let mobileIconSize: CGFloat = 12
     static let helpIconSize = accountAndHelpVisualSize
     static let hoverOpacity = 0.08
+
+    /// Footer button hit target at `density`.
+    static func buttonSize(for density: InterfaceDensity) -> CGFloat {
+        InterfaceDensityMetrics.metrics(for: density).sidebarFooterButtonSize
+    }
+
+    /// Account and help glyph size at `density`.
+    static func primaryIconSize(for density: InterfaceDensity) -> CGFloat {
+        InterfaceDensityMetrics.metrics(for: density).sidebarFooterPrimaryIconSize
+    }
+
+    /// Mobile and extensions glyph size at `density`.
+    static func secondaryIconSize(for density: InterfaceDensity) -> CGFloat {
+        InterfaceDensityMetrics.metrics(for: density).sidebarFooterSecondaryIconSize
+    }
+
+#if DEBUG
+    /// A debug-window size override, only once someone has moved its slider.
+    /// Until then the footer follows `app.density`.
+    static func debugOverride(key: String, value: Double) -> CGFloat? {
+        UserDefaults.standard.object(forKey: key) == nil ? nil : CGFloat(value)
+    }
+#endif
+}
+
+private struct CmuxInterfaceDensityKey: EnvironmentKey {
+    static let defaultValue: InterfaceDensity = .standard
+}
+
+extension EnvironmentValues {
+    /// The `app.density` the sidebar footer injects for its buttons. Views
+    /// outside an injecting container read `.standard`.
+    var cmuxInterfaceDensity: InterfaceDensity {
+        get { self[CmuxInterfaceDensityKey.self] }
+        set { self[CmuxInterfaceDensityKey.self] = newValue }
+    }
+}
+
+/// Which sidebar footer controls compact density folds behind hover.
+///
+/// Only actions fold. Update and upgrade pills report state, so they stay put.
+enum SidebarFooterFoldPolicy {
+    static func showsFoldableActions(
+        density: InterfaceDensity,
+        isHoveringFooter: Bool,
+        isShowingShortcutHints: Bool
+    ) -> Bool {
+        !density.foldsActionsBehindHover || isHoveringFooter || isShowingShortcutHints
+    }
 }
 
 enum SidebarAccountButtonVisual: Equatable {
@@ -52,17 +102,16 @@ struct SidebarAccountButtonPresentation: Equatable {
     static func resolve(
         isSignedIn: Bool,
         prefersProfileIcon: Bool,
-        hasProfilePicture: Bool = false
+        hasProfilePicture: Bool = false,
+        density: InterfaceDensity = .standard
     ) -> SidebarAccountButtonPresentation {
+        let size = SidebarFooterButtonMetrics.primaryIconSize(for: density)
         if isSignedIn, hasProfilePicture, !prefersProfileIcon {
-            return SidebarAccountButtonPresentation(
-                visual: .profilePicture,
-                size: SidebarFooterButtonMetrics.profilePictureSize
-            )
+            return SidebarAccountButtonPresentation(visual: .profilePicture, size: size)
         }
         return SidebarAccountButtonPresentation(
             visual: .profileIcon(systemName: defaultProfileIconSystemName),
-            size: SidebarFooterButtonMetrics.profileIconSize
+            size: size
         )
     }
 
@@ -270,6 +319,7 @@ struct SidebarAccountAvatar: View {
 
 struct SidebarMobileConnectButton: View {
     @EnvironmentObject private var tabManager: TabManager
+    @Environment(\.cmuxInterfaceDensity) private var density
     private let title = String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing")
 #if DEBUG
     @AppStorage(SidebarFooterMobileIconDebugSettings.sizeKey)
@@ -278,10 +328,18 @@ struct SidebarMobileConnectButton: View {
 
     private var iconSize: CGFloat {
 #if DEBUG
-        CGFloat(debugIconSize)
-#else
-        SidebarFooterButtonMetrics.mobileIconSize
+        if let override = SidebarFooterButtonMetrics.debugOverride(
+            key: SidebarFooterMobileIconDebugSettings.sizeKey,
+            value: debugIconSize
+        ) {
+            return override
+        }
 #endif
+        return SidebarFooterButtonMetrics.secondaryIconSize(for: density)
+    }
+
+    private var buttonSize: CGFloat {
+        SidebarFooterButtonMetrics.buttonSize(for: density)
     }
 
     var body: some View {
@@ -296,16 +354,10 @@ struct SidebarMobileConnectButton: View {
                 )
             } label: {
                 CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium, tint: .secondary)
-                    .frame(
-                        width: SidebarFooterButtonMetrics.buttonSize,
-                        height: SidebarFooterButtonMetrics.buttonSize
-                    )
+                    .frame(width: buttonSize, height: buttonSize)
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
-            .frame(
-                width: SidebarFooterButtonMetrics.buttonSize,
-                height: SidebarFooterButtonMetrics.buttonSize
-            )
+            .frame(width: buttonSize, height: buttonSize)
             .safeHelp(title)
             .accessibilityLabel(title)
             .accessibilityIdentifier("SidebarMobileConnectButton")

@@ -753,6 +753,7 @@ class TabManager: ObservableObject {
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
+                self?.refreshInterfaceDensity()
                 self?.refreshWindowTitle()
             }
         })
@@ -4299,6 +4300,18 @@ class TabManager: ObservableObject {
     func refreshTabCloseButtonVisibility() {
         for workspace in tabs {
             workspace.refreshTabCloseButtonVisibility()
+        }
+    }
+
+    /// Re-applies `app.density` to every live split controller: workspace
+    /// panes, per-workspace Docks, and window-scope Docks.
+    func refreshInterfaceDensity() {
+        for workspace in tabs {
+            workspace.refreshInterfaceDensity()
+            workspace._dockSplit?.refreshInterfaceDensity()
+        }
+        for dockStore in liveWindowDockStores {
+            dockStore.refreshInterfaceDensity()
         }
     }
 

@@ -1312,7 +1312,8 @@
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
-          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
+          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir.",
+          "density": "Pencere denetimlerinin boyutu: başlık çubuğu düğmeleri, kenar çubuğu alt kısmı ve bölme sekme çubuğu eylem düğmeleri. \"comfortable\" daha büyük simgeler ve tıklama alanları kullanır, \"standard\" önceki boyutları korur, \"compact\" ise daha küçük simgeler kullanır (macOS'un 20 pt minimum tıklama alanının altına asla inmez) ve işaretçi ulaşana kadar başlık çubuğu, bölme sekme çubuğu ve kenar çubuğu alt kısmındaki eylemleri soldurur. Bildirim rozetleri ve güncelleme durumu görünür kalır. Metin boyutu app.globalFontMagnification ile, kenar çubuğu satır ayrıntıları sidebar.show* ayarlarıyla belirlenir."
         },
         "terminal": {
           "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması veya terminal renkleri yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Yazı tipi ve diğer ayarlar korunur. false olduğunda Ghostty sabit yerleşik paletini kullanır. theme = light:X,dark:Y dahil açıkça belirtilen temalar ve renkler her zaman önceliklidir.",

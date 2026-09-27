@@ -558896,6 +558896,478 @@
           }
         }
       }
+    },
+    "settings.app.density": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface Density"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächendichte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densité de l'interface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كثافة الواجهة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Densidad de la interfaz"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "介面密度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面密度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터페이스 밀도"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイスの密度"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.density": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome Oberflächendichte großzügig kompakt Symbolgröße größer kleiner Schaltfläche Klickfläche Titelleiste Fußzeile ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome densité de l'interface confortable compacte taille des icônes plus grand plus petit bouton zone de clic barre de titre pied masquer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome كثافة الواجهة مريح مضغوط حجم الأيقونات أكبر أصغر زر منطقة النقر شريط العنوان التذييل إخفاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome densidad de la interfaz cómoda compacta tamaño de iconos más grande más pequeño botón área de clic barra de título pie ocultar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome 介面密度 寬鬆 標準 緊湊 圖示大小 放大 縮小 按鈕 點擊區域 標題列 底部 隱藏"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome 界面密度 宽松 标准 紧凑 图标大小 放大 缩小 按钮 点击区域 标题栏 底部 隐藏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome 인터페이스 밀도 넉넉하게 표준 촘촘하게 아이콘 크기 크게 작게 버튼 클릭 영역 제목 표시줄 하단 숨기기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.density interface density comfortable standard compact icon size bigger smaller button click target hit target toolbar titlebar footer hover fold hide chrome インターフェイスの密度 ゆったり 標準 コンパクト アイコンサイズ 大きく 小さく ボタン クリック領域 タイトルバー フッター 隠す"
+          }
+        }
+      }
+    },
+    "settings.app.density.comfortable.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger icons and click targets in the titlebar, sidebar footer, and pane tab bar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größere Symbole und Klickflächen in Titelleiste, Seitenleistenfuß und Pane-Tableiste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes et zones de clic plus grandes dans la barre de titre, le pied de la barre latérale et la barre d’onglets des panneaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات ومناطق نقر أكبر في شريط العنوان وتذييل الشريط الجانبي وشريط علامات تبويب الأجزاء."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos y áreas de clic más grandes en la barra de título, el pie de la barra lateral y la barra de pestañas del panel."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列、側邊欄底部和窗格分頁列使用較大的圖示和點擊區域。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏、侧边栏底部和窗格标签栏使用更大的图标和点击区域。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 표시줄, 사이드바 하단, 창 탭 막대의 아이콘과 클릭 영역을 키웁니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバー、サイドバーのフッター、ペインタブバーのアイコンとクリック領域を大きくします。"
+          }
+        }
+      }
+    },
+    "settings.app.density.compact.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smaller icons. Titlebar, pane tab bar, and sidebar footer buttons fade until you point at them. Notification and update badges stay visible."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kleinere Symbole. Schaltflächen in Titelleiste, Pane-Tableiste und Seitenleistenfuß werden ausgeblendet, bis du auf sie zeigst. Mitteilungs- und Update-Abzeichen bleiben sichtbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes plus petites. Les boutons de la barre de titre, de la barre d’onglets des panneaux et du pied de la barre latérale s’estompent jusqu’à ce que vous pointiez dessus. Les pastilles de notification et de mise à jour restent visibles."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات أصغر. تتلاشى أزرار شريط العنوان وشريط علامات تبويب الأجزاء وتذييل الشريط الجانبي حتى تشير إليها. تبقى شارات الإشعارات والتحديثات ظاهرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos más pequeños. Los botones de la barra de título, la barra de pestañas del panel y el pie de la barra lateral se atenúan hasta que apuntas a ellos. Las insignias de notificaciones y actualizaciones siguen visibles."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "較小的圖示。標題列、窗格分頁列和側邊欄底部的按鈕會淡出,直到指標移到上方。通知和更新徽章始終可見。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更小的图标。标题栏、窗格标签栏和侧边栏底部的按钮会淡出,直到指针移到上方。通知和更新徽章始终可见。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘을 작게 합니다. 제목 표시줄, 창 탭 막대, 사이드바 하단의 버튼은 포인터를 올릴 때까지 흐리게 숨겨집니다. 알림 및 업데이트 배지는 계속 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを小さくします。タイトルバー、ペインタブバー、サイドバーのフッターのボタンはポインタを合わせるまでフェードします。通知とアップデートのバッジは常に表示されます。"
+          }
+        }
+      }
+    },
+    "settings.app.density.standard.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original icon and click target sizes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ursprünglichen Größen für Symbole und Klickflächen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les tailles d’origine des icônes et des zones de clic."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأحجام الأصلية للأيقونات ومناطق النقر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los tamaños originales de iconos y áreas de clic."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始的圖示和點擊區域尺寸。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始的图标和点击区域尺寸。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원래의 아이콘 및 클릭 영역 크기입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のアイコンとクリック領域のサイズです。"
+          }
+        }
+      }
+    },
+    "settings.app.density.comfortable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comfortable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Großzügig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confortable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مريح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómoda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬鬆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽松"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "넉넉하게"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゆったり"
+          }
+        }
+      }
+    },
+    "settings.app.density.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضغوط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacta"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緊湊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧凑"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "촘촘하게"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクト"
+          }
+        }
+      }
+    },
+    "settings.app.density.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

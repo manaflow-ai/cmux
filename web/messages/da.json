@@ -1312,7 +1312,8 @@
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer.",
-          "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
+          "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet.",
+          "density": "Størrelse på vinduets knapper: titellinjeknapper, sidepanelets bund og handlingsknapper i panelets fanelinje. \"comfortable\" bruger større ikoner og klikområder, \"standard\" bevarer de tidligere størrelser, og \"compact\" bruger mindre ikoner (aldrig under macOS' minimale klikområde på 20 pt) og toner handlinger i titellinjen, panelets fanelinje og sidepanelets bund ud, indtil markøren når dem. Notifikationsmærker og opdateringsstatus forbliver synlige. Tekststørrelsen styres af app.globalFontMagnification; detaljer i sidepanelets rækker styres af sidebar.show*-indstillingerne."
         },
         "terminal": {
           "adaptiveDefaultTheme": "Når true (standard), bruger cmux en standardpalet, der følger udseendet, medmindre et Ghostty-tema eller terminalfarver er konfigureret. Skrifttype og andre indstillinger bevares. Når false, bruger Ghostty sin faste indbyggede palet. Eksplicitte temaer og farver har altid forrang, herunder theme = light:X,dark:Y.",

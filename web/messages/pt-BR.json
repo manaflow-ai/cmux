@@ -1312,7 +1312,8 @@
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
-          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
+          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído.",
+          "density": "Tamanho dos controles da janela: botões da barra de título, rodapé da barra lateral e botões de ação da barra de abas do painel. \"comfortable\" usa ícones e áreas de clique maiores, \"standard\" mantém os tamanhos anteriores e \"compact\" usa ícones menores (nunca abaixo da área de clique mínima de 20 pt do macOS) e esmaece as ações da barra de título, da barra de abas do painel e do rodapé da barra lateral até o ponteiro chegar a elas. Os selos de notificação e o estado de atualização continuam visíveis. O tamanho do texto é app.globalFontMagnification; o detalhe das linhas da barra lateral são os ajustes sidebar.show*."
         },
         "terminal": {
           "adaptiveDefaultTheme": "Quando true (padrão), o cmux fornece uma paleta padrão que se adapta à aparência, a menos que um tema do Ghostty ou cores do terminal estejam configurados. A fonte e as outras configurações são preservadas. Quando false, o Ghostty usa sua paleta integrada fixa. Temas e cores explícitos sempre têm prioridade, incluindo theme = light:X,dark:Y.",

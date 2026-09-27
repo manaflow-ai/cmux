@@ -1312,7 +1312,8 @@
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
           "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele.",
-          "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
+          "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen.",
+          "density": "Größe der Fenstersteuerelemente: Titelleistenschaltflächen, Seitenleistenfuß und Aktionsschaltflächen der Pane-Tableiste. \"comfortable\" nutzt größere Symbole und Klickflächen, \"standard\" behält die bisherigen Größen, und \"compact\" nutzt kleinere Symbole (nie unter der macOS-Mindestklickfläche von 20 pt) und blendet Aktionen in Titelleiste, Pane-Tableiste und Seitenleistenfuß aus, bis der Zeiger sie erreicht. Mitteilungsabzeichen und Update-Status bleiben sichtbar. Die Textgröße steuert app.globalFontMagnification, die Details der Seitenleistenzeilen die sidebar.show*-Einstellungen."
         },
         "terminal": {
           "adaptiveDefaultTheme": "Bei true (Standard) stellt cmux eine an das Erscheinungsbild angepasste Standardpalette bereit, sofern kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten. Bei false verwendet Ghostty seine feste integrierte Palette. Explizite Themes und Farben haben immer Vorrang, einschließlich theme = light:X,dark:Y.",
