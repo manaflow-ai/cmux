@@ -151,6 +151,57 @@ sys.stdin.read()
     def cli_launches(self):
         return self.launches.read_text().splitlines() if self.launches.exists() else []
 
+    def block_key_publication(self):
+        sentinel = self.root / 'sentinel'
+        sentinel.write_text('do not follow or delete')
+        (self.spool / 'keys.tmp').symlink_to(sentinel)
+        return sentinel
+
+    def run_forwarder_to_exit(self):
+        # This test process owns the child, just like the wrapper after exec.
+        result = subprocess.run(
+            [self.cli, 'hooks', 'claude', 'spool-forwarder'],
+            env=dict(self.env, CMUX_CLAUDE_PID=str(os.getpid())),
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_failed_key_publication_cleans_uninitialized_spool(self):
+        sentinel = self.block_key_publication()
+        self.run_forwarder_to_exit()
+        self.assertFalse(self.spool.exists())
+        self.assertEqual(sentinel.read_text(), 'do not follow or delete')
+
+    def test_lifetime_lock_contention_does_not_cleanup_spool(self):
+        for name in ('forwarder.lock', 'drain.lock'):
+            (self.spool / name).touch()
+        lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
+        try:
+            fcntl.lockf(lock, fcntl.LOCK_EX)
+            self.run_forwarder_to_exit()
+            self.assertEqual(sorted(p.name for p in self.spool.iterdir()),
+                             ['drain.lock', 'forwarder.lock'])
+        finally:
+            os.close(lock)
+
+    def test_failed_key_publication_preserves_previous_key_list(self):
+        sentinel = self.block_key_publication()
+        keys = 'CMUX_SURFACE_ID\nCMUX_CLAUDE_PID\n'
+        (self.spool / 'keys').write_text(keys)
+        self.run_forwarder_to_exit()
+        self.assertEqual((self.spool / 'keys').read_text(), keys)
+        self.assertEqual(sentinel.read_text(), 'do not follow or delete')
+
+    def test_failed_key_publication_preserves_queued_records(self):
+        sentinel = self.block_key_publication()
+        record = self.spool / '1.0-1.rec'
+        payload = (b'cmux-agent-hook-v1\nclaude\nstop\nCMUX_SURFACE_ID='
+                   + SURFACE.encode() + b'\0\0{"session_id":"retained"}')
+        record.write_bytes(payload)
+        self.run_forwarder_to_exit()
+        self.assertEqual(record.read_bytes(), payload)
+        self.assertEqual(sentinel.read_text(), 'do not follow or delete')
+
     def test_live_forwarder_admits_events_in_order_without_cli_launches(self):
         self.start_forwarder()
         sequence = [('prompt-submit', {'prompt': 'hi'}),
