@@ -243,6 +243,8 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_issue_15066_zsh_watcher_sleep.py"
 lane = "macos-cli-no-socket"
+# This test asserts short wall-clock waits; do not run it beside the 8-way pool.
+serial = true
 
 [[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"

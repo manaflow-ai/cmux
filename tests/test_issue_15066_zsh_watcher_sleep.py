@@ -89,7 +89,7 @@ def test_syntax_and_zselect_sleep(tmp: Path, env: dict[str, str], log: Path) -> 
     assert_ok(result, "zselect sleep")
     if "SKIP" not in result.stdout and "ZSELECT_OK" not in result.stdout:
         raise AssertionError(f"zselect sleep produced no completion marker: {result.stdout!r}")
-    if "SKIP" not in result.stdout and not 0.1 <= elapsed <= 2.0:
+    if "SKIP" not in result.stdout and not 0.1 <= elapsed <= 5.0:
         raise AssertionError(f"zselect 20cs wait took an unexpected {elapsed:.3f}s")
     if "SKIP" not in result.stdout and log.exists() and log.read_text(encoding="utf-8").strip():
         raise AssertionError("zselect sleep invoked an external sleep executable")
@@ -149,6 +149,12 @@ _cmux_clear_pr_for_panel() { return 0; }
 _cmux_pr_cache_clear() { return 0; }
 _cmux_start_pr_poll_loop "$PWD" 1
 _cmux_start_git_head_watch
+[[ "${_CMUX_PR_POLL_PID:-}" == <-> && "${_CMUX_GIT_HEAD_WATCH_PID:-}" == <-> ]] || {
+    print -r -- "WATCHERS_MISSING:${_CMUX_PR_POLL_PID:-}:${_CMUX_GIT_HEAD_WATCH_PID:-}"
+    exit 3
+}
+kill -0 "$_CMUX_PR_POLL_PID" || { print -r -- "PR_WATCHER_NOT_ALIVE"; exit 4; }
+kill -0 "$_CMUX_GIT_HEAD_WATCH_PID" || { print -r -- "GIT_WATCHER_NOT_ALIVE"; exit 5; }
 print -r -- "WATCHERS:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 # zselect is the wait in this parent too, so the fixture never needs a real
 # sleep executable while the two watcher children make their first pass.
@@ -159,8 +165,12 @@ print -r -- "TEARDOWN:${_CMUX_PR_POLL_PID}:${_CMUX_GIT_HEAD_WATCH_PID}"
 '''
         result = run_zsh(command, env=env, cwd=repo, timeout=8.0)
         assert_ok(result, "watcher loops")
-        if "WATCHERS:" not in result.stdout or "TEARDOWN::" not in result.stdout:
+        watcher_lines = [line for line in result.stdout.splitlines() if line.startswith("WATCHERS:")]
+        if len(watcher_lines) != 1 or "TEARDOWN::" not in result.stdout:
             raise AssertionError(f"watcher fixture did not start and tear down cleanly: {result.stdout!r}")
+        watcher_pids = watcher_lines[0].split(":")[1:]
+        if len(watcher_pids) != 2 or not all(pid.isdigit() and int(pid) > 0 for pid in watcher_pids):
+            raise AssertionError(f"watcher fixture did not report two live PIDs: {result.stdout!r}")
         if log.exists() and log.read_text(encoding="utf-8").strip():
             raise AssertionError(
                 "the PR and git HEAD watcher loops invoked external sleep despite zsh/zselect availability"
