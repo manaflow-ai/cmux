@@ -93,6 +93,7 @@ enum SettingsSearchAliasIndex {
         "app:show-menu-bar": localized("settings.search.alias.setting.app.show-menu-bar", defaultValue: "notifications.showInMenuBar menubar menu bar status item tray extra"),
         "app:unread-pane-ring": localized("settings.search.alias.setting.app.unread-pane-ring", defaultValue: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
         "app:pane-flash": localized("settings.search.alias.setting.app.pane-flash", defaultValue: "notifications.paneFlash flash blink highlight pane notification pulse"),
+        "app:pane-flash-double-blink": localized("settings.search.alias.setting.app.pane-flash-double-blink", defaultValue: "notifications.paneFlashDoubleBlink pane flash double blink twice pulse"),
         "app:desktop-notifications": localized("settings.search.alias.setting.app.desktop-notifications", defaultValue: "macos desktop notifications system settings permission alerts notify test"),
         "app:notification-sound": localized("settings.search.alias.setting.app.notification-sound", defaultValue: "notifications.sound notifications.customSoundFilePath sound audio alert chime beep custom file wav mp3 caf aiff"),
         "app:notification-sound-overrides": localized("settings.search.alias.setting.app.notification-sound-overrides", defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"),

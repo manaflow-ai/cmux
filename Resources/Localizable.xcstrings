@@ -606424,6 +606424,201 @@
           }
         }
       }
+    },
+    "settings.notifications.paneFlashDoubleBlink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double Blink"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وميض مزدوج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppeltes Blinken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parpadeo doble"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double clignotement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2回点滅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 번 깜빡임"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подвійне блимання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "闪烁两次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閃爍兩次"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlashDoubleBlink.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blink the pane flash twice instead of one short pulse."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وميض الجزء مرتين بدلاً من نبضة قصيرة واحدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den Bereich zweimal aufblinken lassen statt eines kurzen Pulses."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hacer parpadear el panel dos veces en lugar de un pulso breve."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire clignoter le volet deux fois au lieu d’une brève pulsation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインの点滅を短い1回ではなく2回にします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패인 깜빡임을 짧은 한 번 대신 두 번 표시합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блимати панеллю двічі замість одного короткого імпульсу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格闪烁两次，而不是一次短暂的脉冲。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格閃爍兩次，而不是一次短暫的脈衝。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.pane-flash-double-blink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse وميض مزدوج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse doppeltes blinken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse parpadeo doble"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse double clignotement"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse 2回点滅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse 두 번 깜빡임"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse подвійне блимання"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse 闪烁两次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "notifications.paneFlashDoubleBlink pane flash double blink twice pulse 閃爍兩次"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

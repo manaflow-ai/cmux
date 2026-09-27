@@ -146,6 +146,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), synonyms: "Show in Menu Bar notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), synonyms: "Unread Pane Ring notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), synonyms: "Pane Flash notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(section: .app, id: "pane-flash-double-blink", title: String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), synonyms: "Double Blink notifications.paneFlashDoubleBlink pane flash blink twice pulse"),
             .init(
                 section: .app,
                 id: "agent-permission-prompt",

@@ -238,6 +238,7 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(jsonKey: "paneFlashDoubleBlink", defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey),
         .init(
             jsonKey: "soundWhenFocused",
             defaultsKey: notifications.soundWhenFocused.userDefaultsKey

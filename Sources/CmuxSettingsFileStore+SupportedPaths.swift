@@ -74,6 +74,7 @@ extension CmuxSettingsFileStore {
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
         "notifications.paneFlash",
+        "notifications.paneFlashDoubleBlink",
         "notifications.paneFlashColor",
         "notifications.sound",
         "notifications.soundWhenFocused",

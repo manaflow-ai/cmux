@@ -1153,6 +1153,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",

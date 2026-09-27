@@ -740,17 +740,34 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 
 
 final class FocusFlashPatternTests: XCTestCase {
-    func testFocusFlashPatternIsOneShortPulse() {
-        XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0])
-        XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.3, 1])
-        XCTAssertEqual(FocusFlashPattern.duration, 0.4, accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn])
+    func testDefaultPatternIsOneShortPulse() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        XCTAssertFalse(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let pulse = FocusFlashPattern.pulse
+        XCTAssertEqual(pulse.values, [0, 1, 0])
+        XCTAssertEqual(pulse.keyTimes, [0, 0.3, 1])
+        XCTAssertEqual(pulse.duration, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(pulse.curves, [.easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
-    func testFocusFlashPatternSegmentsCoverThePulse() {
-        let segments = FocusFlashPattern.segments
+    func testDoubleBlinkSettingSelectsTheOlderPattern() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        defaults.set(true, forKey: NotificationPaneFlashSettings.doubleBlinkKey)
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let doubleBlink = FocusFlashPattern.doubleBlink
+        XCTAssertEqual(doubleBlink.values, [0, 1, 0, 1, 0])
+        XCTAssertEqual(doubleBlink.keyTimes, [0, 0.25, 0.5, 0.75, 1])
+        XCTAssertEqual(doubleBlink.duration, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(doubleBlink.segments.count, 4)
+    }
+
+    func testPulseSegmentsCoverThePulse() {
+        let pulse = FocusFlashPattern.pulse
+        let segments = pulse.segments
         XCTAssertEqual(segments.count, 2)
 
         XCTAssertEqual(segments[0].delay, 0.0, accuracy: 0.0001)
@@ -762,7 +779,8 @@ final class FocusFlashPatternTests: XCTestCase {
         XCTAssertEqual(segments[1].duration, 0.28, accuracy: 0.0001)
         XCTAssertEqual(segments[1].targetOpacity, 0, accuracy: 0.0001)
         XCTAssertEqual(segments[1].curve, .easeIn)
-        XCTAssertEqual(FocusFlashPattern.opacity(at: 0.4), 0, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.12), 1, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.4), 0, accuracy: 0.0001)
     }
 }
 
