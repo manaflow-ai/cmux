@@ -30,6 +30,11 @@ const (
 	claudeHookRoundTripTimeout  = 3 * time.Second
 	claudeWrapperPingTimeout    = time.Second
 	claudeHookDeclaredTimeout   = 5
+	// The relay bootstrap's `claude` wrapper runs `cmux claude-wrapper
+	// --cmux-probe` before handing off. This CLI answers 0 without touching
+	// the relay; an older CLI without the verb exits nonzero, so the wrapper
+	// launches plain claude instead of failing.
+	claudeWrapperProbeFlag = "--cmux-probe"
 )
 
 // claudeRelayHookEvents are the non-decision lifecycle events the relay admits.
@@ -203,6 +208,9 @@ func claudeHookCallerTTY(claudePID string) string {
 // `claude` from PATH with their own config are covered too. Hooks go
 // through `--settings`, which works under any CLAUDE_CONFIG_DIR.
 func runClaudeWrapper(socketPath string, args []string, refreshAddr func() string) int {
+	if len(args) == 1 && args[0] == claudeWrapperProbeFlag {
+		return 0
+	}
 	cmuxBin := claudeWrapperCmuxBinary()
 	realClaude := findRealClaude(os.Getenv("PATH"), cmuxBin)
 	if realClaude == "" {
@@ -403,7 +411,11 @@ func claudeRelayHookSettings(cmuxBin string) map[string]any {
 		hooks[definition.event] = append(existing, group)
 	}
 	return map[string]any{
-		"hooks":                 hooks,
+		"hooks": hooks,
+		// Overrides the user's channel on purpose: cmux delivers these
+		// notifications through the relayed hooks, and the wrapper injects
+		// this only after a relay ping succeeds, so Claude's own terminal
+		// notification would be a duplicate.
 		"preferredNotifChannel": "notifications_disabled",
 	}
 }

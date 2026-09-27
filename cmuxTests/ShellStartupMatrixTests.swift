@@ -290,9 +290,10 @@ struct ShellStartupMatrixTests {
         }
     }
 
-    /// The relay bootstrap wrapper execs the remote CLI when installed and otherwise the real `claude`, never the shim.
-    @Test(arguments: [true, false])
-    func relayClaudeWrapperHandsOffToRemoteCLI(remoteCLIInstalled: Bool) throws {
+    /// The relay bootstrap wrapper execs the remote CLI when it supports `claude-wrapper`, and otherwise
+    /// (absent, or an older CLI without the verb) the real `claude`, never the shim.
+    @Test(arguments: ["absent", "legacy", "current"])
+    func relayClaudeWrapperHandsOffToRemoteCLI(remoteCLI: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-relay-claude-wrapper-\(UUID().uuidString)")
@@ -311,8 +312,18 @@ struct ShellStartupMatrixTests {
         // A shim named claude earlier in PATH must never be re-entered.
         try writeExecutable(shimDir.appendingPathComponent("claude"), #"echo "shim $*""#)
         try writeExecutable(realBin.appendingPathComponent("claude"), #"echo "real $*""#)
-        if remoteCLIInstalled {
-            try writeExecutable(home.appendingPathComponent(".cmux/bin/cmux"), #"echo "cli $*""#)
+        let remoteCLIPath = home.appendingPathComponent(".cmux/bin/cmux")
+        switch remoteCLI {
+        case "legacy":
+            // An older CLI rejects the verb the way cmuxd-remote does for unknown commands.
+            try writeExecutable(remoteCLIPath, #"echo "cmux: unknown command \"$1\"" >&2; exit 2"#)
+        case "current":
+            try writeExecutable(
+                remoteCLIPath,
+                #"[ "$1 $2" = "claude-wrapper --cmux-probe" ] && exit 0; echo "cli $*""#
+            )
+        default:
+            break
         }
 
         let shellDir = home.appendingPathComponent(".cmux/relay/64123.shell")
@@ -335,7 +346,7 @@ struct ShellStartupMatrixTests {
         expectEqual(result.status, 0, result.stderr)
         expectEqual(
             result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-            remoteCLIInstalled ? "cli claude-wrapper --model opus" : "real --model opus",
+            remoteCLI == "current" ? "cli claude-wrapper --model opus" : "real --model opus",
             result.stderr
         )
         let permissions = try fileManager.attributesOfItem(atPath: wrapper)[.posixPermissions] as? NSNumber
