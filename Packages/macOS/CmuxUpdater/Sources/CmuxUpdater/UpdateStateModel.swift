@@ -396,7 +396,6 @@ public final class UpdateStateModel {
         return sentences.joined(separator: " ")
     }
 
-
     /// The detected-background-update title, when one should be shown.
     var detectedUpdateText: String? {
         guard showsDetectedBackgroundUpdate, let version = detectedUpdateVersion else { return nil }

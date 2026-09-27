@@ -20288,7 +20288,7 @@ extension DockSplitStore {
             UpdateRelaunchPanelActivity(
                 agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
                 shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote
+                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
             )
         }
     }

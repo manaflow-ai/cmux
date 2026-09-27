@@ -130,12 +130,32 @@ private final class CallCounter: @unchecked Sendable {
         #expect(installing?.relaunchBlockers == nil)
         #expect(model.text == "Restart to Complete Update")
 
+        // Restart Later must not drop the postponed install: Sparkle's session stays open
+        // until it runs, so the prompt stays and Restart Now still reaches it.
+        installing?.dismiss()
+        #expect(model.text == "Restart to Complete Update")
+
         installing?.retryTerminatingApplication()
         #expect(installs.count == 0)
         #expect(waitingBlockers?.busyAgentCount == 1)
 
         host.blockers = .empty
         await recheck { installs.count == 1 }
+    }
+
+    @Test func repeatedRestartNowInstallsOnce() {
+        let driver = makeDriver()
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
+        _ = driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 })
+        installing?.dismiss()
+        let restartPrompt = installing
+
+        host.blockers = .empty
+        restartPrompt?.retryTerminatingApplication()
+        restartPrompt?.retryTerminatingApplication()
+
+        #expect(installs.count == 1)
     }
 
     @Test func updaterErrorWhileHeldEndsTheHoldWithoutInstalling() {

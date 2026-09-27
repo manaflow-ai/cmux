@@ -181,7 +181,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
         guard !currentRelaunchBlockers().isEmpty else { return false }
-        holdRelaunch(isAutoUpdate: false, install: installHandler)
+        var isAutoUpdate = false
+        if case .installing(let installing) = model.state { isAutoUpdate = installing.isAutoUpdate }
+        holdRelaunch(isAutoUpdate: isAutoUpdate, install: installHandler)
         return true
     }
 
@@ -206,19 +208,22 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         )
     }
 
+    /// The postponed Sparkle session stays open until `install` runs, so this state keeps it
+    /// reachable: Restart Later only closes the popover (dropping `install` would leave every
+    /// later check waiting on a session that never ends), and Restart Now goes through the
+    /// gate again and installs at most once.
     private func showRestartToComplete(install: @escaping () -> Void) {
+        let once = InstallOnce(install)
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in
                 guard let self else {
-                    install()
+                    once.run()
                     return
                 }
-                self.holdRelaunch(isAutoUpdate: true, install: install)
+                self.holdRelaunch(isAutoUpdate: true, install: once.run)
             },
-            dismiss: { [weak self] in
-                self?.model.setState(.idle)
-            }
+            dismiss: {}
         )))
     }
 
@@ -448,5 +453,20 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
+    }
+}
+
+/// Runs a Sparkle install handler at most once.
+private final class InstallOnce {
+    private var install: (() -> Void)?
+
+    init(_ install: @escaping () -> Void) {
+        self.install = install
+    }
+
+    func run() {
+        guard let install else { return }
+        self.install = nil
+        install()
     }
 }
