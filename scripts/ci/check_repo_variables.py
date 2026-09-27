@@ -37,6 +37,8 @@ def parse_runner_variables(raw: str) -> dict[str, str]:
         name, separator, value = line.strip().partition("=")
         if not separator or not name:
             raise ValueError(f"{RUNNER_VARIABLES_ENV} line {line.strip()!r} is not NAME=value")
+        if name in variables:
+            raise ValueError(f"{RUNNER_VARIABLES_ENV} repeats {name}: a variable's value spans lines")
         variables[name] = value
     return variables
 

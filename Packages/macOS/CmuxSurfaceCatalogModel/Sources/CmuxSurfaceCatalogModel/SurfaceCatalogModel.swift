@@ -349,13 +349,25 @@ public struct CloudVMAgentState: Hashable, Codable, Sendable {
     public var state: String
     public var source: String?
     public var agent: String? = nil
+    /// The agent's own session identifier (Claude's `session_id`), from
+    /// `extra.agent_session_id`. Distinct from the mux `session_id`; `nil`
+    /// when the daemon does not report it.
+    public var agentSessionID: String? = nil
 
-    public init(id: String? = nil, terminalID: String, state: String, source: String? = nil, agent: String? = nil) {
+    public init(
+        id: String? = nil,
+        terminalID: String,
+        state: String,
+        source: String? = nil,
+        agent: String? = nil,
+        agentSessionID: String? = nil
+    ) {
         self.id = id
         self.terminalID = terminalID
         self.state = state
         self.source = source
         self.agent = agent
+        self.agentSessionID = agentSessionID
     }
 }
 

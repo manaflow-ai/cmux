@@ -12,41 +12,47 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-### Prompt teardown of SIGHUP-ignoring launchers and VT replay rows
+### Prompt teardown of SIGHUP-ignoring launchers
 
 - Pull request: https://github.com/manaflow-ai/ghostty/pull/232
-- Commits:
-  - `f48511fda` (test: bound teardown for SIGHUP-ignoring launchers)
-  - `9b048945d` (fix(termio): escalate SIGHUP-ignoring launchers promptly)
-  - `680a5fe93` (fix(termio): validate Darwin process records before escalation)
-  - `d0f5c6ba4` (fix: preserve trailing rows for VT replay)
-  - `ceec3ea35` (test(termio): verify SIGTERM reaches SIGHUP-ignoring leaders)
-  - `f058563ab` (fix(termio): honor SIGTERM grace after ignored SIGHUP)
-  - `7bdc11eca` (fix: start teardown grace at signal delivery)
-  - `aed0ba6c4` (fix(formatter): preserve valid trailing row mapping)
-- Merged fork commit: `2decb9c145273b11d7d92c468c98405f73991f0f`
+- Merged fork commit: `2decb9c145273b11d7d92c468c98405f73991f0f` (included in the current `edefce7785` pin).
 - File: `src/termio/Exec.zig`
 - Summary: macOS `/usr/bin/login` ignores SIGHUP while it hands a new PTY to
-  its shell. Teardown now detects that disposition and escalates only that
-  process group to SIGTERM immediately, then SIGKILL after a short bound. The
-  SIGTERM grace starts after successful delivery, and the foreground shell group
-  keeps the existing 12-second SIGHUP grace used by shutdown hooks. VT replay
-  preserves only the physical blank rows needed before restoring cursor state.
-- Verification: the test-only Darwin run failed because the leader observed no
-  SIGTERM (`36151084089`); the corrected hosted macOS run passed the targeted
-  test (`36152536501`). The test is skipped on non-Darwin targets because the
-  process-disposition query is macOS-specific. The disposition query
-  zero-initializes and size-checks the Darwin process record before reading its
-  signal mask.
-- Artifact:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2decb9c145273b11d7d92c468c98405f73991f0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-- SHA-256 `ce1a74a4867a3884c7213ad151b14f7d6c4ac7f58de0f96af81a3c4356c91d1a`
-  is pinned in `scripts/ghosttykit-checksums.txt`.
-- Conflict note: preserve the per-process-group phase and do not collapse the
-  launcher and foreground groups back into one shared deadline. Doing so
-  reintroduces the startup close stall or cuts off shell shutdown hooks.
+  its shell. Teardown detects that disposition and escalates only that process
+  group to SIGTERM immediately, then SIGKILL after a short bound. The SIGTERM
+  grace starts after successful delivery, while ordinary foreground groups keep
+  the existing 12-second shutdown-hook grace.
+- Verification: hosted Ghostty run [36152536501](https://github.com/manaflow-ai/ghostty/actions/runs/36152536501) passed the targeted Darwin teardown test.
+- Conflict note: preserve separate launcher and foreground process-group phases;
+  collapsing them reintroduces the startup close stall or cuts off shell hooks.
 
-### Historical Cloud restore replay trailing rows
+### Unfocused surface frame pacing
+
+- Branch: `perf/unfocused-draw-cap` ([manaflow-ai/ghostty#234](https://github.com/manaflow-ai/ghostty/pull/234))
+- Commit: `edefce778`
+- Summary: unfocusing a surface stops its display link, so an unfocused
+  surface used to render on every renderer wakeup. Its change-driven renders
+  are now spaced at least 33 ms apart (about 30 FPS). A wake inside the
+  interval keeps the terminal dirty and arms a one-shot timer whose render
+  picks up every change made meanwhile. The focused surface and the vsync path
+  are unaffected. This cuts WindowServer recompositing when several agents
+  stream into background panes, which is most expensive on high refresh
+  displays and behind glass or translucent windows.
+- Coverage: the Ghostty `Thread` unit test
+  `unfocused render pacer spaces unfocused frames`, run by
+  `build-ghosttykit.yml` before packaging. Hosted
+  [run 36248746801](https://github.com/manaflow-ai/cmux/actions/runs/36248746801)
+  passed 74 tests with this filter at `edefce778` (the same count as the
+  single-test CJK filter) and published GhosttyKit.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edefce7785c9f439966c68588db1edbd6b435203-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `d77a7bdf50c78787c2649b314cd9ca8990af823510531ad547e26f3a978f472d`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: the pacing check sits in `renderCallback` after the
+  hidden/unrealized early return. The paced timer uses
+  `unfocusedRenderTimerCallback`, which releases the pacer first so its own
+  render is never deferred again; keep that ordering or a deferred frame can
+  be lost until the next wakeup.
 
 ### CJK fallback ideograph sizing
 
@@ -66,9 +72,6 @@ When we change the fork, update this document and the parent submodule SHA.
 - Conflict note: preserve the distinction between `icWidth()` for a face's
   measured or conservative fallback metric and `fallbackIcWidth()` for the
   primary terminal grid's missing-ideograph target.
-- The fork `main` pin `0068ece733` carries this follow-up fix, but this branch
-  retains the published `2decb9c145` artifact so the SIGHUP teardown fix remains
-  available; a later GhosttyKit publication can combine both changes.
 
 ### Cloud restore replay trailing rows
 
@@ -83,11 +86,19 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `2decb9c145`, the merged Ghostty PR #232
-containing prompt teardown, SIGTERM grace, and VT replay fixes. The base SHA
-preserves cmux's Cloud loopback link-detection changes while adding the
-localhost-port punctuation fix and owned POSIX environment snapshots for
-embedded hosts.
+The submodule pinned by this branch is `edefce7785`, the unfocused surface
+frame pacing change on top of `0068ece733`. The previous pin was
+`0068ece733`, the CJK fallback sizing fix
+on top of `a3e9304c5d`. It keeps a primary face without an ideograph metric at
+the full two-cell terminal span, so Hangul glyphs selected through CoreText
+fallback do not leave a gap before the next terminal cell. The previous pin
+`a3e9304c5d` is a cmux-only replay fix on top of `c5c31ce819`, the upstream
+Ghostty merge commit for PR #218 after the embedded-environment lifetime fix
+from PR #227 was merged. That replay fix preserves physical blank rows until
+cursor/state restoration completes, so a restored Cloud grid cannot regain
+stale history rows. The base SHA preserves cmux's Cloud loopback link-detection
+changes while adding the localhost-port punctuation fix and owned POSIX
+environment snapshots for embedded hosts.
 
 The pin before `a3e9304c5d` was `35ae29b7c2`, the merge of fork `main` at
 `3869e81a0` into the Cloud loopback link-detection branch (`46428d790`, bare localhost port links,

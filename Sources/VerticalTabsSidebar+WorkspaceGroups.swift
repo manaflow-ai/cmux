@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxCommandPalette
 import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
@@ -34,7 +36,10 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -109,7 +114,9 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex,
+            accentColor: settings.accentColor
         )
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: group.id,
@@ -187,7 +194,10 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -267,7 +277,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex
         )
     }
 
@@ -318,6 +329,7 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            notificationBadgeColorHex: snapshot.notificationBadgeColorHex,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
@@ -416,14 +428,21 @@ extension VerticalTabsSidebar {
                     groupId: groupId
                 )
             },
-            onRename: { [weak tabManager] in
+            onRename: { [weak tabManager, resolveLiveAnchor] in
+                // Group headers have no inline title editor; rename in the
+                // palette editor, which already owns group renames.
                 guard let tabManager else { return }
                 let currentName = tabManager.workspaceGroups
                     .first(where: { $0.id == groupId })?.name ?? fallbackGroupName
-                presentSidebarWorkspaceGroupRenamePrompt(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    currentName: currentName
+                AppDelegate.shared?.requestCommandPaletteRename(
+                    CommandPaletteRenameTarget(
+                        kind: .workspaceGroup(groupId: groupId),
+                        currentName: currentName
+                    ),
+                    preferredWindow: resolveLiveAnchor().flatMap {
+                        AppDelegate.shared?.mainWindowContainingWorkspace($0.1)
+                    },
+                    source: "groupContextMenu.rename"
                 )
             },
             onTogglePinned: { [weak tabManager] in
