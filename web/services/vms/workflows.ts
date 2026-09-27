@@ -1862,11 +1862,12 @@ export function recordEnvLayer(input: {
         imageId: input.baseImageId,
         metadata: duplicateMetadata,
       })).pipe(Effect.retry({ times: 2 }));
-      yield* deleteSnapshotById(input.provider, input.snapshotId).pipe(
+      const deletionCompleted = yield* deleteSnapshotById(input.provider, input.snapshotId).pipe(
         Effect.retry({ times: 2 }),
-        Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.void : Effect.fail(error)),
+        Effect.as(true),
+        Effect.catchAll((error) => Effect.succeed(isProviderNotFoundError(error))),
       );
-      yield* repo.recordUsageEvent({
+      if (deletionCompleted) yield* repo.recordUsageEvent({
         userId: input.userId,
         billingTeamId: input.billingTeamId,
         billingPlanId: input.billingPlanId ?? null,

@@ -82,6 +82,7 @@ extension CMUXCLI {
             }
             var offset = 0
             var slice = 0
+            writes.append("rm -f \(path) \(path).slice-*")
             while offset < data.count {
                 let chunk = data.subdata(in: offset..<min(offset + sliceBytes, data.count))
                 let part = String(format: "%@.slice-%03d", file.name, slice)
@@ -129,10 +130,12 @@ extension CMUXCLI {
     ) throws -> VMEnvScriptOutcome {
         let response = try vmEnvExec(
             vmId: vmId,
-            command: "bash -l \(Self.vmEnvDir)/\(scriptId).sh",
+            command: "bash -l \(Self.vmEnvDir)/\(scriptId).sh > \(Self.vmEnvDir)/\(scriptId).log 2>&1; status=$?; tail -c 65536 \(Self.vmEnvDir)/\(scriptId).log; exit $status",
             timeoutMs: max(1, timeoutMinutes) * 60_000,
             responseTimeout: TimeInterval(max(1, timeoutMinutes) * 60 + 60),
-            client: client
+            client: client,
+            // Step and verify scripts can mutate the VM; a lost response must not re-run them.
+            attempts: 1
         )
         let exitCode = (response["exit_code"] as? Int) ?? -1
         let stdout = response["stdout"] as? String ?? ""

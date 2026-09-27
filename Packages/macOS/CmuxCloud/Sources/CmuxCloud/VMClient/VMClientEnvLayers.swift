@@ -6,7 +6,7 @@ import Foundation
 /// snapshot taken after that step succeeded. The web backend stores the
 /// mapping; this client resolves the deepest cached layer and records new ones.
 
-public struct VMEnvLayer {
+public struct VMEnvLayer: Sendable {
     public let provider: String?
     public let chainHash: String
     public let stepIndex: Int
@@ -16,7 +16,7 @@ public struct VMEnvLayer {
     public let baseImageID: String
 }
 
-public struct VMEnvResolveResult {
+public struct VMEnvResolveResult: Sendable {
     public let provider: String
     public let baseImageID: String
     public let layer: VMEnvLayer?

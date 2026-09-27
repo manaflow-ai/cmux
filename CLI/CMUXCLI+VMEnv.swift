@@ -4,10 +4,9 @@ import Foundation
 ///
 /// Each step in `.cmux/env.yaml` runs inside a Cloud VM; after a step succeeds
 /// the VM is snapshotted and the snapshot registered under the step's chain
-/// hash. Later builds restore the deepest cached layer (~1s on Freestyle) and
-/// run only the remaining steps. Long steps run through a small runner script
-/// inside the VM (started detached, polled with short execs) because a single
-/// `vm.exec` cannot outlive the backend's request window.
+/// hash. Later builds restore the deepest cached layer and run only the
+/// remaining steps. Script output is captured in the VM for `cmux vm env logs`
+/// and returned by the same provider-owned operation.
 extension CMUXCLI {
     static let vmEnvDir = "/var/tmp/cmux-env"
     static let vmEnvLongOpTimeout: TimeInterval = 16 * 60

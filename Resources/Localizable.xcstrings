@@ -562744,6 +562744,72 @@
             "state": "translated",
             "value": "vm.env_record_layer にはベースイメージ、チェーン、仕様、スナップショット、ステップの各フィールドが必要です。Socket メソッドを直接呼び出さず、`cmux vm env build` を使用してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer zahtijeva polja za osnovnu sliku, lanac, specifikaciju, snimak i korak. Koristite `cmux vm env build` umjesto direktnog pozivanja socket metode."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer kræver felter for basisimage, kæde, specifikation, snapshot og trin. Brug `cmux vm env build` i stedet for at kalde socket-metoden direkte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer richiede i campi per immagine di base, catena, specifica, snapshot e passaggio. Usa `cmux vm env build` invece di chiamare direttamente il metodo socket."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer ត្រូវការវាលសម្រាប់រូបភាពមូលដ្ឋាន ខ្សែសង្វាក់ ការកំណត់ ស្នាប់ និងជំហាន។ ប្រើ `cmux vm env build` ជំនួសការហៅវិធី socket ដោយផ្ទាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer krever felt for basisbilde, kjede, spesifikasjon, øyeblikksbilde og trinn. Bruk `cmux vm env build` i stedet for å kalle socket-metoden direkte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer wymaga pól obrazu bazowego, łańcucha, specyfikacji, migawki i kroku. Użyj `cmux vm env build` zamiast bezpośredniego wywoływania metody socket."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer requer os campos de imagem base, cadeia, especificação, snapshot e etapa. Use `cmux vm env build` em vez de chamar o método de socket diretamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer требует поля базового образа, цепочки, спецификации, снимка и шага. Используйте `cmux vm env build`, а не вызывайте метод сокета напрямую."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer ต้องมีฟิลด์อิมเมจพื้นฐาน เชน ข้อมูลจำเพาะ สแนปช็อต และขั้นตอน ใช้ `cmux vm env build` แทนการเรียกเมธอดซ็อกเก็ตโดยตรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer temel imaj, zincir, belirtim, anlık görüntü ve adım alanlarını gerektirir. Socket yöntemini doğrudan çağırmak yerine `cmux vm env build` kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.env_record_layer потребує поля базового образу, ланцюжка, специфікації, знімка та кроку. Використовуйте `cmux vm env build`, а не викликайте метод сокета безпосередньо."
+          }
         }
       }
     }
