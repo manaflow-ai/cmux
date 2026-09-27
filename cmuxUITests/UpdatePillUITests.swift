@@ -335,20 +335,20 @@ final class UpdatePillUITests: XCTestCase {
         )
     }
 
-    private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
+    func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
         // fallback for local runs.
         return app.buttons[expectedLabel]
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
     }
 
-    private func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
+    func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
         let pollInterval: TimeInterval = 0.05
         var size = element.frame.size
         var exists = element.exists
@@ -410,7 +410,7 @@ final class UpdatePillUITests: XCTestCase {
         return app
     }
 
-    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+    func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
         app.launch()
         let activated = pollUntil(timeout: activateTimeout) {
             guard app.state != .runningForeground else {
@@ -531,7 +531,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
