@@ -37,6 +37,10 @@ from pathlib import Path
 REPO = "manaflow-ai/cmux"
 ARTIFACT = "test-results"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic"}
+# Some hosts' XCTest attaches a screen recording of each failing test instead
+# of per-step screenshots; frames are sampled from it.
+VIDEO_SUFFIXES = {".mp4", ".mov"}
+VIDEO_FPS = 2
 FRAME_WIDTH = 960
 SHEET_COLUMNS, SHEET_ROWS = 3, 4
 SHEET_TILE_WIDTH = 640
@@ -106,6 +110,23 @@ def label_for(name: str) -> str:
 
 def to_png(source: Path, destination: Path) -> None:
     run(["sips", "-s", "format", "png", "--resampleWidth", str(FRAME_WIDTH), str(source), "--out", str(destination)])
+
+
+def video_frames(source: Path, frames: Path, start: int) -> int:
+    """Sample a recording at VIDEO_FPS into frames numbered after `start`; returns how many."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return 0
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(
+            [ffmpeg, "-loglevel", "error", "-y", "-i", str(source),
+             "-vf", f"fps={VIDEO_FPS},scale={FRAME_WIDTH}:-2", str(Path(tmp) / "%04d.png")],
+            check=False,
+        )
+        written = sorted(Path(tmp).glob("*.png"))
+        for offset, frame in enumerate(written, start=1):
+            shutil.move(frame, frames / f"{start + offset:04d}-video.png")
+    return len(written)
 
 
 def build_sheets(frames: Path, test_dir: Path) -> list[Path]:
@@ -181,7 +202,7 @@ def main() -> int:
             # captures kept with `.keepAlways` survive.
             summary.append({
                 "test": identifier, "result": outcome["result"], "failures": outcome["failures"],
-                "frames": 0, "captures": [], "failure_frame": None, "sheets": [], "slideshow": None, "dir": None,
+                "frames": 0, "captures": [], "failure_frame": None, "recordings": [], "sheets": [], "slideshow": None, "dir": None,
             })
 
         for entry in manifest:
@@ -195,24 +216,52 @@ def main() -> int:
                 shutil.rmtree(test_dir)
             frames.mkdir(parents=True)
 
-            images = sorted(
+            media = sorted(
                 (a for a in entry.get("attachments", [])
-                 if Path(a.get("exportedFileName", "")).suffix.lower() in IMAGE_SUFFIXES),
-                key=lambda a: a.get("timestamp", 0),
+                 if Path(a.get("exportedFileName", "")).suffix.lower() in IMAGE_SUFFIXES | VIDEO_SUFFIXES),
+                key=lambda a: a.get("timestamp") or 0,
             )
-            captures, failure_frame = [], None
-            for index, attachment in enumerate(images, start=1):
+            captures, failure_frame, recordings, index = [], None, [], 0
+            clips = []  # (start timestamp, frames before it, frames written) per recording
+            images = []
+            for attachment in media:
                 name = attachment.get("suggestedHumanReadableName", "")
-                frame = frames / f"{index:03d}-{label_for(name)}.png"
+                source = exported / attachment["exportedFileName"]
+                if source.suffix.lower() in VIDEO_SUFFIXES:
+                    recordings.append(str(source))
+                    written = video_frames(source, frames, index)
+                    if not written:
+                        why = "ffmpeg failed" if shutil.which("ffmpeg") else "needs ffmpeg"
+                        print(f"skipped recording {source.name} ({identifier}): {why}", file=sys.stderr)
+                    else:
+                        clips.append((attachment.get("timestamp") or 0, index, written))
+                    images.extend([attachment] * written)
+                    index += written
+                    continue
+                index += 1
+                frame = frames / f"{index:04d}-{label_for(name)}.png"
                 try:
-                    to_png(exported / attachment["exportedFileName"], frame)
+                    to_png(source, frame)
                 except subprocess.CalledProcessError:
                     print(f"skipped unreadable image {attachment['exportedFileName']} ({identifier})", file=sys.stderr)
+                    index -= 1
                     continue
+                images.append(attachment)
                 if not name.startswith("Screenshot "):
                     captures.append(str(frame))
                 if attachment.get("isAssociatedWithFailure") and failure_frame is None:
                     failure_frame = str(frame)
+
+            # XCTest flags the failure's snapshot and logs, not the recording, and
+            # stamps a recording with its start; find the failure inside the clip.
+            failed_at = min((a["timestamp"] for a in entry.get("attachments", [])
+                             if a.get("isAssociatedWithFailure") and a.get("timestamp") is not None),
+                            default=None)
+            if failure_frame is None and failed_at is not None:
+                for start_ts, before, written in clips:
+                    offset = int((failed_at - start_ts) * VIDEO_FPS) + 1
+                    if 1 <= offset:
+                        failure_frame = str(frames / f"{before + min(offset, written):04d}-video.png")
 
             outcome = results.get(identifier, {"result": "?", "failures": []})
             summary.append({
@@ -222,6 +271,7 @@ def main() -> int:
                 "frames": len(images),
                 "captures": captures,
                 "failure_frame": failure_frame,
+                "recordings": recordings,
                 "sheets": [str(p) for p in build_sheets(frames, test_dir)],
                 "slideshow": str(test_dir / "steps.mp4") if (test_dir / "steps.mp4").exists() else None,
                 "dir": str(test_dir),
@@ -241,6 +291,8 @@ def main() -> int:
             print(f"         failure: {failure.splitlines()[0] if failure else ''}")
         if item["failure_frame"]:
             print(f"         at failure: {item['failure_frame']}")
+        for recording in item.get("recordings", []):
+            print(f"         recording: {recording}")
         for capture in item["captures"]:
             print(f"         capture: {capture}")
         for sheet in item["sheets"]:
