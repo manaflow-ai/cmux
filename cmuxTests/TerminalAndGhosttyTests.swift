@@ -5634,8 +5634,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // background coordinator, and a shell still writing output would keep
         // the io threads (and the tee callback) running into the next test.
         for surface in trackedSurfaces.reversed() {
-            killShellProcesses(of: surface)
-            surface.releaseSurfaceForTesting()
+            surface.releaseHostedSurfaceForTesting()
         }
         trackedSurfaces.removeAll()
 
