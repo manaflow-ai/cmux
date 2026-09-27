@@ -25557,6 +25557,44 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
+    /// Top-level names in the shadow config dir that cmux writes itself, so they
+    /// are never replaced by links to the user's copies. `plugins` also holds
+    /// the cmux session plugin.
+    static let omoShadowOwnedConfigEntries: Set<String> = [
+        "opencode.json",
+        "opencode.jsonc",
+        "config.json",
+        "node_modules",
+        "package.json",
+        "bun.lock",
+        "bun.lockb",
+        "plugins",
+        ".DS_Store"
+    ]
+
+    /// Links every other top-level entry of the user's OpenCode config dir into
+    /// the shadow dir. Existing links are repointed; real files cmux created in
+    /// the shadow dir are left alone. Best effort: a failure only means that
+    /// entry is missing under `cmux omo`, as before.
+    private func omoMirrorUserConfigEntries(userDir: URL, shadowDir: URL) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: userDir.path) else { return }
+        for name in names where !Self.omoShadowOwnedConfigEntries.contains(name) {
+            let userEntry = userDir.appendingPathComponent(name)
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            switch omoFileType(at: shadowEntry) {
+            case nil:
+                break
+            case .typeSymbolicLink?:
+                if (try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path)) == userEntry.path { continue }
+                try? fm.removeItem(at: shadowEntry)
+            default:
+                continue
+            }
+            try? fm.createSymbolicLink(at: shadowEntry, withDestinationURL: userEntry)
+        }
+    }
+
     private func omoFileType(at url: URL) -> FileAttributeType? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.type] as? FileAttributeType
@@ -25790,6 +25828,10 @@ struct CMUXCLI {
         }
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
+
+        // Agents, commands, and prompt files referenced as {file:./...} live next
+        // to opencode.json; expose them from the shadow dir so they still load.
+        omoMirrorUserConfigEntries(userDir: userDir, shadowDir: shadowDir)
 
         // Copy oh-my-openagent plugin config (jsonc) if the user has one.
         // Keep legacy filenames visible in the shadow dir so existing setups still load.
