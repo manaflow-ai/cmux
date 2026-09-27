@@ -1060,6 +1060,7 @@
 		A13385000000000000000002 /* CMUXCLI+Glaeda.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13385000000000000000001 /* CMUXCLI+Glaeda.swift */; };
 		E8A71B06D1AC4C14AB090101 /* CMUXCLI+Guide.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A71B06D1AC4C14AB090102 /* CMUXCLI+Guide.swift */; };
 		B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */; };
+		7E1A1A000000000000000002 /* CMUXCLI+Import.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A1A000000000000000001 /* CMUXCLI+Import.swift */; };
 		B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */; };
 		C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */; };
 		489F4CF9B768C42D87B5EB2F /* CMUXCLI+KimiHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */; };
@@ -1335,6 +1336,7 @@
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
+		7E1A1A0000000000000000A3 /* CmuxTerminalImport in Frameworks */ = {isa = PBXBuildFile; productRef = 7E1A1A0000000000000000A2 /* CmuxTerminalImport */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
@@ -2438,6 +2440,7 @@
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
 		B864939F004D49CA990F581F /* PasteboardFileURLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */; };
 		B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */; };
+		010B33D14FFEA035BC3F0BF2 /* PasteLastScreenshotShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */; };
 		B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000C /* PastePreparationFailureProbe.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
 		1172B36873974E34BF55F452 /* PendingRemoteCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A3F55EC44084383A6EAFB91 /* PendingRemoteCreation.swift */; };
@@ -3474,6 +3477,7 @@
 		B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */; };
 		B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */; };
 		124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000029 /* TerminalImageTransferPlan.swift */; };
+		B8835B000000000000000001 /* TerminalImageTransferPreparationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */; };
 		B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */; };
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
@@ -3495,6 +3499,7 @@
 		468110000000000000000007 /* TerminalNotificationClickAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000008 /* TerminalNotificationClickAction.swift */; };
 		A5C0B1E00000000000000003 /* TerminalNotificationClipboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0B1E00000000000000004 /* TerminalNotificationClipboardTests.swift */; };
 		B7F00008 /* TerminalNotificationDeliveryDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00007 /* TerminalNotificationDeliveryDecision.swift */; };
+		48281F9D00BDE0C6E70192B9 /* TerminalNotificationDeliveryDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434B58A3AC2CF995D960D057 /* TerminalNotificationDeliveryDecisionTests.swift */; };
 		78F5315DE5C21218B5F9109F /* TerminalNotificationDirectInteractionTests+Visibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31EBB65E7FAFD31F21EAF0C /* TerminalNotificationDirectInteractionTests+Visibility.swift */; };
 		A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */; };
 		7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */; };
@@ -3525,6 +3530,7 @@
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
 		8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */; };
 		A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */; };
+		E67E14C8AD319F68E5ABFD0E /* TerminalPanel+PasteLastScreenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */; };
 		791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */; };
 		5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */; };
 		ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */; };
@@ -3535,6 +3541,9 @@
 		6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */; };
+		B8835B000000000000000003 /* TerminalPasteFailureNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */; };
+		B8835B000000000000000005 /* TerminalPasteFailureNoticePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */; };
+		4E96608F6F558E792BE96C3B /* TerminalPasteFailureNoticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */; };
 		B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000002 /* TerminalPastePreparationDestination.swift */; };
 		B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000A /* TerminalPastePreparationFailure.swift */; };
 		B88355000000000000000003 /* TerminalPastePreparationJob.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000004 /* TerminalPastePreparationJob.swift */; };
@@ -5159,6 +5168,7 @@
 		A13385000000000000000001 /* CMUXCLI+Glaeda.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Glaeda.swift"; sourceTree = "<group>"; };
 		E8A71B06D1AC4C14AB090102 /* CMUXCLI+Guide.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Guide.swift"; sourceTree = "<group>"; };
 		B9000060A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+HermesAgentHooks.swift"; sourceTree = "<group>"; };
+		7E1A1A000000000000000001 /* CMUXCLI+Import.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Import.swift"; sourceTree = "<group>"; };
 		B9000053A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+InstallPreview.swift"; sourceTree = "<group>"; };
 		C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+JSONOutput.swift"; sourceTree = "<group>"; };
 		7A3D532FF0A00E20DA31667F /* CMUXCLI+KimiHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+KimiHooks.swift"; sourceTree = "<group>"; };
@@ -6424,6 +6434,7 @@
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
 		4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardFileURLReader.swift; sourceTree = "<group>"; };
 		B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardThreadSignalingDataProvider.swift; sourceTree = "<group>"; };
+		D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PasteLastScreenshotShortcutTests.swift"; sourceTree = "<group>"; };
 		B8835700000000000000000C /* PastePreparationFailureProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePreparationFailureProbe.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		6A3F55EC44084383A6EAFB91 /* PendingRemoteCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRemoteCreation.swift; sourceTree = "<group>"; };
@@ -7444,6 +7455,7 @@
 		B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferConcurrencyTests+Timeouts.swift"; sourceTree = "<group>"; };
 		B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferConcurrencyTests.swift; sourceTree = "<group>"; };
 		124770000000000000000029 /* TerminalImageTransferPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferPlan.swift"; sourceTree = SOURCE_ROOT; };
+		B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationOutcome.swift; sourceTree = "<group>"; };
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
@@ -7465,6 +7477,7 @@
 		468110000000000000000008 /* TerminalNotificationClickAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationClickAction.swift; sourceTree = "<group>"; };
 		A5C0B1E00000000000000004 /* TerminalNotificationClipboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationClipboardTests.swift; sourceTree = "<group>"; };
 		B7F00007 /* TerminalNotificationDeliveryDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDeliveryDecision.swift; sourceTree = "<group>"; };
+		434B58A3AC2CF995D960D057 /* TerminalNotificationDeliveryDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationDeliveryDecisionTests.swift"; sourceTree = "<group>"; };
 		F31EBB65E7FAFD31F21EAF0C /* TerminalNotificationDirectInteractionTests+Visibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationDirectInteractionTests+Visibility.swift"; sourceTree = "<group>"; };
 		A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationDirectInteractionTests.swift; sourceTree = "<group>"; };
 		7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationLiveRetargetDelivery.swift; sourceTree = "<group>"; };
@@ -7495,6 +7508,7 @@
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
 		8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentHibernation.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+NotificationScroll.swift"; sourceTree = "<group>"; };
+		BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+PasteLastScreenshot.swift"; sourceTree = "<group>"; };
 		791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SessionScrollbackReplay.swift"; sourceTree = "<group>"; };
 		D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+ShellReadiness.swift"; sourceTree = "<group>"; };
 		AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SurfaceSelection.swift"; sourceTree = "<group>"; };
@@ -7505,6 +7519,9 @@
 		811B03E4004A4D1FB6650158 /* TerminalPanelUnavailableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelUnavailableView.swift; sourceTree = "<group>"; };
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteboardReadRequest.swift; sourceTree = "<group>"; };
+		B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteFailureNotice.swift; sourceTree = "<group>"; };
+		B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteFailureNoticePresenter.swift; sourceTree = "<group>"; };
+		AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalPasteFailureNoticeTests.swift"; sourceTree = "<group>"; };
 		B88355000000000000000002 /* TerminalPastePreparationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationDestination.swift; sourceTree = "<group>"; };
 		B8835700000000000000000A /* TerminalPastePreparationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationFailure.swift; sourceTree = "<group>"; };
 		B88355000000000000000004 /* TerminalPastePreparationJob.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationJob.swift; sourceTree = "<group>"; };
@@ -8134,6 +8151,7 @@
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
 				C85390090000000000000001 /* CmuxTerminalCore in Frameworks */,
+				7E1A1A0000000000000000A3 /* CmuxTerminalImport in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -9260,6 +9278,9 @@
 				B8835A000000000000000002 /* TerminalClipboardInputSequencer+State.swift */,
 				B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */,
 				B8835700000000000000000A /* TerminalPastePreparationFailure.swift */,
+				B8835B000000000000000006 /* TerminalPasteFailureNoticePresenter.swift */,
+				B8835B000000000000000004 /* TerminalPasteFailureNotice.swift */,
+				B8835B000000000000000002 /* TerminalImageTransferPreparationOutcome.swift */,
 				B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */,
 				B88357000000000000000012 /* GhosttyApp+RuntimeClipboardRead.swift */,
 				B88357000000000000000014 /* TerminalClipboardRequestSurfaceIdentity.swift */,
@@ -10194,6 +10215,7 @@
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */,
+				BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */,
 				3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */,
 				8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */,
 				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
@@ -11023,6 +11045,7 @@
 				C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */,
 				C77070000000000000000009 /* CMUXCLI+SSHPTYAttachBridge.swift */,
 				B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */,
+				7E1A1A000000000000000001 /* CMUXCLI+Import.swift */,
 					B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */,
 					B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */,
 				A106490D0000000000000001 /* CMUXCLI+Automation.swift */,
@@ -11048,6 +11071,7 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				434B58A3AC2CF995D960D057 /* TerminalNotificationDeliveryDecisionTests.swift */,
 				DEC1CE00000000000000003F /* DevicePresenceWireTests.swift */,
 				DEC1CE000000000000000043 /* DeviceRouteSelectorTests.swift */,
 				DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */,
@@ -12164,6 +12188,8 @@
 				AA11C5ADC15512A75E032CCA /* TerminalSurfaceTestTeardown.swift */,
 				8E40AA0639D63F947BB321B4 /* UpdateRelaunchBlockersTests.swift */,
 				A634CA3FCA39C6F02FA78DC7 /* UpdateRelaunchAgentResumeTests.swift */,
+				D87FDCA31298C3B71D50F9E7 /* PasteLastScreenshotShortcutTests.swift */,
+				AFD49B60E1A7F637C0ADFEF4 /* TerminalPasteFailureNoticeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -12380,6 +12406,7 @@
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				C750200000000000000000A2 /* CmuxTerminalCore */,
+				7E1A1A0000000000000000A2 /* CmuxTerminalImport */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
@@ -12598,6 +12625,7 @@
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
+				7E1A1A0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalImport" */,
 				C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */,
@@ -14924,6 +14952,7 @@
 				C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
 				124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */,
+				B8835B000000000000000001 /* TerminalImageTransferPreparationOutcome.swift in Sources */,
 				B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */,
 				B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */,
 				B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */,
@@ -14961,6 +14990,7 @@
 				D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */,
 				8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */,
 				A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */,
+				E67E14C8AD319F68E5ABFD0E /* TerminalPanel+PasteLastScreenshot.swift in Sources */,
 				791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */,
 				5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */,
 				ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */,
@@ -14971,6 +15001,8 @@
 				6819AF60AEA6455DB57CC7FE /* TerminalPanelUnavailableView.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */,
+				B8835B000000000000000003 /* TerminalPasteFailureNotice.swift in Sources */,
+				B8835B000000000000000005 /* TerminalPasteFailureNoticePresenter.swift in Sources */,
 				B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */,
 				B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */,
 				B88355000000000000000003 /* TerminalPastePreparationJob.swift in Sources */,
@@ -15412,6 +15444,7 @@
 				A13385000000000000000002 /* CMUXCLI+Glaeda.swift in Sources */,
 				E8A71B06D1AC4C14AB090101 /* CMUXCLI+Guide.swift in Sources */,
 				B9000061A1B2C3D4E5F60719 /* CMUXCLI+HermesAgentHooks.swift in Sources */,
+				7E1A1A000000000000000002 /* CMUXCLI+Import.swift in Sources */,
 				B9000052A1B2C3D4E5F60719 /* CMUXCLI+InstallPreview.swift in Sources */,
 				C51A75000000000000000001 /* CMUXCLI+JSONOutput.swift in Sources */,
 				489F4CF9B768C42D87B5EB2F /* CMUXCLI+KimiHooks.swift in Sources */,
@@ -16370,6 +16403,7 @@
 				1F567ED5887A4EA9AB100001 /* PaneResizeShortcutTests.swift in Sources */,
 				C12813000000000000000211 /* ParkedReconnectRecordingRunner.swift in Sources */,
 				B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */,
+				010B33D14FFEA035BC3F0BF2 /* PasteLastScreenshotShortcutTests.swift in Sources */,
 				B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */,
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					D1F0A00400000000000000C1 /* PhonePushSerialDeliveryQueueTests.swift in Sources */,
@@ -16647,6 +16681,7 @@
 				A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
 				A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */,
 				A5C0B1E00000000000000003 /* TerminalNotificationClipboardTests.swift in Sources */,
+				48281F9D00BDE0C6E70192B9 /* TerminalNotificationDeliveryDecisionTests.swift in Sources */,
 				78F5315DE5C21218B5F9109F /* TerminalNotificationDirectInteractionTests+Visibility.swift in Sources */,
 				A5A5A505A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift in Sources */,
 				A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */,
@@ -16654,6 +16689,7 @@
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				4E96608F6F558E792BE96C3B /* TerminalPasteFailureNoticeTests.swift in Sources */,
 				B12715000000000000000001 /* TerminalPastePreparationReapingTests.swift in Sources */,
 				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,
 				C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */,
@@ -17531,6 +17567,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxTerminalCore;
 		};
+		7E1A1A0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalImport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTerminalImport;
+		};
 		C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxTerminal;
@@ -17882,6 +17922,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
 			productName = CmuxTerminalCore;
+		};
+		7E1A1A0000000000000000A2 /* CmuxTerminalImport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7E1A1A0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalImport" */;
+			productName = CmuxTerminalImport;
 		};
 		C750500000000000000000A2 /* CmuxTerminal */ = {
 			isa = XCSwiftPackageProductDependency;
