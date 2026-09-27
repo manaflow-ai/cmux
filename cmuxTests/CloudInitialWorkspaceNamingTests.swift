@@ -43,6 +43,10 @@ struct CloudInitialWorkspaceNamingTests {
     @Test("The first remote workspace receipt adopts the optimistic local placeholder once")
     func firstWorkspaceReceiptAdoptsPlaceholder() async throws {
         try await withUnboundFixture { fixture in
+            // The create receipt arrives before discovery. A current snapshot
+            // that already names the workspace is newer than the receipt and
+            // wins; that case is covered by bindingReconcilesAlreadyDiscoveredName.
+            fixture.catalog.clearCloudState(on: fixture.provider.machine)
             fixture.catalog.bindCloudWorkspace(
                 localWorkspaceID: fixture.workspace.id,
                 machine: fixture.provider.machine,
