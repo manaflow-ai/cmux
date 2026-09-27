@@ -55,11 +55,13 @@ final class SidebarCompactAgentStatusUITests: XCTestCase {
         }
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchArguments += ["-sidebarCompactAgentStatus", compact ? "YES" : "NO"]
+        // Plist syntax: the settings decoder accepts only real booleans, and a
+        // bare YES/NO argument arrives as a string and falls back to the default.
+        app.launchArguments += ["-sidebarCompactAgentStatus", compact ? "<true/>" : "<false/>"]
         app.launchArguments += ["-socketControlMode", "allowAll"]
         // Keep the reported branches: the watcher would replace them with the
         // real (non-repo) state of the test's working directory.
-        app.launchArguments += ["-sidebarWatchGitStatus", "NO"]
+        app.launchArguments += ["-sidebarWatchGitStatus", "<false/>"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-compact-status-\(token.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_COMMANDS"] = commands.joined(separator: "\n")
