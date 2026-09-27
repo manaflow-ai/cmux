@@ -231,6 +231,7 @@ struct CLIExplicitSurfaceRoutingTests {
             ["read-screen", "--selection"],
             ["send", "--workspace", "--surface", Self.targetSurfaceRef, "hello"],
             ["read-screen", "--surface", "--workspace", Self.callerWorkspaceId],
+            ["send", "--surface= --workspace", "hello"],
         ]
 
         for (index, arguments) in cases.enumerated() {

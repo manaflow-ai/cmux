@@ -1,6 +1,7 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Rejects missing or flag-like workspace and surface values before opening a socket.
     func validateExplicitSurfaceTargetBeforeSocket(
         command: String,
         commandArgs: [String]
@@ -29,7 +30,8 @@ extension CMUXCLI {
                 }
             } else if let targetName = targetNames.first(where: { argument.hasPrefix("\($0)=") }) {
                 let value = String(argument.dropFirst(targetName.count + 1))
-                if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value.hasPrefix("-") {
+                let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedValue.isEmpty || trimmedValue.hasPrefix("-") {
                     try requireExplicitSurfaceTarget(commandName: command, workspaceArgument: nil, surfaceArgument: nil)
                 }
             }
@@ -44,6 +46,7 @@ extension CMUXCLI {
         )
     }
 
+    /// Converts the explicit-target policy failure into the CLI's localized error.
     func requireExplicitSurfaceTarget(
         commandName: String,
         workspaceArgument: String?,
@@ -72,6 +75,7 @@ extension CMUXCLI {
         }
     }
 
+    /// Resolves a surface selection command after validating its target options.
     func runSurfaceSelectionCommand(
         commandName: String,
         commandArgs: [String],
