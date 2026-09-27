@@ -330,6 +330,20 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(parsed["tests"], [{"test": "S/x()", "suspects": [5], "how": "only pull request in the range"}])
         self.assertEqual(parsed["prs"], {C[0]: 5})
 
+    def test_a_new_crash_victim_is_queued_with_its_flag(self):
+        marker = attribution.data_marker(
+            run={"id": 7, "html_url": "https://run/7", "head_sha": HEAD},
+            previous={"head_sha": PREV, "html_url": "https://run/prev"},
+            failures={}, attributions={"S/x()": ([], "unattributed")}, prs=[], commits=[C[0]],
+            crashed=["S/x()"],
+        )
+        [parsed] = MODULE.hidden_json(marker, attribution.DATA_PREFIX)
+        self.assertTrue(MODULE.valid_data(parsed))
+        self.assertEqual(parsed["tests"], [{"test": "S/x()", "suspects": [], "how": "unattributed", "crash": True}])
+        state = MODULE.empty_state()
+        MODULE.new_items(state, {7: parsed}, MODULE.datetime(2026, 9, 27, tzinfo=MODULE.timezone.utc))
+        self.assertEqual([item["test"] for item in state["items"]], ["S/x()"])
+
     def test_unsafe_data_is_refused(self):
         self.assertTrue(MODULE.valid_data(data()))
         self.assertFalse(MODULE.valid_data({**data(), "head": "main; rm -rf /"}))
