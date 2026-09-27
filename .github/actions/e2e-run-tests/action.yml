@@ -324,15 +324,18 @@ runs:
         uid="$(id -u)"
         # SIGKILL: a SecurityAgent showing a prompt ignores SIGTERM (cmux12s,
         # 2026-09-27: pkill "succeeded" and the 7 h old prompt stayed).
-        # A "cmux DEV cannot be opened because of a problem" dialog outlived
-        # this step on cmux11s (2026-09-27) and sat over a dogfood tour;
-        # CoreServicesUIAgent draws LaunchServices launch failures and
-        # Problem Reporter draws crash reports.
-        for process in UserNotificationCenter SecurityAgent "Problem Reporter" CoreServicesUIAgent; do
+        for process in UserNotificationCenter SecurityAgent; do
           if pkill -KILL -x -u "$uid" "$process" 2>/dev/null; then
             echo "Closed $process (its dialogs are cancelled; launchd restarts it on demand)"
           fi
         done
+        # Diagnostics Reporter draws "cmux DEV cannot be opened because of a
+        # problem" after a crashed launch; on cmux8s and cmux11s (2026-09-27)
+        # one sat over UI tests from boot. Its name is longer than the 16
+        # bytes -x compares, so match the executable path.
+        if pkill -KILL -u "$uid" -f "/Diagnostics Reporter.app/Contents/MacOS/" 2>/dev/null; then
+          echo "Closed Diagnostics Reporter (its crash dialogs are dismissed)"
+        fi
 
     - name: Run selected tests
       id: tests
