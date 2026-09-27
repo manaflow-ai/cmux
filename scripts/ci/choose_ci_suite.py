@@ -90,6 +90,7 @@ APP_HOST_CONSUMER_PATHS = (
     "scripts/ci/enable-xctest-automation-mode.sh",
     "scripts/ci/enumerate-app-host-tests.sh",
     "scripts/ci/prepare-app-host-home.sh",
+    "scripts/ci/relocate_package_framework_rpaths.py",
     "scripts/ci/require_selected_test_execution.sh",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",

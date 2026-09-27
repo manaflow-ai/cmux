@@ -1185,6 +1185,15 @@ extension Workspace {
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
         guard let restorableAgent else { return nil }
+        // Hook-store indexing quarantines rejected non-Claude captures, but a
+        // prior build may already have copied one into the persisted session
+        // snapshot. Apply the same boundary here before startup or hibernation
+        // restore can consume that stale identity directly. Claude remains
+        // eligible when its transcript-backed restore path can recover it.
+        guard restorableAgent.kind == .claude
+            || restorableAgent.launchCommand?.isRejectedCapture != true else {
+            return nil
+        }
         guard let resumeBinding, resumeBinding.isAgentHookBinding else {
             return restorableAgent
         }
@@ -12507,9 +12516,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return renderedVisiblePanelIdsForCurrentLayout()
     }
 
+    /// Whether the split layout shows more than one surface, which is when
+    /// unfocused terminals dim. `WorkspaceContentView` and the portal reconcile
+    /// below share this so both paths agree on the dim.
+    var hasMultipleSplitSurfaces: Bool {
+        bonsplitController.allPaneIds.count > 1 || panels.count > 1
+    }
+
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        let dimsUnfocusedTerminals = hasMultipleSplitSurfaces
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
         // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
@@ -12534,6 +12551,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
                 terminalPanel.hostedView.setActive(shouldBeActive)
                 didChange = true
+            }
+            // This reveal and focus change commit now, but the SwiftUI host only
+            // updates the dim on its next portal turn. Move the dim here too, or a
+            // tab or workspace dimmed while hidden shows one dimmed frame. Canvas
+            // hosts own their dim rule.
+            if shouldBeVisible, layoutMode != .canvas {
+                terminalPanel.hostedView.setInactiveOverlayVisible(dimsUnfocusedTerminals && !shouldBeActive)
             }
             TerminalWindowPortalRegistry.updateEntryVisibility(
                 for: terminalPanel.hostedView,

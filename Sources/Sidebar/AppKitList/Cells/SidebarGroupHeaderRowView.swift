@@ -76,6 +76,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         plusButton.onClick = { [weak self] in self?.actions?.onTapPlus() }
         plusButton.menuProvider = { [weak self] in self?.makePlusMenu() }
+        plusButton.concealImmediately()
         addSubview(plusButton)
 
         topDropIndicator.wantsLayer = true
@@ -94,6 +95,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        isPointerHovering = false
+        plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
 
@@ -194,7 +197,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             )
             unreadBadgeView.configure(
                 count: model.anchorUnreadCount,
-                fillColor: .controlAccentColor,
+                fillColor: cmuxNotificationBadgeNSColor(
+                    hex: model.notificationBadgeColorHex,
+                    fallback: cmuxAccentNSColor(for: colorScheme)
+                ),
                 textColor: .white,
                 font: unreadBadgeFont
             )
@@ -647,33 +653,22 @@ final class SidebarHeaderGlyphButton: NSButton {
         menuProvider?() ?? super.menu(for: event)
     }
 
-    /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.
-    /// Hit-testing follows the target state immediately so a fading-out
-    /// button never swallows a click.
+    /// Starting state for hover-revealed buttons, and the reset on cell
+    /// reuse. NSButton is born visible, so without this every fresh or
+    /// recycled cell painted an X on its first unhovered configure, which
+    /// flashed the close buttons on all rows at once after a workspace close.
+    func concealImmediately() {
+        setRevealed(false)
+    }
+
+    /// Hover reveal lands in the same frame as the hover change. The row
+    /// swaps its trailing badge or spinner for this button synchronously, so
+    /// a fade here left the slot blank on hover-in and doubled up on
+    /// hover-out.
     func setRevealed(_ revealed: Bool) {
-        if revealed {
-            if isHidden {
-                alphaValue = 0
-                isHidden = false
-            }
-            isEnabled = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 1
-            }
-        } else {
-            guard !isHidden else { return }
-            isEnabled = false
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.12
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                guard let self, !self.isEnabled else { return }
-                self.isHidden = true
-            })
-        }
+        isEnabled = revealed
+        alphaValue = revealed ? 1 : 0
+        isHidden = !revealed
     }
 }
 

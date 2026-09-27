@@ -137,6 +137,10 @@ path = "tests/test_claude_wrapper_user_binary_resolution.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
 
@@ -747,6 +751,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_layered_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_relocate_package_framework_rpaths.py"
 lane = "linux-guard"
 
 [[test]]
