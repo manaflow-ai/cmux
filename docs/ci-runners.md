@@ -305,6 +305,20 @@ app rebuild, compile/admission/queue seconds, route). Refit with
 `warm_distance.py collect <minis> > data.jsonl` and `warm_distance.py fit
 data.jsonl --git <cmux checkout> --out scripts/ci/warm-distance-model.json`.
 
+The compile estimates correct themselves. Besides each tier's p50 the model
+keeps `tiers_by_start`, the p50 per tier and start kind (a kept build or a
+seed) with its count, and `predict()` (and glaeda's hook, for a root's kept
+build) uses a cell once it has 5 compiles, else the tier: a near compile from
+a kept build ran about 90 s, one from a seed about 155 s, against the near
+tier's 140 s. `scripts/ci/warm_model_refit.py` runs daily on mini-6 beside
+ci-dash: it refits the tiers and cells from the last 14 days of admissions
+(`warm_distance.py refit`, which leaves hot files, start_classes and
+job_seconds alone) and, only when a p50 with at least 20 compiles moved more
+than 20%, opens a pull request from `ci/warm-model-refit` with the errors
+before and after and a time-ordered replay (`warm_distance.py backtest`). It
+never writes main; without its token it leaves the patch and summary in its
+output directory.
+
 Spread-first admission (`CI_OWNED_SPREAD=1`, off by default): two compiles
 (8 to 10 of a mini's 14 cores each) could take both roots of one mini while
 another mini's root runners sat idle. When admission is placed on a pool with
