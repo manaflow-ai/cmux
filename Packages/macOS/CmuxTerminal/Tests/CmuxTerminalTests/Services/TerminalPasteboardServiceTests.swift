@@ -92,6 +92,12 @@ struct TerminalShellEscapingTests {
     }
 }
 
+// Pasteboard suites run on the main actor, like the app's pasteboard callers.
+// Every NSPasteboard call is a synchronous request to the pasteboard server.
+// On Swift Testing's cooperative pool (one thread per CPU), parallel suites
+// could block every pool thread in such a request at once; the replies then
+// never arrive and the whole test process deadlocks.
+@MainActor
 @Suite("Pasteboard text contents")
 struct PasteboardTextContentsTests {
     @Test func prefersUTF8PlainTextOverLossyTraditionalMacText() {
@@ -186,6 +192,8 @@ struct PasteboardTextContentsTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Clipboard write capture", .serialized)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
@@ -283,6 +291,8 @@ struct ClipboardWriteCaptureTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Image materialization and temp-file ownership")
 struct ImageMaterializationTests {
     @Test func materializesPNGIntoOwnedTemporaryFile() throws {
