@@ -125,7 +125,7 @@ struct CloudTreeTogglePerformanceTests {
         #expect(outline.isItemExpanded(section))
     }
 
-    private final class Tally {
+    @MainActor private final class Tally {
         var count = 0
     }
 }
