@@ -502,7 +502,7 @@ runs:
         EXIT_CODE=$?
         set -e
         OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
-        if grep -q "Failed to activate application" /tmp/xcodebuild-e2e.log; then
+        if [ "$EXIT_CODE" -ne 0 ] && grep -q "Failed to activate application" /tmp/xcodebuild-e2e.log; then
           echo "::error::The runner stopped letting apps come to the front during the tests (Failed to activate application). This is the runner, not the test; re-run to take another runner."
           if [ -f scripts/ci/preflight-e2e-gui-activation.py ]; then
             python3 scripts/ci/preflight-e2e-gui-activation.py --diagnose || true
@@ -710,6 +710,10 @@ runs:
                 name = re.sub(r'_\d+_[0-9A-F-]{36}(\.\w+)?$', '', item.get('suggestedHumanReadableName', source.stem))
                 name = re.sub(r'[/:]+', '-', name).strip() or source.stem
                 target = out / case / f'{name}{source.suffix}'
+                n = 2
+                while target.exists():
+                    target = out / case / f'{name} ({n}){source.suffix}'
+                    n += 1
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
                 count += 1
