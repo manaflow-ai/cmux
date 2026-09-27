@@ -114,6 +114,12 @@ jobs:
       # remote-daemon) take it in place of the pool label, so they never hold
       # a root runner.
       macos_pr_side_runner: ${{ steps.macos-pool.outputs.side_runner }}
+      # Set only when some side lanes take the light minis' idle side runners
+      # (pr_runner_pool.light_side_lanes()): glaeda-side-light-xcode-<version>,
+      # which the side lanes in macos_pr_light_side_jobs (" claude-wrapper ")
+      # take in place of macos_pr_side_runner, one lane per idle runner.
+      macos_pr_light_side_runner: ${{ steps.macos-pool.outputs.light_side_runner }}
+      macos_pr_light_side_jobs: ${{ steps.macos-pool.outputs.light_side_jobs }}
       # Set only beside a root runner, when CI_OWNED_POOL_SLOTS gives the gui
       # label a count: glaeda-gui-<class>-xcode-<version>, the one runner per
       # mini that takes a GUI job (the mini has one gui token). The GUI jobs
@@ -1166,7 +1172,7 @@ jobs:
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
-      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
+      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   web:
@@ -1183,7 +1189,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1330,7 +1336,7 @@ jobs:
       pr_admission_route: ${{ needs.changes.outputs.macos_pr_admission_route }}
       pr_admission_warm: ${{ needs.changes.outputs.macos_pr_admission_warm }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
-      pr_side_runner: ${{ needs.changes.outputs.macos_pr_side_runner }}
+      pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
