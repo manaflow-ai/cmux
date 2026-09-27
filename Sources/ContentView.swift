@@ -11255,7 +11255,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
         self.snapshot = SidebarTabItemSettingsSnapshot(
             defaults: defaults,
             sidebarFontSize: sidebarFontSize,
-            accentColor: accentColor
+            accentColor: self.accentColor
         )
         defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
