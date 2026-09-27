@@ -15398,11 +15398,13 @@ struct SidebarFooterButtons: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) {
+            // The account chip takes the free width on the left; the icon
+            // controls keep fixed slots to its right.
+            if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                SidebarAccountMenuButton()
+            }
+            if shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
-                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton()
-                    }
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }

@@ -3,7 +3,12 @@ import CmuxAppKitSupportUI
 import CmuxSettingsUI
 import SwiftUI
 
-/// The compact sidebar account button for account-level actions. Signed out,
+enum SidebarAccountChipMetrics {
+    static let height: CGFloat = 26
+    static let avatarSize: CGFloat = 18
+}
+
+/// The sidebar account chip for account-level actions. Signed out,
 /// a click starts sign-in; signed in, it opens a native account menu (see
 /// `SidebarFooterMenuAnchor` for why the footer uses `NSMenu`).
 struct SidebarAccountMenuButton: View {
@@ -11,7 +16,6 @@ struct SidebarAccountMenuButton: View {
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
-    private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     @State private var menuAnchor = SidebarFooterMenuAnchor()
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
@@ -78,22 +82,57 @@ struct SidebarAccountMenuButton: View {
                 )
             }
         } label: {
-            SidebarAccountAvatar(
-                avatarURL: identity?.avatarURL,
-                displayName: identity?.displayName ?? "",
-                email: identity?.email ?? "",
-                isSignedIn: profile.showsProfilePicture,
-                size: profile.size
-            )
-            .frame(width: buttonSize, height: buttonSize)
+            // The whole chip is the target, like the account row in Claude and
+            // ChatGPT desktop: avatar, name, plan, and a chevron that says
+            // "this opens a menu". Signed out it reads "Sign In…" with no chevron.
+            HStack(spacing: 6) {
+                SidebarAccountAvatar(
+                    avatarURL: identity?.avatarURL,
+                    displayName: identity?.displayName ?? "",
+                    email: identity?.email ?? "",
+                    isSignedIn: profile.showsProfilePicture,
+                    size: profile.showsProfilePicture ? SidebarAccountChipMetrics.avatarSize : profile.size
+                )
+                .frame(width: SidebarAccountChipMetrics.avatarSize, height: SidebarAccountChipMetrics.avatarSize)
+                Text(chipName(for: identity) ?? signInTitle)
+                    .cmuxFont(size: 12, weight: .medium)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+                if identity != nil, accountFlow?.isProActive == true {
+                    Text(verbatim: "·")
+                        .cmuxFont(size: 12)
+                        .foregroundStyle(.tertiary)
+                    // Product name ("cmux Pro"), the same in every locale.
+                    Text(verbatim: "Pro")
+                        .cmuxFont(size: 12)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                Spacer(minLength: 0)
+                if identity != nil {
+                    CmuxSystemSymbolImage(systemName: "chevron.up.chevron.down", pointSize: 9, weight: .semibold, tint: .secondary)
+                }
+            }
+            .padding(.leading, 4)
+            .padding(.trailing, 6)
+            .frame(maxWidth: .infinity, minHeight: SidebarAccountChipMetrics.height, maxHeight: SidebarAccountChipMetrics.height, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .disabled(accountFlow?.isWorkingOnAuth == true)
-        .frame(width: buttonSize, height: buttonSize)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(SidebarFooterMenuAnchorView(anchor: menuAnchor))
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
+        .accessibilityValue(chipName(for: identity) ?? "")
         .accessibilityIdentifier("SidebarAccountMenuButton")
+    }
+
+    private func chipName(for identity: AccountIdentity?) -> String? {
+        guard let identity else { return nil }
+        return identity.displayName.isEmpty ? identity.email : identity.displayName
     }
 
     /// Who you are, then what you can do with the account, then Sign Out

@@ -20,6 +20,9 @@ final class SidebarFooterMenuAnchor {
     func popUp(_ menu: NSMenu) {
         guard let view else { return }
         let gap: CGFloat = 4
+        // A menu at least as wide as the control that opened it, so the
+        // account menu lines up with the chip.
+        menu.minimumWidth = max(menu.minimumWidth, view.bounds.width)
         let menuHeight = menu.size.height
         let y = view.isFlipped ? -(menuHeight + gap) : view.bounds.height + gap + menuHeight
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: view)
