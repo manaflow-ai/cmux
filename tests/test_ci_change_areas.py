@@ -3794,6 +3794,7 @@ def tests_gate_needs(
     web_result: str = "skipped",
     full_suite: str = "true",
     compile_admitted: str = "false",
+    macos_15_result: str = "success",
 ) -> dict:
     return {
         "changes": {
@@ -3806,6 +3807,7 @@ def tests_gate_needs(
         },
         "linux-preflight": {"result": "success"},
         "macos": {"result": macos_result},
+        "macos-15-unit-tests": {"result": macos_15_result},
         "web": {"result": web_result},
     }
 
@@ -4323,6 +4325,7 @@ def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
 def test_full_suite_runs_still_require_the_suite() -> None:
     assert run_tests_gate(tests_gate_needs("true", macos_result="success")).returncode == 0
     assert run_tests_gate(tests_gate_needs("true", macos_result="skipped")).returncode == 1
+    assert run_tests_gate(tests_gate_needs("true", macos_15_result="failure")).returncode == 1
     # A missing route output must never relax the aggregate platform gate.
     assert run_tests_gate(tests_gate_needs(None, macos_result="skipped")).returncode == 1
 

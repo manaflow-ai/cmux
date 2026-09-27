@@ -28,6 +28,9 @@ MACOS_15_FORK_JOBS = {
     ("plain-paste-worker.yml", "macos-15"),
     # Seeds the macOS 15 pool's SwiftPM manifest cache, keyed on its Xcode.
     ("seed-swiftpm-manifests.yml", "seed"),
+    # The required pull-request lane preserves macOS 15 Foundation coverage
+    # for fork heads on GitHub-hosted capacity.
+    ("ci.yml", "macos-15-unit-tests"),
 }
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every

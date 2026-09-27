@@ -38,6 +38,7 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 - `web-complexity.yml` and `web-complexity-trusted.yml` are an intentional pair: an untrusted diagnostic plus the trusted required check. Not a duplicate.
 - `ci-status-fallback.yml` has been a dispatch-only `echo` since 09-18. The 3,697 runs this week came from before that change.
 - `test-macos-suite.yml` (formerly `test-depot.yml`) is named "Run macOS test suite". It runs a whole test target cold; focused runs belong on `test-e2e.yml` through `scripts/run-e2e.sh`.
+- `test-macos-unit-suite.yml` is the read-only reusable full-unit target used by the pull-request macOS 15 lane; manual focused dispatch remains in `test-macos-suite.yml`.
 
 **Other problems found along the way:** `release.yml` has not succeeded since 08-03 (both runs this week failed), and `iroh-release-gate.yml` not since 08-14. `tmux-corpus.yml` is `disabled_manually`. `ci-macos-compat.yml` fails actionlint on the unknown label `macos-15-intel`, and `test-ios.yml:21` fails actionlint with an empty string.
 

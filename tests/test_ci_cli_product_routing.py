@@ -102,7 +102,9 @@ class CLIProductRoutingTests(unittest.TestCase):
                 needs = {
                     "changes": {"result": "success", "outputs": dict(macos=macos, cli="true", full_suite="false", compile_admitted="true")},
                     "linux-preflight": {"result": "success"},
-                    "macos": {"result": outcome}, "web": {"result": "skipped"},
+                    "macos": {"result": outcome},
+                    "macos-15-unit-tests": {"result": "success"},
+                    "web": {"result": "skipped"},
                 }
                 env_key = next(key for key, value in step["env"].items() if "toJSON(needs)" in value)
                 result = run_step(job, step["name"], {env_key: json.dumps(needs)})
