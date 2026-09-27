@@ -11,11 +11,13 @@ final class SSHTuiWorkspaceCoordinator {
     private let clientURL: () -> URL?
     private let paths: CloudTuiClientPaths
     private var attempts: [UUID: Task<Void, Never>] = [:]
+    private let agentStatus: SSHTuiAgentStatusProjector
 
     init(catalog: SurfaceCatalog, clientURL: @escaping () -> URL?, paths: CloudTuiClientPaths) {
         self.catalog = catalog
         self.clientURL = clientURL
         self.paths = paths
+        agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
     func connect(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
@@ -46,7 +48,8 @@ final class SSHTuiWorkspaceCoordinator {
         if let existing = catalog.provider(for: machine) as? CmuxTuiSurfaceProvider { return existing }
         guard let clientURL = clientURL() else { throw CloudMachineLink.LinkError.clientMissing }
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
-                                     isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled })
+                                     isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
+                                     agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
         catalog.register(provider)
         return provider

@@ -225,9 +225,11 @@ def shortcut_action_ids():
 
 
 def literal_default(swift):
-    """Return a Python value for a Bool/number literal, or None when not literal."""
+    """Return a Python value for a Bool/number/string literal, or None when not literal."""
     if swift in ("true", "false"):
         return swift == "true"
+    if re.fullmatch(r'"[^"\\]*"', swift):
+        return swift[1:-1]
     if re.fullmatch(r"-?\d+(?:\.\d+)?", swift):
         return float(swift)
     return None
@@ -279,6 +281,20 @@ class SchemaParityTests(unittest.TestCase):
             "Wire a cmux.json parser and add a schema entry, or list the id with a reason.",
         )
 
+    def test_every_schema_advertised_defaults_key_has_a_parser(self):
+        # A schema entry without a cmux.json parser validates but does nothing.
+        supported, _ = supported_paths()
+        inert = sorted(
+            f"{key_id} ({name})"
+            for key_id, (kind, _, name) in self.catalog.items()
+            if kind == "DefaultsKey" and key_id in self.paths and key_id not in supported
+        )
+        self.assertEqual(
+            inert,
+            [],
+            "the schema advertises these catalog keys but no cmux.json parser reads them",
+        )
+
     def test_not_in_cmux_json_has_no_stale_entries(self):
         supported, _ = supported_paths()
         stale = sorted(
@@ -320,6 +336,12 @@ class SchemaParityTests(unittest.TestCase):
             actual = node["default"]
             if isinstance(expected, bool) or isinstance(actual, bool):
                 equal = expected is actual
+            elif isinstance(expected, str):
+                # "" is the catalog's stored "unset" and JSON-encoded catalog
+                # strings map to non-string schema values; compare plain strings.
+                if expected == "" or not isinstance(actual, str):
+                    continue
+                equal = actual == expected
             else:
                 equal = isinstance(actual, (int, float)) and float(actual) == expected
             if not equal:

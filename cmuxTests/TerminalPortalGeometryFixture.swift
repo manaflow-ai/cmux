@@ -114,7 +114,25 @@ final class TerminalPortalGeometryFixture {
             await flushLayout()
         } while ContinuousClock.now < deadline && !Task.isCancelled
         let hasScrollback = false
-        try #require(hasScrollback, "Expected shell output to create real scrollback", sourceLocation: sourceLocation)
+        try #require(
+            hasScrollback,
+            Comment(rawValue: "Expected shell output to create real scrollback; " + scrollbackDiagnostics()),
+            sourceLocation: sourceLocation
+        )
+    }
+
+    /// Separates the two ways the scrollback wait can fail: the command never
+    /// produced output (the terminal holds no scrollback), or it did and the
+    /// view never received the runtime's scrollbar packet.
+    private func scrollbackDiagnostics() -> String {
+        var runtime = ghostty_surface_scrollbar_s()
+        let runtimeScrollbar = hosted.surfaceView.readAuthoritativeScrollbar(&runtime)
+            ? "total=\(runtime.total) offset=\(runtime.offset) len=\(runtime.len)"
+            : "unavailable"
+        let text = surface.visibleText().map { String($0.suffix(600)) } ?? "nil"
+        return "viewScrollbar=\(String(describing: hosted.surfaceView.scrollbar)), " +
+            "runtimeScrollbar=\(runtimeScrollbar), tty=\(surface.controllingTTYName() ?? "nil"), " +
+            "visibleText=\(text.debugDescription)"
     }
 
     /// Read the actual terminal screen and kernel TTY, not just Ghostty's

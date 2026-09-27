@@ -15,6 +15,8 @@ pub(super) struct RestoredPublicProjections {
     pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
+/// Rebuild the in-memory notification ledger, agent records (with their
+/// published hook session ids), and hook fences from durable projections.
 pub(super) fn restore_public_projections(
     state: &State,
     projections: RegistryPublicProjections,
@@ -120,6 +122,7 @@ pub(super) fn restore_public_projections(
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
                 agent: agent.agent,
+                agent_session_id: agent.agent_session_id,
                 updated_at_ms: agent.updated_at_ms,
             },
         );
@@ -240,6 +243,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: None,
                 agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -323,6 +327,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: None,
                 agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -346,6 +351,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: Some("cmux-hook-sequence:12".into()),
                 agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -369,6 +375,7 @@ mod tests {
                 updated_at_ms: 3,
                 source_session: Some("socket-session".into()),
                 agent: None,
+                agent_session_id: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,

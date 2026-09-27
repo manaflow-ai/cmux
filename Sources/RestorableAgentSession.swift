@@ -637,7 +637,19 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: environment,
+            kind: kind.rawValue,
+            launcher: launchCommand?.launcher,
+            arguments: launchCommand?.arguments ?? []
+        )
+        // The managed-wrapper merge above records the absolute Codex executable
+        // for wrapper routing, but a plain resume command already names that
+        // executable directly. Only a path the launch itself captured (a routed
+        // Subrouter restore keeps the real binary behind the wrapper) is replayed.
+        if launchCommand?.environment?["CMUX_CUSTOM_CODEX_PATH"] == nil {
+            selectedEnvironment.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
         let piFamilyUsesCapturedPath = kind == .pi
             || kind.customAgentID == "pi"
             || kind.customAgentID == "omp"
@@ -708,7 +720,8 @@ enum AgentResumeCommandBuilder {
                   launcher: launchCommand?.launcher,
                   sessionId: sessionId,
                   executablePath: launchCommand?.executablePath,
-                  arguments: launchCommand?.arguments ?? []
+                  arguments: launchCommand?.arguments ?? [],
+                  environment: launchCommand?.environment
               ) else { return nil }
         return AgentExternalLauncherRegistry.load(
             homeDirectory: NSHomeDirectory(),
@@ -730,7 +743,8 @@ enum AgentResumeCommandBuilder {
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            environment: launchCommand?.environment
         ) {
         case .resolved(let argv):
             return argv
@@ -934,7 +948,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             workingDirectorySelection: effectiveWorkingDirectorySelection
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
-                .applying(toStoredCommand: command) ?? command
+                .applying(
+                    toStoredCommand: command,
+                    routedLaunchCommand: launchCommand,
+                    checkpointID: sessionId
+                ) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
     }
@@ -1781,7 +1799,7 @@ struct RestorableAgentSessionIndex: Sendable {
             for record: RestorableAgentHookSessionRecord
         ) -> (key: String, home: String, sessionID: String, transcriptPath: String?)? {
             guard record.isRestorable != false,
-                  normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                  record.launchCommand?.isRejectedCapture != true else {
                 return nil
             }
             let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1841,7 +1859,7 @@ struct RestorableAgentSessionIndex: Sendable {
             var eligibleCount = 0
             for record in values {
                 guard record.isRestorable != false,
-                      normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                      record.launchCommand?.isRejectedCapture != true else {
                     continue
                 }
                 eligibleCount += 1
@@ -1906,7 +1924,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     let selectedPanelKeys = Set(selection.records.compactMap(codexPanelKey))
                     for record in state.sessions.values {
                         guard record.isRestorable != false,
-                              normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected",
+                              record.launchCommand?.isRejectedCapture != true,
                               !selectedIdentities.contains(codexRecordSelectionIdentity(record)) else {
                             continue
                         }
@@ -2674,8 +2692,8 @@ struct RestorableAgentSessionIndex: Sendable {
         codexHasIndexedStore: Bool
     ) -> Bool {
         if kind == .codex {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             guard record.isRestorable != false else { return false }
-            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
                 switch codexDurableVerification {
                 case .some(.exists(let evidence)):
@@ -2717,6 +2735,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         guard kind == .claude else {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             return record.isRestorable != false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),

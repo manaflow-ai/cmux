@@ -852,6 +852,74 @@ import Testing
         #expect(invocation.arguments.contains("teamclaude") == false)
     }
 
+    /// A routed Subrouter Claude resume already names `sr claude proxy` in argv[0]. A declared
+    /// external launcher must not wrap it again.
+    @Test func routedSubrouterClaudeResumeIsNotWrapped() throws {
+        let marker = "sr claude proxy --resume"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "claude",
+                externalLauncher: "teamclaude",
+                executablePath: "/opt/claude",
+                arguments: ["/opt/claude", "--model", "opus"],
+                workingDirectory: "/tmp/work",
+                environment: [
+                    SubrouterClaudeResumeRouting.environmentKey: marker,
+                    SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+                ],
+                source: "environment"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(
+                isExecutableFile: { $0 == "/opt/homebrew/bin/sr" || $0 == "/shim/claude" },
+                externalLaunchers: registry(Self.teamclaude)
+            ).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/opt/homebrew/bin:/usr/bin:/bin",
+                    "CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude",
+                ]
+            )
+        )
+
+        #expect(Array(invocation.arguments.prefix(5)) == ["sr", "claude", "proxy", "--resume", sessionID])
+        #expect(invocation.arguments.contains("teamclaude") == false)
+    }
+
+    /// A routed Subrouter Codex resume is an owned route once its captured environment is
+    /// considered, so a declared external launcher leaves it unwrapped.
+    @Test func routedSubrouterCodexResumeIsNotWrapped() throws {
+        let marker = "sr codex resume"
+        let environment = [
+            SubrouterCodexResumeRouting.environmentKey: marker,
+            SubrouterCodexResumeRouting.launchBoundEnvironmentKey: marker,
+        ]
+        let arguments = ["/opt/bin/codex", "-c", "model_provider=subrouter"]
+        #expect(AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+            launcher: "codex",
+            sessionId: sessionID,
+            executablePath: "/opt/bin/codex",
+            arguments: arguments,
+            environment: environment
+        ))
+        #expect(AgentResumeArgv().resumeRoutesThroughOwnedLauncher(
+            launcher: "codex",
+            sessionId: sessionID,
+            executablePath: "/opt/bin/codex",
+            arguments: arguments
+        ) == false)
+    }
+
     /// The working-directory sanitizer and the provider rewrites target the agent's own argv, so the
     /// launcher prefix is applied after them: a prefix may legitimately carry the same path the
     /// capture recorded as its working directory, and stripping it would break the wrapper's own
