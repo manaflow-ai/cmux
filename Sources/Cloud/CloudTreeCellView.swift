@@ -7,9 +7,11 @@ import SwiftUI
 
 /// Hosts SwiftUI row content inside an `NSOutlineView` cell while leaving every
 /// pointer event to the outline: the display host never hit-tests, so click,
-/// double-click, drag, and the context menu are handled natively. Machine rows
-/// add a second, hit-testable host for their hover buttons, faded in by a
-/// tracking area (the buttons are always laid out so hovering never reflows).
+/// double-click, drag, and the context menu are handled natively. Rows with
+/// actions (machines, groups, section headers) add a second, hit-testable host
+/// for their hover buttons, faded in while the outline reports the row hovered.
+/// The buttons are always laid out, so hovering never reflows the row, and a
+/// faded button keeps its hit area and its place in the accessibility tree.
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
@@ -29,9 +31,8 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered || keepsControlsVisible ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
-    private var keepsControlsVisible = false
 
     override convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, collaborators: { machine, workspaceID in
@@ -147,13 +148,11 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if case .devicesSection = node.kind { keepsControlsVisible = true }
-        else { keepsControlsVisible = false }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered || keepsControlsVisible ? 1 : 0
+            buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
@@ -266,33 +265,3 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
 /// hands mouse-downs inside it to SwiftUI; NSTableView otherwise keeps every
 /// click on a non-`NSControl` subview and runs the row's own click action.
 final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {}
-
-/// Row view drawing the same selection treatment as the Files sidebar.
-final class CloudTreeRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let insetRect = bounds.insetBy(dx: 6, dy: 1)
-        let path = NSBezierPath(roundedRect: insetRect, xRadius: 4, yRadius: 4)
-        // Gray in both focus states (no accent blue); keyboard focus reads as a
-        // slightly stronger shade.
-        NSColor.labelColor.withAlphaComponent(isKeyboardFocusActive ? 0.12 : 0.07).setFill()
-        path.fill()
-    }
-
-    private var isKeyboardFocusActive: Bool {
-        var view = superview
-        while let candidate = view {
-            if let outlineView = candidate as? NSOutlineView {
-                return window?.isKeyWindow == true && window?.firstResponder === outlineView
-            }
-            view = candidate.superview
-        }
-        return false
-    }
-
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        // The gray highlight keeps normal label colors; .emphasized would flip
-        // the text to white as if on an accent fill.
-        .normal
-    }
-}

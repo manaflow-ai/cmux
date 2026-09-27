@@ -90,6 +90,7 @@ struct CloudTreeNodeCacheTests {
             { $0.includeLocalMachine.toggle() },
             { $0.source = .devices },
             { $0.devicesSection.incomingAccessEnabled.toggle() },
+            { $0.canCreateCloudMachine.toggle() },
             { $0.localeIdentifier = "ja_JP" },
         ]
         for mutate in mutations {
@@ -122,6 +123,17 @@ struct CloudTreeNodeCacheTests {
         inputs.localeIdentifier = "ja_JP"
         #expect(cache.nodes(ifChanged: inputs, now: now) != nil)
         #expect(presentations == 3)
+    }
+
+    @Test func cloudCreationCapabilityUpdatesTheExistingHeader() throws {
+        let cache = CloudTreeNodeCache()
+        var inputs = CloudTreeBuildInputs(machines: [], snapshot: .empty, source: .cloudWithDevicesSection)
+        let disabled = try #require(cache.nodes(ifChanged: inputs, now: now)?.first)
+        #expect(disabled.kind == .cloudMachinesSection(canCreateMachine: false))
+        inputs.canCreateCloudMachine = true
+        let enabled = try #require(cache.nodes(ifChanged: inputs, now: now)?.first)
+        #expect(enabled.id == disabled.id)
+        #expect(enabled.kind == .cloudMachinesSection(canCreateMachine: true))
     }
 
     @Test func evictsReadingsForRemovedMachines() {

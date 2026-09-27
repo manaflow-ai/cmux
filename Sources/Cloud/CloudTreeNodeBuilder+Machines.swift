@@ -16,6 +16,7 @@ extension CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        canCreateCloudMachine: Bool = false,
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
@@ -115,7 +116,7 @@ extension CloudTreeNodeBuilder {
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection,
+                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine),
                 children: cloudChildren
             )]
         }

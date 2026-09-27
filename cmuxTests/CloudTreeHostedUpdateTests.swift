@@ -36,6 +36,8 @@ struct CloudTreeHostedUpdateTests {
         let outline = try #require(Self.outline(in: host))
         let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
         let section = try #require(coordinator.nodes.first)
+        await pump.drain()
+        host.layoutSubtreeIfNeeded()
         let originalRows = outline.numberOfRows
         let initialBuilds = trace.builds
         let bodiesBeforeToggle = trace.bodies

@@ -66,8 +66,10 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
-        /// The collapsible Cloud Machines section header.
-        case cloudMachinesSection
+        /// The collapsible Cloud Machines section header. `canCreateMachine`
+        /// shows its hover "+", which runs the New Machine action (Cmd-Y); it
+        /// is false while Cloud Machines is off and the header stands alone.
+        case cloudMachinesSection(canCreateMachine: Bool)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.

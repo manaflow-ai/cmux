@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -18,7 +19,7 @@ struct CloudTreeTogglePerformanceTests {
         let defaults = try #require(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let store = CloudTreeExpansionStore(defaults: defaults)
-        let section = CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection)
+        let section = CloudTreeNode(id: "cloud-machines-section", kind: .cloudMachinesSection(canCreateMachine: false))
         let tally = Tally()
         let observer = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: defaults, queue: nil
@@ -61,15 +62,19 @@ struct CloudTreeTogglePerformanceTests {
         #expect(tally.count == 1)
     }
 
-    @Test("Disclosure and unrelated renders do no catalog work", arguments: [10, 1_000])
-    func unchangedRendersDoNotRebuild(machineCount: Int) throws {
+    @Test("Disclosure and unrelated renders do no catalog work", arguments: [10, 1_000], [false, true])
+    func unchangedRendersDoNotRebuild(machineCount: Int, privatePreferences: Bool) async throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let tally = Tally()
+        let preferences = CloudTreeExpansionPreferences(applicationID: fixture.defaultsName)
+        let expansion = privatePreferences
+            ? CloudTreeExpansionStore(defaults: preferences)
+            : CloudTreeExpansionStore(defaults: fixture.defaults)
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: fixture.coordinator.machineActions,
             nodeActions: fixture.coordinator.nodeActions,
-            expansionStore: CloudTreeExpansionStore(defaults: fixture.defaults),
+            expansionStore: expansion,
             organization: fixture.catalog.sidebarOrganization,
             buildNodes: { inputs in
                 tally.count += 1
@@ -91,15 +96,31 @@ struct CloudTreeTogglePerformanceTests {
         #expect(tally.count == 1)
         let outline = try #require(coordinator.outlineView)
         let section = try #require(coordinator.nodes.first)
+        let pump = AppKitTestEventPump()
+        container.layoutSubtreeIfNeeded()
+        await pump.drain()
+        container.layoutSubtreeIfNeeded()
+        let notifications = Tally()
+        let token = NotificationCenter.default.addUserDefaultsObserver(object: fixture.defaults) {
+            notifications.count += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
         let start = ContinuousClock.now
         for _ in 0..<10 {
             outline.collapseItem(section)
             coordinator.update(inputs: inputs)
+            await pump.drain()
+            container.layoutSubtreeIfNeeded()
             outline.expandItem(section)
             coordinator.update(inputs: inputs)
+            await pump.drain()
+            container.layoutSubtreeIfNeeded()
         }
-        print("Cloud toggle benchmark machines=\(machineCount) toggles=20 builds=\(tally.count - 1) elapsed=\(start.duration(to: .now))")
+        let elapsed = start.duration(to: .now)
+        if privatePreferences { #expect(await preferences.flush()) }
+        print("Cloud toggle benchmark machines=\(machineCount) privatePreferences=\(privatePreferences) toggles=20 builds=\(tally.count - 1) notifications=\(notifications.count) viewportRows=\(outline.rows(in: outline.visibleRect).length) elapsed=\(elapsed)")
         #expect(tally.count == 1, "An unchanged-input update must not even call the node builder")
+        #expect(notifications.count == (privatePreferences ? 0 : 20))
         #expect(coordinator.nodes.first === section)
         #expect(outline.isItemExpanded(section))
     }

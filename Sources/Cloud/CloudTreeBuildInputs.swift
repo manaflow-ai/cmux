@@ -14,6 +14,7 @@ struct CloudTreeBuildInputs: Equatable {
     var includeLocalMachine = CloudTreeNodeBuilder.includesLocalMachine
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var canCreateCloudMachine = false
     var localeIdentifier: String = Locale.current.identifier
 
     func nodes(now: Date = .now, resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()) -> [CloudTreeNode] {
@@ -25,6 +26,7 @@ struct CloudTreeBuildInputs: Equatable {
             pinnedMachineIDs: pinnedMachineIDs.union(machines.filter(\.isPinned).map(\.id)),
             includeLocalMachine: includeLocalMachine,
             source: source, devicesSection: devicesSection,
+            canCreateCloudMachine: canCreateCloudMachine,
             now: now, resourceNodeBuilder: resourceNodeBuilder
         )
     }

@@ -31,6 +31,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    /// Shows the Cloud Machines header's New Machine "+".
+    var canCreateCloudMachine: Bool = false
     var reveal: CloudTreeRevealRequest? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
@@ -65,7 +67,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
-            devicesSection: devicesSection
+            devicesSection: devicesSection,
+            canCreateCloudMachine: canCreateCloudMachine
         ))
         context.coordinator.reveal(reveal)
     }
@@ -412,10 +415,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            let identifier = NSUserInterfaceItemIdentifier("CloudTreeRow")
-            let row = (outlineView.makeView(withIdentifier: identifier, owner: nil) as? CloudTreeRowView) ?? CloudTreeRowView()
-            row.identifier = identifier
-            return row
+            CloudTreeRowView.reusable(in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {

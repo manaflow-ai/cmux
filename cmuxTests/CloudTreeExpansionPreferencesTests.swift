@@ -20,7 +20,7 @@ struct CloudTreeExpansionPreferencesTests {
         defaults.set(["old-section"], forKey: key)
         let preferences = CloudTreeExpansionPreferences(applicationID: domain)
         let store = CloudTreeExpansionStore(defaults: preferences)
-        let section = CloudTreeNode(id: "old-section", kind: .cloudMachinesSection)
+        let section = CloudTreeNode(id: "old-section", kind: .cloudMachinesSection(canCreateMachine: false))
         #expect(!store.isExpanded(section), "Existing installations keep their expansion choices")
         let tally = Tally()
         let token = NotificationCenter.default.addObserver(
@@ -87,7 +87,7 @@ struct CloudTreeExpansionPreferencesTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let store = CloudTreeExpansionStore(defaults: defaults)
         for id in ["z", "a", "m"] {
-            store.setExpanded(false, node: CloudTreeNode(id: id, kind: .cloudMachinesSection))
+            store.setExpanded(false, node: CloudTreeNode(id: id, kind: .cloudMachinesSection(canCreateMachine: false)))
         }
         #expect(defaults.stringArray(forKey: "cloudTree.collapsedNodeIDs") == ["a", "m", "z"])
         #expect(!defaults.setIfChanged(["a", "m", "z"], forKey: "cloudTree.collapsedNodeIDs"))
