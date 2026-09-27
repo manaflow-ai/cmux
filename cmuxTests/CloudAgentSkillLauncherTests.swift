@@ -31,6 +31,18 @@ import Testing
         )
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/14478: `cmux vm agent --agent pi`
+    /// worked, but the Machines menu and `vm.cloud_agent_open` rejected Pi.
+    /// Both resolve the agent through `CodingAgent`, by raw value and allCases.
+    @Test func piIsALaunchableCloudAgent() throws {
+        let pi = try #require(CloudAgentSkillLauncher.CodingAgent(rawValue: "pi"))
+        #expect(CloudAgentSkillLauncher.CodingAgent.allCases.contains(pi))
+        // Interactive session with the kickoff prompt as its first message;
+        // `pi -p` would print one reply and exit.
+        #expect(pi.argv(prompt: "p") == ["pi", "p"])
+        #expect(pi.displayName == "Pi")
+    }
+
     @Test func installSkillFileWritesUnderTheGivenHome() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cloud-agent-skill-tests-\(UUID().uuidString)", isDirectory: true)

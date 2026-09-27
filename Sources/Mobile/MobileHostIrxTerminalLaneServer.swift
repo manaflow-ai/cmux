@@ -17,12 +17,17 @@ enum MobileHostIrxTerminalLaneServer {
 
     private static let maximumInputBufferByteCount = 64 * 1_024
 
+    /// Called with the surface that received input, so the host can schedule
+    /// that surface's output stream first (keystroke echo).
+    typealias InteractiveSurfaceObserver = @Sendable (UUID) async -> Void
+
     static func serve(
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
         journal: IrxJournal,
-        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -49,7 +54,8 @@ enum MobileHostIrxTerminalLaneServer {
                 await receiveInput(
                     surfaceID: surfaceID,
                     stream: stream,
-                    terminalInputOrderingToken: terminalInputOrderingToken
+                    terminalInputOrderingToken: terminalInputOrderingToken,
+                    onInteractiveSurface: onInteractiveSurface
                 )
             }
             if await group.next() == true {
@@ -70,7 +76,8 @@ enum MobileHostIrxTerminalLaneServer {
         resourceID: String,
         stream: CmxIrohBidirectionalStream,
         journal: IrxJournal,
-        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil,
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -94,10 +101,13 @@ enum MobileHostIrxTerminalLaneServer {
             try await stream.sendStream.send(
                 CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
             )
+            // The phone keeps an input lane for the terminal it shows.
+            await onInteractiveSurface(surfaceID)
             _ = await receiveInput(
                 surfaceID: surfaceID,
                 stream: stream,
-                terminalInputOrderingToken: terminalInputOrderingToken
+                terminalInputOrderingToken: terminalInputOrderingToken,
+                onInteractiveSurface: onInteractiveSurface
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -214,7 +224,8 @@ enum MobileHostIrxTerminalLaneServer {
     private static func receiveInput(
         surfaceID: UUID,
         stream: CmxIrohBidirectionalStream,
-        terminalInputOrderingToken: MobileTerminalInputOrderingToken?
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken?,
+        onInteractiveSurface: InteractiveSurfaceObserver
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -231,6 +242,7 @@ enum MobileHostIrxTerminalLaneServer {
                 }
                 for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
+                    await onInteractiveSurface(surfaceID)
                     guard await deliverInput(
                         input,
                         surfaceID: surfaceID,

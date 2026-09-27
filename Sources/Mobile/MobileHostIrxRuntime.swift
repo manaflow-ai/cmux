@@ -979,14 +979,20 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
         let artifactRegistry = MobileHostIrohArtifactTransferRegistry()
         let eventWriter = MobileHostIrxEventWriter(connection: irx, journal: journal)
+        let controlTransport = IrxControlByteTransport(
+            connection: irx, control: control, closeCode: .hostShutdown)
         let laneLoop = Task {
             await Self.runLaneLoop(
                 irx, admittedPeer: admittedPeer, artifactRegistry: artifactRegistry,
+                controlTransport: controlTransport,
                 journal: journal,
-                terminalInputOrderingToken: terminalInputOrderingToken)
+                terminalInputOrderingToken: terminalInputOrderingToken,
+                onInteractiveSurface: { surfaceID in
+                    // Fire-and-forget: input delivery never waits on the
+                    // output side. Keystrokes arrive at human rate.
+                    Task { await eventWriter.noteInteractiveSurface(surfaceID.uuidString) }
+                })
         }
-        let controlTransport = IrxControlByteTransport(
-            connection: irx, control: control, closeCode: .hostShutdown)
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
         if isMac {
             let layouts = deviceWorkspaceLayouts
@@ -1036,8 +1042,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         _ irx: IrxConnection,
         admittedPeer: CmxIrohAdmittedPeer,
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
+        controlTransport: IrxControlByteTransport,
         journal: IrxJournal,
-        terminalInputOrderingToken: MobileTerminalInputOrderingToken
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken,
+        onInteractiveSurface: @escaping MobileHostIrxTerminalLaneServer.InteractiveSurfaceObserver
     ) async {
         let terminalLaneQuota = MobileHostIrxTerminalLaneQuota()
         while !Task.isCancelled {
@@ -1066,7 +1074,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         cursor: cursor,
                         stream: lane.bidirectional(),
                         journal: journal,
-                        terminalInputOrderingToken: terminalInputOrderingToken
+                        terminalInputOrderingToken: terminalInputOrderingToken,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1082,7 +1091,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         resourceID: resource,
                         stream: lane.bidirectional(),
                         journal: journal,
-                        terminalInputOrderingToken: terminalInputOrderingToken
+                        terminalInputOrderingToken: terminalInputOrderingToken,
+                        onInteractiveSurface: onInteractiveSurface
                     )
                     await terminalLaneQuota.release()
                 }
@@ -1125,6 +1135,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                         await stream.sendStream.reset(errorCode: 2)
                         await stream.receiveStream.stop(errorCode: 2)
                     }
+                }
+            case .controlRepair:
+                // The phone replaces a silent control stream without closing
+                // the connection its terminal lanes share. Off the accept
+                // loop: the acknowledgement write must not delay other lanes.
+                Task {
+                    let replaced = await controlTransport.acceptControlLaneReplacement(lane)
+                    journal.record(
+                        "host-lanes", replaced ? "control-replaced" : "control-replace-refused")
                 }
             case .control, .events:
                 // control arrives only pre-admission; events is server-opened.
