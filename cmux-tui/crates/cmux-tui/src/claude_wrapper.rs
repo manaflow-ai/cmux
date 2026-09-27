@@ -775,11 +775,8 @@ mod tests {
         let inaccessible = root.path().join("inaccessible");
         fs::create_dir_all(&inaccessible).unwrap();
         fs::write(inaccessible.join("claude"), "#!/bin/sh\n").unwrap();
-        fs::set_permissions(
-            inaccessible.join("claude"),
-            fs::Permissions::from_mode(0o001),
-        )
-        .unwrap();
+        fs::set_permissions(inaccessible.join("claude"), fs::Permissions::from_mode(0o001))
+            .unwrap();
         let real = root.path().join("real");
         write_executable(&real.join("claude"), "#!/bin/sh\n");
 
