@@ -135,6 +135,39 @@ struct SidebarCompactAgentStatusTests {
     }
 
     @Test
+    func profileLabelsComeFromTheConfigDirectory() {
+        let home = "/Users/me"
+        func label(_ env: [String: String]?) -> String? {
+            SidebarAgentProfileLabel.label(environment: env, homeDirectory: home)
+        }
+
+        #expect(label(nil) == nil)
+        #expect(label([:]) == nil)
+        #expect(label(["CLAUDE_CONFIG_DIR": "/Users/me/.claude"]) == nil)
+        #expect(label(["CODEX_HOME": "~/.codex"]) == nil)
+        #expect(label(["CLAUDE_CONFIG_DIR": "/Users/me/.claude-outlook"]) == "outlook")
+        #expect(label(["CLAUDE_CONFIG_DIR": "~/.claude-work/"]) == "work")
+        #expect(label(["CODEX_HOME": "/Volumes/x/codex-personal"]) == "personal")
+        #expect(
+            label(["CLAUDE_CONFIG_DIR": "/Users/me/.subrouter/codex/claude-proxy/7e6dd05e630d2ac6f783e242"])
+                == SidebarAgentProfileLabel.subrouterProxyLabel
+        )
+    }
+
+    @Test
+    func tooltipListsProfilesAfterAgentStatuses() throws {
+        let glyph = try #require(Glyph.resolve(.init(
+            agentEntries: [Self.entry("claude_code", "Idle", icon: "pause.circle.fill")],
+            lifecycleStates: [.idle],
+            profiles: ["outlook", "sr proxy"]
+        )))
+        let lines = glyph.tooltip.split(separator: "\n").map(String.init)
+
+        #expect(lines.count == 2)
+        #expect(lines[1].contains("outlook, sr proxy"))
+    }
+
+    @Test
     func agentDisplayNamesUseBuiltInDefinitions() {
         #expect(Glyph.agentDisplayName(forStatusKey: "claude_code") == "Claude Code")
         #expect(Glyph.agentDisplayName(forStatusKey: "codex") == "Codex")

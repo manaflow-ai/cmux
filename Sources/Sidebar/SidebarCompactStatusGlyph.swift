@@ -64,7 +64,14 @@ struct SidebarCompactStatusGlyph: Equatable {
         var showsRunningSpinner = false
         var pullRequests: [PullRequest] = []
         var branch: String?
+        /// Config profiles the workspace's agents launched under, e.g. "outlook".
+        var profiles: [String] = []
     }
+
+    private static let profileLabel = String(
+        localized: "sidebar.compactStatus.profile",
+        defaultValue: "Profile"
+    )
 
     private static let tooltipFormat = String(
         localized: "sidebar.agentStatus.glyph.tooltip",
@@ -104,6 +111,9 @@ struct SidebarCompactStatusGlyph: Equatable {
     private static func tooltip(for input: Input) -> String {
         var lines = input.agentEntries.map {
             line(agentDisplayName(forStatusKey: $0.key), $0.value)
+        }
+        if !input.profiles.isEmpty {
+            lines.append(line(profileLabel, input.profiles.joined(separator: ", ")))
         }
         lines += input.pullRequests.map {
             line("\($0.label) #\($0.number)", pullRequestStatusText($0.status))

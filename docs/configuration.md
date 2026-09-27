@@ -159,7 +159,7 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 ## `sidebar.compactAgentStatus`
 
-Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those rows go away and the workspace shows one small glyph before its title instead. Hover it for the agent, pull request, and branch details.
+Agent hooks report each coding agent's state as a status entry (for example Claude Code's "Running" or "Needs input"). By default every one gets its own row under the workspace title. With `compactAgentStatus` on, those rows go away and the workspace shows one small glyph before its title instead. Hover it for the agent, pull request, and branch details, plus the config profile an agent launched under when it isn't the default (`CLAUDE_CONFIG_DIR=~/.claude-outlook` shows as `outlook`, a `sr claude proxy` session as `sr proxy`).
 
 ```json
 {
