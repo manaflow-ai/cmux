@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import io
@@ -652,6 +653,29 @@ class Rescuing(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("stopped watching attempt 2: the run is on an ephemeral pool", summary)
 
+    def test_a_full_re_run_is_watched_past_its_accepted_admission(self):
+        # Attempt 2's first looks see only admission, running on light; its
+        # shard is created once admission finishes, and is stuck there.
+        clock = Clock()
+
+        def rerun_jobs(seconds):
+            found = [changes()(seconds)]
+            if seconds >= 40:
+                admission = job("macos / macOS compile admission", labels=[LIGHT], created=40,
+                                status="in_progress" if seconds < 300 else "completed", runner="mini-1")
+                admission.update(started_at=stamp(0), conclusion=None if seconds < 300 else "success")
+                found.append(admission)
+            if seconds >= 300:
+                found.append(job("macos / app-host shard 1", labels=[LIGHT], created=300))
+            return found
+
+        api = FakeAPI(clock, persistent_run(), marker=lambda name: True, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
+        self.assertEqual(code, 0)
+        self.assertNotIn("the fleet accepted the retry", summary)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {LIGHT}", summary)
+
     def test_a_late_rescue_gives_the_followed_attempt_its_own_watch(self):
         # Attempt 1 queues at minute 40 and is rescued; attempt 2's light job
         # queues 25 minutes into the re-run, past attempt 1's 60-minute
@@ -936,10 +960,27 @@ class SideLanes(unittest.TestCase):
             target = rescue.target_from_event(side_event(path=path), "manaflow-ai/cmux")
             self.assertTrue(target.side, path)
             self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
-        for why, payload in {"push": side_event(event="push"), "attempt 2": side_event(run_attempt=2),
+        for why, payload in {"merge group": side_event(event="merge_group"),
+                             "workflow_run": side_event(event="workflow_run"),
+                             "pull_request_target": side_event(event="pull_request_target"),
+                             "attempt 2": side_event(run_attempt=2),
                              "fork": side_event(head_repository={"full_name": "someone/cmux"}),
+                             "fork push": side_event(event="push", head_repository={"full_name": "someone/cmux"}),
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+
+    def test_trusted_non_pull_request_side_runs_are_watched_without_a_head(self):
+        # A push, schedule or dispatch runs this repository's own branch: owned-eligible, and no
+        # pull request head can move under it.
+        for kind in ("push", "schedule", "workflow_dispatch"):
+            for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
+                target = rescue.target_from_event(side_event(path=path, event=kind, pull_requests=[]),
+                                                  "manaflow-ai/cmux")
+                self.assertTrue(target.side, (kind, path))
+                self.assertEqual((target.pr_number, target.e2e, target.main), (0, False, False))
+        target = rescue.target_from_event(side_event(event="workflow_dispatch", pull_requests=[]), "manaflow-ai/cmux")
+        clock = Clock()
+        self.assertEqual(rescue.pull_moved(FakeAPI(clock, lambda s: []), target, clock.sleep, lambda text: None), "")
 
     def test_a_run_with_no_owned_job_stops_when_it_finishes(self):
         clock = Clock()
@@ -966,15 +1007,22 @@ class SideLanes(unittest.TestCase):
         self.assertIn("a side-lane job asked for a persistent pool", summary)
         self.assertIn("the fleet accepted the side-lane jobs", summary)
 
-    def test_a_stuck_side_job_moves_to_blacksmith_keeping_what_passed_and_is_not_followed(self):
+    def test_a_stuck_side_job_moves_to_the_std_minis_keeping_what_passed_and_is_followed(self):
         clock = Clock()
         api = FakeAPI(clock, side_run())
         code, summary = run_main(api, clock, payload=side_event())
         self.assertEqual(code, 0)
         self.assertIn("cancel", api.calls)
-        self.assertEqual(api.calls[-1], "rerun-failed")  # attempt 2 takes Blacksmith; no watch of it
+        self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-        self.assertIn("Blacksmith default", summary)
+        # Attempt 2 takes CI_SIDE_LANE_RUNNER, so the watch follows it.
+        self.assertIn("std minis' side label", summary)
+        self.assertIn("attempt 2", summary)
+
+    def test_a_side_lane_attempt_3_takes_blacksmith(self):
+        target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
+        self.assertIn("std minis' side label", rescue.next_attempt(target))
+        self.assertIn("Blacksmith default", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
@@ -983,8 +1031,154 @@ class SideLanes(unittest.TestCase):
         clock = Clock()
         api = FakeAPI(clock, jobs, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=side_event())
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
+        # Attempt 2 is on the std minis' side label, so the watch looks at it.
+        self.assertIn("jobs:2", api.calls[api.calls.index("rerun-failed"):])
+
+
+TRUSTED = "glaeda-trusted-std-xcode-26.6"
+
+
+def nightly_event(**overrides):
+    return event(**{"path": ".github/workflows/nightly.yml", "event": "push", "head_branch": "main",
+                    "pull_requests": [], **overrides})
+
+
+def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
+    """nightly.yml: decide, then the app build on the trusted pool beside a Blacksmith helper build."""
+    def jobs(seconds):
+        found = [job("decide", status="completed", labels=[BLACKSMITH])]
+        if seconds < queued_at:
+            return found
+        if refused_at is not None and seconds >= refused_at:
+            app = refused_job("build-nightly-app", labels=(TRUSTED,))
+        else:
+            started = started_at is not None and seconds >= started_at
+            app = job("build-nightly-app", labels=[TRUSTED], created=queued_at,
+                      status="in_progress" if started else "queued", runner="cmux15-glaeda" if started else "")
+            if started:
+                app["started_at"] = stamp(started_at)
+        return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
+                                 status="in_progress", runner="bs")]
+    return jobs
+
+
+class NightlyAPI(FakeAPI):
+    def __init__(self, *args, newer=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.newer = list(newer)
+
+    def newer_unfinished_runs(self, path, run_id, branch):
+        self.calls.append(f"newer:{branch}")
+        return self.newer
+
+
+class Nightly(unittest.TestCase):
+    """nightly.yml's app build takes the trusted owned pool on attempt 1 of main's push and schedule runs."""
+
+    def test_only_attempt_1_of_main_s_own_push_or_schedule_run(self):
+        for kind in ("push", "schedule"):
+            target = rescue.target_from_event(nightly_event(event=kind), "manaflow-ai/cmux")
+            self.assertEqual((target.nightly, target.side, target.main, target.e2e, target.pr_number),
+                             (True, True, False, False, 0), kind)
+        cases = {
+            "dispatch": nightly_event(event="workflow_dispatch"),
+            "release candidate branch": nightly_event(head_branch="rc/1.2"),
+            "fork head": nightly_event(head_repository={"full_name": "someone/cmux"}),
+            "attempt 2": nightly_event(run_attempt=2),
+        }
+        for why, payload in cases.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+
+    def test_the_trusted_pool_is_an_owned_label_only_here(self):
+        self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
+        # nightly.yml asks for the pool and one runner's own label together.
+        self.assertEqual(rescue.job_pool({"labels": [TRUSTED, "glaeda-runner-cmux15-glaeda"]}), TRUSTED)
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-root-trusted-std-xcode-26.6"]}),
+                         "glaeda-root-trusted-std-xcode-26.6")
+        self.assertIsNone(rescue.job_pool({"labels": ["glaeda-trusted"]}))
+        # The pickers never hand it out: it is not a pull request pool.
+        self.assertFalse(rescue.persistent(TRUSTED))
+
+    def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        seen = []
+        runs = [{"id": RUN_ID + 2, "status": "pending", "event": "push"},
+                {"id": RUN_ID + 1, "status": "completed", "event": "push"},
+                {"id": RUN_ID, "status": "in_progress", "event": "push"},
+                {"id": RUN_ID - 1, "status": "pending", "event": "push"},
+                # The daily build and a full dispatch wait in the same `full` group.
+                {"id": RUN_ID + 3, "status": "pending", "event": "schedule"},
+                {"id": RUN_ID + 6, "status": "pending", "event": "workflow_dispatch"},
+                # The six-hourly cache seed runs in its own group, never pending behind this run.
+                {"id": RUN_ID + 4, "status": "in_progress", "event": "schedule"},
+                {"id": RUN_ID + 5, "status": "queued", "event": "workflow_dispatch"}]
+        api.request = lambda method, path, **_: seen.append((method, path)) or {"workflow_runs": runs}
+        self.assertEqual(api.newer_unfinished_runs(rescue.NIGHTLY_WORKFLOW_PATH, RUN_ID, "main"),
+                         [RUN_ID + 2, RUN_ID + 3, RUN_ID + 6])
+        self.assertEqual(seen, [("GET", "/actions/workflows/nightly.yml/runs?branch=main&per_page=20")])
+
+    def test_a_run_with_no_trusted_job_stops_when_it_finishes(self):
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [job("decide", status="completed", labels=[BLACKSMITH])])
+        code, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(code, 0)
+        self.assertIn("no job of the run asked for a persistent pool", summary)
+
+    def test_the_watch_ends_once_a_trusted_mini_takes_the_build(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=30))
+        code, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(code, 0)
+        self.assertIn("main's nightly build", summary)
+        self.assertIn("the fleet accepted", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_the_build_may_wait_one_round_behind_a_seed(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=15 + 600))
+        code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_stuck_build_moves_to_blacksmith_keeping_what_passed(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run())
+        code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("pull", api.calls)
+        self.assertIn(f"queued on {TRUSTED}", summary)
+
+    def test_a_stuck_build_behind_which_a_newer_nightly_waits_is_cancelled_not_rerun(self):
+        # nightly.yml never cancels in progress: the newer run is pending behind
+        # this one, and a re-run would join the group and cancel it.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
+        _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("a newer nightly run on main", summary)
+
+    def test_a_refused_build_is_rerun_once_the_run_finishes(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200)
+        code, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(code, 0)
+        self.assertIn("waiting for the rest of the run to finish", summary)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertGreaterEqual(clock.seconds, 200)
+        # A newer nightly run builds main's newer HEAD instead: left as it is.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, newer=[RUN_ID + 1])
+        _, summary = run_main(api, clock, payload=nightly_event())
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("not rescued", summary)
 
 
 IOS_SIM = "glaeda-ios-sim"
@@ -1143,6 +1337,40 @@ class MainDispatch(unittest.TestCase):
         code, summary = run_main(api, clock, payload=main_event())
         self.assertEqual(code, 0)
         self.assertIn("rerun-failed", api.calls)
+
+    def test_a_stuck_later_main_attempt_is_cancelled_not_rerun_once_main_moves(self):
+        # Attempt 2 re-runs its failed jobs when stuck, but a stuck job is no
+        # refusal: main having moved, the run is only cancelled.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[LIGHT])])
+        api.attempt = 2
+        target = rescue.Target(run_id=RUN_ID, attempt=2, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               failed_only=True)
+        self.assertEqual(result, f"cancelled run {RUN_ID}, not re-run: main has moved on, and "
+                                 "ci-main-full-suite.yml dispatches its new HEAD once this run completes")
+        self.assertNotIn("rerun-failed", api.calls)
+
+    def test_a_moved_main_run_someone_re_ran_is_not_cancelled(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[BLACKSMITH])])
+        api.attempt = 2
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertEqual(result, "not rescued: someone else already re-ran the run")
+        self.assertNotIn("cancel", api.calls)
+
+    def test_an_unreadable_moved_main_run_is_neither_cancelled_nor_blamed_on_a_re_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, head="b" * 40,
+                      rerun_jobs=lambda seconds: [job("macos / tests", labels=[BLACKSMITH])])
+        api.run = lambda run_id: {}
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha=HEAD, pr_number=0, main=True)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertTrue(result.startswith("not rescued: the run could not be read"), result)
+        self.assertNotIn("cancel", api.calls)
 
 
 
@@ -1361,14 +1589,27 @@ class Workflow(unittest.TestCase):
         self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
-        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS})
+        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS,
+                                      rescue.NIGHTLY_WORKFLOW_PATH})
+        # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
+        names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
+        self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || "
-                     "(github.event.workflow_run.event == 'pull_request' && "
-                     "startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "(github.event.workflow_run.path != '.github/workflows/nightly.yml' && "
+                     "github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && "
+                     "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), "
+                     "github.event.workflow_run.event) && "
+                     "(startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || "
+                     "startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || "
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
-                     "github.event.workflow_run.event == 'workflow_dispatch') && "
+                     "github.event.workflow_run.event == 'workflow_dispatch' || "
+                     "github.event.workflow_run.path == '.github/workflows/nightly.yml' && "
+                     "(github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && "
+                     "github.event.workflow_run.head_branch == 'main' && "
+                     "startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && "
+                     "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-')) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)

@@ -92,6 +92,11 @@ PATH_OWNERS = {
     # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
     # these by path; the receipt test also reads its workflow and fixtures.
     "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),
+    # ...and the attribution imports these: the restart marker, the paths
+    # outside the app, and the suites a changed string reaches.
+    "scripts/ci/app_host_result_accounting.py": frozenset(("ci",)),
+    "scripts/ci/app_host_test_rerun.py": frozenset(("ci",)),
+    "scripts/ci/reverse_test_impact.py": frozenset(("ci",)),
     "scripts/ci/merge_receipt.py": frozenset(("ci",)),
     ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
@@ -124,6 +129,7 @@ PATH_OWNERS = {
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
+    "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),

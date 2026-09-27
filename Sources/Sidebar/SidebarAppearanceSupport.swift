@@ -148,6 +148,16 @@ func cmuxAccentColor() -> Color {
     Color(nsColor: cmuxAccentNSColor())
 }
 
+/// Fill for an unread notification badge: the Notification Badge color
+/// setting when it holds a valid hex, else `fallback`. Workspace rows and
+/// group headers both resolve through here so the setting reaches every badge.
+func cmuxNotificationBadgeNSColor(hex: String?, fallback: @autoclosure () -> NSColor) -> NSColor {
+    if let hex, let color = NSColor(hex: hex) {
+        return color
+    }
+    return fallback()
+}
+
 func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
     let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
     let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
@@ -332,8 +342,12 @@ func sidebarWorkspaceRowBackgroundStyle(
     isMultiSelected: Bool,
     customColorHex: String?,
     colorScheme: ColorScheme,
-    sidebarSelectionColorHex: String?
+    sidebarSelectionColorHex: String?,
+    increaseContrast: Bool = false
 ) -> SidebarWorkspaceRowBackgroundStyle {
+    // Increase Contrast: the multi-selection wash is otherwise too faint to
+    // read against the sidebar material.
+    let multiSelectionOpacity = increaseContrast ? 0.45 : 0.25
     let selectedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
         for: colorScheme,
         sidebarSelectionColorHex: sidebarSelectionColorHex
@@ -356,7 +370,7 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
         }
         return .clear
 
@@ -374,8 +388,17 @@ func sidebarWorkspaceRowBackgroundStyle(
             )
         }
         if isMultiSelected {
-            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: 0.25)
+            return SidebarWorkspaceRowBackgroundStyle(color: accentBackground, opacity: multiSelectionOpacity)
         }
         return .clear
+    }
+}
+
+extension WorkspaceIndicatorStyle {
+    /// Whether the active row gets its outline stroke. Solid-fill rows always
+    /// draw it; with Increase Contrast every style does, so the selected row
+    /// keeps an edge even when its fill is close to the sidebar background.
+    func drawsActiveBorder(isActive: Bool, increaseContrast: Bool) -> Bool {
+        isActive && (self == .solidFill || increaseContrast)
     }
 }
