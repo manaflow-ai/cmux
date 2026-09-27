@@ -687,6 +687,11 @@ fi
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+# Pin the Worker scope in both UserDefaults stores as well as the build
+# metadata. This prevents a retained dev app from reusing a prior environment
+# override when a production or staging gate is launched with a new tag.
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 # The current Iroh implementation owns a separate endpoint configuration.
 # Constrain both generations so a same-host direct route cannot satisfy a
 # check advertised as exercising the relay fleet.
@@ -704,6 +709,10 @@ else
 fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT -string "$V2_ENVIRONMENT"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL -string "$V2_BASE_URL"
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 
