@@ -1022,7 +1022,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_issue_1138_sidebar_pr_polling.py"
-lane = "legacy"
+lane = "macos-shell"
 
 [[test]]
 path = "tests/test_issue_734_shell_integration_none_respected.py"
