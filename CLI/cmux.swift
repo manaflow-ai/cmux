@@ -25578,6 +25578,18 @@ struct CMUXCLI {
     /// means that entry is missing under `cmux omo`, as before.
     private func omoLinkEntries(of userDir: URL, into shadowDir: URL, excluding excluded: Set<String>) {
         let fm = FileManager.default
+        // Drop links left from earlier runs whose user entry has since been
+        // removed or renamed, so the shadow dir never holds dangling links.
+        let userPrefix = userDir.path + "/"
+        for name in (try? fm.contentsOfDirectory(atPath: shadowDir.path)) ?? [] {
+            let shadowEntry = shadowDir.appendingPathComponent(name)
+            guard omoFileType(at: shadowEntry) == .typeSymbolicLink,
+                  let destination = try? fm.destinationOfSymbolicLink(atPath: shadowEntry.path),
+                  destination.hasPrefix(userPrefix),
+                  !fm.fileExists(atPath: destination)
+            else { continue }
+            try? fm.removeItem(at: shadowEntry)
+        }
         guard let names = try? fm.contentsOfDirectory(atPath: userDir.path) else { return }
         try? fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
         for name in names where !excluded.contains(name) {
