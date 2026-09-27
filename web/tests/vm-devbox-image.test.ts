@@ -1126,11 +1126,13 @@ describe("devbox terminfo overlay", () => {
     if (compiled) rmSync(compiled, { recursive: true, force: true });
     compiled = undefined;
   });
+  /** Queries the compiled overlay with tput and returns its raw output. */
   const tput = async (term: string, ...args: string[]) => {
     const result = await runChild("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled!, TERMINFO_DIRS: compiled! } });
     expect({ term, args, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, args, status: 0 });
     return result.stdout;
   };
+  /** Dumps a compiled overlay entry with infocmp. */
   const infocmp = async (term: string) => {
     const result = await runChild("infocmp", ["-x", "-A", compiled!, term]);
     expect({ term, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, status: 0 });

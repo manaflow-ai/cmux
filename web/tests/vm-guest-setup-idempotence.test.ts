@@ -33,6 +33,7 @@ esac`);
     try { return readFileSync(join(root, "calls"), "utf8").trim().split("\n").filter(Boolean); }
     catch { return []; }
   };
+  /** Runs an installer command with its paths rebased into the fixture root. */
   const run = async (command: string) => {
     const isolated = command.replaceAll("/usr/local/", `${root}/usr/local/`).replaceAll("/etc/", `${root}/etc/`);
     const result = await runChild("sh", ["-c", isolated], {

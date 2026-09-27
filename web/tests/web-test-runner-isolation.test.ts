@@ -241,6 +241,7 @@ function createRunnerFixture(): string {
   return fixtureRoot;
 }
 
+/** Runs the shared test runner without agent-reporter variables and returns its status and combined output. */
 async function runRunner(
   command: string,
   args: string[],

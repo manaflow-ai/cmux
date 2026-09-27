@@ -46,6 +46,7 @@ const freestyleBake = readFileSync(path.join(import.meta.dirname, "../scripts/bu
 const verify = readFileSync(path.join(import.meta.dirname, "../scripts/verify-devbox-image.ts"), "utf8");
 const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
 
+/** Runs start-vnc.sh with stub binaries and returns the arguments websockify received. */
 async function launchedWebsockifyArguments(): Promise<string[]> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-desktop-launch-"));
   const bin = path.join(root, "bin");

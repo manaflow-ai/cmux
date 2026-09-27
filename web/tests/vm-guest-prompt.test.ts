@@ -17,6 +17,7 @@ function fixture() {
   return directory;
 }
 
+/** Runs the prompt installer into directory and asserts it succeeded silently. */
 async function install(directory: string, name: string, revision: number, machineId = "vm-one") {
   const result = await runChild("sh", ["-c", guestPromptInstallCommand({ machineId, name, revision }, directory)]);
   expect(result.stderr).toBe("");
@@ -43,6 +44,7 @@ function withoutCwdReports(text: string): string {
   return output;
 }
 
+/** Runs a non-interactive Bash command with directory as HOME and returns its stdout. */
 async function bash(directory: string, command: string) {
   const result = await runChild("bash", ["--noprofile", "--norc", "-c", command], {
     env: { NODE_ENV: "test", PATH: process.env.PATH!, HOME: directory },

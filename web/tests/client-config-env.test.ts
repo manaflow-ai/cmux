@@ -349,14 +349,17 @@ function expectRejected(result: ChildResult, ...diagnostics: string[]): void {
   }
 }
 
+/** Runs this Bun binary without .env loading, under exactly the given environment. */
 function runBun(args: string[], env: Record<string, string>): Promise<ChildResult> {
   return runChild(process.execPath, ["--no-env-file", ...args], { env, timeout: 30_000 });
 }
 
+/** Imports app/env in a fresh Bun process so its startup validation runs. */
 async function importEnv(env: Record<string, string>): Promise<ChildResult> {
   return runBun(["-e", "await import('./app/env')"], env);
 }
 
+/** Resolves the relay minter URL in a fresh Bun process and prints its href. */
 async function inspectIrohMinterUrl(
   env: Record<string, string>,
 ): Promise<ChildResult> {

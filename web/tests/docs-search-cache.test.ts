@@ -23,6 +23,7 @@ afterEach(() => {
   fixture = undefined;
 });
 
+/** Builds the docs search index in the fixture and returns its stdout; throws on failure. */
 async function build(web: string) {
   const result = await runChild(process.execPath, ["tools/build-docs-search.mjs"], {
     cwd: web,

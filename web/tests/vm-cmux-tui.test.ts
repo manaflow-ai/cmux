@@ -254,6 +254,7 @@ describe("cmux-tui attach bundle", () => {
   const stdoutFor = (probe: string, devices: string, trusted: string) =>
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_TRUSTED__", trusted, "__CMUX_END__", ""].join("\n");
 
+  /** Runs the attach bundle against a fake cmux-tui and returns its result and recorded calls. */
   const runBundle = async (readyGate: string, deviceFingerprint?: string) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");

@@ -8,6 +8,7 @@ import { runChild } from "./helpers/run-child";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { announceFreestyleNetwork, freestyleNetworkAnnouncementCommand } from "../services/vms/drivers/freestyleNetworkAnnouncement";
 
+/** Runs the shipped announcement command against a fake socket layer and returns the packets it sent. */
 async function captureAnnouncements(addresses: string[], failingFamily = "") {
   const directory = mkdtempSync(join(tmpdir(), "cmux-network-test-"));
   const capture = join(directory, "packets.json");

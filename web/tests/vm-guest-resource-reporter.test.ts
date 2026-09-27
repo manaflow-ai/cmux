@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { runChild } from "./helpers/run-child";
 import { GUEST_RESOURCE_SAMPLE_SCRIPT, guestResourceSampleCommand, guestResourceReporterInstallCommand, guestResourceReporterScript } from "../services/vms/guestResourceReporter";
 
+/** Runs the sampling script against fake CPU and memory counters and returns the sample. */
 async function runCounterFixture(cpu: string[], meminfo: string) {
   const harness = `import builtins,io,json,os,sys,time,types
 fixture=json.loads(sys.argv[1])

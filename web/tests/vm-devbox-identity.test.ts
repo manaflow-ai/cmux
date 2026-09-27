@@ -45,6 +45,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     "# END freestyle-tls-egress",
     "",
   ].join("\n");
+  /** Applies the hosts alias rewrite to a scratch hosts file and returns the result. */
   const rewrite = async (contents: string): Promise<string> => {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-identity-"));
     try {
@@ -178,6 +179,7 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
 // none by itself. The shell runs here against fake `ip` and `arping` binaries;
 // the boot supervisor, the attach path, the image and its verify are pinned.
 describe("devbox private-network announce (services/vms/images/network.ts)", () => {
+  /** Runs body with fake ip and arping binaries first on PATH, logging arping calls. */
   const withFakeNet = async (addrs: string, run: (env: NodeJS.ProcessEnv, log: string) => Promise<void>) => {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-announce-"));
     try {
@@ -286,6 +288,7 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
 // shell, never the daemon's per-machine state. The wipe runs with a scratch
 // working directory so a regression can never touch the checkout.
 describe("devbox warm template terminal", () => {
+  /** Runs the park wipe against stateRoot from a scratch working directory. */
   function wipe(root: string, stateRoot: string) {
     return runChild("sh", ["-c", `${devboxWipeDaemonStateKeepingTemplateCommand(stateRoot)} && echo "$cmux_keep"`], {
       cwd: root,

@@ -20,6 +20,7 @@ const binary = process.env.CMUX_TUI_TEST_BIN;
   const env = { ...process.env, HOME: home, CFFIXED_USER_HOME: home, XDG_CONFIG_HOME: join(home, ".config"),
     CMUX_TUI_BIN: binary!, CMUX_TUI_SESSION: `layout-real-${process.pid}`, SHELL: "/bin/bash", TERM: "xterm-256color" };
   const daemonArgs = [binary!, "--session", env.CMUX_TUI_SESSION];
+  /** Runs a daemon or guest-shim command and returns its parsed JSON value; throws on failure. */
   const run = async (args: string[], guest = false) => {
     const result = await runChild(guest ? "/bin/sh" : binary!, guest ? [shim, ...args] : [...daemonArgs.slice(1), "--json", ...args],
       { env, timeout: 20_000 });

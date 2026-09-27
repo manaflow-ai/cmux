@@ -22,6 +22,7 @@ export type GuestExecRequest = {
 // fixture, and a module that suspends during evaluation leaves its exports in
 // the temporal dead zone for importers Bun evaluates concurrently.
 let testDistribution: Promise<GuestCliDistribution> | undefined;
+/** Builds the synthetic guest CLI archive once; a failed build is retried by the next caller. */
 const syntheticDistribution = () => (testDistribution ??= (async () => {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-cli-fixture-"));
   const source = join(root, "source");
@@ -41,7 +42,10 @@ const syntheticDistribution = () => (testDistribution ??= (async () => {
     archiveSha256: digest(readFileSync(archive)),
     binaries: { "cmux-cloud-cli": digest(facade), coderouter: digest(core) },
   } satisfies GuestCliDistribution;
-})());
+})().catch((error: unknown) => {
+  testDistribution = undefined;
+  throw error;
+}));
 
 /** Real pinned SDK, synthetic HTTP only. No provider credentials or network. */
 export function freestyleGuestFixture(options: {
@@ -110,12 +114,14 @@ export function freestyleGuestFixture(options: {
    * create path follows snapshot-v2 and intentionally performs no guest setup.
    */
   const createWithGuestInstall = async (createOptions: CreateOptions) => {
+    // Resolve the archive first: a failed build must not leave a live VM behind.
+    const distribution = options.guestCliDistribution ?? await syntheticDistribution();
     const handle = await provider.create(createOptions);
     const install = await Effect.runPromise(Effect.either(installFreestyleGuestCli(
       client,
       handle.providerVmId,
       createOptions.promptIdentity,
-      options.guestCliDistribution ?? await syntheticDistribution(),
+      distribution,
     )));
     if (install._tag === "Right") {
       return handle;

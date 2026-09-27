@@ -8,6 +8,7 @@ import { GUEST_BROWSER_ENV, GUEST_BROWSER_FISH_ENV, GUEST_BROWSER_OPENER, GUEST_
 const terminal = "term_0123456789abcdef0123456789abcdef";
 const url = "HTTPS://github.com/login/device?state=AbC%2B%2f&literal=$(dont-run)#fragment";
 
+/** Runs body with the guest opener installed beside a fake daemon, in a scratch HOME. */
 async function fixture(body: (directory: string, env: NodeJS.ProcessEnv) => Promise<void>) {
   const directory = mkdtempSync(join(tmpdir(), "guest-browser-"));
   try {

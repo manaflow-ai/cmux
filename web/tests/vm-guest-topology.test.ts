@@ -107,6 +107,7 @@ async function fixture(peer: boolean) {
   return {
     graph,
     read: () => JSON.parse(readFileSync(join(dir, "graph.json"), "utf8")),
+    /** Runs the guest shim, routed through the peer when the fixture is a peer. */
     run: (args: string[], env = {}) => runChild("sh", [shim, ...(peer ? ["vm", args[0], args[1], "peer", ...args.slice(2)] : args)], {
       timeout: 10_000,
       env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: dir, CMUX_TUI_BIN: daemon, CMUX_TUI_TERMINAL_ID: "term_agent", ...env },

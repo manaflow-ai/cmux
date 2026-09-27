@@ -18,6 +18,7 @@ const ignoreBuildScript = fileURLToPath(
 let repository: string;
 let shallowClone: string | undefined;
 
+/** Runs git in the fixture repository and returns trimmed stdout; throws on failure. */
 async function git(...args: string[]): Promise<string> {
   const result = await runChildOk("git", args, {
     cwd: repository,
@@ -25,6 +26,7 @@ async function git(...args: string[]): Promise<string> {
   return result.stdout.trim();
 }
 
+/** Commits every change in the fixture repository and returns the new HEAD. */
 async function commit(message: string): Promise<string> {
   await git("add", ".");
   await git(
@@ -39,6 +41,7 @@ async function commit(message: string): Promise<string> {
   return await git("rev-parse", "HEAD");
 }
 
+/** Runs the Vercel ignore-build script for a commit range and returns its exit status. */
 async function ignoreBuild(
   previous: string | undefined,
   current: string,
