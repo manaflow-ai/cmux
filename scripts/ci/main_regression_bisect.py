@@ -77,6 +77,8 @@ MAX_OPEN_ITEMS = 10
 MAX_FINISHED_ITEMS = 20
 KEEP_SEEN_RUNS = 200
 DISPATCH_TIMEOUT_SECONDS = 8 * 60
+# One gh call; a hung one must not eat the job's time budget.
+GH_TIMEOUT_SECONDS = 120
 # The step that runs the selected tests, in app-host-test-rerun.yml and
 # test-e2e.yml. A failure anywhere else is not the test's verdict...
 TEST_STEP = "Run selected tests"
@@ -586,7 +588,15 @@ def pr_updates(
 
 
 def gh(args: list[str]) -> str:
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    try:
+        return subprocess.run(
+            ["gh", *args], check=True, capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS
+        ).stdout
+    except subprocess.TimeoutExpired as error:
+        # Report it as a failed call, which the run poll and the writes already handle.
+        raise subprocess.CalledProcessError(
+            124, error.cmd, stderr=f"timed out after {GH_TIMEOUT_SECONDS}s"
+        ) from error
 
 
 def graphql(query: str, **variables: object) -> dict:

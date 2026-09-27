@@ -16,6 +16,9 @@ mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+// The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[path = "bin/cmux-tui-hook.rs"]
+mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
@@ -1524,12 +1527,20 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Hook helper mode for hosts that received only this binary (see
+    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
+    // so it touches no daemon, log, or config state.
+    let mut arguments = std::env::args().skip(1);
+    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
+        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    }
     run_main();
     // Reached only by the normal return paths, which never call
     // client_log::exit; flush so the last queued records (final status,
     // shutdown diagnostics) reach the client log on every platform.
     client_log::flush_for_exit();
+    std::process::ExitCode::SUCCESS
 }
 
 /// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
