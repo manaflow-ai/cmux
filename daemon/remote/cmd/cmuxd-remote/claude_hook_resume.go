@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -76,49 +75,8 @@ func stringSet(values ...string) map[string]bool {
 	return set
 }
 
-// claudeProcessTree looks up a process's parent and argv.
-type claudeProcessTree interface {
-	parent(pid int) int
-	argv(pid int) []string
-}
-
-// procClaudeProcessTree reads /proc. Hosts without it report no ancestors,
-// which only means a launcher is not re-applied on resume.
-type procClaudeProcessTree struct{}
-
-// parent reads the parent PID from /proc/<pid>/stat.
-func (procClaudeProcessTree) parent(pid int) int {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0
-	}
-	// The command name can contain spaces and parentheses; fields resume
-	// after the last ')': state, then ppid.
-	closing := bytes.LastIndexByte(data, ')')
-	if closing < 0 {
-		return 0
-	}
-	fields := strings.Fields(string(data[closing+1:]))
-	if len(fields) < 2 {
-		return 0
-	}
-	parent, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return 0
-	}
-	return parent
-}
-
-// argv reads the NUL-separated argv from /proc/<pid>/cmdline.
-func (procClaudeProcessTree) argv(pid int) []string {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
-	if err != nil || len(data) == 0 {
-		return nil
-	}
-	return strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-}
-
-var claudeRelayProcessTree claudeProcessTree = procClaudeProcessTree{}
+// The process tree (claudeProcessTree, claudeRelayProcessTree) is shared
+// with hook routing in claude_hook_route.go.
 
 // addClaudeRelayResumeContext adds `remote_cwd` and `ancestor_executables`
 // to a SessionStart admission request when they are available and in bounds.

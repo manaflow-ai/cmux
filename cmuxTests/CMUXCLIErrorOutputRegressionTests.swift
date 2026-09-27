@@ -366,6 +366,78 @@ import Testing
         #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
     }
 
+    @Test func testSurfaceListJSONRedactsCustomCodexPathPerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-list-private-\(UUID().uuidString.prefix(8)).sock"
+        let routedRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/private/custom/codex"],
+                "environment": [
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                ],
+            ],
+        ]
+        let ordinaryRecord: [String: Any] = [
+            "kind": "codex",
+            "launch_command": [
+                "arguments": ["/opt/ordinary/codex"],
+                "environment": [
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/ordinary/codex",
+                ],
+            ],
+        ]
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:1",
+                    "type": "terminal",
+                    "restore_record": routedRecord,
+                ],
+                [
+                    "id": UUID().uuidString.lowercased(),
+                    "ref": "surface:2",
+                    "type": "terminal",
+                    "restore_record": ordinaryRecord,
+                ],
+            ],
+        ])
+        let responder = try UnixSocketResponder(path: socketPath, responses: [listResponse])
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let surfaces = try #require(payload["surfaces"] as? [[String: Any]])
+        try #require(surfaces.count == 2)
+        let ordinary = surfaces[1]
+        let ordinaryLaunch = try #require(
+            (ordinary["restore_record"] as? [String: Any])?["launch_command"] as? [String: Any]
+        )
+        let ordinaryEnvironment = try #require(ordinaryLaunch["environment"] as? [String: Any])
+        #expect(ordinaryEnvironment["CMUX_CUSTOM_CODEX_PATH"] as? String == "/opt/ordinary/codex")
+        #expect(ordinaryLaunch["arguments"] as? [String] == ["/opt/ordinary/codex"])
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()
@@ -599,6 +671,67 @@ import Testing
             123.5
         )
         XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
+    }
+
+    @Test func testRestoreUsesPreparedArgumentsWhenLaunchCaptureHasNoArgv() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore prepared argv \(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("prepared-agent", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'prepared=%s\\n' "$1"
+        printf 'environment=%s\\n' "$REJECTED_CAPTURE_ENV"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "prepared-\(UUID().uuidString)"
+        let response = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                // A rejected capture has no replayable argv, but the producer
+                // may still provide a prepared argv for this restore request.
+                "launch_command": [
+                    "launcher": "custom",
+                    "arguments": [],
+                    "source": "rejected",
+                    "rejectionReason": "argvDecodeFailed",
+                    "environment": ["REJECTED_CAPTURE_ENV": "preserved"],
+                ],
+                "prepared_arguments": [executable.path, "from-prepared"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-prepared-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(
+            result.stdout,
+            "prepared=from-prepared\nenvironment=preserved\n",
+            result.diagnostics
+        )
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {

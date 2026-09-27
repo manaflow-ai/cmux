@@ -1775,7 +1775,7 @@ struct RestorableAgentSessionIndex: Sendable {
             for record: RestorableAgentHookSessionRecord
         ) -> (key: String, home: String, sessionID: String, transcriptPath: String?)? {
             guard record.isRestorable != false,
-                  normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                  record.launchCommand?.isRejectedCapture != true else {
                 return nil
             }
             let sessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1835,7 +1835,7 @@ struct RestorableAgentSessionIndex: Sendable {
             var eligibleCount = 0
             for record in values {
                 guard record.isRestorable != false,
-                      normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                      record.launchCommand?.isRejectedCapture != true else {
                     continue
                 }
                 eligibleCount += 1
@@ -1900,7 +1900,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     let selectedPanelKeys = Set(selection.records.compactMap(codexPanelKey))
                     for record in state.sessions.values {
                         guard record.isRestorable != false,
-                              normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected",
+                              record.launchCommand?.isRejectedCapture != true,
                               !selectedIdentities.contains(codexRecordSelectionIdentity(record)) else {
                             continue
                         }
@@ -2668,8 +2668,8 @@ struct RestorableAgentSessionIndex: Sendable {
         codexHasIndexedStore: Bool
     ) -> Bool {
         if kind == .codex {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             guard record.isRestorable != false else { return false }
-            guard normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else { return false }
             if record.isRestorable == true {
                 switch codexDurableVerification {
                 case .some(.exists(let evidence)):
@@ -2711,6 +2711,7 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
         guard kind == .claude else {
+            guard record.launchCommand?.isRejectedCapture != true else { return false }
             return record.isRestorable != false
         }
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),

@@ -169,6 +169,9 @@ doneFlags:
 	case "claude-wrapper":
 		return runClaudeWrapper(socketPath, cmdArgs, refreshAddr)
 	case "claude-hook":
+		if len(cmdArgs) > 0 && (cmdArgs[0] == "install" || cmdArgs[0] == "uninstall") {
+			return runClaudeHookInstall(cmdArgs, os.Stdout, os.Stderr)
+		}
 		return runClaudeHookRelay(socketPath, cmdArgs, refreshAddr, os.Stdin, os.Stdout)
 	}
 	if socketPath == "" {
@@ -1359,6 +1362,8 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  claude-wrapper [args...]  Launch the agent with cmux status hooks")
 	fmt.Fprintln(os.Stderr, "  claude-hook <event>       Forward an agent hook event to cmux")
+	fmt.Fprintln(os.Stderr, "  claude-hook install|uninstall [--settings-file <path>]")
+	fmt.Fprintln(os.Stderr, "                            Add or remove cmux status hooks in the agent's user settings")
 	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")

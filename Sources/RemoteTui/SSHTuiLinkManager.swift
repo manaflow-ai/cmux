@@ -10,17 +10,21 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
     private let isEnabled: @Sendable () -> Bool
+    /// Read at each carrier start, so an Integrations toggle applies on the next connect.
+    private let agentHookProviders: @Sendable () -> [String]
     private var current: CloudMachineLink?
     private var connecting: Task<CloudMachineLink.Connected, Error>?
     private var checking: Task<Void, Error>?
     private var browser: CloudBrowserProxyProcess?
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
 
-    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool) {
+    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool,
+         agentHookProviders: @escaping @Sendable () -> [String] = { [] }) {
         self.connection = connection
         self.clientURL = clientURL
         self.paths = paths
         self.isEnabled = isEnabled
+        self.agentHookProviders = agentHookProviders
     }
 
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
@@ -59,10 +63,12 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         if let connecting { return try await connecting.value }
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
         current = link
-        let attempt = Task {
+        var carrier = connection
+        carrier.agentHookProviders = agentHookProviders()
+        let attempt = Task { [carrier] in
             try await link.connect(route: "ssh://" + connection.configuration.destination,
                                    session: connection.session, carrier: true,
-                                   timeout: deadline - ContinuousClock.now, ssh: connection)
+                                   timeout: deadline - ContinuousClock.now, ssh: carrier)
         }
         connecting = attempt
         defer { if connecting == attempt { connecting = nil } }

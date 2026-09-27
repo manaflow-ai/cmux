@@ -30,6 +30,11 @@ const (
 	claudeHookRoundTripTimeout  = 3 * time.Second
 	claudeWrapperPingTimeout    = time.Second
 	claudeHookDeclaredTimeout   = 5
+	// The relay bootstrap's `claude` wrapper runs `cmux claude-wrapper
+	// --cmux-probe` before handing off. This CLI answers 0 without touching
+	// the relay; an older CLI without the verb exits nonzero, so the wrapper
+	// launches plain claude instead of failing.
+	claudeWrapperProbeFlag = "--cmux-probe"
 )
 
 // claudeRelayHookEvents are the non-decision lifecycle events the relay admits.
@@ -66,21 +71,85 @@ var claudeHookFilesystemKeys = map[string]bool{
 	"agent_transcript_path": true,
 }
 
-// runClaudeHookRelay implements `cmux claude-hook <subcommand>`.
+// runClaudeHookRelay implements `cmux claude-hook [--user-settings] <subcommand>`.
 func runClaudeHookRelay(socketPath string, args []string, refreshAddr func() string, stdin io.Reader, stdout io.Writer) int {
 	defer fmt.Fprintln(stdout, "{}")
 	input, _ := io.ReadAll(io.LimitReader(stdin, claudeHookMaximumInputBytes))
-	if len(args) != 1 || os.Getenv("CMUX_CLAUDE_HOOKS_DISABLED") == "1" || socketPath == "" {
+	fromUserSettings := len(args) > 0 && args[0] == claudeHookUserSettingsFlag
+	if fromUserSettings {
+		args = args[1:]
+	}
+	if len(args) != 1 || os.Getenv("CMUX_CLAUDE_HOOKS_DISABLED") == "1" {
 		return 0
 	}
-	params, ok := claudeHookEnqueueParams(args[0], input, os.Getenv, claudeHookCallerTTY)
+	delivery, ok := resolveClaudeHookDelivery(claudeHookDelivery{
+		socketPath:  socketPath,
+		refreshAddr: refreshAddr,
+		getenv:      os.Getenv,
+		callerTTY:   claudeHookCallerTTY,
+	}, fromUserSettings, os.Getppid(), claudeRelayProcessTree, defaultClaudeHookTmuxProbe())
+	if !ok {
+		return 0
+	}
+	params, ok := claudeHookEnqueueParams(args[0], input, delivery.getenv, delivery.callerTTY)
 	if !ok {
 		return 0
 	}
 	// Delivery is best effort: a slow or missing relay must not hold the agent.
-	_, _ = socketRoundTripV2Until(socketPath, "agent.hook.enqueue", params, refreshAddr,
+	_, _ = socketRoundTripV2Until(delivery.socketPath, "agent.hook.enqueue", params, delivery.refreshAddr,
 		time.Now().Add(claudeHookRoundTripTimeout))
 	return 0
+}
+
+// claudeHookDelivery is where one hook event goes and the environment its
+// parameters are built from.
+type claudeHookDelivery struct {
+	socketPath  string
+	refreshAddr func() string
+	getenv      func(string) string
+	callerTTY   func(claudePID string) string
+}
+
+// resolveClaudeHookDelivery routes a hook. Wrapper-injected hooks use the
+// surface environment they inherited. Hooks from Claude's user settings step
+// aside for the wrapper's hooks and for nested Claude sessions, and inside
+// tmux they follow the cmux client attached to the session, whose
+// environment is current even when the pane's is missing or stale.
+func resolveClaudeHookDelivery(base claudeHookDelivery, fromUserSettings bool, hookParent int, tree claudeProcessTree, probe claudeHookTmuxProbe) (claudeHookDelivery, bool) {
+	delivery := base
+	overrides := map[string]string{}
+	if fromUserSettings {
+		if base.getenv(claudeRelayWrapperActiveKey) == "1" {
+			return claudeHookDelivery{}, false
+		}
+		agentPID, nested := claudeHookAgentProcess(hookParent, tree)
+		if nested {
+			return claudeHookDelivery{}, false
+		}
+		if agentPID > 0 && strings.TrimSpace(base.getenv("CMUX_CLAUDE_PID")) == "" {
+			overrides["CMUX_CLAUDE_PID"] = strconv.Itoa(agentPID)
+		}
+		if route, ok := discoverClaudeHookTmuxRoute(base.getenv, probe); ok {
+			delivery.socketPath = route.socketPath
+			delivery.refreshAddr = nil
+			overrides["CMUX_WORKSPACE_ID"] = route.workspaceID
+			overrides["CMUX_SURFACE_ID"] = route.surfaceID
+			clientTTY := route.clientTTY
+			delivery.callerTTY = func(string) string { return clientTTY }
+		}
+	}
+	if strings.TrimSpace(delivery.socketPath) == "" {
+		return claudeHookDelivery{}, false
+	}
+	if len(overrides) > 0 {
+		delivery.getenv = func(key string) string {
+			if value, ok := overrides[key]; ok {
+				return value
+			}
+			return base.getenv(key)
+		}
+	}
+	return delivery, true
 }
 
 // claudeHookEnqueueParams builds the relay admission request. It returns false
@@ -206,6 +275,9 @@ func claudeHookCallerTTY(claudePID string) string {
 // `claude` from PATH with their own config are covered too. Hooks go
 // through `--settings`, which works under any CLAUDE_CONFIG_DIR.
 func runClaudeWrapper(socketPath string, args []string, refreshAddr func() string) int {
+	if len(args) == 1 && args[0] == claudeWrapperProbeFlag {
+		return 0
+	}
 	cmuxBin := claudeWrapperCmuxBinary()
 	realClaude := findRealClaude(os.Getenv("PATH"), cmuxBin)
 	if realClaude == "" {
@@ -406,7 +478,11 @@ func claudeRelayHookSettings(cmuxBin string) map[string]any {
 		hooks[definition.event] = append(existing, group)
 	}
 	return map[string]any{
-		"hooks":                 hooks,
+		"hooks": hooks,
+		// Overrides the user's channel on purpose: cmux delivers these
+		// notifications through the relayed hooks, and the wrapper injects
+		// this only after a relay ping succeeds, so Claude's own terminal
+		// notification would be a duplicate.
 		"preferredNotifChannel": "notifications_disabled",
 	}
 }

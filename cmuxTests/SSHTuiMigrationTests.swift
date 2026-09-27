@@ -371,4 +371,27 @@ struct SSHTuiMigrationTests {
         #expect(errors.compactMap { $0["workspace_id"] as? String } == ["native-offline", "legacy-offline"])
     }
 
+
+    @Test("The carrier asks the host to install the requested agent hooks")
+    func carrierRequestsAgentHooks() throws {
+        var carrier = SSHTuiConnection(configuration: configuration())
+        #expect(!carrier.arguments(stateDirectory: "/tmp/state", deviceName: "test").contains("--agent-hooks"))
+        carrier.agentHookProviders = ["claude", "codex"]
+        let arguments = carrier.arguments(stateDirectory: "/tmp/state", deviceName: "test")
+        let index = try #require(arguments.firstIndex(of: "--agent-hooks"))
+        #expect(arguments[index + 1] == "claude,codex")
+        #expect(carrier.id == SSHTuiConnection(configuration: configuration()).id)
+    }
+
+    @Test("Integrations hook toggles choose the SSH agent hook providers")
+    func agentHookProvidersFollowIntegrationToggles() throws {
+        let suite = "SSHTuiMigrationTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(SSHTuiConnection.agentHookProviders(defaults: defaults) == ["claude", "codex"])
+        defaults.set(false, forKey: "claudeCodeHooksEnabled")
+        #expect(SSHTuiConnection.agentHookProviders(defaults: defaults) == ["codex"])
+        defaults.set(false, forKey: "codexHooksEnabled")
+        #expect(SSHTuiConnection.agentHookProviders(defaults: defaults).isEmpty)
+    }
 }

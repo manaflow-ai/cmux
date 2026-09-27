@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-// fakeClaudeProcessTree is an in-memory process tree for ancestor walks.
-type fakeClaudeProcessTree struct {
+// fakeAncestorProcessTree is an in-memory process tree for ancestor walks.
+type fakeAncestorProcessTree struct {
 	parents map[int]int
 	argvs   map[int][]string
 }
 
 // parent returns the recorded parent PID.
-func (tree fakeClaudeProcessTree) parent(pid int) int { return tree.parents[pid] }
+func (tree fakeAncestorProcessTree) parent(pid int) int { return tree.parents[pid] }
 
 // argv returns the recorded argv.
-func (tree fakeClaudeProcessTree) argv(pid int) []string {
+func (tree fakeAncestorProcessTree) argv(pid int) []string {
 	return tree.argvs[pid]
 }
 
@@ -56,7 +56,7 @@ func TestClaudeRelayAncestorWordsRedactsForwardedArguments(t *testing.T) {
 
 // TestClaudeRelayAncestorExecutablesWalksNearestFirstWithinBounds checks order, depth, and size bounds.
 func TestClaudeRelayAncestorExecutablesWalksNearestFirstWithinBounds(t *testing.T) {
-	tree := fakeClaudeProcessTree{
+	tree := fakeAncestorProcessTree{
 		parents: map[int]int{100: 90, 90: 80, 80: 70, 70: 1},
 		argvs: map[int][]string{
 			90: {"/usr/bin/teamclaude", "run", "--"},
@@ -70,7 +70,7 @@ func TestClaudeRelayAncestorExecutablesWalksNearestFirstWithinBounds(t *testing.
 		t.Fatalf("ancestors = %q, want %q", got, want)
 	}
 
-	deep := fakeClaudeProcessTree{parents: map[int]int{}, argvs: map[int][]string{}}
+	deep := fakeAncestorProcessTree{parents: map[int]int{}, argvs: map[int][]string{}}
 	for pid := 2; pid < 40; pid++ {
 		deep.parents[pid] = pid + 1
 		deep.argvs[pid+1] = []string{"/" + strings.Repeat("d", 100)}
@@ -80,7 +80,7 @@ func TestClaudeRelayAncestorExecutablesWalksNearestFirstWithinBounds(t *testing.
 		t.Fatalf("walked %d ancestors, want %d", len(walked), claudeRelayAncestorMaximumCount)
 	}
 
-	wide := fakeClaudeProcessTree{parents: map[int]int{}, argvs: map[int][]string{}}
+	wide := fakeAncestorProcessTree{parents: map[int]int{}, argvs: map[int][]string{}}
 	for pid := 2; pid < 12; pid++ {
 		wide.parents[pid] = pid + 1
 		wide.argvs[pid+1] = []string{"env", "A=1", "B=2", "C=3", "D=4", "/" + strings.Repeat("w", 120)}
@@ -122,7 +122,7 @@ func TestClaudeRelayRemoteCwdIsBounded(t *testing.T) {
 // TestClaudeHookEnqueueParamsSendsResumeContextOnlyOnSessionStart checks which events carry the binding.
 func TestClaudeHookEnqueueParamsSendsResumeContextOnlyOnSessionStart(t *testing.T) {
 	previous := claudeRelayProcessTree
-	claudeRelayProcessTree = fakeClaudeProcessTree{
+	claudeRelayProcessTree = fakeAncestorProcessTree{
 		parents: map[int]int{4242: 4200, 4200: 1},
 		argvs:   map[int][]string{4200: {"env", "TOKEN=sk-secret", "teamclaude", "run", "--"}},
 	}
@@ -163,5 +163,38 @@ func TestClaudeHookEnqueueParamsSendsResumeContextOnlyOnSessionStart(t *testing.
 		if _, present := p["ancestor_executables"]; present {
 			t.Fatalf("%s sent ancestor_executables", subcommand)
 		}
+	}
+}
+
+// TestClaudeRelayResumeContextUsesDiscoveredAgentPID covers installed hooks in
+// a tmux server that predates cmux: without CMUX_CLAUDE_PID in the pane, the
+// ancestors come from the Claude process the hook found above itself.
+func TestClaudeRelayResumeContextUsesDiscoveredAgentPID(t *testing.T) {
+	tree := srTmuxProcessTree()
+	previousTree := claudeRelayProcessTree
+	claudeRelayProcessTree = tree
+	t.Cleanup(func() { claudeRelayProcessTree = previousTree })
+	paneEnv := claudeHookTestEnv(map[string]string{"TMUX": "/tmp/tmux-1000/default,100,0", "TMUX_PANE": "%0"})
+	probe, _ := fakeClaudeHookTmuxProbe("$0", "4102\t/dev/pts/4\t1\n", map[int]map[string]string{
+		4102: cmuxClientEnvironment("63518", "22222222-2222-4222-8222-222222222222"),
+	})
+	delivery, ok := resolveClaudeHookDelivery(claudeHookDelivery{
+		socketPath: "127.0.0.1:62357",
+		getenv:     paneEnv,
+		callerTTY:  func(string) string { return "" },
+	}, true, 400, tree, probe)
+	if !ok {
+		t.Fatal("expected delivery through the attached cmux client")
+	}
+	params, ok := claudeHookEnqueueParams("session-start", []byte(`{"session_id":"s","cwd":"/home/u/repo"}`), delivery.getenv, delivery.callerTTY)
+	if !ok {
+		t.Fatal("expected enqueue params")
+	}
+	if params["remote_cwd"] != "/home/u/repo" {
+		t.Fatalf("remote_cwd = %v", params["remote_cwd"])
+	}
+	want := [][]string{{"sr"}, {"tmux"}}
+	if got := params["ancestor_executables"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ancestor_executables = %q, want %q (the launcher's argv values must not leave the host)", got, want)
 	}
 }
