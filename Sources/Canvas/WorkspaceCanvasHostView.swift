@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCanvasUI
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 
@@ -24,6 +25,7 @@ struct WorkspaceCanvasHostView: View {
     @Environment(\.settingsRuntime) private var settingsRuntime
     @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
     @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.cmuxAccentColor) private var accentColor
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -34,7 +36,8 @@ struct WorkspaceCanvasHostView: View {
             workspace: workspace,
             descriptors: descriptors,
             focusedPanelId: workspace.focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: isWorkspaceVisible,
+            accentColor: accentColor
         )
     }
 
@@ -185,6 +188,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
     let descriptors: [CanvasPaneDescriptor]
     let focusedPanelId: UUID?
     let isWorkspaceVisible: Bool
+    let accentColor: CmuxAccentColor
 
     func makeNSView(context: Context) -> CanvasRootView {
         let workspace = workspace
@@ -270,6 +274,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: CanvasRootView, context: Context) {
+        nsView.accentColor = accentColor
         nsView.sync(
             descriptors: descriptors,
             focusedPanelId: focusedPanelId,
