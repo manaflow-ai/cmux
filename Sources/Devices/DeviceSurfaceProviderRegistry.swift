@@ -1,6 +1,8 @@
+import CmuxCloud
 import CmuxAuthRuntime
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -13,6 +15,8 @@ import Observation
 @MainActor
 final class DeviceSurfaceProviderRegistry {
     let preferences: DevicesPreferencesModel?
+    /// Every link's state history, for Cloud Diagnostics and the persisted journal.
+    let diagnostics: DeviceLinkDiagnostics
     /// Posted by ``reveal(instance:)``; the mounted Devices panel consumes the
     /// pending request on it (userInfo `instance`: the wire value).
     static let revealDeviceNotification = Notification.Name("cmux.devices.revealDevice")
@@ -29,6 +33,8 @@ final class DeviceSurfaceProviderRegistry {
     private var identity: AuthenticatedSessionIdentity?
     private var teamID: String?
     private var providers: [SurfaceDeviceInstanceID: DeviceSurfaceProvider] = [:]
+    /// The last directory revision forwarded to links; an advance retries host refusals once.
+    private var lastDirectoryRevision: Int?
     private var directoryObserver: NSObjectProtocol?
     private var authorizationObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
@@ -49,6 +55,7 @@ final class DeviceSurfaceProviderRegistry {
 
     init(
         preferences: DevicesPreferencesModel? = nil,
+        diagnostics: DeviceLinkDiagnostics = DeviceLinkDiagnostics(),
         notificationCenter: NotificationCenter = .default,
         sessionScope: @escaping @MainActor (AuthCoordinator) -> (AuthenticatedSessionIdentity?, String?) = {
             ($0.authenticatedSessionIdentity, $0.resolvedTeamID)
@@ -63,6 +70,7 @@ final class DeviceSurfaceProviderRegistry {
         self.notificationCenter = notificationCenter
         self.sessionScope = sessionScope
         self.preferences = preferences
+        self.diagnostics = diagnostics
         self.makeAutomaticClient = makeAutomaticClient
         self.allowsAutomaticConnections = allowsAutomaticConnections
         self.makeDirectory = makeDirectory
@@ -142,6 +150,7 @@ final class DeviceSurfaceProviderRegistry {
             directoryObserver = nil
             directory?.stop()
             directory = nil
+            lastDirectoryRevision = nil
             if let client = runtime?.automaticClient { Task { await client.stop() } }
             runtime = nil
             for (instance, provider) in providers {
@@ -229,12 +238,18 @@ final class DeviceSurfaceProviderRegistry {
             if let provider = providers[record.instance] {
                 provider.update(record: record)
             } else {
-                let link = DeviceLink(record: record, runtime: runtime, authorization: authorization)
+                let link = DeviceLink(record: record, runtime: runtime, authorization: authorization, diagnostics: diagnostics)
                 let provider = DeviceSurfaceProvider(record: record, link: link, catalog: catalog)
                 providers[record.instance] = provider
                 catalog.register(provider)
                 provider.update(record: record)
             }
+        }
+        if let revision = directory.directoryStamp?.revision {
+            if let last = lastDirectoryRevision, revision > last {
+                for provider in providers.values { provider.directoryRevisionAdvanced() }
+            }
+            lastDirectoryRevision = revision
         }
     }
 }

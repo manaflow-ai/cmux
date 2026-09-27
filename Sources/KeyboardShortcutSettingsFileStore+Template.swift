@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 
@@ -71,7 +72,9 @@ extension CmuxSettingsFileStore {
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
+                    "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "preferredEditor": "",
+                    "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
                     "openMarkdownInCmuxViewer": AppCatalogSection().openMarkdownInCmuxViewer.defaultValue,
                     "reorderOnNotification": SettingCatalog().app.reorderOnNotification.defaultValue,
@@ -190,6 +193,7 @@ extension CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                     "claudeBinaryPath": "",
+                    "codexIntegration": IntegrationsCatalogSection().codexHooksEnabled.defaultValue,
                     "ripgrepBinaryPath": "",
                     "suppressSubagentNotifications": IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                     "ampIntegration": IntegrationsCatalogSection().ampHooksEnabled.defaultValue,

@@ -22,6 +22,7 @@ import time
 import zipfile
 
 from app_host_layered_products import LAYERS as NAMES, MANIFEST, SCHEMA as LAYER_SCHEMA
+import parallel_artifact_download
 
 INDEX = "app-host-layer-index.json"
 MAX_INDEX = 8 * 1024 * 1024
@@ -103,6 +104,16 @@ class GitHub:
         return json.loads(result)
 
     def download(self, artifact_id, target, limit):
+        # Parallel range reads of the same exact-ID blob; the caller still pins
+        # size and provider digest. Any miss falls back to one gh stream.
+        try:
+            parallel_artifact_download.download_zip(self.repository, positive(artifact_id), target, limit)
+            return
+        except (parallel_artifact_download.TransportError, OSError, ValueError) as error:
+            print(f"Parallel layer download missed ({type(error).__name__}: {error}); using gh stream.")
+        self.download_stream(artifact_id, target, limit)
+
+    def download_stream(self, artifact_id, target, limit):
         # gh strips API authorization when following its cross-host blob redirect.
         # Bound bytes and elapsed time while streaming; do not buffer large ZIPs.
         with tempfile.TemporaryFile() as errors, target.open("wb") as output:

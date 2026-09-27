@@ -758,7 +758,15 @@ struct AgentSessionAutoResumeSwiftTests {
                 orientation: .horizontal,
                 focus: false
             ))
-            #expect(split.requestedWorkingDirectory == projectDir)
+            // The split runs the workspace's SSH startup command, so since
+            // #12054 its cwd travels as the remote initial cwd instead of a
+            // local PTY cwd. The rescued session directory (not the clobbered
+            // tracked home) must still be the one handed over.
+            #expect(split.requestedWorkingDirectory == nil)
+            #expect(
+                split.surface.startupEnvironmentValue(Workspace.remoteInitialWorkingDirectoryEnvironmentKey)
+                    == projectDir
+            )
         }
     }
 

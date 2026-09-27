@@ -8,6 +8,9 @@ ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / ".github/scripts/review_fabric.py"
 POLICY = ROOT / ".github/review-fabric-policy.json"
 
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import workflow_guard_groups  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("review_fabric", SCRIPT)
 review_fabric = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = review_fabric
@@ -19,6 +22,34 @@ OLD_HEAD = "b" * 40
 
 def policy():
     return json.loads(POLICY.read_text(encoding="utf-8"))
+
+
+def _guard_router():
+    """The Linux guard router, imported the way CI invokes it.
+
+    It lives next to its own imports under scripts/ci, so that directory has to
+    be on sys.path for `from workflow_guard_groups import ...` to resolve.
+    """
+    guard_dir = str(ROOT / "scripts/ci")
+    if guard_dir not in sys.path:
+        sys.path.insert(0, guard_dir)
+    router_path = ROOT / "scripts/ci/detect_linux_guard_changes.py"
+    router_spec = importlib.util.spec_from_file_location(
+        "detect_linux_guard_changes", router_path
+    )
+    router = importlib.util.module_from_spec(router_spec)
+    router_spec.loader.exec_module(router)
+    return router
+
+
+def _groups_for_path(path):
+    """Which workflow-guard-tests groups own `path`, or None if unowned."""
+    guard_dir = str(ROOT / "scripts/ci")
+    if guard_dir not in sys.path:
+        sys.path.insert(0, guard_dir)
+    from workflow_guard_groups import groups_for_path
+
+    return groups_for_path(path)
 
 
 def run(
@@ -329,15 +360,51 @@ class ReviewFabricTests(unittest.TestCase):
 
     def test_ci_executes_review_fabric_contracts(self):
         workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
-        detector = (ROOT / "scripts/ci/detect_linux_guard_changes.py").read_text(encoding="utf-8")
         self.assertIn("python3 tests/test_review_fabric.py", workflow)
+
+        # The group that actually runs the contracts, read out of
+        # ci-guards.yml. Deriving it keeps this test correct if the step ever
+        # moves to another group; naming a group here would fail that refactor.
+        owners = workflow_guard_groups.direct_path_owners(workflow)
+        contract_groups = owners.get("tests/test_review_fabric.py")
+        self.assertTrue(
+            contract_groups,
+            "no group-conditioned step in ci-guards.yml runs tests/test_review_fabric.py",
+        )
+
+        # #13775 made the guard routes derived rather than literal: a path now
+        # reaches this suite through PATH_OWNERS or through ci-guards.yml's own
+        # `run:` lines, so grepping the router for the path text says nothing
+        # about whether the path is routed. Ask the router instead.
+        routes = _guard_router()
         for path in (
             ".github/review-fabric-policy.json",
             ".github/review-fabric.md",
             ".github/scripts/review_fabric.py",
             "tests/test_review_fabric.py",
         ):
-            self.assertIn(f'"{path}"', detector)
+            with self.subTest(path=path):
+                decision = routes.classify(
+                    [path], event="pull_request", macos="false"
+                )
+                self.assertTrue(
+                    decision["linux_guard_tests"],
+                    f"editing {path} must run the workflow-guard-tests lane",
+                )
+                # classify_test_groups falls open to every group for a path the
+                # manifest does not know, so asserting on its output alone would
+                # pass even if ownership were dropped. Assert the ownership
+                # itself, against the group ci-guards.yml says runs the
+                # contracts rather than a group name pinned here.
+                routed = _groups_for_path(path)
+                self.assertIsNotNone(
+                    routed, f"{path} has no guard-group owner; routing fell open"
+                )
+                self.assertTrue(
+                    contract_groups & set(routed),
+                    f"{path} does not route the group that runs the review fabric "
+                    f"contracts: routed={sorted(routed)} contracts={sorted(contract_groups)}",
+                )
 
 
 if __name__ == "__main__":

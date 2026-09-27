@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -91,7 +92,10 @@ struct SurfaceProjectionIdentityTests {
             for id in Array(source.panels.keys) { _ = source.closePanel(id, force: true) }
             let remapped = restored.restoreSessionSnapshot(snapshot)
             let newPanelID = try #require(remapped[oldPanelID])
-            #expect(newPanelID != oldPanelID)
+            // The persisted runtime id is reused whenever no live surface still holds it
+            // (aff0e32e93): the panel id is the ghostty surface id, so agent bindings survive
+            // relaunch. Only a collision mints a fresh id; either way the pane must be live.
+            #expect(restored.panels[newPanelID] != nil)
             let catalog = await localCatalog([restored])
             let export = await read(catalog, workspaces: [restored])
             let row = try projectionRow(export, panelID: newPanelID)
@@ -171,12 +175,16 @@ struct SurfaceProjectionIdentityTests {
             let panel = try terminal(in: workspace)
             let catalog = await localCatalog(workspaces)
             let machine = SurfaceMachineID.cloud("identity-fixture")
+            // The catalog ignores writes about a Cloud machine with no registered provider
+            // (a22bde65ad), so register the fixture provider before publishing its resource.
+            let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+            catalog.register(provider)
             let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "daemon-terminal")
             let resource = SurfaceResource(id: resourceID, title: "same title", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
             var info = LocalSurfaceProvider(catalog: catalog, workspaces: { workspaces }).info
             info.id = machine
             info.linkState = .connected
-            catalog.replaceResources([resource], on: machine, info: info)
+            catalog.replaceResources([resource], on: machine, info: info, from: provider)
             catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panel.id, remoteWorkspaceID: "daemon-workspace", remoteTabID: "daemon-tab"))
             let export = await read(catalog, workspaces: workspaces)
             for cloudOnly in [false, true] {

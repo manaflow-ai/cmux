@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxSettings
 import Darwin
 import Foundation
@@ -215,6 +217,153 @@ import Testing
             methods == ["surface.resume.get", "surface.resume.get"],
             "An unknown flag must be rejected before a binding mutation request is sent: \(methods)"
         )
+    }
+
+    @Test func testSurfaceResumeJSONDoesNotExposePrivateSubrouterRoutingMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
+        let privateRestoreRecord: [String: Any] = [
+            "kind": "codex",
+            "legacy_command": "env 'SUBROUTER_CODEX_USER_EMAIL=legacy-private@example.test' sr codex resume session-id",
+            "prepared_arguments": [
+                "/private/custom/codex",
+                "-c", "model_provider=subrouter",
+                "--config=model_providers.subrouter.base_url=https://prepared-router.example.test/v1",
+            ],
+            "launch_command": [
+                "arguments": [
+                    "/private/custom/codex", "-c", "model_provider=\"subrouter\"",
+                    "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
+                ],
+                "executable_path": "/private/custom/codex",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
+                    "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
+                ],
+            ],
+        ]
+        let response = try jsonResponse(result: [
+            "resume_binding": [
+                "command": "env 'SUBROUTER_CODEX_USER_EMAIL=private@example.test' sr codex resume session-id",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                ],
+            ],
+            "restore_record": privateRestoreRecord,
+        ])
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [[
+                "id": UUID().uuidString.lowercased(),
+                "ref": "surface:1",
+                "type": "terminal",
+                "restore_record": privateRestoreRecord,
+            ]],
+        ])
+        let directCommand = "codex resume direct-session -- 'discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter'"
+        let directResponse = try jsonResponse(result: [
+            "resume_binding": [
+                "command": directCommand,
+                "environment": ["PATH": "/usr/bin:/bin"],
+            ],
+        ])
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, response, listResponse, directResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(result.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(result.combinedOutput.contains("model_provider") == false)
+        #expect(result.combinedOutput.contains("private@example.test") == false)
+        #expect(result.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(result.combinedOutput.contains("router.example.test") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let record = try #require(payload["restore_record"] as? [String: Any])
+        #expect(record["legacy_command"] is NSNull)
+        let preparedArguments = try #require(record["prepared_arguments"] as? [Any])
+        #expect(preparedArguments.first is NSNull)
+        #expect(preparedArguments.count == 1)
+        let launchCommand = try #require(record["launch_command"] as? [String: Any])
+        #expect(launchCommand["executable_path"] is NSNull)
+        let launchArguments = try #require(launchCommand["arguments"] as? [Any])
+        #expect(launchArguments.first is NSNull)
+        #expect(launchArguments.count == 1)
+        let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
+        #expect(Set(launchEnvironment.keys) == Set(["PATH"]))
+        #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
+
+        let plainResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!plainResult.timedOut, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.status == 0, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
+        #expect(plainResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(plainResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(plainResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(plainResult.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(plainResult.combinedOutput.contains("model_provider") == false)
+        #expect(plainResult.combinedOutput.contains("private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("router.example.test") == false)
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!listResult.timedOut, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.status == 0, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(listResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(listResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(listResult.combinedOutput.contains("model_provider") == false)
+        #expect(listResult.combinedOutput.contains("private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("router.example.test") == false)
+
+        let directResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!directResult.timedOut, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.status == 0, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
@@ -688,12 +837,23 @@ import Testing
         environment["HOME"] = root.path
         environment["CFFIXED_USER_HOME"] = root.path
         environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
+        // The preflight child below never exits on its own, so restore has to reach its
+        // timeout for this test to observe the quiet failure. The size of that window is
+        // production policy, asserted as a value; the run itself narrows it.
+        #expect(AgentRestorePreflightInvocation.defaultTimeoutSeconds == 10)
+        #expect(
+            AgentRestorePreflightInvocation.timeoutSeconds(environment: [:])
+                == AgentRestorePreflightInvocation.defaultTimeoutSeconds
+        )
+        environment[AgentRestorePreflightInvocation.timeoutEnvironmentKey] = "0.5"
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["restore", "hermes-agent", checkpointID],
             environment: environment,
-            timeout: 15
+            // A deliberate cap, not a hang guard: the preflight window above is 0.5s, so
+            // the run has to finish well inside 5s.
+            timeout: 5
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
@@ -1195,11 +1355,25 @@ import Testing
 
     @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
         let cliPath = try bundledCLIPath()
+        // Answer on a socket this test owns. Without one, implicit discovery
+        // depends on whether the app host happens to be listening, and with no
+        // live listener restore deliberately waits for a launching app (see
+        // testLaunchCapableCommandsReachTheirDispatchPathWithoutLiveImplicitSocket).
+        let socketPath = "/tmp/cmux-restore-no-ctx-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try jsonErrorResponse(
+                code: "not_found",
+                message: "No caller surface"
+            )
+        )
+        defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1217,6 +1391,14 @@ import Testing
             ),
             result.diagnostics
         )
+        let methods = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+            return object["method"] as? String
+        }
+        #expect(methods == ["system.identify"], Comment(rawValue: result.diagnostics))
     }
 
     @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
@@ -2351,6 +2533,16 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CFFIXED_USER_HOME"] = home.path
+        // restore and fork deliberately outwait a launching app before they report
+        // that cmux is still opening. This test is about which dispatch path the
+        // commands reach, not about the size of that window, so it narrows the
+        // window instead of spending the production default twice.
+        #expect(SocketStartupWaiter.appStartupTimeoutDefaultSeconds == 45)
+        #expect(
+            SocketStartupWaiter.appStartupTimeoutSeconds(environment: [:])
+                == SocketStartupWaiter.appStartupTimeoutDefaultSeconds
+        )
+        environment[SocketStartupWaiter.appStartupTimeoutEnvironmentKey] = "0.2"
 
         let cases: [(arguments: [String], expectedError: String)] = [
             (["settings", "invalid-target"], "Unknown settings subcommand 'invalid-target'"),
@@ -3293,10 +3485,43 @@ import Testing
     }
 
     @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
+        // The window itself is a value, not a latency: the app-side handler and the
+        // CLI client both take it from BrowserDownloadWaitTimeout.standard, so the
+        // client outwaits the handler by the reply slack rather than by coincidence.
+        // Spending the real window here would mean a >10s test that still could not
+        // tell 15s from a minute.
+        let window = BrowserDownloadWaitTimeout.standard
+        #expect(window.defaultTimeoutMilliseconds == 10_000)
+        #expect(
+            window.handlerTimeoutMilliseconds(requestedMilliseconds: nil)
+                == window.defaultTimeoutMilliseconds
+        )
+        #expect(
+            window.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                == TimeInterval(window.defaultTimeoutMilliseconds) / 1000.0
+                    + window.clientResponseSlackSeconds
+        )
+        #expect(window.clientResponseSlackSeconds > 0)
+        // The agreement is a property of the pair, not of the shipped numbers: a
+        // narrower window the client still outwaits keeps the same invariant.
+        let narrow = BrowserDownloadWaitTimeout(
+            defaultTimeoutMilliseconds: 50,
+            maximumTimeoutMilliseconds: 200,
+            clientResponseSlackSeconds: 0.1
+        )
+        #expect(
+            narrow.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                > TimeInterval(narrow.handlerTimeoutMilliseconds(requestedMilliseconds: nil))
+                    / 1000.0
+        )
+
+        // And the default path really uses that window: with no --timeout-ms the CLI
+        // must ignore the generic response timeout below, which is short enough that
+        // a CLI falling back to it would give up before the responder answers.
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"ok":true,"result":{"downloaded":true}}"#
-        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 10.5)
+        let responder = try UnixSocketResponder(path: socketPath, response: response, responseDelay: 0.4)
         defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -3316,12 +3541,9 @@ import Testing
                 "wait",
             ],
             environment: environment,
-            // A deliberate cap, and the only upper bound that gives this test meaning: the
-            // responder answers after 10.5s, so waiting the server's default window has to
-            // land between there and 16s. Under the suite default a CLI that waited a full
-            // minute would still pass, and "matches the server default window" would stop
-            // being a claim about anything.
-            timeout: 16
+            // A deliberate cap, not a hang guard: the responder answers after 0.4s, so
+            // this run has to finish well inside 3s.
+            timeout: 3
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)

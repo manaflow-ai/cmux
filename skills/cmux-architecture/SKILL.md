@@ -15,7 +15,7 @@ cmux is migrating from a single app target into Swift Packages under `Packages/`
 
 When in doubt, extract leaf-first: the package with no internal dependencies. Existing packages under `Packages/` predate this policy; do not use them as design references.
 
-Wiring a new package into `cmux.xcodeproj` needs explicit pbxproj entries in **both** the `cmux` and `cmux-unit` targets. See [references/package-boundaries.md](references/package-boundaries.md).
+Wiring a new package into `cmux.xcodeproj` needs explicit pbxproj entries in **both** the `cmux` and `cmuxTests` targets (`cmuxTests` is what the `cmux-unit` scheme runs). See [references/package-boundaries.md](references/package-boundaries.md).
 
 **Group folders.** Every package lives physically under exactly one group directory: `Packages/Shared/<pkg>` (both apps), `Packages/iOS/<pkg>` (iOS only), or `Packages/macOS/<pkg>` (macOS only). `cmux.xcworkspace/contents.xcworkspacedata` mirrors that folder shape, with three groups whose container locations are those folders and every package directory as a FileRef under its folder's group. The folder is the source of truth: to move a package, `git mv` the directory then run `python3 scripts/check-workspace-package-groups.py --write`. Cross-group `.package(path:)` deps use `../../<Group>/<Name>`. Never hand-edit workspace group membership. CI runs `python3 scripts/check-workspace-package-groups.py --check` and fails on drift.
 

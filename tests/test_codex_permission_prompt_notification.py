@@ -10,6 +10,10 @@ raised any notification, leaving a blocked codex seat silent indefinitely.
 These tests exercise the actual CLI delivery path (`cmux hooks feed`)
 against a fake socket: classification-only coverage cannot catch a broken
 or misrouted notify/clear dispatch.
+
+The native `cmux hooks codex notification` path is also covered after a
+completed turn: a message-less PermissionRequest must not replay the cached
+completion preview or put the session back into Idle.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from test_codex_feed_hooks import (
     FAKE_WORKSPACE_ID,
     FakeCmuxSocket,
 )
+from test_codex_monitor_memory import test_codex_monitor_rss_reaches_a_plateau
 
 
 EXPECTED_NOTIFY = {
@@ -334,6 +339,103 @@ def test_stalled_live_target_probe_does_not_starve_notification(
         )
 
 
+def test_native_permission_request_does_not_replay_previous_completion(
+    cli_path: str, root: Path
+) -> None:
+    # Exercise the stored-summary fallback in the native hook adapter, which
+    # `hooks feed --event PermissionRequest` does not pass through. Bootstrap
+    # with real hooks so the session store and foreground turn ledger agree.
+    for label, message, expected_body in (
+        ("missing", None, "Approval needed"),
+        ("blank", " \n\t ", "Approval needed"),
+        ("explicit", "Approve the synthetic command", "Approve the synthetic command"),
+    ):
+        state_root = root / label
+        state_root.mkdir()
+        socket_path = state_root / "cmux.sock"
+        session_id = "33333333-3333-4333-8333-333333333333"
+        previous_reply = "Synthetic task A is finished"
+        env = {
+            key: value for key, value in os.environ.items()
+            if not key.startswith(("CMUX_", "CODEX_", "CLAUDE_"))
+        }
+        env.update({
+            "HOME": str(state_root),
+            "CODEX_HOME": str(state_root),
+            "XDG_CONFIG_HOME": str(state_root),
+            "XDG_STATE_HOME": str(state_root),
+            "CMUX_AGENT_HOOK_STATE_DIR": str(state_root),
+            "CMUX_WORKSPACE_ID": FAKE_WORKSPACE_ID,
+            "CMUX_SURFACE_ID": FAKE_SURFACE_ID,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        })
+
+        def run_hook(command: str, event: str, **fields) -> None:
+            result = subprocess.run(
+                [cli_path, "--socket", str(socket_path), "hooks", "codex", command],
+                input=json.dumps({
+                    "session_id": session_id,
+                    "cwd": str(state_root),
+                    "hook_event_name": event,
+                    **fields,
+                }),
+                capture_output=True, text=True, env=env, timeout=15,
+            )
+            if result.returncode != 0 or json.loads(result.stdout.strip() or "{}") != {}:
+                raise AssertionError(
+                    f"{label}: {command} failed: exit={result.returncode}, "
+                    f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+                )
+
+        def session_record() -> dict:
+            state_path = state_root / "codex-hook-sessions.json"
+            return json.loads(state_path.read_text())["sessions"][session_id]
+
+        with FakeCmuxSocket(
+            socket_path, None,
+            surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+        ) as fake:
+            run_hook("session-start", "SessionStart")
+            run_hook("prompt-submit", "UserPromptSubmit", turn_id="turn-a", prompt="Task A")
+            run_hook("stop", "Stop", turn_id="turn-a", last_assistant_message=previous_reply)
+            completed = session_record()
+            if completed.get("lastBody") != previous_reply or completed.get("runtimeStatus") != "idle":
+                raise AssertionError(f"{label}: first turn did not complete: {completed!r}")
+
+            run_hook("prompt-submit", "UserPromptSubmit", turn_id="turn-b", prompt="Task B")
+            if session_record().get("runtimeStatus") != "running":
+                raise AssertionError(f"{label}: second turn did not start: {session_record()!r}")
+            frame_start = len(fake.frames)
+            run_hook(
+                "notification", "PermissionRequest", turn_id="turn-b",
+                tool_use_id="approval-tool-b", tool_name="shell",
+                tool_input={"command": "printf synthetic"},
+                **({"message": message} if message is not None else {}),
+            )
+            frames = list(fake.frames[frame_start:])
+
+        # Check persisted behavior first so running this against an older CLI
+        # fails on the stale preview itself, not its pre-journal wire format.
+        record = session_record()
+        expected_record = {
+            "lastSubtitle": "Permission", "lastBody": expected_body,
+            "lastNotificationStatus": "needsInput", "runtimeStatus": "needsInput",
+            "agentLifecycle": "needsInput",
+        }
+        actual_record = {key: record.get(key) for key in expected_record}
+        if actual_record != expected_record:
+            raise AssertionError(
+                f"{label}: approval must replace the previous completion; "
+                f"expected {expected_record!r}, got {actual_record!r}"
+            )
+        expected_notification = dict(
+            EXPECTED_NOTIFY, body=expected_body, request_identity="approval-tool-b"
+        )
+        notifications = notification_views(frames)
+        if notifications != [expected_notification]:
+            raise AssertionError(f"{label}: wrong approval notification: {notifications!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -346,6 +448,7 @@ def main() -> int:
     ) as td:
         root = Path(td)
         try:
+            test_native_permission_request_does_not_replay_previous_completion(cli_path, root)
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
             test_post_tool_use_resolves_exact_request_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
@@ -354,6 +457,7 @@ def main() -> int:
             test_permission_notification_survives_slow_authentication(cli_path, root)
             test_permission_notification_targets_rehomed_pane(cli_path, root)
             test_stalled_live_target_probe_does_not_starve_notification(cli_path, root)
+            test_codex_monitor_rss_reaches_a_plateau(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

@@ -8400,7 +8400,7 @@ fn handle_journal_extension_request(
     let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
-            .journal_producer_manifests()
+            .userland_journal_producer_manifests()
             .map(|producers| json!({"producers":producers}))
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
@@ -10313,7 +10313,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
@@ -10323,6 +10323,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "state": record.state.as_str(),
         "source": record.source.as_str(),
         "session": record.session,
+        "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
 }
@@ -12326,6 +12327,9 @@ fn handle_command_with_cancellation(
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
                 "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+                "foreground_executable": surface
+                    .process_id()
+                    .and_then(platform::foreground_process_name),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -13360,12 +13364,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
+            "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
@@ -19430,12 +19435,38 @@ mod tests {
         assert_eq!(result["source"], "socket");
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
-        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        // A fresh direct report publishes twice on the shared change epoch:
+        // its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let events = mux.resource_events_after(revision).unwrap();
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].changes[0]["resource"], "agent");
         assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
+    }
+
+    #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     }
 
     #[test]
@@ -23184,6 +23215,7 @@ mod tests {
                 state: Arc::<str>::from("working"),
                 source: Arc::<str>::from("hook"),
                 session: Some(Arc::<str>::from("review")),
+                agent: Some(Arc::<str>::from("claude")),
                 updated_at_ms: 41,
             }),
             json!({
@@ -23192,6 +23224,7 @@ mod tests {
                 "state": "working",
                 "source": "hook",
                 "session": "review",
+                "agent": "claude",
                 "updated_at_ms": 41,
             })
         );

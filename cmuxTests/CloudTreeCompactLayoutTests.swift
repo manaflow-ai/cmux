@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -86,13 +87,13 @@ struct CloudTreeCompactLayoutTests {
                 #expect(cell.accessibilityLabel()?.contains(node.searchableTitle) == true)
                 return cell
             }
-            if width == 220, percent == 200 {
-                // The unchanged leaf rows cannot fit title ink at this width
-                // and zoom, even before #13072. Capture the clipping and check
-                // full accessible identities; there is no visible gap to measure.
+            if width == 220, percent >= 150 {
+                // The narrow rows cannot fit title ink at this width and zoom.
+                // Capture the clipping and check full accessible identities;
+                // there is no visible gap to measure.
                 #if compiler(>=6.2)
-                Attachment.record("Leaf titles are clipped at 220pt/200%; spacing is not measurable. Accessible identities checked.",
-                                  named: "icon-spacing-220-200-pinned-\(pinned).txt")
+                Attachment.record("Leaf titles are clipped at 220pt/\(percent)%; spacing is not measurable. Accessible identities checked.",
+                                  named: "icon-spacing-220-\(percent)-pinned-\(pinned).txt")
                 #endif
                 continue
             }
@@ -146,8 +147,22 @@ struct CloudTreeCompactLayoutTests {
         let starts = try nodes.map { node in
             let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
             let ink = try inkColumns(in: cell)
-            try #require(ink.runs.count >= 2)
-            return CGFloat(ink.runs[1].lowerBound) / ink.scale
+            // A hollow glyph can contain several disconnected ink-column runs.
+            // Locate title ink beyond the rendered icon, rather than assuming
+            // the second run belongs to the title.
+            let iconBounds = try #require(
+                descendants(of: cell).compactMap { view -> CGRect? in
+                    guard view is CmuxResolvedIconImageView else { return nil }
+                    return cell.convert(view.bounds, from: view)
+                }.min(by: { $0.minX < $1.minX }),
+                "Expected an appearance-resolved row icon"
+            )
+            #expect(iconBounds.width > 0)
+            let titleRun = try #require(
+                ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= iconBounds.maxX },
+                "Expected title ink after the row icon"
+            )
+            return CGFloat(titleRun.lowerBound) / ink.scale
         }
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.
@@ -159,7 +174,7 @@ struct CloudTreeCompactLayoutTests {
     }
 
     @Test("Folders start as close to their carets as plain section headings",
-          arguments: [220.0, 360.0], [100, 150])
+          arguments: [220.0, 360.0], [50, 100, 150])
     func compactRows(width: Double, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
         UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
@@ -182,7 +197,7 @@ struct CloudTreeCompactLayoutTests {
         let sectionGap = try leadingGap(section, in: outline)
         #expect(abs(folderGap - sectionGap) <= 4 * scale,
                 "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
-        #expect(folderGap <= 6 * scale, "No reserved unread column between caret and folder")
+        #expect(folderGap <= 6 * scale, "Read rows do not reserve an empty unread column")
         for row in 0..<outline.numberOfRows {
             #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }

@@ -45,13 +45,15 @@ struct TmuxWorkspacePaneOverlayView: View {
         return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
     }
 
+    /// Clips the active border to the drawable canvas so its bottom and right
+    /// strokes remain visible when the zoom container reaches a window edge.
     private func overlayCanvas(timelineDate: Date?, attentionColor: Color) -> some View {
-        Canvas { context, _ in
+        Canvas { context, size in
             if let activePaneBorderRect,
                let activePaneBorderColorHex {
                 drawActivePaneBorder(
                     in: &context,
-                    rect: activePaneBorderRect,
+                    rect: activePaneBorderRect.intersection(CGRect(origin: .zero, size: size)),
                     colorHex: activePaneBorderColorHex
                 )
             }

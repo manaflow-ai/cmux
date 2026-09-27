@@ -629,7 +629,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
             )
         )
@@ -1044,11 +1044,10 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let attributedAccessibilityLink = try #require(
-            textView.attributedStringValue.attribute(
-                .accessibilityLink,
-                at: linkLocation,
-                effectiveRange: nil
-            ) as? SidebarRowTextAccessibilityLink
+            textView.accessibilityAttributedString(
+                for: NSRange(location: linkLocation, length: 1)
+            )?.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
         )
 
         #expect(accessibilityLink === attributedAccessibilityLink)
@@ -1373,7 +1372,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: attributed.length)
             )
         )
@@ -1850,6 +1849,42 @@ struct SidebarAppKitRowCellTests {
 
         cell.enforcePointerHovering(true)
         #expect(applies == 1)
+    }
+
+    /// Closing a workspace reloads the table, so every visible row gets a
+    /// fresh or recycled cell. None of them may paint the close button
+    /// unless the pointer is on that row.
+    @Test
+    func closeButtonStaysConcealedOnFreshUnhoveredCell() {
+        let cell = SidebarWorkspaceRowTableCellView()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let configured = Self.configuredCell(model: Self.makeModel())
+        #expect(configured.closeButtonPaintForTesting.isHidden)
+        #expect(configured.closeButtonPaintForTesting.alpha == 0)
+    }
+
+    @Test
+    func recycledHoveredCellSnapsCloseButtonHidden() {
+        let cell = Self.configuredCell(model: Self.makeModel())
+        cell.enforcePointerHovering(true)
+        #expect(!cell.closeButtonPaintForTesting.isHidden)
+
+        cell.prepareForReuse()
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
+
+        let nextModel = Self.makeModel()
+        cell.configure(
+            model: nextModel,
+            actions: Self.makeActions(model: nextModel),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(cell.closeButtonPaintForTesting.isHidden)
+        #expect(cell.closeButtonPaintForTesting.alpha == 0)
     }
 
     @Test

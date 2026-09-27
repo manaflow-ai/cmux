@@ -320,9 +320,8 @@ struct SessionIndexView: View {
                 }
             }
 
-            // Keep the category selector intentionally quiet. Folder scope
-            // and reload remain model capabilities, but the secondary icon
-            // controls competed with the three primary grouping choices.
+            Spacer(minLength: 4)
+            VaultAllSessionsBar.reloadButton(isLoading: store.isLoading) { store.reload() }
         }
         // Match the right-sidebar mode bar above: the same outer insets and
         // the same 28-point chrome rhythm.
@@ -548,7 +547,8 @@ struct SessionIndexView: View {
         // Rapid keystrokes bump the task id, cancelling this genuine debounce
         // deadline before any transcript work starts.
         try? await ContinuousClock().sleep(for: .milliseconds(200))
-        guard !Task.isCancelled else { return }
+        // Reload completion changes searchTaskKey and searches the fresh index once.
+        guard !Task.isCancelled, !store.isLoading else { return }
         let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
         guard !Task.isCancelled else { return }
         searchResults = outcome.entries

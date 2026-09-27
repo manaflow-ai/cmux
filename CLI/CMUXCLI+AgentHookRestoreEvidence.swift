@@ -74,6 +74,14 @@ extension CMUXCLI {
         }
     }
 
+    /// The launch record a hook should publish for resume, with the session's external launcher
+    /// preserved.
+    ///
+    /// Selection has several early exits (a rejected capture, the codex permission-evidence branch),
+    /// and the external launcher is a property of the session rather than of whichever record wins,
+    /// so preservation wraps the whole selection instead of sitting on one path. Ancestor detection
+    /// can miss on a later hook once the launcher process is gone; a record that lost the id must
+    /// never erase it. #10494
     func preferredAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
@@ -84,6 +92,22 @@ extension CMUXCLI {
         guard ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] != "1" else {
             return nil
         }
+        return selectedAgentHookResumeLaunchCommand(
+            kind: kind,
+            current: current,
+            mapped: mapped,
+            transcriptPath: transcriptPath,
+            currentPID: currentPID
+        )?.preservingExternalLauncher(from: [current, mapped?.launchCommand])
+    }
+
+    private func selectedAgentHookResumeLaunchCommand(
+        kind: String,
+        current: AgentHookLaunchCommandRecord?,
+        mapped: ClaudeHookSessionRecord?,
+        transcriptPath: String?,
+        currentPID: Int?
+    ) -> AgentHookLaunchCommandRecord? {
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return current
         }
@@ -128,6 +152,8 @@ extension CMUXCLI {
             transcriptPath: transcriptPath
         )
     }
+
+
 
     func preferredAgentHookResumeWorkingDirectory(
         kind: String,

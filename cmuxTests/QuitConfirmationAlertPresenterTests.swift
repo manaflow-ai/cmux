@@ -7,9 +7,54 @@ import Testing
 @testable import cmux
 #endif
 
+/// Counts terminate requests for ``QuitConfirmationAlertPresenterTests`` without
+/// ending the test process.
+@MainActor
+private final class TerminateRequestRecorder {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
+    }
+}
+
 @MainActor
 @Suite
 struct QuitConfirmationAlertPresenterTests {
+    /// Regression coverage for issue #10788: `simulate_shortcut cmd+q` arrives
+    /// inside the debug socket's `DispatchQueue.main.sync` hop, so terminating
+    /// synchronously from there deadlocks the app — `applicationShouldTerminate`
+    /// answers `.terminateLater` and its `@MainActor` cleanup continuation can
+    /// never start while the main queue is still inside that block.
+    ///
+    /// The quit path must therefore hand the terminate to a run-loop block
+    /// (outside any main-queue callout) and return, which is what this asserts:
+    /// nothing terminates during the call, and the terminate still lands on a
+    /// later run-loop turn.
+    @Test
+    func quitTerminationIsDeferredOutOfTheCallersMainQueueBlock() async {
+        let recorder = TerminateRequestRecorder()
+
+        AppDelegate.requestApplicationTermination {
+            recorder.record()
+        }
+
+        #expect(
+            recorder.count == 0,
+            "terminate ran inside the caller's main-queue block; the .terminateLater cleanup task could never start behind it"
+        )
+
+        // Run-loop blocks run in FIFO order, so once this later block runs the
+        // scheduled terminate must already have been delivered.
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.default]) {
+                continuation.resume()
+            }
+        }
+
+        #expect(recorder.count == 1, "the deferred terminate never reached the run loop")
+    }
+
     @Test
     func freshSnapshotDeadlineTerminatesWithCachedIndexesAfterOwnedCleanup() {
         #expect(
@@ -176,7 +221,12 @@ struct QuitConfirmationAlertPresenterTests {
         // and leaves two usable, non-overlapping controls.
         alert.window.displayIfNeeded()
         alert.window.contentView?.layoutSubtreeIfNeeded()
-        let buttonFrames = alert.buttons.map(\.frame)
+        // Compare alignment rects, not raw frames: where NSAlert stacks the
+        // buttons, each bezel button's frame carries transparent padding
+        // outside its visible control (e.g. frame (-6,-6,240,40) around a
+        // 228x28 control), so adjacent frames legitimately overlap in that
+        // padding while the controls themselves stay separated.
+        let buttonFrames = alert.buttons.map { $0.alignmentRect(forFrame: $0.frame) }
         #expect(buttonFrames.count == 2)
         #expect(alert.didLayoutWhileHidden)
         #expect(buttonFrames.allSatisfy { $0.width > 0 && $0.height > 0 })

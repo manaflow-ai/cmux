@@ -54,8 +54,9 @@ def test_consumers_prefer_warm_aggregate_then_selective_layers_before_remote_agg
         peer = labels.index("Try trusted fleet peer artifact source")
         layers = labels.index("Restore selective app-host product layers")
         r2 = labels.index("Try shared R2 artifact transport")
+        parallel = labels.index("Try parallel GitHub artifact transport")
         github = labels.index("Download compiled app-host test product")
-        assert local < peer < layers < r2 < github
+        assert local < peer < layers < r2 < parallel < github
 
         layer_step = step_by_id(job, "restore-layers")
         assert layer_step["env"]["CMUX_APP_HOST_LAYER_PROFILE"] == "app-host-tests"

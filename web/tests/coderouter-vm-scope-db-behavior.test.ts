@@ -9,7 +9,8 @@ import { addAccount } from "../services/coderouter/accounts";
 import { encryptCredential, type CredentialKeyService } from "../services/coderouter/encryption";
 import type { CodexCredential } from "../services/coderouter/types";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
-import { authenticateRouteToken, deleteAccount, issueRouteToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
+import "./vm-authorization-fixture";
+import { authenticateRouteToken, deleteAccount, issueRouteToken, issueVmAuthorizationToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
 import { listClaudeAccounts } from "../services/coderouter/claudeUpstream";
 import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext, resolveCoderouterControlContext } from "../services/coderouter/requestContext";
 import { GET as accountsGet } from "../app/api/coderouter/accounts/route";
@@ -126,6 +127,17 @@ dbTest("same creator cannot authorize another team's VM", async () => {
   expect(identity).toMatchObject({ ok: true, identity: { teamId: TEAM_A, vmId: vmA, poolId: poolA } });
   expect(await authenticateRequestRouteToken(guest('/v1/models', { 'x-cmux-vm-id': vmB }))).toMatchObject({ ok: false });
   expect(await resolveCoderouterUsageTeam(guest('/api/coderouter/accounts', { 'x-cmux-vm-id': vmB }))).toMatchObject({ ok: false });
+});
+
+dbTest("a signed VM authorization authenticates against the live VM row", async () => {
+  // cloud_vms.id is uuid and coderouter_route_tokens.vm_id is text; the
+  // lookup must not compare the two columns directly.
+  const signed = await issueVmAuthorizationToken(TEAM_A, USER, vmA);
+  expect(await authenticateRouteToken(signed.token)).toEqual({ teamId: TEAM_A, stackUserId: USER, vmId: vmA, poolId: poolA });
+  const request = new Request("https://coderouter.test/v1/models", { headers: { "x-cmux-authorization": `Bearer ${signed.token}` } });
+  expect(await authenticateRequestRouteToken(request)).toMatchObject({ ok: true, identity: { teamId: TEAM_A, vmId: vmA, poolId: poolA } });
+  await db`update cloud_vms set status = 'destroyed' where id = ${vmA}`;
+  expect(await authenticateRouteToken(signed.token)).toBeNull();
 });
 
 dbTest("pool membership and account visibility constrain selection and cached sessions", async () => {

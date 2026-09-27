@@ -74,6 +74,8 @@ extension ShortcutAction {
         case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
+        case .focusHistoryLast:
+            return String(localized: "shortcut.focusHistoryLast.label", defaultValue: "Focus Last")
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
         case .renameTab: return "Rename Tab"
         case .renameWorkspace: return "Rename Workspace"
@@ -174,6 +176,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
+        case .toggleFileEditorWordWrap:
+            return String(localized: "shortcut.toggleFileEditorWordWrap.label", defaultValue: "Toggle File Editor Word Wrap")
         case .openBrowser: return "Open Browser"
         case .focusBrowserAddressBar: return "Focus Address Bar"
         case .browserBack: return "Back"

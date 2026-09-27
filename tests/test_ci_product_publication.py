@@ -12,7 +12,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def condition(expression, *, full_suite, publish="true"):
+def condition(expression, *, full_suite, publish="true", cli="false", compile_admitted="false", unit_suite="false"):
     """Evaluate the small boolean subset used by these actual workflow gates."""
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
@@ -22,10 +22,18 @@ def condition(expression, *, full_suite, publish="true"):
             return repr("success")
         if name.endswith(".outputs.full_suite") or name == "inputs.full_suite":
             return repr(full_suite)
+        if name.endswith(".outputs.unit_suite") or name == "inputs.unit_suite":
+            return repr(unit_suite)
         if name.endswith(".outputs.compile_admitted") or name == "inputs.compile_admitted":
-            return repr("false")
+            return repr(compile_admitted)
+        if name.endswith(".outputs.cli") or name == "inputs.cli":
+            return repr(cli)
         if name.endswith(".outputs.publish"):
             return repr(publish)
+        if name == "inputs.unit_in_admission":
+            # Admission running the changed suites itself only drops the
+            # separate worker; it never changes what gets published.
+            return repr("")
         if name.endswith((".outputs.macos", ".outputs.release_build")) or name in {
             "inputs.macos",
             "inputs.release_build",
@@ -46,12 +54,14 @@ class ProductPublicationTests(unittest.TestCase):
         cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
-    def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
+    def publication(self, *, full_suite, cli="false", unit_suite="false", event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
         step = next((s for s in self.job["steps"] if s.get("id") == "publish-products"), None)
         if step is None:
             return "true"  # The previous workflow always packaged and uploaded.
         self.assertEqual(step["env"], {
             "PRODUCT_FULL_SUITE": "${{ inputs.full_suite }}",
+            "PRODUCT_CLI": "${{ inputs.cli }}",
+            "PRODUCT_UNIT_SUITE": "${{ inputs.unit_suite }}",
             "PRODUCT_EVENT": "${{ github.event_name }}",
             "PRODUCT_HEAD_REPOSITORY": "${{ github.event.pull_request.head.repo.full_name }}",
             "PRODUCT_REPOSITORY": "${{ github.repository }}",
@@ -59,6 +69,7 @@ class ProductPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             env = dict(os.environ, GITHUB_OUTPUT=str(output), PRODUCT_FULL_SUITE=full_suite,
+                       PRODUCT_CLI=cli, PRODUCT_UNIT_SUITE=unit_suite,
                        PRODUCT_EVENT=event, PRODUCT_HEAD_REPOSITORY=head, PRODUCT_REPOSITORY=repo)
             subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                            text=True, capture_output=True, check=True)
@@ -67,6 +78,8 @@ class ProductPublicationTests(unittest.TestCase):
     def test_only_known_compile_only_forks_skip_packaging_and_upload(self):
         cases = [
             ({"full_suite": "false"}, "false"),
+            ({"full_suite": "false", "cli": "true"}, "true"),
+            ({"full_suite": "false", "unit_suite": "true"}, "true"),
             ({"full_suite": "true"}, "true"),
             ({"full_suite": ""}, "true"),
             ({"full_suite": "unknown"}, "true"),
@@ -93,7 +106,14 @@ class ProductPublicationTests(unittest.TestCase):
                 consumers.append(name)
                 self.assertFalse(condition(job["if"], full_suite="false"), name)
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
-        self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
+        self.assertEqual(set(consumers), {"app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"})
+        # `unit-ci` admits exactly one consumer under the compile-only policy,
+        # and the product it reads is published for it (see the unit-tier case
+        # in test_only_known_compile_only_forks_skip_packaging_and_upload).
+        unit_if = self.workflow["jobs"]["app-host-unit-tests"]["if"]
+        self.assertTrue(condition(unit_if, full_suite="false", unit_suite="true"))
+        lag_if = self.workflow["jobs"]["tests-build-and-lag"]["if"]
+        self.assertFalse(condition(lag_if, full_suite="false", unit_suite="true"))
         for name in consumers:
             self.assertNotIn("reuse-products", str(self.workflow["jobs"][name]["if"]))
 
@@ -126,6 +146,53 @@ class ProductPublicationTests(unittest.TestCase):
         )
 
 
+    def test_app_host_shards_only_consume_the_admission_product(self):
+        job = self.workflow["jobs"]["app-host-unit-tests"]
+        steps = job["steps"]
+        names = [step["name"] for step in steps]
+
+        self.assertIn("needs.macos-compile-admission.outputs.artifact_id", str(job))
+        restore_index = names.index("Restore compiled app-host test product")
+        app_host_indices = [
+            index for index, step in enumerate(steps)
+            if "scripts/ci/run-app-host-xcodebuild.sh" in step.get("run", "")
+        ]
+        self.assertTrue(app_host_indices)
+        self.assertLess(restore_index, min(app_host_indices))
+
+        run_text = "\n".join(step.get("run", "") for step in steps)
+        self.assertNotIn("-project cmux.xcodeproj", run_text)
+        self.assertNotIn("-resolvePackageDependencies", run_text)
+        self.assertNotIn(".ci-source-packages", str(job))
+        self.assertNotIn("Cache Swift packages", names)
+        self.assertNotIn("Resolve Swift packages", names)
+        for setup_name in (
+            "Capture Ghostty revision",
+            "Cache GhosttyKit.xcframework",
+            "Download pre-built GhosttyKit.xcframework",
+            "Install Rust",
+        ):
+            self.assertNotIn(setup_name, names)
+        self.assertNotIn("GhosttyKit.xcframework", str(job))
+        self.assertNotIn("install-rust-ci.sh", str(job))
+
+        checkout_steps = [
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkout_steps), 2)
+        for step in checkout_steps:
+            self.assertNotIn("submodules", step.get("with", {}))
+
+        for step in steps:
+            run = step.get("run", "")
+            if "scripts/ci/run-app-host-xcodebuild.sh" not in run:
+                continue
+            self.assertIn("-xctestrun", run, step["name"])
+            self.assertIn("test-without-building", run, step["name"])
+
+
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
         for name in ("Compile app-host test product", "Validate Swift warning budget",
@@ -145,7 +212,7 @@ class ProductPublicationTests(unittest.TestCase):
             if s.get("name") == "Check routed macOS jobs"
         )
         needs = {name: {"result": results} for name in self.workflow["jobs"]["macos-status"]["needs"]}
-        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true"}
+        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true", "cli": "false"}
         env = {**os.environ, "MACOS_INPUTS": json.dumps(inputs), "MACOS_NEEDS": json.dumps(needs)}
         return subprocess.run(["bash", "-c", step["run"]], env=env, text=True, capture_output=True)
 

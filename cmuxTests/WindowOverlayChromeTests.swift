@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -26,7 +27,7 @@ struct WindowOverlayChromeTests {
         defer { browser.tearDown() }
 
         for _ in 0..<3 {
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
             browser.bind(webView: webView, to: anchor, visibleInUI: true)
             content.layoutSubtreeIfNeeded()
             browser.synchronizeWebViewForAnchor(anchor)
@@ -87,19 +88,43 @@ struct WindowOverlayChromeTests {
 
     @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
     func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+        // A terminal surface re-applies the configured window backdrop when it
+        // mounts (`GhosttyNSView.viewDidMoveToWindow` →
+        // `applyWindowBackgroundIfActive`). With glass off in settings, that
+        // mount removes the native glass root on macOS 26, where
+        // `NSGlassEffectView` exists. Configure glass in settings so the
+        // surface keeps the glass root the test installed. That leaves the
+        // portals as the only thing that could replace it.
+        let defaults = UserDefaults.standard
+        let savedBlendMode = defaults.object(forKey: "sidebarBlendMode")
+        let savedGlassEnabled = defaults.object(forKey: "bgGlassEnabled")
+        defer {
+            defaults.set(savedBlendMode, forKey: "sidebarBlendMode")
+            defaults.set(savedGlassEnabled, forKey: "bgGlassEnabled")
+        }
+        defaults.set(useGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
+        defaults.set(useGlass, forKey: "bgGlassEnabled")
+
         let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
+        let glassEffect = WindowGlassEffect()
         if useGlass {
-            WindowGlassEffect().apply(to: window)
+            glassEffect.apply(to: window)
         }
-        let windowRoot = window.contentView
+        let windowRoot = try #require(window.contentView)
+        if useGlass && glassEffect.isAvailable {
+            #expect(windowRoot !== content)
+            #expect(glassEffect.originalContentView(for: window) === content)
+        } else {
+            #expect(windowRoot === content)
+        }
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let terminalView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         browser.bind(webView: webView, to: browserAnchor, visibleInUI: true)
         terminal.bind(hostedView: terminalView, to: terminalAnchor, visibleInUI: true)
@@ -110,11 +135,7 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            if useGlass {
-                #expect(root !== windowRoot)
-            } else {
-                #expect(root === windowRoot)
-            }
+            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)

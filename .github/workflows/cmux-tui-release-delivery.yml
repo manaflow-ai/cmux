@@ -11,6 +11,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-release.yml
+
 concurrency:
   group: cmux-tui-registry-delivery
   cancel-in-progress: false
@@ -18,7 +25,7 @@ concurrency:
 jobs:
   delivery:
     name: verify registry delivery
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       # Always use the trusted default branch, never workflow_run's source.

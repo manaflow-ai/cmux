@@ -5238,15 +5238,23 @@ mod tests {
     #[test]
     fn browser_proxy_accepts_private_ipv4_and_ipv6_authorities() {
         assert_eq!(
-            remote_browser_proxy::parse_connect_authority("10.42.0.7:8000").unwrap(),
+            remote_browser_proxy::parse_connect_authority_with_loopback("10.42.0.7:8000", false)
+                .unwrap(),
             ("10.42.0.7".into(), 8000)
         );
         assert_eq!(
-            remote_browser_proxy::parse_connect_authority("[fd12::7]:8443").unwrap(),
+            remote_browser_proxy::parse_connect_authority_with_loopback("[fd12::7]:8443", false)
+                .unwrap(),
             ("fd12::7".into(), 8443)
         );
-        assert!(remote_browser_proxy::parse_connect_authority("192.0.2.7:8000").is_err());
-        assert!(remote_browser_proxy::parse_connect_authority("127.0.0.1:8000").is_err());
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("192.0.2.7:8000", false)
+                .is_err()
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:8000", false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -5270,5 +5278,40 @@ mod tests {
             parsed.connect.windows(2).any(|pair| pair == ["--wireguard-hub", "/tmp/cmux-wg.sock"])
         );
         assert!(parsed.connect.iter().any(|flag| flag == "--carrier"));
+    }
+
+    #[test]
+    fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
+        let rejected = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allowed-host".into(),
+            "127.0.0.1".into(),
+        ]);
+        assert!(rejected.is_err());
+
+        let parsed = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allow-loopback".into(),
+            "--allowed-host".into(),
+            "localhost".into(),
+            "--allowed-host".into(),
+            "::1".into(),
+        ])
+        .unwrap();
+        assert!(parsed.allow_loopback);
+        assert_eq!(parsed.allowed_hosts, vec!["127.0.0.1", "::1"]);
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("localhost:3000", true)
+                .unwrap(),
+            ("127.0.0.1".into(), 3000)
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
+                .is_err()
+        );
     }
 }

@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -19,7 +22,8 @@ struct CloudManualMirrorTransportTests {
             reference: "operation=op trace=trace"
         )
 
-        #expect(presentation.title == "Cloud terminal could not start")
+        // The pane-centered failure card (9bf6cb8c94) uses the short title.
+        #expect(presentation.title == "Couldn’t open terminal")
         #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
         #expect(!presentation.showsProgress)
         #expect(presentation.showsReconnectButton)

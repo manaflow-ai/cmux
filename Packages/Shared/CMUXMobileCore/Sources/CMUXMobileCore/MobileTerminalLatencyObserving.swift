@@ -29,6 +29,17 @@ public extension MobileTerminalLatencyObserving {
     func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
         inputStarted(surfaceID: surfaceID, byteCount: byteCount, correlate: true)
     }
+
+    /// Mac stage stamps and pacer state carried on a received frame. Called
+    /// before ``outputReceived(surfaceID:appliedInputSequence:byteCount:queueDepth:receivedAtNanos:)``
+    /// for the same frame, while the keystroke's send time is still known.
+    /// Observers that do not split latency per hop ignore it.
+    func hostTimingReceived(
+        surfaceID: String,
+        appliedInputSequence: UInt64?,
+        timing: MobileTerminalHostTiming,
+        receivedAtNanos: UInt64?
+    ) {}
 }
 
 public struct NoopMobileTerminalLatencyObserver: MobileTerminalLatencyObserving {

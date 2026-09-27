@@ -298,7 +298,9 @@ def git_text(*arguments: str) -> str:
     )
     if completed.returncode != 0:
         raise ProfileError(f"git {' '.join(arguments)} failed")
-    return completed.stdout.strip()
+    # Leading whitespace is data: `submodule status` marks a clean gitlink and
+    # porcelain status marks a worktree-only change with a leading space.
+    return completed.stdout.rstrip("\n")
 
 
 def source_identity(expected_commit: str | None, expected_tree: str | None) -> dict[str, str]:

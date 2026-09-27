@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -36,7 +37,7 @@ extension SetAutoTitleSocketTests {
             #expect(manager.setCustomTitle(tabId: workspace.id, title: "Review / 本番"))
             try await fixture.drain()
             #expect(fixture.provider.workspaceRenames == ["Review / 本番"])
-            fixture.install(try fixture.state(revision: 3, name: "Calculate 2+2", workspaceName: "Review / 本番"))
+            fixture.install(try fixture.state(revision: 3, name: "Calculate 2+2", workspaceName: "Review / 本番", nameSource: "auto"))
             fixture.reconcile()
             #expect(workspace.title == "Review / 本番")
             try fixture.assertParity("Calculate 2+2", workspaceName: "Review / 本番")
@@ -49,15 +50,21 @@ extension SetAutoTitleSocketTests {
             let fixture = try CloudSidebarRenameFixture(manager: manager, workspace: workspace, catalog: .shared)
             defer { fixture.close() }
             let context = try #require(fixture.catalog.cloudAgentNameContext(workspaceID: workspace.id, panelID: fixture.panelID)?.wire)
-            if userFirst { #expect(workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Arbitrary / 名前")) }
-            _ = try await callAsync(method: "surface.sync_codex_native_title", params: [
+            if userFirst {
+                #expect(workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Arbitrary / 名前"))
+                try await fixture.drain()
+                fixture.install(try fixture.state(revision: 2, name: "Arbitrary / 名前", nameSource: "user"))
+                fixture.reconcile()
+            }
+            let agent = try await callAsync(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString, "panel_id": fixture.panelID.uuidString,
                 "title": "Calculate 2+2", "cloud_name_context": context
             ])
+            #expect((agent["result"] as? [String: Any])?["applied"] as? Bool == !userFirst)
             if !userFirst { #expect(workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Arbitrary / 名前")) }
             try await fixture.drain()
             #expect(fixture.provider.tabRenames.last == "Arbitrary / 名前")
-            fixture.install(try fixture.state(revision: 4, name: "Arbitrary / 名前"))
+            fixture.install(try fixture.state(revision: 4, name: "Arbitrary / 名前", nameSource: "user"))
             fixture.reconcile()
             let delayed = try await callAsync(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString, "panel_id": fixture.panelID.uuidString,
@@ -65,7 +72,7 @@ extension SetAutoTitleSocketTests {
             ])
             #expect((delayed["result"] as? [String: Any])?["applied"] as? Bool == false)
             try await fixture.drain()
-            fixture.install(try fixture.state(revision: 1, generation: "reconnected", name: "Arbitrary / 名前"))
+            fixture.install(try fixture.state(revision: 1, generation: "reconnected", name: "Arbitrary / 名前", nameSource: "user"))
             fixture.reconcile()
             try fixture.assertParity("Arbitrary / 名前")
             #expect(workspace.panelCustomTitleSources[fixture.panelID] == .remote)

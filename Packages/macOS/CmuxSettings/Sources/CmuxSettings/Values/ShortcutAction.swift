@@ -81,6 +81,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
+    /// Toggles focus between the current position and the one it last left.
+    case focusHistoryLast
     case selectWorkspaceByNumber
     case renameTab
     case renameWorkspace
@@ -166,6 +168,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Browser & Find
     case openDiffViewer
     case saveFilePreview
+    /// Toggles soft wrapping while a file-editor text view owns focus.
+    case toggleFileEditorWordWrap
     case openBrowser
     case focusBrowserAddressBar
     case browserBack
@@ -316,6 +320,8 @@ extension ShortcutAction {
             return .or(.atom(.browserFocus), .atom(.markdownFocus))
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+        case .toggleFileEditorWordWrap:
+            return .atom(.filePreviewTextEditorFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,

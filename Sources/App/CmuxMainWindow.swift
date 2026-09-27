@@ -402,13 +402,12 @@ final class CmuxMainWindow: NSWindow {
     /// otherwise be stranded off-screen (e.g. a display was disconnected), so a
     /// genuinely lost window can still be pulled back into view.
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        if Self.shouldPreserveFrameDuringConstrain(
-            frameRect,
-            visibleFrames: NSScreen.screens.map(\.visibleFrame)
-        ) {
-            return frameRect
-        }
-        return super.constrainFrameRect(frameRect, to: screen)
+        // AppKit's constrainer can synchronously call back into setFrame while
+        // WindowServer is processing a display reconfiguration. Returning the
+        // proposed frame avoids that _adjustWindowToScreen → setFrame → layout
+        // cycle. Stranded windows are repaired by the display reconciliation
+        // pass, which has the complete display topology available.
+        return frameRect
     }
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that

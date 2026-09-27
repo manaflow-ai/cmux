@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {

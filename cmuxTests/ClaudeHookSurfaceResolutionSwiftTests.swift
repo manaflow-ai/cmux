@@ -852,7 +852,14 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return data.base64EncodedString()
     }
 
-    func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+    func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        currentDirectoryURL: URL? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -860,6 +867,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
+        process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

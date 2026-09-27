@@ -18,6 +18,14 @@ permissions:
   # apart from a failure in a job the cask does not consume.
   actions: read
 
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it. The job name the gate
+  # below matches is pinned the same way, by tests/test_release_homebrew_gate.py.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/release.yml
+
 jobs:
   gate:
     name: Require a signed macOS build
@@ -34,7 +42,7 @@ jobs:
     # SHA256 below, so the only thing it needs from the run is that the signed
     # build job succeeded.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'cancelled' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
@@ -66,7 +74,7 @@ jobs:
 
   update-cask:
     needs: gate
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.gate.outputs.proceed == 'true' }}
     steps:
       - name: Get version
@@ -150,7 +158,7 @@ jobs:
               strategy :github_latest
             end
 
-            depends_on macos: ">= :sonoma"
+            depends_on macos: :sonoma
 
             app "cmux.app"
             binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"

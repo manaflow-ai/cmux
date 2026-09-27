@@ -419,7 +419,14 @@ extension MobileShellComposite {
                     )
                 }
             },
-            didUpdate: didUpdate
+            didUpdate: { [weak self] result in
+                self?.recordTaskModelResult(
+                    provider: provider,
+                    correlationID: macDeviceID,
+                    result: result
+                )
+                didUpdate?(result)
+            }
         )
         let result = discoveredTaskModelResult(
             provider: provider,

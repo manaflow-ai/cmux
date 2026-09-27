@@ -133,19 +133,25 @@ def _run_nushell(
         user_bin = root / "user-bin"
         user_bin.mkdir()
         user_claude = user_bin / "claude"
-        user_claude.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        user_claude.write_text("#!/bin/sh\necho user-claude\n", encoding="utf-8")
         user_claude.chmod(0o700)
+        shim = root / "cmux-claude-shim"
+        shim.write_text("#!/bin/sh\necho cmux-shim\n", encoding="utf-8")
+        shim.chmod(0o700)
 
         env = _clean_environment(root, user_bin, "nu")
+        env["CMUX_CLAUDE_WRAPPER_SHIM"] = str(shim)
         if disabled:
             env["CMUX_CLAUDE_INTEGRATION_DISABLED"] = "1"
 
         integration = str(INTEGRATIONS["nu"]).replace('"', r'\"')
+        # Nushell cannot drop a definition at run time (`hide` is parse-time),
+        # so the wrapper stays defined and the toggle decides where it routes.
         script = "; ".join(
             [
                 f'source "{integration}"',
                 "print $\"custom=((scope commands | where name == 'claude' | length))\"",
-                "print $\"command=((which claude | get -o 0.path | default ''))\""
+                "print $\"ran=((claude | str trim))\"",
             ]
         )
         result = subprocess.run(
@@ -197,16 +203,16 @@ def test_nushell_enabled_defines_claude_wrapper() -> None:
     result, _ = run
     assert result.returncode == 0, result.stderr
     assert "custom=1" in result.stdout, result.stdout
+    assert "ran=cmux-shim" in result.stdout, result.stdout
 
 
 def test_nushell_disabled_leaves_user_claude_unwrapped() -> None:
     run = _run_nushell(disabled=True)
     if run is None:
         return
-    result, user_claude = run
+    result, _ = run
     assert result.returncode == 0, result.stderr
-    assert "custom=0" in result.stdout, result.stdout
-    assert f"command={user_claude}" in result.stdout, result.stdout
+    assert "ran=user-claude" in result.stdout, result.stdout
 
 
 if __name__ == "__main__":
@@ -218,11 +224,11 @@ if __name__ == "__main__":
     nu_disabled = _run_nushell(disabled=True)
     if nu_enabled is not None and nu_disabled is not None:
         enabled_result, _ = nu_enabled
-        disabled_result, user_claude = nu_disabled
+        disabled_result, _ = nu_disabled
         assert enabled_result.returncode == 0, enabled_result.stderr
         assert "custom=1" in enabled_result.stdout, enabled_result.stdout
+        assert "ran=cmux-shim" in enabled_result.stdout, enabled_result.stdout
         assert disabled_result.returncode == 0, disabled_result.stderr
-        assert "custom=0" in disabled_result.stdout, disabled_result.stdout
-        assert f"command={user_claude}" in disabled_result.stdout, disabled_result.stdout
+        assert "ran=user-claude" in disabled_result.stdout, disabled_result.stdout
 
     print("PASS: Claude integration toggle controls shell wrapper and shim installation")

@@ -94,17 +94,28 @@ const API_KEY_REQUEST_TIMEOUT_MS = 10_000;
 
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
 
+/** A team the viewer can move a native account into. */
+export type CoderouterTransferTeam = { readonly id: string; readonly name: string };
+
 export function CoderouterAccountsSection({
   teamId,
+  teamName,
   viewerUserId,
   canManage,
+  canManageApiKeys,
+  transferTeams = [],
   claude,
   native,
   shared,
 }: {
   readonly teamId: string;
+  /** Selected team's display name, used in the transfer confirmation. */
+  readonly teamName?: string;
   readonly viewerUserId?: string;
   readonly canManage: boolean;
+  /** The viewer's other teams that can receive a native account. */
+  readonly transferTeams?: readonly CoderouterTransferTeam[];
+  readonly canManageApiKeys: boolean;
   readonly claude: ClaudeAccountsState;
   readonly native: NativeAccountsState;
   readonly shared: SharedAccountsState;
@@ -117,6 +128,12 @@ export function CoderouterAccountsSection({
   // Field ids are per form, so switching the add tab never leaves two inputs
   // with one id.
   const partialFailure = claude.kind === "error" || native.kind === "error" || shared.kind === "error";
+  // A moved account leaves this list on refresh, so its success notice lives
+  // here rather than in the row that is about to unmount.
+  const [transferNotice, setTransferNotice] = useState<string | null>(null);
+  const transfer = canManage && transferTeams.length > 0
+    ? { sourceTeamName: teamName ?? teamId, teams: transferTeams, onTransferred: setTransferNotice }
+    : null;
 
   return (
     <section className="mb-4">
@@ -138,6 +155,9 @@ export function CoderouterAccountsSection({
       ) : null}
       {partialFailure ? (
         <Notice title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      ) : null}
+      {transferNotice ? (
+        <p role="status" className="mb-2 border border-border p-3 text-xs">{transferNotice}</p>
       ) : null}
 
       {total === 0 ? (
@@ -172,6 +192,7 @@ export function CoderouterAccountsSection({
                 viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
+                transfer={transfer}
               />
             ))}
             {sharedAccounts.map((account) => (
@@ -187,7 +208,7 @@ export function CoderouterAccountsSection({
       )}
 
       {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
-      <CoderouterApiKeysSection teamId={teamId} canManage={canManage} />
+      <CoderouterApiKeysSection teamId={teamId} canManage={canManageApiKeys} />
     </section>
   );
 }
@@ -531,16 +552,24 @@ function ClaudeAccountRow({
   );
 }
 
+type NativeTransferOptions = {
+  readonly sourceTeamName: string;
+  readonly teams: readonly CoderouterTransferTeam[];
+  readonly onTransferred: (message: string) => void;
+};
+
 function NativeAccountRow({
   teamId,
   viewerUserId,
   account,
   canManage,
+  transfer,
 }: {
   readonly teamId: string;
   readonly viewerUserId?: string;
   readonly account: CodeRouterAccountSummary;
   readonly canManage: boolean;
+  readonly transfer: NativeTransferOptions | null;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
   const format = useFormatter();
@@ -571,7 +600,7 @@ function NativeAccountRow({
           : sessions
       }
       dimmed={account.state === "broken" || account.state === "expired"}
-      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
+      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}{transfer ? <NativeAccountTransfer teamId={teamId} accountId={account.id} accountLabel={account.label || t("unlabeledAccount")} {...transfer} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
       t={t}
     />
   );
@@ -650,6 +679,137 @@ function NativeAccountActions({
       confirmBody={t("removeNativeConfirmBody")}
       t={t}
     />
+  );
+}
+
+export type TransferRequestResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number | null };
+
+/** Moves one native account from `teamId` to `destinationTeamId`. */
+export async function requestNativeAccountTransfer(
+  input: { readonly teamId: string; readonly accountId: string; readonly destinationTeamId: string },
+  send: typeof fetch = fetch,
+): Promise<TransferRequestResult> {
+  try {
+    const response = await send(`/api/coderouter/accounts/${encodeURIComponent(input.accountId)}/transfer`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-cmux-team-id": input.teamId },
+      body: JSON.stringify({ destinationTeamId: input.destinationTeamId }),
+      signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
+    });
+    return response.ok ? { ok: true } : { ok: false, status: response.status };
+  } catch {
+    return { ok: false, status: null };
+  }
+}
+
+const TRANSFER_ERROR_KEYS = {
+  400: "validationError",
+  403: "transferForbiddenError",
+  404: "transferNotFoundError",
+  409: "transferConflictError",
+  503: "transferUnavailableError",
+} as const;
+
+function transferErrorMessage(status: number | null, t: Translator): string {
+  const key = status === null ? undefined : TRANSFER_ERROR_KEYS[status as keyof typeof TRANSFER_ERROR_KEYS];
+  return t(key ?? "transferError");
+}
+
+function NativeAccountTransfer({
+  teamId,
+  accountId,
+  accountLabel,
+  sourceTeamName,
+  teams,
+  onTransferred,
+}: NativeTransferOptions & {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly accountLabel: string;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"choose" | "confirm">("choose");
+  const [destinationId, setDestinationId] = useState(teams[0]?.id ?? "");
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const destination = teams.find((team) => team.id === destinationId) ?? teams[0];
+
+  const openDialog = () => {
+    setStep("choose");
+    setDestinationId(teams[0]?.id ?? "");
+    setStatus(idleStatus);
+    setOpen(true);
+  };
+
+  const confirm = async () => {
+    if (status.state === "submitting" || !destination) return;
+    setStatus({ state: "submitting" });
+    const result = await requestNativeAccountTransfer({ teamId, accountId, destinationTeamId: destination.id });
+    if (!result.ok) {
+      setStatus({ state: "error", message: transferErrorMessage(result.status, t) });
+      return;
+    }
+    setOpen(false);
+    setStatus(idleStatus);
+    onTransferred(t("transferSuccess", { account: accountLabel, destination: destination.name }));
+    router.refresh();
+  };
+
+  const submitting = status.state === "submitting";
+  return (
+    <div>
+      <button type="button" className={buttonClass} onClick={openDialog} disabled={submitting}>
+        {submitting ? t("transferringAction") : t("transferAction")}
+      </button>
+      <Modal open={open} onOpenChange={(next) => { if (!submitting) setOpen(next); }}>
+        {step === "choose" ? (
+          <>
+            <Dialog.Title className="text-left text-sm font-medium">{t("transferDialogTitle")}</Dialog.Title>
+            <Dialog.Description className="mt-2 text-left text-xs text-muted">
+              {t("transferChooseBody", { account: accountLabel, source: sourceTeamName })}
+            </Dialog.Description>
+            <label className="mt-3 block text-left">
+              <span className="mb-1 block text-xs text-muted">{t("transferDestinationLabel")}</span>
+              <select
+                value={destination?.id ?? ""}
+                onChange={(event) => setDestinationId(event.target.value)}
+                className={inputClass}
+              >
+                {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Dialog.Close className={buttonClass}>{t("cancelAction")}</Dialog.Close>
+              <button type="button" className={primaryButtonClass} disabled={!destination} onClick={() => setStep("confirm")}>
+                {t("continueAction")}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Dialog.Title className="text-left text-sm font-medium">{t("transferConfirmTitle", { account: accountLabel })}</Dialog.Title>
+            <Dialog.Description className="mt-2 text-left text-xs text-muted">
+              {t("transferConfirmBody", { account: accountLabel, source: sourceTeamName, destination: destination?.name ?? "" })}
+            </Dialog.Description>
+            {status.state === "error" && status.message ? (
+              <p role="alert" className="mt-2 text-left text-xs text-foreground">{status.message}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className={buttonClass} disabled={submitting} onClick={() => { setStatus(idleStatus); setStep("choose"); }}>
+                {t("backAction")}
+              </button>
+              <Dialog.Close className={buttonClass} disabled={submitting}>{t("cancelAction")}</Dialog.Close>
+              <button type="button" className={primaryButtonClass} disabled={submitting} onClick={() => void confirm()}>
+                {submitting ? t("transferringAction") : t("transferConfirmAction")}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+    </div>
   );
 }
 
