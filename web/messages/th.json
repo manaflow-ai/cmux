@@ -1789,6 +1789,7 @@
       "metaTitle": "บันทึกการเปลี่ยนแปลง",
       "versionTitle": "cmux {version} · บันทึกการเปลี่ยนแปลง",
       "releaseNavLabel": "รุ่นใกล้เคียง cmux {version}",
+      "tryIt": "ลองใช้",
       "sections": {
         "added": "เพิ่มแล้ว",
         "changed": "เปลี่ยนแปลงแล้ว",

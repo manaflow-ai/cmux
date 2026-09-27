@@ -1787,6 +1787,7 @@
       "metaTitle": "Journal des modifications",
       "versionTitle": "cmux {version} · Journal des modifications",
       "releaseNavLabel": "Versions proches de cmux {version}",
+      "tryIt": "Essayer",
       "sections": {
         "added": "Ajouts",
         "changed": "Modifications",

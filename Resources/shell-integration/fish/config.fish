@@ -62,11 +62,38 @@ if test "$_cmux_integration_enabled" != 0
         string join \x1f -- $parts
     end
 
+    # A published environment only matters to a running default tmux server;
+    # skip the tmux client spawn on every prompt when none is running. tmux
+    # ignores a TMUX_TMPDIR that does not resolve and falls back to /tmp.
+    function _cmux_tmux_default_server_socket
+        set -q _CMUX_TMUX_UID; or set -g _CMUX_TMUX_UID (id -u)
+        set -l tmpdir /tmp
+        if set -q TMUX_TMPDIR; and test -n "$TMUX_TMPDIR"; and test -e "$TMUX_TMPDIR"
+            set tmpdir (string replace -r '/$' '' -- "$TMUX_TMPDIR")
+        end
+        printf '%s\n' "$tmpdir/tmux-$_CMUX_TMUX_UID/default"
+    end
+
+    function _cmux_tmux_default_server_running
+        test -S (_cmux_tmux_default_server_socket)
+    end
+
     function _cmux_tmux_publish_cmux_environment
         if set -q TMUX; and test -n "$TMUX"
             return 0
         end
         command -sq tmux; or functions -q tmux; or return 0
+        set -l server_socket (_cmux_tmux_default_server_socket)
+        test -S "$server_socket"; or return 0
+        # An exited server can leave its socket behind. When tmux reports nothing
+        # listening there, the marker records that socket as dead; a new server rebinds the socket,
+        # which makes it newer than the marker. test exits 2 when -nt is not
+        # supported, which keeps the old always-try behavior.
+        set -l stale_marker "$server_socket.cmux-unreachable"
+        if test -e "$stale_marker"
+            test "$server_socket" -nt "$stale_marker" 2>/dev/null
+            test $status -eq 1; and return 0
+        end
 
         set -l signature (_cmux_tmux_shell_env_signature)
         test -n "$signature"; or return 0
@@ -75,7 +102,14 @@ if test "$_cmux_integration_enabled" != 0
         for key in $_CMUX_TMUX_SYNC_KEYS
             set -q $key; or continue
             test -n "$$key"; or continue
-            tmux set-environment -g "$key" "$$key" >/dev/null 2>&1; or return 0
+            set -l tmux_error (tmux set-environment -g "$key" "$$key" 2>&1 >/dev/null)
+            if test $status -ne 0
+                # Only a dead socket earns the marker; other failures retry.
+                if string match -qr 'no server running|error connecting|Connection refused' -- "$tmux_error"
+                    printf '' 2>/dev/null >"$stale_marker"
+                end
+                return 0
+            end
         end
         for key in $_CMUX_TMUX_SURFACE_SCOPED_KEYS
             tmux set-environment -gu "$key" >/dev/null 2>&1; or return 0
