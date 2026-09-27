@@ -43,6 +43,25 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether copy also rejoins lines an application hard-wrapped to the
+    /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
+    /// the row wrap flag are always joined, regardless of this key.
+    public let reflowHardWrapOnCopy = DefaultsKey<Bool>(
+        id: "terminal.reflowHardWrapOnCopy",
+        defaultValue: false,
+        userDefaultsKey: "terminal.reflowHardWrapOnCopy"
+    )
+
+    /// Whether a paste Ghostty flags as unsafe asks for confirmation in a
+    /// sheet on the terminal's window. Off by default: cmux has always
+    /// approved these pastes without asking. Ghostty's
+    /// `clipboard-paste-protection` decides which pastes are unsafe.
+    public let confirmUnsafePaste = DefaultsKey<Bool>(
+        id: "terminal.confirmUnsafePaste",
+        defaultValue: false,
+        userDefaultsKey: "terminal.confirmUnsafePaste"
+    )
+
     /// Whether macOS text-editing gestures are replayed as their line-editor
     /// equivalents: Command and Option arrow motion, and the Command and Option
     /// deletion chords. Off by default, because the mode claims chords the
@@ -60,6 +79,23 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.adaptiveDefaultTheme",
         defaultValue: true,
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
+    )
+
+    /// Whether cmux shows a lock badge in the terminal chrome while the
+    /// foreground program has turned echo off for a password prompt. On by
+    /// default. The badge is drawn by cmux and never touches terminal text.
+    public let showPasswordInputIndicator = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputIndicator",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showPasswordInputIndicator"
+    )
+
+    /// Whether the password input badge also shows one dot per typed
+    /// character. Off by default. Only a count is kept, never the characters.
+    public let showPasswordInputDots = DefaultsKey<Bool>(
+        id: "terminal.showPasswordInputDots",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showPasswordInputDots"
     )
 
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
