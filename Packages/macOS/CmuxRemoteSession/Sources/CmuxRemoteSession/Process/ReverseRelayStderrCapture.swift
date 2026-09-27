@@ -212,24 +212,11 @@ final class ReverseRelayStderrCapture: @unchecked Sendable {
         tasks.1?.cancel()
         readHandle.readabilityHandler = nil
         try? readHandle.close()
-        terminationHandler(
-            preferredTerminationDetail(stderr: completion.stderr)
-                ?? "status=\(completion.status)"
+        let stderr = completion.stderr.trimmingCharacters(
+            in: .whitespacesAndNewlines
         )
-    }
-
-    private func preferredTerminationDetail(stderr: String) -> String? {
-        let lines = stderr
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        if let forwardFailure = lines.last(where: {
-            $0.localizedCaseInsensitiveContains(
-                "remote port forwarding failed for listen"
-            )
-        }) {
-            return forwardFailure
-        }
-        return RemoteSessionCoordinator.bestErrorLine(stderr: stderr)
+        terminationHandler(
+            stderr.isEmpty ? "status=\(completion.status)" : stderr
+        )
     }
 }
