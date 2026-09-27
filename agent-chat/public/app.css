@@ -670,6 +670,14 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
   color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
 }
+.transcript-notice {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px;
+  background: var(--bg-input); color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
+}
+.transcript-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.transcript-dot.running { background: var(--accent); animation: transcript-pulse 1.4s ease-in-out infinite; }
+@keyframes transcript-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .transcript-dot.running { animation: none; } }
 #chat-card {
   display: flex; flex-direction: column; gap: 6px; padding: 6px;
   background: var(--bg-input); border: 0; border-radius: 14px;

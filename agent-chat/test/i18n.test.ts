@@ -19,6 +19,8 @@ const keys: AgentChatTextKey[] = [
   "movedServingRoute",
   "continueNewChat",
   "continueElsewhere",
+  "transcriptViewRunning",
+  "transcriptViewIdle",
 ];
 const english = agentChatCopyForLocale("en");
 

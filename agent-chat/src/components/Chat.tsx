@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { useCtx } from "../context";
 import { agentChatText } from "../i18n";
 import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProviderOption } from "../options-store";
-import type { OptionValue, SessionOption } from "../session";
+import { routedToTranscript, type OptionValue, type SessionOption } from "../session";
 import { ArrowUp } from "./icons";
 import { isCtrlJ, insertNewlineAtCaret, useCommandMenu } from "./CommandMenu";
 import { optionAcceptsValue, optionsForSelectedModel } from "./options";
@@ -72,12 +72,15 @@ export function Chat() {
     [providerOptions, providers],
   );
   const running = session?.status === "running";
+  // Transcript views mirror a terminal agent: no composer, catalogs, or files.
+  const transcriptView = session ? session.mode === "transcript" : routedToTranscript;
+  const catalogCwd = transcriptView ? "" : cwd;
   const resolvedOptions = useMemo(() => optionsForSelectedModel(options), [options]);
 
   useRestoreModelScopedOptions({ provider: session?.provider, options: resolvedOptions, setOption, pendingModelRestoreRef });
   usePersistSessionOptions(session?.provider, resolvedOptions, pendingModelRestoreRef.current !== null);
-  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", cwd, requestProviderOptions, requestProviderCommands);
-  useFileCatalog(ready, connectionEpoch, cwd, requestFiles);
+  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", catalogCwd, requestProviderOptions, requestProviderCommands);
+  useFileCatalog(ready, connectionEpoch, catalogCwd, requestFiles);
   useStickToBottom(scrollRef, stickRef, blocks, running);
   useKeymap({
     options: resolvedOptions,
@@ -140,6 +143,14 @@ export function Chat() {
           onFileDiff={(path) => { if (session) requestFileDiff(session.id, path); }}
         />
       </div>
+      {transcriptView ? (
+        <div id="chat-input-row">
+          <div className="transcript-notice" role="status">
+            <span className={running ? "transcript-dot running" : "transcript-dot"} aria-hidden="true" />
+            <span>{agentChatText(running ? "transcriptViewRunning" : "transcriptViewIdle")}</span>
+          </div>
+        </div>
+      ) : (
       <div id="chat-input-row">
         {routing?.phase === "handoff" ? (
           <div className="routing-notice" role="status">{agentChatText("continuedNewChat")}</div>
@@ -189,6 +200,7 @@ export function Chat() {
           />
         </div>
       </div>
+      )}
       {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={resolvedOptions} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
     </section>
   );

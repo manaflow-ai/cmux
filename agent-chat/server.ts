@@ -16,6 +16,8 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
+import { attachTranscript, transcriptAdapter, type TranscriptAgent } from "./adapters/transcript";
+import { resolveSessionTranscript, resolveSurfaceTranscript, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { discoverHarnesses } from "./harnesses";
@@ -171,6 +173,8 @@ interface Session extends SessionCtx {
   adapter: Adapter;
   sockets: Set<Bun.ServerWebSocket<WsData>>;
   createdAt: number;
+  /** Set for read-only views of a terminal agent's transcript. */
+  transcript?: { agent: TranscriptAgent; path: string; disposeTimer?: ReturnType<typeof setTimeout> };
 }
 interface WsData {
   subscribed: string | null;
@@ -237,7 +241,8 @@ function sessionSummary(s: Session) {
     parentSessionId: s.parentSessionId,
     parentConversationId: s.parentConversationId,
     startRequestId: s.startRequestId,
-    capabilities: capabilitiesFor(s.provider),
+    capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
+    ...(s.transcript ? { mode: "transcript" as const } : {}),
   };
 }
 
@@ -346,10 +351,11 @@ function createSession(
     parentConversationId?: string;
     startRequestId?: string;
   } = {},
+  override: { id?: string; adapter?: Adapter } = {},
 ): Session {
-  const adapter = adapters.get(provider);
+  const adapter = override.adapter ?? adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
-  const id = crypto.randomUUID().slice(0, 8);
+  const id = override.id ?? crypto.randomUUID().slice(0, 8);
   const sess: Session = {
     id,
     provider,
@@ -563,6 +569,11 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
 }
 
 function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
+  if (sess.transcript) {
+    // Transcript views have no agent process; the adapter explains that.
+    void sess.adapter.send(sess, prompt);
+    return;
+  }
   emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
@@ -600,6 +611,75 @@ function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID
     sess.emit({ kind: "done", generation } as any);
     sess.setStatus("idle");
   });
+}
+
+// Transcript views are keyed by the agent's own session id so a reload after
+// a sidecar restart can re-resolve the same view from the hook stores.
+const TRANSCRIPT_SESSION_PREFIX = "t-";
+const TRANSCRIPT_IDLE_DISPOSE_MS = 5 * 60_000;
+
+function transcriptSessionId(source: TranscriptSource): string {
+  return `${TRANSCRIPT_SESSION_PREFIX}${source.sessionId}`;
+}
+
+function transcriptTitle(source: TranscriptSource): string {
+  const label = source.agent === "codex" ? "Codex" : "Claude Code";
+  return source.cwd ? `${label} · ${pathBasename(source.cwd)}` : label;
+}
+
+function ensureTranscriptSession(source: TranscriptSource): Session {
+  const id = transcriptSessionId(source);
+  const existing = sessions.get(id);
+  if (existing?.transcript?.path === source.path) return existing;
+  if (existing) {
+    existing.adapter.dispose(existing);
+    sessions.delete(id);
+  }
+  const sess = createSession(source.agent, source.cwd ?? DEFAULT_CWD, false, transcriptTitle(source), {}, {}, {
+    id,
+    adapter: transcriptAdapter,
+  });
+  sess.transcript = { agent: source.agent, path: source.path };
+  attachTranscript(sess, source.agent, source.path, (title) => {
+    if (sess.title === title) return;
+    sess.title = title;
+    broadcastSessions();
+    const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
+    for (const ws of sess.sockets) ws.send(payload);
+  });
+  return sess;
+}
+
+function resolveTranscriptSessionById(id: string): Session | undefined {
+  if (!id.startsWith(TRANSCRIPT_SESSION_PREFIX)) return undefined;
+  const source = resolveSessionTranscript(id.slice(TRANSCRIPT_SESSION_PREFIX.length));
+  return source ? ensureTranscriptSession(source) : undefined;
+}
+
+function cancelTranscriptDispose(sess: Session) {
+  if (sess.transcript?.disposeTimer) clearTimeout(sess.transcript.disposeTimer);
+  if (sess.transcript) sess.transcript.disposeTimer = undefined;
+}
+
+// A transcript view with no open page stops tailing after a grace period; the
+// next visit re-resolves it from the hook stores.
+function scheduleTranscriptDispose(sess: Session) {
+  if (!sess.transcript || sess.sockets.size) return;
+  cancelTranscriptDispose(sess);
+  sess.transcript.disposeTimer = setTimeout(() => {
+    if (sess.sockets.size || sessions.get(sess.id) !== sess) return;
+    sess.adapter.dispose(sess);
+    sessions.delete(sess.id);
+    broadcastSessions();
+  }, TRANSCRIPT_IDLE_DISPOSE_MS);
+}
+
+function transcriptNotFoundPage(): Response {
+  const body = `<!doctype html><meta charset="utf-8"><title>No agent session</title>
+<body style="font:14px -apple-system,sans-serif;padding:32px;color:#888;background:transparent">
+<p>No Claude Code or Codex session is recorded for this terminal yet.</p>
+<p>Start the agent in the terminal (cmux hooks must be enabled), then reopen the chat view.</p></body>`;
+  return new Response(body, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
 function refreshSession(sess: Session) {
@@ -1916,6 +1996,14 @@ function startServer() {
       if (prompt) sendPrompt(sess, prompt);
       return Response.json({ id: sess.id, url: `http://127.0.0.1:${server.port}${prefixedPath(`/s/${sess.id}`)}` });
     }
+    const terminalMatch = url.pathname.match(/^\/terminal\/([0-9A-Fa-f-]{8,64})\/?$/);
+    if (terminalMatch && req.method === "GET") {
+      const source = resolveSurfaceTranscript(terminalMatch[1]);
+      if (!source) return transcriptNotFoundPage();
+      const sess = ensureTranscriptSession(source);
+      scheduleTranscriptDispose(sess);
+      return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
+    }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
       return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
     }
@@ -1944,7 +2032,11 @@ function startServer() {
       close(ws) {
       allSockets.delete(ws);
       const sid = ws.data.subscribed;
-      if (sid) sessions.get(sid)?.sockets.delete(ws);
+      const sess = sid ? sessions.get(sid) : undefined;
+      if (sess) {
+        sess.sockets.delete(ws);
+        scheduleTranscriptDispose(sess);
+      }
       },
       message(ws, raw) {
       let msg: any;
@@ -2101,7 +2193,8 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "subscribe": {
-      const sess = sessions.get(String(msg.sessionId));
+      const sessionId = String(msg.sessionId);
+      const sess = sessions.get(sessionId) ?? resolveTranscriptSessionById(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
@@ -2233,9 +2326,14 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
 
 function subscribe(ws: Bun.ServerWebSocket<WsData>, sess: Session) {
   const prev = ws.data.subscribed;
-  if (prev) sessions.get(prev)?.sockets.delete(ws);
+  const prevSess = prev ? sessions.get(prev) : undefined;
+  if (prevSess && prevSess !== sess) {
+    prevSess.sockets.delete(ws);
+    scheduleTranscriptDispose(prevSess);
+  }
   ws.data.subscribed = sess.id;
   sess.sockets.add(ws);
+  cancelTranscriptDispose(sess);
 }
 
 process.on("SIGINT", () => {

@@ -155,6 +155,8 @@ export interface SessionSummary {
   parentSessionId?: string;
   parentConversationId?: string;
   startRequestId?: string;
+  /** "transcript": a read-only view of an agent running in a cmux terminal. */
+  mode?: "transcript";
 }
 export type CtrlJMode = "newline" | "menu";
 
@@ -273,6 +275,8 @@ function appPath(path: string): string {
 }
 
 const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
+/** Transcript views use `t-<agent session id>`; known before history arrives. */
+export const routedToTranscript = routedSessionId?.startsWith("t-") ?? false;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
@@ -500,6 +504,12 @@ export function useSession(): SessionState {
           case "session-status":
             if (msg.sessionId === sessionIdRef.current) {
               setSession((s) => (s ? { ...s, status: msg.status } : s));
+            }
+            break;
+          case "session-title":
+            if (msg.sessionId === sessionIdRef.current && typeof msg.title === "string") {
+              document.title = msg.title || "cmux agent";
+              setSession((s) => (s ? { ...s, title: msg.title } : s));
             }
             break;
           case "event":
