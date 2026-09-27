@@ -6658,6 +6658,72 @@
             "state": "translated",
             "value": "업데이트 확인"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjera ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringskontrol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo aggiornamenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យមើលបច្ចុប្បន្នភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringskontroll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzanie uaktualnień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificação de atualizações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка обновлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบการอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme denetimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірка оновлень"
+          }
         }
       }
     },
@@ -6716,6 +6782,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "매일"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki dan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver dag"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni giorno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាល់ថ្ងៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codziennie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый день"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกวัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her gün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щодня"
           }
         }
       }
@@ -6776,6 +6908,72 @@
             "state": "translated",
             "value": "매시간"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver time"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni ora"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាល់ម៉ោង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver time"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co godzinę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый час"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her saat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щогодини"
+          }
         }
       }
     },
@@ -6834,6 +7032,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "안 함"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nikad"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldrig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mai"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនដែល"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aldri"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nigdy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Никогда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เคย"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ніколи"
           }
         }
       }
@@ -6894,6 +7158,72 @@
             "state": "translated",
             "value": "백그라운드에서 매일 업데이트를 확인합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeravajte ažuriranja u pozadini svaki dan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg efter opdateringer i baggrunden hver dag."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla gli aggiornamenti in background ogni giorno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យមើលបច្ចុប្បន្នភាពនៅផ្ទៃខាងក្រោយរាល់ថ្ងៃ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se etter oppdateringer i bakgrunnen hver dag."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codziennie sprawdzaj dostępność aktualizacji w tle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se há atualizações em segundo plano todos os dias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверять обновления в фоновом режиме каждый день."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบการอัปเดตในเบื้องหลังทุกวัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri arka planda her gün denetle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряти оновлення у фоновому режимі щодня."
+          }
         }
       }
     },
@@ -6952,6 +7282,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "백그라운드에서 매시간 업데이트를 확인합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeravajte ažuriranja u pozadini svaki sat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg efter opdateringer i baggrunden hver time."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla gli aggiornamenti in background ogni ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យមើលបច្ចុប្បន្នភាពនៅផ្ទៃខាងក្រោយរាល់ម៉ោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se etter oppdateringer i bakgrunnen hver time."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co godzinę sprawdzaj dostępność aktualizacji w tle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se há atualizações em segundo plano a cada hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверять обновления в фоновом режиме каждый час."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบการอัปเดตในเบื้องหลังทุกชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri arka planda her saat denetle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряти оновлення у фоновому режимі щогодини."
           }
         }
       }
@@ -7012,6 +7408,72 @@
             "state": "translated",
             "value": "도움말 메뉴 또는 명령어 팔레트에서 수동으로 확인합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručno provjeravajte iz menija Pomoć ili palete naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg manuelt fra menuen Hjælp eller kommandopaletten."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla manualmente dal menu Aiuto o dalla tavolozza dei comandi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យដោយដៃពីម៉ឺនុយជំនួយ ឬផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se etter oppdateringer manuelt fra Hjelp-menyen eller kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzaj ręcznie z menu Pomoc lub palety poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique manualmente no menu Ajuda ou na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверяйте вручную через меню «Справка» или палитру команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบด้วยตนเองจากเมนูช่วยเหลือหรือชุดคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yardım menüsünden veya komut paletinden manuel olarak denetle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряйте вручну в меню «Довідка» або на палітрі команд."
+          }
         }
       }
     },
@@ -7071,6 +7533,72 @@
             "state": "translated",
             "value": "백그라운드에서 매주 업데이트를 확인합니다."
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeravajte ažuriranja u pozadini svake sedmice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg efter opdateringer i baggrunden hver uge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla gli aggiornamenti in background ogni settimana."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យមើលបច្ចុប្បន្នភាពនៅផ្ទៃខាងក្រោយរៀងរាល់សប្តាហ៍។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se etter oppdateringer i bakgrunnen hver uke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co tydzień sprawdzaj dostępność aktualizacji w tle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se há atualizações em segundo plano toda semana."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверять обновления в фоновом режиме каждую неделю."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบการอัปเดตในเบื้องหลังทุกสัปดาห์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeleri arka planda her hafta denetle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряти оновлення у фоновому режимі щотижня."
+          }
         }
       }
     },
@@ -7129,6 +7657,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "매주"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svake sedmice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver uge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni settimana"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀងរាល់សប្តាហ៍"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver uke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co tydzień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toda semana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждую неделю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกสัปดาห์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her hafta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щотижня"
           }
         }
       }

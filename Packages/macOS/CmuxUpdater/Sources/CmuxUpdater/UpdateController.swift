@@ -178,12 +178,22 @@ public final class UpdateController {
     private func applyScheduledCheckInterval(synchronizeAutomaticChecks: Bool) {
         let interval = defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey)
         guard interval.isFinite, interval >= 0 else { return }
-        guard appliedScheduledCheckInterval != interval else { return }
+        if appliedScheduledCheckInterval != interval {
+            appliedScheduledCheckInterval = interval
+            updater.updateCheckInterval = interval
+        }
 
-        appliedScheduledCheckInterval = interval
-        updater.updateCheckInterval = interval
-        if synchronizeAutomaticChecks {
-            let shouldEnableAutomaticChecks = interval > 0 && !isDevLikeBundle && !isDisabledByPolicy()
+        // Never must remain authoritative even when the interval itself has not changed. This
+        // also repairs an older install whose persisted Sparkle permission predates the cadence
+        // setting. Positive intervals preserve Sparkle's existing permission until a live setting
+        // change explicitly synchronizes it below.
+        if interval == 0 {
+            updater.automaticallyChecksForUpdates = false
+            if defaults.bool(forKey: UpdateSettings.automaticChecksKey) {
+                defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+            }
+        } else if synchronizeAutomaticChecks {
+            let shouldEnableAutomaticChecks = !isDevLikeBundle && !isDisabledByPolicy()
             updater.automaticallyChecksForUpdates = shouldEnableAutomaticChecks
             if defaults.bool(forKey: UpdateSettings.automaticChecksKey) != shouldEnableAutomaticChecks {
                 defaults.set(shouldEnableAutomaticChecks, forKey: UpdateSettings.automaticChecksKey)
